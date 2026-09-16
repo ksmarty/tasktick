@@ -8,34 +8,31 @@
 #
 # Compose users: see docker-compose.yml / docker-compose.postgres.yml.
 #
-# Multi-arch: written for linux/amd64 and linux/arm64 (the release workflow
-# builds both with buildx + QEMU). This file pins no platform, compiles no native
-# code — `npm ci --ignore-scripts` means better-sqlite3's shipped prebuilds are
-# used as-is — and only uses COPY/RUN in the runtime stage, which is what keeps
-# emulated cross-builds viable.
+# ---------------------------------------------------------------------------
+# Multi-arch strategy
+# ---------------------------------------------------------------------------
 #
-# The runtime image never runs `npm install`: it gets the traced node_modules
-# from `.next/standalone` plus the few packages the migration runner needs (see
-# the runner stage).
+# The first two stages are pinned to `$BUILDPLATFORM` — the machine running the
+# build — and only the final stage is per-target-architecture.
+#
+# That is the single biggest lever on this image's build time. `next build` under
+# QEMU emulation was the dominant cost: successful multi-arch publishes were
+# taking 15-30 minutes and some hit the workflow's 60-minute timeout. Building
+# natively once and assembling per architecture cuts that to roughly the native
+# build time, and buildx shares the native stages between both targets.
+#
+# This is safe because the output is architecture-independent, which was checked
+# rather than assumed. The standalone bundle contains exactly eight native
+# binaries and they are all better-sqlite3 prebuilds — every platform's, because
+# the published tarball ships all of them and lib/binding.js picks the right one
+# at require() time. `@swc` resolves to `helpers` and `env` only (pure JS), there
+# is no `@next/swc-*` binary in the tree, and sharp/libvips, esbuild,
+# lightningcss and the Tailwind oxide binaries are excluded from tracing. So the
+# only architecture-sensitive artefact the runtime needs is the one that ships
+# for all architectures anyway.
 # ---------------------------------------------------------------------------
 
-# ---- Stage 1: dependencies (built ONCE, natively) ---------------------------
-#
-# `--platform=$BUILDPLATFORM` makes this stage run on the runner's own
-# architecture even when cross-building for arm64. That matters enormously: without
-# it, BuildKit emulates the arm64 leg through QEMU, and the webpack build in stage
-# 2 is by far the most CPU-hungry thing in this file.
-#
-# It is safe here because the build output is architecture-independent. The app is
-# pure JavaScript, and its only native dependency is better-sqlite3, which ships
-# prebuilt binaries for every platform it supports in its own tarball and selects
-# one at require() time in lib/binding.js. The tracer copies the whole prebuilds/
-# directory, so the arm64 image receives linuxmusl-arm64.node even though the
-# build ran on x64. Verified by inspecting the emitted bundle: all eight variants
-# (linux/linuxmusl x x64/arm64, darwin, win32) are present, and no other native
-# module appears in it at all.
-#
-# Only the runtime stage is per-architecture, and it does nothing but COPY.
+# ---- Stage 1: dependencies (native) ---------------------------------------
 FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
 WORKDIR /app
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -43,35 +40,28 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 # `npm ci` is pinned to the lockfile, so the image is reproducible.
 COPY package.json package-lock.json ./
 
-# `--ignore-scripts` on purpose, and it is what keeps this build quick.
+# `--ignore-scripts` on purpose.
 #
-# better-sqlite3 ships a `binding.gyp` and declares no `install` script, so npm
-# applies its documented default and runs `node-gyp rebuild` during a plain
-# `npm ci`. That forced a C++ toolchain into this stage and, far worse, made the
-# arm64 leg compile the native module under QEMU emulation — the single largest
-# cost in this image's build.
+# better-sqlite3 ships a `binding.gyp` and declares no `install` script, so a
+# plain `npm ci` applies npm's documented default and runs `node-gyp rebuild` for
+# it. That needs a C++ toolchain and — far worse — made the arm64 leg compile the
+# native module under QEMU. The compile was always pointless: better-sqlite3
+# ships prebuilt binaries for every platform it supports and resolves them at
+# require() time in lib/binding.js. Skipping install scripts skips the rebuild.
 #
-# The compile was always unnecessary: better-sqlite3 ships prebuilt binaries for
-# every platform it supports (including linuxmusl-x64 and linuxmusl-arm64) and
-# resolves them at require() time in lib/binding.js. Skipping install scripts
-# skips the rebuild, and the prebuild is used exactly as intended.
-#
-# Verified rather than assumed: with `--ignore-scripts`, `npm ci` completes in
-# ~8s (down from ~30s), better-sqlite3 opens a database and round-trips a query,
-# and esbuild still transforms TypeScript without its postinstall. Nothing else
-# in the tree has an install script that matters — the only others are esbuild's
-# three copies and fsevents, which is darwin-only and skipped on Linux.
-#
-# No toolchain is installed below as a result. If a future dependency genuinely
-# needs node-gyp, that will surface as an explicit build error here rather than
-# being silently absorbed by a g++ that happens to be present.
+# Verified: with the flag, `npm ci` finishes in about 8 seconds instead of about
+# 30, better-sqlite3 opens a database and round-trips a query, and esbuild still
+# transforms TypeScript without its postinstall. The only other packages with
+# install scripts are esbuild's three copies and fsevents, which is darwin-only
+# and skipped on Linux. No toolchain is installed anywhere as a result.
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
-# Drop prebuilt binaries for platforms that cannot run here (~8 MB). All four
-# linux variants stay, so both amd64 and arm64 keep working.
+
+# Drop prebuilt binaries for platforms that cannot run here. All four Linux
+# variants stay, so both amd64 and arm64 keep working.
 RUN rm -f node_modules/better-sqlite3/prebuilds/darwin-*.node \
           node_modules/better-sqlite3/prebuilds/win32-*.node
 
-# ---- Stage 2: build (built ONCE, natively, same reasoning as stage 1) -------
+# ---- Stage 2: build (native) ----------------------------------------------
 FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -87,12 +77,13 @@ RUN mkdir -p public
 # CI builds have no use for.
 #
 # It also runs webpack rather than turbopack deliberately. Turbopack compiles the
-# app ~5s faster, but its production server settles at 135.7 MB RSS against
-# webpack's 125.5 MB — measured on this codebase with the same config, warmed, at
-# steady state. A container that runs for months is built a handful of times, so
-# the image takes the leaner runtime while local iteration takes the faster build.
-# No BETTER_AUTH_SECRET is needed here: src/lib/env.ts exempts the build phase,
-# so a build never requires a runtime secret.
+# app ~5s faster, but its production server settles ~10 MB higher in resident
+# memory (measured back to back on this codebase, warmed, at steady state). A
+# container that runs for months is built a handful of times, so the image takes
+# the leaner runtime while local iteration takes the faster build.
+#
+# No BETTER_AUTH_SECRET is needed: src/lib/env.ts exempts the build phase, so a
+# build never requires a runtime secret.
 RUN npm run build:standalone
 
 # The runtime image has no `tsx`, so the TypeScript migration runner is compiled
@@ -103,7 +94,7 @@ RUN ./node_modules/.bin/tsc scripts/migrate.ts \
       --target ES2022 --module commonjs --moduleResolution node \
       --esModuleInterop --skipLibCheck --strict
 
-# ---- Stage 3: runtime (per target platform; COPY only) ---------------------
+# ---- Stage 3: runtime (per target architecture) ---------------------------
 FROM node:22-alpine AS runner
 WORKDIR /app
 
@@ -113,7 +104,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATABASE_URL=file:/data/tasktick.db
 
-# The standalone bundle carries its own minimal server + node_modules subset.
+# The standalone bundle carries its own minimal server + node_modules subset, and
+# is architecture-independent (see the note at the top of this file).
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
@@ -132,8 +124,7 @@ COPY --from=deps --chown=node:node /app/node_modules/drizzle-orm ./node_modules/
 # `pg` and its transitive runtime deps (pg-cloudflare, pg-connection-string,
 # pg-int8, pg-pool, pg-protocol, pg-types, pgpass) plus pg-types' own deps
 # (postgres-*, split2). The tracer normally delivers these for the server, but
-# scripts/migrate.cjs requires pg from outside the bundle, so the closure is
-# shipped explicitly instead of being left to the tracer.
+# scripts/migrate.cjs requires pg from outside the bundle.
 COPY --from=deps --chown=node:node /app/node_modules/pg* ./node_modules/
 COPY --from=deps --chown=node:node /app/node_modules/postgres-* ./node_modules/
 COPY --from=deps --chown=node:node /app/node_modules/split2 ./node_modules/split2
