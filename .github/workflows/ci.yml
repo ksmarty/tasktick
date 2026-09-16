@@ -25,10 +25,10 @@ jobs:
       DATABASE_URL: file:./ci.db
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -46,7 +46,7 @@ jobs:
         run: npm run build
 
       - name: Upload build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: next-build
           # Only the deployable output, not the multi-hundred-MB .next/cache.
