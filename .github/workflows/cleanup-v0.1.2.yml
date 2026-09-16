@@ -1,0 +1,38 @@
+# ONE-SHOT MAINTENANCE WORKFLOW — delete this file once it has run.
+#
+# v0.1.2 was published after v0.2.0, which makes the version sequence
+# non-monotonic (0.1.0 -> 0.1.1 -> 0.2.0 -> 0.1.2). The performance work it
+# described is correct; only its number was wrong, and it is superseded by
+# v0.2.1 tagging the same commit.
+#
+# Deleting a published release needs API write access, which the person cutting
+# the release does not have locally. The built-in GITHUB_TOKEN does, so this runs
+# once, triggered by its own addition, and is then removed.
+#
+# It touches ONLY v0.1.2. v0.2.0 is a legitimate release and must survive.
+name: Cleanup v0.1.2 (one-shot)
+
+on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-v0.1.2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  delete-misnumbered-release:
+    name: Delete the out-of-order v0.1.2 release and tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete release v0.1.2 and its tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -x
+          gh release delete v0.1.2 --repo "$REPO" --yes --cleanup-tag || echo "release already absent"
+          gh api -X DELETE "repos/$REPO/git/refs/tags/v0.1.2" || echo "tag already absent"
+          echo "--- remaining releases ---"
+          gh release list --repo "$REPO" --limit 10
