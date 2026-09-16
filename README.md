@@ -417,6 +417,27 @@ Where the time actually went, and what changed:
   ran `node-gyp rebuild` — and the arm64 leg compiled it under emulation. The
   shipped prebuild is what actually gets used at runtime.
 
+**The image build.** Multi-arch publishes went from timing out past the
+workflow cap to **4.7 minutes**. Two separate things were wrong, and both are
+worth knowing about before touching the tracing config:
+
+- `outputFileTracingRoot` must NOT be set. Rooting the trace at the project
+  directory looks like it would bound the work; in the container that directory
+  contains `.next/cache` — hundreds of megabytes of webpack cache — so the tracer
+  walks all of it, and on the emulated arm64 leg that is ruinous. Next's
+  auto-detected root already excludes build output.
+- Never exclude `./.next/**` from tracing. The tracer is what *emits* the Next
+  server build into `standalone/`, so excluding it prunes
+  `.next/server/chunks` and produces a bundle that compiles cleanly, is 20 MB
+  smaller, and returns 500 on every route. Check `find .next/standalone/.next/server/chunks -name '*.js' | wc -l`
+  is non-zero, and run the server, before trusting a build.
+
+The compile also no longer runs under QEMU: the deps and builder stages are
+pinned to `$BUILDPLATFORM` so the work happens once, natively, and only the
+runtime assembly is per-architecture. That is safe because the output is
+architecture-independent — better-sqlite3 is the only native dependency and its
+tarball ships prebuilds for every platform, selecting one at `require()` time.
+
 **Memory.** The CalDAV transport (iCalendar codec, Luxon, WebDAV parser, merge
 engine) is ~15 MB resident, and the instrumentation hook used to import it on
 every boot — including on instances that have never connected a calendar. It is
