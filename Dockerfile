@@ -19,8 +19,24 @@
 # the runner stage).
 # ---------------------------------------------------------------------------
 
-# ---- Stage 1: dependencies ------------------------------------------------
-FROM node:22-alpine AS deps
+# ---- Stage 1: dependencies (built ONCE, natively) ---------------------------
+#
+# `--platform=$BUILDPLATFORM` makes this stage run on the runner's own
+# architecture even when cross-building for arm64. That matters enormously: without
+# it, BuildKit emulates the arm64 leg through QEMU, and the webpack build in stage
+# 2 is by far the most CPU-hungry thing in this file.
+#
+# It is safe here because the build output is architecture-independent. The app is
+# pure JavaScript, and its only native dependency is better-sqlite3, which ships
+# prebuilt binaries for every platform it supports in its own tarball and selects
+# one at require() time in lib/binding.js. The tracer copies the whole prebuilds/
+# directory, so the arm64 image receives linuxmusl-arm64.node even though the
+# build ran on x64. Verified by inspecting the emitted bundle: all eight variants
+# (linux/linuxmusl x x64/arm64, darwin, win32) are present, and no other native
+# module appears in it at all.
+#
+# Only the runtime stage is per-architecture, and it does nothing but COPY.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
 WORKDIR /app
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
@@ -55,8 +71,8 @@ RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 RUN rm -f node_modules/better-sqlite3/prebuilds/darwin-*.node \
           node_modules/better-sqlite3/prebuilds/win32-*.node
 
-# ---- Stage 2: build -------------------------------------------------------
-FROM node:22-alpine AS builder
+# ---- Stage 2: build (built ONCE, natively, same reasoning as stage 1) -------
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -87,7 +103,7 @@ RUN ./node_modules/.bin/tsc scripts/migrate.ts \
       --target ES2022 --module commonjs --moduleResolution node \
       --esModuleInterop --skipLibCheck --strict
 
-# ---- Stage 3: runtime -----------------------------------------------------
+# ---- Stage 3: runtime (per target platform; COPY only) ---------------------
 FROM node:22-alpine AS runner
 WORKDIR /app
 

@@ -23,7 +23,11 @@ jobs:
   build-and-push:
     name: Build and push multi-arch image
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # A multi-arch build of this app should take single-digit minutes now that
+    # the compile runs once on the build platform instead of under QEMU. Anything
+    # approaching this cap means something is wrong, so fail loudly rather than
+    # burning an hour of runner time.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v7
