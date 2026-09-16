@@ -9,10 +9,13 @@
 # Compose users: see docker-compose.yml / docker-compose.postgres.yml.
 #
 # Multi-arch: written for linux/amd64 and linux/arm64 (the release workflow
-# builds both with buildx + QEMU). This file pins no platform, compiles no
-# native code — better-sqlite3 13 ships prebuilt binaries for both libc flavours
-# — and only uses COPY/RUN in the runtime stage, which keeps emulated
-# cross-builds viable.
+# builds both with buildx + QEMU). This file pins no platform and only uses
+# COPY/RUN in the runtime stage, which keeps emulated cross-builds viable.
+#
+# The deps stage DOES install a C++ toolchain, because npm's `binding.gyp`
+# default makes `npm ci` compile better-sqlite3 even though the package ships
+# prebuilt binaries. See the note above that RUN for the evidence. It is
+# build-stage only, so the runtime image has no compiler in it.
 #
 # The runtime image never runs `npm install`: it gets the traced node_modules
 # from `.next/standalone` plus the few packages the migration runner needs (see
@@ -26,11 +29,25 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 # `npm ci` is pinned to the lockfile, so the image is reproducible.
 COPY package.json package-lock.json ./
-# No `apk add python3 make g++` here on purpose: better-sqlite3 13 ships
-# prebuilds/linuxmusl-{x64,arm64}.node in the published tarball and
-# lib/binding.js loads `prebuilds/<platform>-<arch>.node` at runtime, so the
-# native module is never compiled. (Compiling it would also make the arm64
-# build crawl under QEMU.) Keep any toolchain out of the image: nothing needs it.
+
+# The C++ toolchain is REQUIRED here, despite better-sqlite3 shipping prebuilds.
+#
+# better-sqlite3 contains a `binding.gyp` and declares no `install` script, so npm
+# applies its documented default and runs `node-gyp rebuild` for it during
+# `npm ci`. Its prebuilds/ directory is only consulted at require() time, by
+# lib/binding.js -- which is far too late to satisfy npm. The result was a build
+# failure of "not found: make", not a slow build.
+#
+# This is exactly why CI passed while this image did not: the ubuntu-latest
+# runner has a toolchain preinstalled, node:22-alpine does not.
+#
+# Verified rather than assumed: `npm ci` fails in a toolchain-free environment
+# and succeeds once these three packages are present. `npm install` happens to
+# take a different code path and skips the rebuild, but swapping it in would give
+# up the lockfile guarantee that makes the image reproducible.
+#
+# Confined to this stage, so the runtime image still carries no compiler.
+RUN apk add --no-cache python3 make g++
 RUN --mount=type=cache,target=/root/.npm npm ci
 # Drop prebuilt binaries for platforms that cannot run here (~8 MB). All four
 # linux variants stay, so both amd64 and arm64 keep working.
