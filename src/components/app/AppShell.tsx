@@ -51,6 +51,7 @@ import { useResource } from '@/lib/store';
 import { accentHex } from '@/lib/colors';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { Badge, IconButton, ListGroup, ListRow, SectionHeader, Sheet, Skeleton, TabBar, type TabBarItem } from '@/components/ui';
+import { QuickAddFab } from './QuickAddFab';
 
 type TabValue = 'today' | 'calendar' | 'habits' | 'tasks' | 'more';
 
@@ -246,7 +247,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* Mobile tab bar */}
+      {/* Mobile: floating action button, then the floating tab bar under it. */}
+      <QuickAddFab />
       <div className="lg:hidden">
         <TabBar items={tabs} value={activeTab} onChange={onTabChange} label="Main sections" />
       </div>

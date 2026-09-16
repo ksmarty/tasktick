@@ -365,7 +365,7 @@
      * flush against the island when the OS reports a tiny value.
      */
     --nav-h: 44px;
-    --tab-h: 49px;
+    --tab-h: 76px;   /* floating capsule + the gap beneath it */
     --header-total: calc(var(--sat) + var(--nav-h));
     --tabbar-total: calc(var(--sab) + var(--tab-h));
 
@@ -715,6 +715,36 @@
  * on a curve parallel to its parent's — mismatched nested radii are what make
  * rounded UI look subtly wrong without the viewer being able to name why.
  */
+/**
+ * A grouped card with a coloured edge.
+ *
+ * The leading bar is the reference layout's way of saying which list or calendar
+ * a row belongs to: a 3px stripe the full height of the card, visible even when
+ * the card is scrolled mostly out of view. Colour alone is never the only signal
+ * — the list name is still in the row — but it is what makes a long list
+ * scannable at a glance.
+ */
+@utility card-edge {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-ios-lg);
+  background-color: var(--glass-tint-card);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: var(--glass-shadow);
+
+  /* The stripe. Drawn as an inset shadow so it follows the corner radius. */
+  &::after {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 3px;
+    background: var(--edge-color, var(--tint));
+    pointer-events: none;
+  }
+}
+
 @utility grouped {
   background-color: var(--glass-tint-card);
   -webkit-backdrop-filter: blur(14px) saturate(150%);

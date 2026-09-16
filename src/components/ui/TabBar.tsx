@@ -103,9 +103,19 @@ export function TabBar<T extends string>({
   return (
     <>
       <nav
-        // glass-chrome rather than the old flat material: the bar floats over
-        // scrolling content, so it needs real refraction, not just a tint.
-        className={cn('glass-chrome hairline-t fixed inset-x-0 bottom-0 h-tabbar', className)}
+        /*
+         * A floating capsule rather than a full-width bar.
+         *
+         * Edge-to-edge chrome is a browser convention; a detached, translucent
+         * pill is what a native iOS app does, and it keeps the content visible
+         * underneath instead of walling off the bottom of the screen. It sits
+         * clear of the home indicator rather than through it.
+         */
+        className={cn(
+          'glass fixed bottom-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] left-1/2',
+          'w-[min(22rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-full',
+          className,
+        )}
         style={{ zIndex: Z.chrome }}
         {...rest}
       >
@@ -113,7 +123,7 @@ export function TabBar<T extends string>({
           role="tablist"
           aria-label={label}
           onKeyDown={onKeyDown}
-          className="flex h-full items-stretch pb-safe"
+          className="flex items-center gap-1 p-1.5"
         >
           {visible.map((item, index) => {
             const active = item.value === value;
@@ -131,17 +141,26 @@ export function TabBar<T extends string>({
                 tabIndex={tabIndexFor(index, active)}
                 onClick={() => onChange(item.value)}
                 className={cn(
-                  'relative flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 pt-1.5',
+                  'relative flex min-h-11 min-w-11 flex-1 items-center justify-center',
                   'select-none disabled:opacity-40',
                   active ? 'text-tint' : 'text-secondary',
                   !item.disabled && 'pressable',
                 )}
               >
-                <span className="relative">
-                  <Icon className="size-[26px]" strokeWidth={active ? 2.25 : 1.75} aria-hidden />
-                  {renderBadge(item.badge)}
+                {/* The active tab sits in its own filled capsule, which is how
+                    the current section is marked without a colour change alone. */}
+                <span
+                  className={cn(
+                    'flex size-11 items-center justify-center rounded-full transition-colors duration-200 ease-ios',
+                    active && 'bg-tint-soft',
+                  )}
+                >
+                  <span className="relative">
+                    <Icon className="size-[22px]" strokeWidth={active ? 2.25 : 1.75} aria-hidden />
+                    {renderBadge(item.badge)}
+                  </span>
                 </span>
-                <span className={cn('max-w-full truncate text-caption-2', active && 'font-semibold')}>{item.label}</span>
+                <span className="sr-only">{item.label}</span>
               </button>
             );
           })}
@@ -159,13 +178,20 @@ export function TabBar<T extends string>({
               tabIndex={tabIndexFor(slotCount - 1, moreActive)}
               onClick={() => setMoreOpen(true)}
               className={cn(
-                'relative flex min-h-11 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 pt-1.5',
+                'relative flex min-h-11 min-w-11 flex-1 items-center justify-center',
                 'select-none pressable',
                 moreActive ? 'text-tint' : 'text-secondary',
               )}
             >
-              <Ellipsis className="size-[26px]" strokeWidth={moreActive ? 2.25 : 1.75} aria-hidden />
-              <span className={cn('max-w-full truncate text-caption-2', moreActive && 'font-semibold')}>{moreLabel}</span>
+              <span
+                className={cn(
+                  'flex size-11 items-center justify-center rounded-full transition-colors duration-200 ease-ios',
+                  moreActive && 'bg-tint-soft',
+                )}
+              >
+                <Ellipsis className="size-[22px]" strokeWidth={moreActive ? 2.25 : 1.75} aria-hidden />
+              </span>
+              <span className="sr-only">{moreLabel}</span>
             </button>
           ) : null}
         </div>
