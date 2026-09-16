@@ -9,8 +9,8 @@ import { getSettings } from '@/server/repos/settings';
 import { listLists, listTags } from '@/server/repos/lists';
 import { listCalendars } from '@/server/repos/calendars';
 import { buildAgenda } from '@/server/repos/tasks';
-import { startSyncScheduler } from '@/server/sync';
-import { getEnv, pushConfigured, oidcConfigured } from '@/lib/env';
+import { ensureSyncScheduler } from '@/server/services/scheduler';
+import { pushConfigured, oidcConfigured } from '@/lib/env';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,14 +26,13 @@ export const GET = route(async ({ user }) => {
     buildAgenda(user.id, zone),
   ]);
 
-  // The scheduler is process-wide and idempotent; this is the most reliable
-  // place to make sure it is running, since every session hits this endpoint.
-  if (getEnv().SYNC_ENABLED) {
-    try {
-      startSyncScheduler();
-    } catch (error) {
-      console.warn('[bootstrap] sync scheduler failed to start:', error);
-    }
+  // Process-wide and idempotent, and lazy about the heavy import. Every session
+  // hits this endpoint, which makes it the most reliable place to notice that a
+  // scheduler should be running — but it costs nothing when there is no account.
+  try {
+    await ensureSyncScheduler();
+  } catch (error) {
+    console.warn('[bootstrap] sync scheduler failed to start:', error);
   }
 
   const inboxListId = lists.find((l) => l.isInbox)?.id ?? lists[0]?.id ?? null;

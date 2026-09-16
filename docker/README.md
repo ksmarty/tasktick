@@ -141,12 +141,29 @@ docker build -t tasktick .                 # or uncomment `build: .` in compose
 docker buildx build --platform linux/amd64,linux/arm64 -t tasktick .
 ```
 
-No native compilation of `better-sqlite3` binaries ends up in the runtime stage,
-but the **deps stage does install a C++ toolchain**. `better-sqlite3` ships a
-`binding.gyp` and no `install` script, so npm applies its default and runs
-`node-gyp rebuild` during `npm ci` — prebuilds are only consulted later, at
-`require()` time. Without `python3 make g++` the build fails with
-`not found: make`; CI masked this because `ubuntu-latest` has a toolchain already.
-The toolchain stays in the build stage, so the runtime image has no compiler.
+The build compiles nothing. `npm ci --ignore-scripts` is used deliberately:
+`better-sqlite3` ships a `binding.gyp` and no `install` script, so a plain
+`npm ci` applies npm's default and runs `node-gyp rebuild`, which needs a C++
+toolchain and — far worse — makes the **arm64 leg compile the native module under
+QEMU emulation**. That was the single largest cost in this image's build.
+
+The compile was always unnecessary. `better-sqlite3` ships prebuilt binaries for
+every platform it supports, including `linuxmusl-x64` and `linuxmusl-arm64`, and
+resolves them at `require()` time in `lib/binding.js`. Skipping install scripts
+skips the rebuild and the shipped prebuild is used as intended. With the flag,
+`npm ci` finishes in about 8 seconds instead of about 30, and no toolchain is
+installed anywhere in the image.
+
+Verified: with `--ignore-scripts`, `better-sqlite3` opens a database and
+round-trips a query, and `esbuild` still transforms TypeScript without its
+postinstall. The only other packages with install scripts are esbuild's three
+copies and `fsevents`, which is darwin-only and skipped on Linux.
+
+The build also runs `npm run build:standalone`, which uses **webpack rather than
+turbopack**. Turbopack compiles about 5 seconds faster but its production server
+settles roughly 10 MB higher in resident memory; a container that runs for months
+is built a handful of times, so the image takes the leaner runtime while local
+iteration (`npm run build`) takes the faster build.
+
 The runtime stage installs nothing: it copies `.next/standalone`, `drizzle/`,
 `scripts/` and `public/`.

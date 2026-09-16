@@ -57,16 +57,15 @@ export async function register(): Promise<void> {
     );
   }
 
-  if (env.SYNC_ENABLED) {
-    try {
-      const { startSyncScheduler } = await import('@/server/sync');
-      startSyncScheduler();
-    } catch (error) {
-      // A failed scheduler must not take the web server down with it: a user can
-      // still manage their tasks manually and trigger a sync from Settings.
-      console.error('[startup] CalDAV sync scheduler failed to start:', error);
-    }
-  } else {
-    console.log('[startup] CalDAV sync scheduler disabled (SYNC_ENABLED=false)');
+  // The scheduler is started through this indirection on purpose: importing the
+  // sync stack directly would load the whole CalDAV transport (~7 MB resident)
+  // on every boot, including on instances that have never connected a calendar.
+  try {
+    const { ensureSyncScheduler } = await import('@/server/services/scheduler');
+    await ensureSyncScheduler();
+  } catch (error) {
+    // A failed scheduler must not take the web server down with it: a user can
+    // still manage their tasks manually and trigger a sync from Settings.
+    console.error('[startup] CalDAV sync scheduler failed to start:', error);
   }
 }

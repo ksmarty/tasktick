@@ -110,10 +110,29 @@ export function getEnv(): Env {
   let secret = raw.BETTER_AUTH_SECRET;
 
   if (!secret) {
-    if (raw.NODE_ENV === 'production') {
+    /*
+     * A build must not require a runtime secret.
+     *
+     * `next build` evaluates route modules to collect page data, and those
+     * modules read this config at import time. Without this exemption a fresh
+     * clone — where `.env.example` is deliberately all-commented, so there is no
+     * secret to copy — fails during the build with "BETTER_AUTH_SECRET is
+     * required in production", which points at the wrong thing entirely. The
+     * secret is only needed to serve requests, so it is only required then.
+     *
+     * Nothing dangerous is baked in: this value is read from the environment at
+     * runtime, never inlined into the build output.
+     */
+    const isBuildPhase =
+      process.env.NEXT_PHASE === 'phase-production-build' ||
+      process.env.npm_lifecycle_event === 'build' ||
+      process.env.npm_lifecycle_event === 'build:standalone';
+
+    if (raw.NODE_ENV === 'production' && !isBuildPhase) {
       throw new Error(
         'BETTER_AUTH_SECRET is required in production. Generate one with:\n' +
-          '  openssl rand -base64 32',
+          '  openssl rand -base64 32\n' +
+          'In Docker you can leave it unset — the container generates and persists one.',
       );
     }
     secret = DEV_SECRET;

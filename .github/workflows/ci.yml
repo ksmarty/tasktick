@@ -45,13 +45,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Upload build output
-        uses: actions/upload-artifact@v7
-        with:
-          name: next-build
-          # Only the deployable output, not the multi-hundred-MB .next/cache.
-          path: |
-            .next/standalone
-            .next/static
-          include-hidden-files: true
-          retention-days: 7
+      # No artifact upload.
+      #
+      # This step used to ship .next/standalone and .next/static (66 MB, retained
+      # 7 days). Nothing consumes it: the image workflow builds from source in its
+      # own job, and no other workflow downloads it. `npm run build` no longer
+      # produces standalone output at all — only the Docker build asks for it — so
+      # the upload would now find nothing anyway.

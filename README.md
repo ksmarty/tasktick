@@ -341,7 +341,8 @@ The seed prints the credentials it creates. Default: `demo@tasktick.local` /
 | Command | What it does |
 |---|---|
 | `npm run dev` | Dev server with hot reload |
-| `npm run build` | Production build (standalone output) |
+| `npm run build` | Production build (turbopack, optimised for iteration speed) |
+| `npm run build:standalone` | Build the artefact the Docker image ships (webpack + standalone output) |
 | `npm run typecheck` | `tsc --noEmit` across the whole repo |
 | `npm test` | Vitest |
 | `npm run db:generate` | Generate SQLite migrations from the schema |
@@ -388,6 +389,46 @@ the next occurrence".
 **The database is not the API.** Repositories return domain types from
 `src/lib/types.ts`, and components consume wire types from `src/lib/view-types.ts`.
 A column rename cannot silently change a component's props.
+
+### Build and runtime performance
+
+Measured on this codebase, and the numbers drove three deliberate choices:
+
+| | Before | After |
+|---|---|---|
+| `npm run build` (iteration) | 61.7s | **22–25s** |
+| `npm run build:standalone` (shipped) | 61.7s | **33–45s** |
+| `npm ci` in the image | ~30s + an arm64 native compile under QEMU | **~8s, no compiler** |
+
+Where the time actually went, and what changed:
+
+- **File tracing (18s).** `output: 'standalone'` makes the tracer resolve and emit
+  the whole runtime file set. Only the container consumes it, so it is gated
+  behind `BUILD_STANDALONE=1` and local builds skip it. Excluding build-only
+  trees (sharp/libvips, typescript, the bundlers) shrank the emitted bundle from
+  86 MB to 64 MB as well.
+- **Type checking (13.5s).** `next build` was running a full `tsc` pass on top of
+  the explicit `npm run typecheck` step that CI already runs. Same files, twice.
+- **Turbopack** compiles ~5s faster, but its production server settles ~10 MB
+  higher in resident memory. Local iteration uses Turbopack; the shipped image
+  uses webpack.
+- **`npm ci --ignore-scripts`** removes the C++ toolchain entirely.
+  `better-sqlite3` has a `binding.gyp` and no `install` script, so plain `npm ci`
+  ran `node-gyp rebuild` — and the arm64 leg compiled it under emulation. The
+  shipped prebuild is what actually gets used at runtime.
+
+**Memory.** The CalDAV transport (iCalendar codec, Luxon, WebDAV parser, merge
+engine) is ~15 MB resident, and the instrumentation hook used to import it on
+every boot — including on instances that have never connected a calendar. It is
+now loaded only when an enabled CalDAV account exists; adding the first account
+starts the scheduler without a restart.
+
+Two things worth knowing if you measure this yourself: a reading taken right
+after boot is the pre-GC high-water mark and can be 15–35 MB above the settled
+value, and absolute numbers drift ~15 MB between sessions on a busy machine. Only
+within-batch comparisons are trustworthy. Capping the V8 heap with
+`--max-old-space-size` was also measured and made things *worse* (145 MB vs
+126 MB), so it is not set.
 
 ### Testing
 
