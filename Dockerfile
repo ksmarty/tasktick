@@ -49,7 +49,7 @@ COPY package.json package-lock.json ./
 # No toolchain is installed below as a result. If a future dependency genuinely
 # needs node-gyp, that will surface as an explicit build error here rather than
 # being silently absorbed by a g++ that happens to be present.
-RUN npm ci --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 # Drop prebuilt binaries for platforms that cannot run here (~8 MB). All four
 # linux variants stay, so both amd64 and arm64 keep working.
 RUN rm -f node_modules/better-sqlite3/prebuilds/darwin-*.node \

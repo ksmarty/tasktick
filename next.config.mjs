@@ -46,12 +46,29 @@ const nextConfig = {
    *
    * Most of what it would otherwise consider is build-time-only tooling that can
    * never be `require`d at runtime. Excluding it shrinks the emitted bundle
-   * (86 MB -> 66 MB) and the published image with it. Be conservative: anything
+   * (86 MB -> 64 MB) and the published image with it. Be conservative: anything
    * the server might import at runtime must stay.
+   *
+   * Note there is deliberately NO `outputFileTracingRoot` here. Setting it to
+   * `process.cwd()` looked harmless and was not: in the Docker builder that is
+   * `/app`, which contains `.next/cache` — hundreds of megabytes of webpack
+   * cache. Rooting the trace there made it walk that cache, and on the emulated
+   * arm64 leg of the multi-arch build that turned a ~16 minute image build into
+   * one that ran past 35 minutes without finishing. Next's auto-detected root
+   * already excludes the build output, so it is left alone.
    */
-  outputFileTracingRoot: process.cwd(),
   outputFileTracingExcludes: {
     '*': [
+      /*
+       * Nothing here excludes `./.next/**`.
+       *
+       * That looked like an obvious belt-and-braces entry and it silently broke
+       * the build: the tracer is what emits the Next server build into
+       * `standalone/`, so excluding `.next` pruned `.next/server/chunks`
+       * entirely. The bundle still built, and was 20 MB smaller, and every route
+       * returned 500 — missing chunks, not a compile error. Only caught by
+       * running it.
+       */
       // Image optimisation. Nothing here uses next/image — every icon is an
       // inline SVG — so the sharp/libvips binaries are dead weight.
       './node_modules/@img/**',
