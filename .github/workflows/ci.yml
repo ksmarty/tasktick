@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref (a new push to a PR branch, etc.).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # src/lib/env.ts throws at import time in production when this is missing.
+      # CI only needs a valid-shaped dummy — never a real secret.
+      BETTER_AUTH_SECRET: ci-dummy-secret-not-used-outside-ci-000000
+      DATABASE_URL: file:./ci.db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          # Only the deployable output, not the multi-hundred-MB .next/cache.
+          path: |
+            .next/standalone
+            .next/static
+          include-hidden-files: true
+          retention-days: 7

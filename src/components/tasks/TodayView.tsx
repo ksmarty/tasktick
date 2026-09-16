@@ -1,0 +1,202 @@
+'use client';
+
+/**
+ * The Today screen: everything that is due or overdue, in one chronological
+ * scroll, with today's progress in the header.
+ *
+ * Data comes from the bootstrap agenda (already bucketed server-side), and every
+ * checkbox tick publishes an optimistic agenda, so the row moves immediately and
+ * the cache revalidates behind it.
+ */
+import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Plus, Search } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
+import { Button, EmptyState, IconButton, NavBar, ProgressRing, Skeleton } from '@/components/ui';
+import type { AgendaBuckets } from '@/lib/agenda-types';
+import { formatFullDate } from '@/lib/dates';
+import { useResource } from '@/lib/store';
+import type { Task } from '@/lib/types';
+import type { BootstrapPayload } from '@/lib/view-types';
+import { EmptyTasks } from './EmptyTasks';
+import { QuickAddBar } from './QuickAddBar';
+import { TaskEditorSheet } from './TaskEditorSheet';
+import { TaskListSection } from './TaskListSection';
+import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
+import { buildTodaySections, countRemaining, todayProgress, type TaskSection } from './sections';
+import { useTaskActions } from './useTaskActions';
+
+export function TodayView() {
+  const router = useRouter();
+  const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
+  const data = bootstrap.data;
+
+  const zone = data?.settings.timezone ?? data?.user.timezone ?? 'utc';
+  const timeFormat = data?.settings.timeFormat ?? '24h';
+  const weekStartsOn = data?.settings.weekStartsOn ?? 1;
+  const actions = useTaskActions(zone);
+
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+
+  const sections = useMemo(() => buildTodaySections(data?.agenda), [data?.agenda]);
+  const remaining = countRemaining(sections);
+  const progress = todayProgress(data?.agenda);
+  const listNames = useMemo(
+    () => new Map((data?.lists ?? []).map((list) => [list.id, list.name])),
+    [data?.lists],
+  );
+
+  /** Publishes a new agenda without mutating the resource's own object. */
+  function mutateAgenda(update: (agenda: AgendaBuckets) => AgendaBuckets) {
+    bootstrap.mutate((current) => (current ? { ...current, agenda: update(current.agenda) } : current));
+  }
+
+  /**
+   * Runs a write with an optimistic agenda change, restoring the previous agenda
+   * if the write fails — a failed request must never leave the row looking saved.
+   */
+  function optimistic(
+    update: (agenda: AgendaBuckets) => AgendaBuckets,
+    write: () => Promise<unknown>,
+  ) {
+    const snapshot = bootstrap.data;
+    mutateAgenda(update);
+    void write().then((result) => {
+      if (result === undefined && snapshot) bootstrap.mutate(snapshot);
+    });
+  }
+
+  function toggleTask(task: Task) {
+    const undo = task.status === 'completed';
+    optimistic(
+      (agenda) => setAgendaStatus(agenda, task.id, undo ? 'todo' : 'completed', Date.now()),
+      () => actions.complete(task, undo),
+    );
+  }
+
+  const refresh = () => void bootstrap.refresh();
+
+  function wontDoTask(task: Task) {
+    optimistic(
+      (agenda) => setAgendaStatus(agenda, task.id, 'wont_do', Date.now()),
+      () => actions.patch(task.id, { status: 'wont_do' }),
+    );
+  }
+
+  function deleteTask(task: Task) {
+    optimistic(
+      (agenda) => removeFromAgenda(agenda, new Set([task.id])),
+      () => actions.remove(task.id),
+    );
+  }
+
+  function reorderSection(section: TaskSection, orderedIds: string[]) {
+    optimistic(
+      (agenda) => reorderAgendaSection(agenda, section.id, orderedIds),
+      () => actions.reorder(orderedIds),
+    );
+  }
+
+  const loading = data === undefined && !bootstrap.error;
+
+  return (
+    <div className="min-h-dvh bg-bg">
+      <NavBar
+        largeTitle
+        title="Today"
+        trailing={
+          <>
+            <IconButton aria-label="Add a task" icon={Plus} onClick={() => setQuickAddOpen(true)} />
+            <IconButton aria-label="Search everything" icon={Search} onClick={() => router.push('/search')} />
+          </>
+        }
+      />
+
+      {data ? (
+        <div className="px-4 pt-1 pb-2">
+          <div className="flex items-center gap-4">
+            <ProgressRing
+              value={progress.value}
+              size={54}
+              strokeWidth={5}
+              label={`${progress.completed} of ${progress.total} tasks done today`}
+            >
+              <span className="tnum text-caption-1 font-semibold text-label">
+                {progress.completed}/{progress.total}
+              </span>
+            </ProgressRing>
+            <div className="min-w-0">
+              <p className="truncate text-subhead text-secondary">
+                {formatFullDate(Date.now(), { zone, timeFormat, weekStartsOn })}
+              </p>
+              <p className="truncate text-headline font-semibold text-label">
+                {remaining === 0 ? 'Nothing left for today' : `${remaining} task${remaining === 1 ? '' : 's'} left`}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="px-4 pt-2 pb-3">
+          <Skeleton variant="rect" className="h-14" />
+        </div>
+      )}
+
+      {!actions.online ? <p className="px-4 pb-2 text-footnote text-secondary">{actions.offlineNotice}</p> : null}
+
+      {bootstrap.error && !data ? (
+        <EmptyState
+          icon={CircleAlert}
+          title="Couldn't load today"
+          description={bootstrap.error}
+          action={
+            <Button variant="tinted" onClick={refresh}>
+              Try again
+            </Button>
+          }
+        />
+      ) : loading ? (
+        <div className="space-y-6 px-4">
+          <Skeleton variant="text" lines={4} />
+          <Skeleton variant="text" lines={3} />
+        </div>
+      ) : sections.length === 0 ? (
+        <EmptyTasks
+          title="Today is clear"
+          description="Nothing is due and nothing is overdue. Add something now, or enjoy the quiet."
+          onAdd={() => setQuickAddOpen(true)}
+        />
+      ) : (
+        <div>
+          {sections.map((section) => (
+            <TaskListSection
+              key={section.id}
+              section={section}
+              zone={zone}
+              timeFormat={timeFormat}
+              listNames={listNames}
+              onToggle={toggleTask}
+              onOpen={(task) => setEditor({ open: true, task })}
+              onDelete={deleteTask}
+              onWontDo={wontDoTask}
+              onReorder={reorderSection}
+              disabled={!actions.online}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="pt-4 pb-6">
+        <QuickAddBar variant="inline" listId={data?.inboxListId ?? null} onCreated={refresh} />
+      </div>
+
+      <QuickAddBar variant="sheet" open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
+      <TaskEditorSheet
+        open={editor.open}
+        task={editor.task}
+        onSaved={refresh}
+        onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,44 @@
+# Build context for the TaskTick image. Everything the build needs stays in
+# (package.json, package-lock.json, next.config.ts, tsconfig.json, src/,
+# drizzle/, scripts/, public/); everything else is noise or a secret.
+
+# Installed in the deps stage; never shipped from the host.
+node_modules
+
+# Build output — the builder stage produces its own.
+.next
+out
+build
+dist
+coverage
+*.tsbuildinfo
+next-env.d.ts
+
+# Version control / CI
+.git
+.github
+.gitignore
+
+# Local runtime state (never bake a database into an image)
+data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets — the image must not contain a .env
+.env
+.env.*
+!.env.example
+
+# Container plumbing itself
+docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode
+*.log

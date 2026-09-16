@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem with TaskTick.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please search the existing
+        issues first — a duplicate wastes everyone's time.
+
+  - type: input
+    id: version
+    attributes:
+      label: TaskTick version
+      description: Shown in Settings, or the image tag / git tag you are running (e.g. 0.1.0).
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      description: How is this instance running?
+      options:
+        - Docker Compose
+        - Docker
+        - Local development
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, numbered steps that reproduce the problem.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Container/server logs, browser console output. Redact secrets and personal data.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system/architecture, browser, and database backend (SQLite or Postgres).
+      placeholder: Ubuntu 24.04 arm64, Safari 18, SQLite
+    validations:
+      required: false

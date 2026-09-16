@@ -1,0 +1,40 @@
+# Overlay: adds a Postgres 17 service and points TaskTick at it.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# Set POSTGRES_PASSWORD in .env (defaults to the obviously-unsafe `tasktick`).
+# The app waits for the database to be healthy, then the entrypoint retries its
+# migrations for up to ~60s if Postgres is still warming up.
+#
+# Postgres migrations are generated with:
+#   npx drizzle-kit generate --config drizzle.pg.config.ts
+
+services:
+  tasktick:
+    # `environment` wins over `env_file`, so this overrides .env's SQLite URL.
+    environment:
+      DATABASE_URL: "postgres://tasktick:${POSTGRES_PASSWORD:-tasktick}@db:5432/tasktick"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tasktick
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-tasktick}"
+      POSTGRES_DB: tasktick
+    volumes:
+      - tasktick-postgres:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasktick -d tasktick"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  tasktick-postgres:

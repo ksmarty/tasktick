@@ -1,0 +1,491 @@
+@import 'tailwindcss';
+
+/*
+ * ===========================================================================
+ * TaskTick design system — an iOS-native vocabulary expressed in Tailwind v4
+ * ===========================================================================
+ *
+ * Three layers, in order:
+ *   1. `@theme` scalar tokens (type ramp, radii, motion) — static.
+ *   2. Semantic CSS variables in `:root` / `.dark` — these are what flip
+ *      between light and dark, following Apple's semantic colour names
+ *      (systemGroupedBackground, secondarySystemGroupedBackground, label,
+ *      secondaryLabel, separator ...) rather than raw hex values.
+ *   3. `@theme inline` bridges layer 2 into Tailwind utilities, so `bg-card`,
+ *      `text-secondary` and `border-separator` all react to the theme.
+ *
+ * Never hard-code a hex value in a component. Add a token here instead.
+ */
+
+/* Class-based dark mode; the theme is resolved server-side from user settings. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------------ */
+/* 1. static tokens                                                          */
+/* ------------------------------------------------------------------------ */
+
+@theme {
+  /* SF Pro first, then the closest system stack per platform. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Cascadia Mono', monospace;
+  /* iOS uses SF Rounded for numerals in widgets/timers. */
+  --font-rounded: 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, 'Varela Round', system-ui, sans-serif;
+
+  /* Apple's type ramp, in px, matched to the HIG. */
+  --text-large-title: 2.125rem; /* 34 */
+  --text-large-title--line-height: 1.2;
+  --text-large-title--letter-spacing: 0.023em;
+  --text-title-1: 1.75rem; /* 28 */
+  --text-title-1--line-height: 1.2;
+  --text-title-2: 1.375rem; /* 22 */
+  --text-title-2--line-height: 1.27;
+  --text-title-3: 1.25rem; /* 20 */
+  --text-title-3--line-height: 1.25;
+  --text-headline: 1.0625rem; /* 17 semibold */
+  --text-headline--line-height: 1.29;
+  --text-body: 1.0625rem; /* 17 */
+  --text-body--line-height: 1.29;
+  --text-callout: 1rem; /* 16 */
+  --text-callout--line-height: 1.31;
+  --text-subhead: 0.9375rem; /* 15 */
+  --text-subhead--line-height: 1.33;
+  --text-footnote: 0.8125rem; /* 13 */
+  --text-footnote--line-height: 1.38;
+  --text-caption-1: 0.75rem; /* 12 */
+  --text-caption-1--line-height: 1.33;
+  --text-caption-2: 0.6875rem; /* 11 */
+  --text-caption-2--line-height: 1.36;
+
+  /* Continuous-corner radii. iOS uses ~10 for controls, 16-22 for cards. */
+  --radius-ios-sm: 8px;
+  --radius-ios: 10px;
+  --radius-ios-md: 12px;
+  --radius-ios-lg: 16px;
+  --radius-ios-xl: 22px;
+  --radius-ios-2xl: 28px;
+
+  /* Apple's easing curves: snappy out, gentle in-out for sheets. */
+  --ease-ios: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-ios-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-ios-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --animate-ios-in: ios-in 0.28s var(--ease-ios-out) both;
+  --animate-sheet-up: sheet-up 0.34s var(--ease-ios-out) both;
+  --animate-fade-in: fade-in 0.18s var(--ease-ios) both;
+  --animate-pop: pop 0.24s var(--ease-ios-spring) both;
+
+  @keyframes ios-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.99);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pop {
+    0% {
+      transform: scale(0.86);
+    }
+    60% {
+      transform: scale(1.04);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  /* The three iOS shadow tiers. */
+  --shadow-ios-sm: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px rgb(0 0 0 / 0.04);
+  --shadow-ios: 0 2px 8px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-ios-lg: 0 12px 32px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.08);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 2. semantic tokens (light / dark)                                         */
+/* ------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+
+  /* --- system palette, light --- */
+  --ios-blue: #007aff;
+  --ios-indigo: #5856d6;
+  --ios-purple: #af52de;
+  --ios-pink: #ff2d55;
+  --ios-red: #ff3b30;
+  --ios-orange: #ff9500;
+  --ios-yellow: #ffcc00;
+  --ios-green: #34c759;
+  --ios-teal: #30b0c7;
+  --ios-cyan: #32ade6;
+  --ios-gray: #8e8e93;
+  --ios-brown: #a2845e;
+
+  /* --- surfaces --- */
+  --bg: #f2f2f7; /* systemGroupedBackground */
+  --bg-elevated: #ffffff; /* secondarySystemGroupedBackground */
+  --bg-card: #ffffff;
+  --bg-sheet: #ffffff;
+  --bg-inset: #e9e9ee; /* grouped rows, inset lists */
+  --bg-hover: rgb(120 120 128 / 0.12);
+  --bg-pressed: rgb(120 120 128 / 0.2);
+  /* Chrome = nav bar / tab bar; translucent with a material blur, like iOS. */
+  --bg-chrome: rgb(249 249 249 / 0.82);
+  --bg-overlay: rgb(0 0 0 / 0.4);
+
+  /* --- text --- */
+  --label: #000000;
+  --label-secondary: rgb(60 60 67 / 0.6);
+  --label-tertiary: rgb(60 60 67 / 0.3);
+  --label-quaternary: rgb(60 60 67 / 0.18);
+  --label-on-tint: #ffffff;
+
+  /* --- lines --- */
+  --separator: rgb(60 60 67 / 0.29);
+  --separator-opaque: #c6c6c8;
+
+  /* --- fills (used by controls, chips, avatars) --- */
+  --fill: rgb(120 120 128 / 0.2);
+  --fill-secondary: rgb(120 120 128 / 0.16);
+  --fill-tertiary: rgb(118 118 128 / 0.12);
+  --fill-quaternary: rgb(116 116 128 / 0.08);
+
+  /* --- semantic status --- */
+  --success: var(--ios-green);
+  --warning: var(--ios-orange);
+  --danger: var(--ios-red);
+
+  /* --- the user-selectable accent --- */
+  --tint: var(--ios-blue);
+  --tint-soft: color-mix(in oklab, var(--tint) 14%, transparent);
+  --tint-contrast: #ffffff;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* iOS system colours are re-tuned for dark, not simply inverted. */
+  --ios-blue: #0a84ff;
+  --ios-indigo: #5e5ce6;
+  --ios-purple: #bf5af2;
+  --ios-pink: #ff375f;
+  --ios-red: #ff453a;
+  --ios-orange: #ff9f0a;
+  --ios-yellow: #ffd60a;
+  --ios-green: #30d158;
+  --ios-teal: #40c8e0;
+  --ios-cyan: #64d2ff;
+  --ios-gray: #98989d;
+  --ios-brown: #ac8e68;
+
+  --bg: #000000;
+  --bg-elevated: #1c1c1e;
+  --bg-card: #1c1c1e;
+  --bg-sheet: #1c1c1e;
+  --bg-inset: #2c2c2e;
+  --bg-hover: rgb(120 120 128 / 0.24);
+  --bg-pressed: rgb(120 120 128 / 0.36);
+  --bg-chrome: rgb(30 30 32 / 0.78);
+  --bg-overlay: rgb(0 0 0 / 0.6);
+
+  --label: #ffffff;
+  --label-secondary: rgb(235 235 245 / 0.6);
+  --label-tertiary: rgb(235 235 245 / 0.3);
+  --label-quaternary: rgb(235 235 245 / 0.18);
+
+  --separator: rgb(84 84 88 / 0.65);
+  --separator-opaque: #38383a;
+
+  --fill: rgb(120 120 128 / 0.36);
+  --fill-secondary: rgb(120 120 128 / 0.32);
+  --fill-tertiary: rgb(118 118 128 / 0.24);
+  --fill-quaternary: rgb(118 118 128 / 0.18);
+}
+
+/* Accent overrides, applied by `<html data-accent="...">` from user settings. */
+[data-accent='indigo'] { --tint: var(--ios-indigo); }
+[data-accent='purple'] { --tint: var(--ios-purple); }
+[data-accent='pink'] { --tint: var(--ios-pink); }
+[data-accent='red'] { --tint: var(--ios-red); }
+[data-accent='orange'] { --tint: var(--ios-orange); }
+[data-accent='yellow'] { --tint: var(--ios-yellow); }
+[data-accent='green'] { --tint: var(--ios-green); }
+[data-accent='teal'] { --tint: var(--ios-teal); }
+[data-accent='cyan'] { --tint: var(--ios-cyan); }
+[data-accent='gray'] { --tint: var(--ios-gray); }
+[data-accent='brown'] { --tint: var(--ios-brown); }
+/* Yellow needs dark text to stay legible. */
+[data-accent='yellow'] { --tint-contrast: #1c1c1e; }
+
+/* ------------------------------------------------------------------------ */
+/* 3. Tailwind bridge                                                        */
+/* ------------------------------------------------------------------------ */
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elevated: var(--bg-elevated);
+  --color-card: var(--bg-card);
+  --color-sheet: var(--bg-sheet);
+  --color-inset: var(--bg-inset);
+  --color-chrome: var(--bg-chrome);
+  --color-overlay: var(--bg-overlay);
+  --color-hover: var(--bg-hover);
+  --color-pressed: var(--bg-pressed);
+
+  --color-label: var(--label);
+  --color-secondary: var(--label-secondary);
+  --color-tertiary: var(--label-tertiary);
+  --color-quaternary: var(--label-quaternary);
+  --color-on-tint: var(--label-on-tint);
+
+  --color-separator: var(--separator);
+  --color-separator-opaque: var(--separator-opaque);
+
+  --color-fill: var(--fill);
+  --color-fill-secondary: var(--fill-secondary);
+  --color-fill-tertiary: var(--fill-tertiary);
+  --color-fill-quaternary: var(--fill-quaternary);
+
+  --color-tint: var(--tint);
+  --color-tint-soft: var(--tint-soft);
+  --color-tint-contrast: var(--tint-contrast);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --color-ios-blue: var(--ios-blue);
+  --color-ios-indigo: var(--ios-indigo);
+  --color-ios-purple: var(--ios-purple);
+  --color-ios-pink: var(--ios-pink);
+  --color-ios-red: var(--ios-red);
+  --color-ios-orange: var(--ios-orange);
+  --color-ios-yellow: var(--ios-yellow);
+  --color-ios-green: var(--ios-green);
+  --color-ios-teal: var(--ios-teal);
+  --color-ios-cyan: var(--ios-cyan);
+  --color-ios-gray: var(--ios-gray);
+  --color-ios-brown: var(--ios-brown);
+}
+
+/* ------------------------------------------------------------------------ */
+/* base                                                                      */
+/* ------------------------------------------------------------------------ */
+
+@layer base {
+  html {
+    /*
+     * Dynamic Island / notch handling. `viewport-fit=cover` in the metadata
+     * lets the page paint under the island; these variables then tell us how
+     * much to inset. On non-notched devices and on Android they resolve to 0px,
+     * so every consumer can add them unconditionally.
+     */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+
+    /*
+     * iOS standalone mode has no browser chrome, so the top inset shrinks to
+     * the island's own height. We add a small floor so the nav bar never sits
+     * flush against the island when the OS reports a tiny value.
+     */
+    --nav-h: 44px;
+    --tab-h: 49px;
+    --header-total: calc(var(--sat) + var(--nav-h));
+    --tabbar-total: calc(var(--sab) + var(--tab-h));
+
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Kill the grey flash on tap; we render our own pressed states. */
+    -webkit-tap-highlight-color: transparent;
+    /* Pinch-zoom is a web page affordance; an app shell should not rubber-band. */
+    touch-action: manipulation;
+    scroll-behavior: smooth;
+    overscroll-behavior-y: none;
+  }
+
+  /* Respect users who ask for less motion. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--label);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.29;
+    /* Momentum scrolling inside scroll containers, like a native list. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior-y: none;
+    /* Prevent the whole document from scrolling; the shell owns its scrollers. */
+    min-height: 100dvh;
+  }
+
+  /*
+   * iOS Safari auto-zooms when a focused input has font-size < 16px. Forcing a
+   * 16px minimum on touch devices keeps the app from lurching on every tap.
+   */
+  @supports (-webkit-touch-callout: none) {
+    input,
+    textarea,
+    select {
+      font-size: max(16px, 1em);
+    }
+  }
+
+  /* Tabular figures everywhere numbers must not jitter (timers, counts). */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* Only show a focus ring for keyboard users, and make it look native. */
+  :focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* iOS-style text selection colour. */
+  ::selection {
+    background: var(--tint-soft);
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* utilities                                                                 */
+/* ------------------------------------------------------------------------ */
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+/* Compose with the nav/tab heights so content clears the chrome exactly. */
+@utility pt-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--nav-h));
+}
+@utility pb-tabbar {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tab-h));
+}
+@utility h-header {
+  height: calc(env(safe-area-inset-top, 0px) + var(--nav-h));
+}
+@utility h-tabbar {
+  height: calc(env(safe-area-inset-bottom, 0px) + var(--tab-h));
+}
+/* Fill the visual viewport, accounting for the collapsing iOS URL bar. */
+@utility min-h-dvh {
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+}
+@utility h-dvh {
+  height: 100dvh;
+  height: -webkit-fill-available;
+}
+/* The signature iOS frosted-glass chrome. */
+@utility material {
+  background-color: var(--bg-chrome);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+@utility material-thick {
+  background-color: var(--bg-chrome);
+  -webkit-backdrop-filter: saturate(180%) blur(40px);
+  backdrop-filter: saturate(180%) blur(40px);
+}
+/* Native-feeling scroll container. */
+@utility scroll-ios {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+/* Hide scrollbars without losing scrollability. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+/* Instantly-responsive press feedback, the way UIKit does it. */
+@utility pressable {
+  transition:
+    transform 0.12s var(--ease-ios),
+    background-color 0.12s var(--ease-ios),
+    opacity 0.12s var(--ease-ios);
+  &:active {
+    transform: scale(0.975);
+    opacity: 0.7;
+  }
+}
+@utility pressable-row {
+  transition: background-color 0.12s var(--ease-ios);
+  &:active {
+    background-color: var(--bg-hover);
+  }
+}
+
+/* Grouped-list container: the rounded white card that iOS settings use. */
+@utility grouped {
+  background-color: var(--bg-elevated);
+  border-radius: var(--radius-ios-md);
+  overflow: hidden;
+}
+/* Hairline separator that stays 1 physical pixel on retina. */
+@utility hairline-b {
+  border-bottom: 1px solid var(--separator);
+}
+@utility hairline-t {
+  border-top: 1px solid var(--separator);
+}

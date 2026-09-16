@@ -1,0 +1,403 @@
+'use client';
+
+/**
+ * The signature iOS list row.
+ *
+ * Leading edge: a real 24px checkbox inside a 44px touch target. Body: the title
+ * and the derived meta line, which opens the editor. Behind it: a swipe-left
+ * reveals Complete/Delete. A long press either lifts the row for reordering (on
+ * touch) or offers the extra actions (on a mouse) — never both, so a finger drag
+ * is never mistaken for a context menu.
+ */
+import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
+import { Ban, Check, GripVertical, Trash } from 'lucide-react';
+import { ActionSheet, type ActionSheetAction } from '@/components/ui';
+import { cn } from '@/lib/cn';
+import type { Task } from '@/lib/types';
+import { TaskMeta } from './TaskMeta';
+
+/** Width of the revealed Complete + Delete pair (2 × 76px). */
+export const SWIPE_ACTION_WIDTH = 152;
+/** How long a press must last before it lifts the row or opens the actions. */
+const LONG_PRESS_MS = 550;
+/** Movement that cancels a long press and decides the gesture axis. */
+const GESTURE_SLOP_PX = 8;
+
+/** Reorder wiring, supplied by `TaskListSection`. */
+export interface TaskRowDrag {
+  draggable: boolean;
+  isLifted: boolean;
+  /** Vertical offset of the lifted row, so it follows the finger. */
+  liftOffset: number;
+  /** Where the drop indicator is drawn for this row. */
+  dropEdge: 'before' | 'after' | null;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: (event: DragEvent<HTMLElement>) => void;
+  onDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDrop: (event: DragEvent<HTMLElement>) => void;
+  onLiftStart: (event: ReactPointerEvent<HTMLElement>) => void;
+  onLiftMove: (event: ReactPointerEvent<HTMLElement>) => void;
+  onLiftEnd: (event: ReactPointerEvent<HTMLElement>) => void;
+}
+
+export interface TaskRowProps {
+  task: Task;
+  zone: string;
+  timeFormat: '12h' | '24h';
+  listName?: string | null;
+  /** Ticks the task off, or un-ticks it when it is already done. */
+  onToggle: (task: Task) => void;
+  /** Opens the editor sheet. */
+  onOpen: (task: Task) => void;
+  onDelete?: (task: Task) => void;
+  onWontDo?: (task: Task) => void;
+  /** Writes are unavailable (offline). */
+  disabled?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onSelect?: (task: Task) => void;
+  drag?: TaskRowDrag | null;
+  /** Drops the separator under the last row of a group. */
+  last?: boolean;
+  /** Rounds the top corner of the first row of a card. */
+  first?: boolean;
+  className?: string;
+  ref?: Ref<HTMLLIElement>;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function TaskRow({
+  task,
+  zone,
+  timeFormat,
+  listName,
+  onToggle,
+  onOpen,
+  onDelete,
+  onWontDo,
+  disabled = false,
+  selectionMode = false,
+  selected = false,
+  onSelect,
+  drag,
+  last = false,
+  first = false,
+  className,
+  ref,
+}: TaskRowProps) {
+  const [offsetX, setOffsetX] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [justCompleted, setJustCompleted] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  const contentRef = useRef<HTMLDivElement>(null);
+  const gesture = useRef({ x: 0, y: 0, active: false, axis: null as null | 'x' | 'y', timer: 0, lifted: false });
+
+  const completed = task.status === 'completed';
+  const wontDo = task.status === 'wont_do';
+  const closed = completed || wontDo;
+  const draggable = Boolean(drag?.draggable) && !selectionMode && !disabled;
+
+  // The pop needs to end, or the next render keeps the row mid-animation.
+  useEffect(() => {
+    if (!justCompleted) return;
+    const timer = window.setTimeout(() => setJustCompleted(false), 320);
+    return () => window.clearTimeout(timer);
+  }, [justCompleted]);
+
+  // A press that outlives the component must not touch a detached node.
+  useEffect(() => () => window.clearTimeout(gesture.current.timer), []);
+
+  // A click anywhere else, or a scroll, puts the revealed actions away.
+  useEffect(() => {
+    if (!revealed) return;
+    const close = () => {
+      setRevealed(false);
+      setOffsetX(0);
+    };
+    document.addEventListener('pointerdown', close, true);
+    return () => document.removeEventListener('pointerdown', close, true);
+  }, [revealed]);
+
+  function closeReveal() {
+    setRevealed(false);
+    setOffsetX(0);
+  }
+
+  function cancelLongPress() {
+    if (gesture.current.timer) {
+      window.clearTimeout(gesture.current.timer);
+      gesture.current.timer = 0;
+    }
+  }
+
+  function toggle() {
+    if (disabled) return;
+    if (!completed) setJustCompleted(true);
+    onToggle(task);
+  }
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (disabled || selectionMode) return;
+    if (revealed) {
+      closeReveal();
+      return;
+    }
+    if (event.button !== 0 && event.pointerType === 'mouse') return;
+
+    const state = gesture.current;
+    state.x = event.clientX;
+    state.y = event.clientY;
+    state.active = true;
+    state.axis = null;
+    state.lifted = false;
+    state.timer = 0;
+
+    if (!draggable || !drag) return;
+    state.timer = window.setTimeout(() => {
+      state.timer = 0;
+      if (event.pointerType === 'mouse') {
+        setActionsOpen(true);
+        return;
+      }
+      state.lifted = true;
+      contentRef.current?.setPointerCapture(event.pointerId);
+      drag.onLiftStart(event);
+    }, LONG_PRESS_MS);
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const state = gesture.current;
+    if (!state.active) return;
+
+    if (state.lifted) {
+      drag?.onLiftMove(event);
+      return;
+    }
+
+    const dx = event.clientX - state.x;
+    const dy = event.clientY - state.y;
+
+    if (state.axis === null) {
+      if (Math.abs(dx) < GESTURE_SLOP_PX && Math.abs(dy) < GESTURE_SLOP_PX) return;
+      state.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      cancelLongPress();
+      if (state.axis === 'y') {
+        // The user is scrolling the list, not the row.
+        state.active = false;
+        return;
+      }
+      contentRef.current?.setPointerCapture(event.pointerId);
+    }
+
+    if (state.axis === 'x') {
+      const base = revealed ? -SWIPE_ACTION_WIDTH : 0;
+      setOffsetX(clamp(base + dx, -SWIPE_ACTION_WIDTH, 0));
+    }
+  }
+
+  function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const state = gesture.current;
+    cancelLongPress();
+
+    if (state.lifted) {
+      state.active = false;
+      state.lifted = false;
+      drag?.onLiftEnd(event);
+      return;
+    }
+
+    if (state.axis === 'x') {
+      const open = offsetX <= -SWIPE_ACTION_WIDTH / 2;
+      setRevealed(open);
+      setOffsetX(open ? -SWIPE_ACTION_WIDTH : 0);
+    }
+
+    state.active = false;
+    state.axis = null;
+  }
+
+  const actions: ActionSheetAction[] = [
+    {
+      label: completed ? 'Mark as not done' : 'Complete',
+      icon: Check,
+      onSelect: () => onToggle(task),
+    },
+  ];
+  if (onWontDo && !wontDo) {
+    actions.push({ label: "Mark as won't do", icon: Ban, onSelect: () => onWontDo(task) });
+  }
+  if (onDelete) {
+    actions.push({ label: 'Delete', icon: Trash, destructive: true, onSelect: () => onDelete(task) });
+  }
+
+  const lifted = Boolean(drag?.isLifted);
+
+  return (
+    <li
+      ref={ref}
+      className={cn(
+        'relative',
+        // The lifted row must paint over its siblings, so the raised z-index has
+        // to live on the list item rather than only on its content.
+        lifted && 'z-20',
+        last && 'rounded-b-ios-md',
+        first && 'rounded-t-ios-md',
+        className,
+      )}
+    >
+      {drag?.dropEdge === 'before' ? (
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-tint" />
+      ) : null}
+      {drag?.dropEdge === 'after' ? (
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-0.5 bg-tint" />
+      ) : null}
+
+      {/* Revealed by a swipe-left; kept mounted so the reveal can animate. */}
+      <div className="absolute inset-y-0 right-0 flex" aria-hidden={!revealed}>
+        <button
+          type="button"
+          tabIndex={revealed ? 0 : -1}
+          disabled={disabled}
+          aria-label={`Complete ${task.title}`}
+          onClick={() => {
+            closeReveal();
+            toggle();
+          }}
+          className="flex min-h-11 items-center justify-center bg-success text-subhead font-semibold text-on-tint pressable disabled:opacity-40"
+          style={{ width: SWIPE_ACTION_WIDTH / 2 }}
+        >
+          Complete
+        </button>
+        {onDelete ? (
+          <button
+            type="button"
+            tabIndex={revealed ? 0 : -1}
+            disabled={disabled}
+            aria-label={`Delete ${task.title}`}
+            onClick={() => {
+              closeReveal();
+              onDelete(task);
+            }}
+            className="flex min-h-11 items-center justify-center bg-danger text-subhead font-semibold text-on-tint pressable disabled:opacity-40"
+            style={{ width: SWIPE_ACTION_WIDTH / 2 }}
+          >
+            Delete
+          </button>
+        ) : null}
+      </div>
+
+      <div
+        ref={contentRef}
+        onDragOver={(event) => drag?.onDragOver(event)}
+        onDrop={(event) => drag?.onDrop(event)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        style={{
+          transform: `translate(${offsetX}px, ${lifted ? (drag?.liftOffset ?? 0) : 0}px)`,
+          transition: gesture.current.axis === 'x' || lifted ? 'none' : 'transform 220ms var(--ease-ios)',
+          touchAction: 'pan-y',
+        }}
+        className={cn(
+          'relative flex min-h-11 items-center gap-3 bg-elevated px-4',
+          first && 'rounded-t-ios-md',
+          last && 'rounded-b-ios-md',
+          lifted ? 'z-20 shadow-ios-lg' : 'z-10',
+          !disabled && !selectionMode && 'pressable-row',
+          disabled && 'opacity-60',
+          // Hairline inset to the title column: 16px gutter + 24px circle + 12px gap.
+          !last &&
+            'after:pointer-events-none after:absolute after:bottom-0 after:right-0 after:left-13 after:h-px after:bg-separator',
+        )}
+      >
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={completed ? true : wontDo ? 'mixed' : false}
+          aria-label={completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`}
+          disabled={disabled}
+          onClick={toggle}
+          className="-ml-2.5 flex size-11 shrink-0 items-center justify-center disabled:opacity-40"
+        >
+          <span
+            aria-hidden
+            className={cn(
+              'flex size-6 items-center justify-center rounded-full border-[1.5px] transition-colors duration-150 ease-ios',
+              completed && 'border-tint bg-tint text-on-tint',
+              wontDo && 'border-dashed border-separator-opaque text-tertiary',
+              !closed && 'border-separator-opaque text-tint',
+              justCompleted && 'animate-pop',
+            )}
+          >
+            {completed ? <Check className="size-4 stroke-[3]" aria-hidden /> : null}
+            {wontDo ? <Ban className="size-4" aria-hidden /> : null}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (disabled) return;
+            // A tap on a swiped-open row just puts the actions away, the way iOS does.
+            if (revealed) {
+              closeReveal();
+              return;
+            }
+            if (selectionMode) onSelect?.(task);
+            else onOpen(task);
+          }}
+          aria-pressed={selectionMode ? selected : undefined}
+          aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
+          className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center py-1.5 text-left"
+        >
+          <span
+            className={cn(
+              'w-full truncate text-body',
+              completed && 'text-secondary line-through',
+              wontDo && 'text-tertiary line-through',
+            )}
+          >
+            {task.title}
+          </span>
+          <TaskMeta task={task} zone={zone} timeFormat={timeFormat} listName={listName} />
+        </button>
+
+        {selectionMode ? (
+          <span
+            aria-hidden
+            className={cn(
+              'flex size-6 shrink-0 items-center justify-center rounded-full border-[1.5px]',
+              selected ? 'border-tint bg-tint text-on-tint' : 'border-separator-opaque',
+            )}
+          >
+            {selected ? <Check className="size-4 stroke-[3]" aria-hidden /> : null}
+          </span>
+        ) : draggable ? (
+          // The grip is the desktop drag handle: keeping the HTML5 drag here and
+          // not on the whole row leaves the row free for the swipe gesture.
+          <span
+            draggable
+            onDragStart={(event) => drag?.onDragStart(event)}
+            onDragEnd={(event) => drag?.onDragEnd(event)}
+            aria-hidden
+            className="flex size-8 shrink-0 cursor-grab items-center justify-center text-tertiary active:cursor-grabbing"
+          >
+            <GripVertical className="size-4" />
+          </span>
+        ) : null}
+      </div>
+
+      <ActionSheet
+        open={actionsOpen}
+        onOpenChange={setActionsOpen}
+        title={task.title}
+        actions={actions}
+      />
+    </li>
+  );
+}

@@ -1,0 +1,60 @@
+{
+  "name": "tasktick",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync. iOS-flavoured PWA.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "icons": "tsx scripts/generate-icons.ts",
+    "smoke": "node scripts/smoke/api.mjs && node scripts/smoke/pages.mjs",
+    "smoke:api": "node scripts/smoke/api.mjs",
+    "smoke:pages": "node scripts/smoke/pages.mjs"
+  },
+  "dependencies": {
+    "better-auth": "1.7.5",
+    "better-sqlite3": "13.0.3",
+    "clsx": "2.1.1",
+    "drizzle-orm": "0.45.2",
+    "fast-xml-parser": "5.11.1",
+    "ical.js": "2.2.1",
+    "lucide-react": "1.46.0",
+    "luxon": "3.7.2",
+    "next": "15.5.25",
+    "pg": "8.23.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "3.7.0",
+    "web-push": "3.6.7",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/luxon": "3.7.1",
+    "@types/node": "22.18.11",
+    "@types/pg": "8.15.6",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.4",
+    "@types/web-push": "3.6.4",
+    "drizzle-kit": "0.31.10",
+    "postcss": "8.5.6",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "5.0.1"
+  }
+}

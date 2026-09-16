@@ -1,0 +1,3 @@
+# Only the structured forms above are offered; blank issues skip the fields we
+# need to triage a report (version, deployment method, reproduction steps).
+blank_issues_enabled: false

@@ -1,0 +1,53 @@
+# TaskTick — single-container deployment (SQLite on a named volume).
+#
+#   cp .env.example .env      # then set BETTER_AUTH_SECRET (openssl rand -base64 32)
+#   docker compose up -d
+#
+# Add the Postgres overlay:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# No `version:` key: Compose v2 ignores it.
+
+services:
+  tasktick:
+    # Published multi-arch image (linux/amd64 + linux/arm64) from GitHub Actions.
+    # Public, so no  is needed to pull it.
+    image: ghcr.io/ksmarty/tasktick:latest
+    # Prefer building from this checkout instead of pulling? Comment `image:`
+    # above and uncomment next line.
+    # build: .
+    # Reads the same .env that Compose interpolates below. The file must exist,
+    # so copy .env.example first.
+    env_file: .env
+    environment:
+      # Fixed inside the container; the host port is the `${PORT}` below.
+      PORT: "3000"
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      # SQLite database lives on a named volume so it survives image upgrades.
+      - tasktick-data:/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  tasktick-data:
+
+# --- Reverse proxy / TLS ---------------------------------------------------
+# TaskTick is an installable iOS PWA with Web Push, and both require a secure
+# context: without HTTPS the browser silently refuses to register the service
+# worker and push subscriptions. Put a TLS terminator in front and keep this
+# container's port on the loopback interface, e.g.
+#
+#   caddy reverse-proxy --from tasks.example.com --to 127.0.0.1:3000
+#
+# ...or nginx/Traefik with the usual X-Forwarded-* headers. Then set
+# APP_URL=https://tasks.example.com and TRUST_PROXY=true in .env, and publish
+# the port only locally (ports: ["127.0.0.1:${PORT:-3000}:3000"]).

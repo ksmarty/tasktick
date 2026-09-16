@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="TaskTick">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0a84ff"/>
+      <stop offset="1" stop-color="#5e5ce6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114.53" fill="url(#tile)"/>
+  <path d="M 144.84 268.01 L 222.52 343.65 L 367.16 168.35" fill="none" stroke="#ffffff" stroke-width="59.28" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
