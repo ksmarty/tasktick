@@ -22,7 +22,8 @@
     "icons": "tsx scripts/generate-icons.ts",
     "smoke": "node scripts/smoke/api.mjs && node scripts/smoke/pages.mjs",
     "smoke:api": "node scripts/smoke/api.mjs",
-    "smoke:pages": "node scripts/smoke/pages.mjs"
+    "smoke:pages": "node scripts/smoke/pages.mjs",
+    "smoke:origins": "node scripts/smoke/origins.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.5",

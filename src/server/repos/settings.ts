@@ -364,7 +364,19 @@ export interface IcalTokenView {
   createdAt: number;
 }
 
-export async function listIcalTokens(userId: string): Promise<IcalTokenView[]> {
+/**
+ * Base URL for subscription links.
+ *
+ * The caller passes the origin the request actually arrived on, which matters on
+ * a LAN: with only `APP_URL` to go on, a user browsing to `192.168.1.50:3000`
+ * would be handed a `webcal://localhost:3000/...` link their phone cannot open.
+ * Falls back to `APP_URL` for callers that have no request (the scheduler, say).
+ */
+function resolveBaseUrl(baseUrl?: string): string {
+  return (baseUrl && baseUrl.trim() ? baseUrl : getEnv().APP_URL).replace(/\/$/, '');
+}
+
+export async function listIcalTokens(userId: string, baseUrl?: string): Promise<IcalTokenView[]> {
   const db = getDb();
   const rows = await db
     .select()
@@ -372,7 +384,7 @@ export async function listIcalTokens(userId: string): Promise<IcalTokenView[]> {
     .where(and(eq(icalTokens.userId, userId), isNull(icalTokens.revokedAtMs)))
     .orderBy(desc(icalTokens.createdAt));
 
-  const base = getEnv().APP_URL.replace(/\/$/, '');
+  const base = resolveBaseUrl(baseUrl);
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -387,6 +399,7 @@ export async function listIcalTokens(userId: string): Promise<IcalTokenView[]> {
 export async function createIcalToken(
   userId: string,
   input: { name?: string; includeTasks?: boolean; includeEvents?: boolean; listIds?: string[] | null },
+  baseUrl?: string,
 ): Promise<IcalTokenView> {
   const db = getDb();
   const id = newId();
@@ -405,7 +418,7 @@ export async function createIcalToken(
     updatedAt: now,
   });
 
-  const base = getEnv().APP_URL.replace(/\/$/, '');
+  const base = resolveBaseUrl(baseUrl);
   return {
     id,
     name: input.name?.trim() || 'Subscription',

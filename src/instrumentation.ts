@@ -30,10 +30,30 @@ export async function register(): Promise<void> {
   const database = describeDatabase();
   console.log(`[startup] TaskTick booting — ${env.NODE_ENV}, database ${database.dialect} at ${database.location}`);
 
-  if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.startsWith('tasktick-development-secret')) {
+  const { isWeakSecret, isAppUrlDefault } = await import('@/lib/env');
+
+  if (isWeakSecret()) {
+    // Not fatal: refusing to boot would lock an operator out of their own data.
+    // But a secret from this repository means anyone who has read it can forge a
+    // session cookie, so it must not pass silently.
     console.warn(
-      '[startup] BETTER_AUTH_SECRET is the development default. Set a real one before exposing this instance:\n' +
-        '          openssl rand -base64 32',
+      '[startup] ============================================================\n' +
+        '[startup] BETTER_AUTH_SECRET is a placeholder value published in this\n' +
+        '[startup] repository, or is shorter than 32 characters. Anyone who can\n' +
+        '[startup] read the source can forge a session cookie.\n' +
+        '[startup]\n' +
+        '[startup] In Docker, delete it from your .env and restart: the container\n' +
+        '[startup] will generate and persist a real one automatically.\n' +
+        '[startup] Otherwise set:  openssl rand -base64 32\n' +
+        '[startup] ============================================================',
+    );
+  }
+
+  if (isAppUrlDefault() && env.NODE_ENV === 'production') {
+    console.log(
+      '[startup] APP_URL is unset (defaulting to http://localhost:3000). LAN access\n' +
+        '          still works, but set APP_URL to the address you browse to so that\n' +
+        '          calendar subscription links point somewhere your phone can reach.',
     );
   }
 

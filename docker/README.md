@@ -6,19 +6,42 @@ The image is a single container running the Next.js 15 standalone server on
 ## Quick start
 
 ```sh
-cp .env.example .env          # required: docker compose refuses to start without it
-openssl rand -base64 32       # paste the output into BETTER_AUTH_SECRET in .env
 docker compose up -d
 ```
 
 Then open `http://localhost:3000` (the first account created becomes the
 administrator). Check the container with `docker compose logs -f tasktick` and
-`docker compose ps` — the healthcheck polls `/healthz`.
+`docker compose ps` — the healthcheck comes from the image and polls `/healthz`.
 
-`BETTER_AUTH_SECRET` is **required** in production: `src/lib/env.ts` refuses to
-boot without it, and it both signs session cookies and derives the AES key that
-encrypts stored CalDAV passwords. Rotating it invalidates all sessions and
-forces users to re-enter their calendar credentials.
+There is no `.env` to create. `docker-compose.yml` supplies a working default for
+every setting and the container generates its own signing secret on first boot
+(see below). Create a `.env` only to override something — Compose reads it if it
+is there and does not care if it is not.
+
+## The signing secret
+
+`BETTER_AUTH_SECRET` signs session cookies **and** derives the AES key that
+encrypts stored CalDAV passwords, so it must be stable across restarts and
+upgrades. `scripts/docker-entrypoint.sh` therefore:
+
+1. uses `$BETTER_AUTH_SECRET` if the environment provides one;
+2. otherwise reuses `/data/.better-auth-secret` if it exists;
+3. otherwise generates 32 random bytes and stores them there, mode 600.
+
+The secret is deliberately **not** printed to the container log — logs are often
+shipped somewhere less protected than the data volume. To read it:
+
+```sh
+docker compose exec tasktick cat /data/.better-auth-secret
+```
+
+Because it lives in the data volume, backing up `/data` backs up the secret.
+Losing it signs everyone out and makes stored CalDAV credentials unreadable,
+which is why it is not regenerated on every boot.
+
+Set it explicitly only when migrating an existing deployment. The server warns at
+startup if the value is a placeholder published in this repository, or is
+shorter than 32 characters.
 
 ## What happens on start
 
@@ -51,14 +74,15 @@ retries for about 60 seconds so a slow database does not abort the boot.
 ## Postgres instead of SQLite
 
 ```sh
-echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
 docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
 ```
 
 The overlay adds a `postgres:17-alpine` service with its own named volume, makes
 the app wait for `service_healthy`, and presets
-`DATABASE_URL=postgres://tasktick:…@db:5432/tasktick` (it overrides `.env`).
-The `/data` volume is unused in that setup.
+`DATABASE_URL=postgres://tasktick:…@db:5432/tasktick`. The `/data` volume still
+holds the signing secret. Both services read the same
+`${POSTGRES_PASSWORD:-tasktick}` default, so they always agree — set it in one
+place if you change it.
 
 Back up Postgres with:
 
@@ -78,8 +102,11 @@ caddy reverse-proxy --from tasks.example.com --to 127.0.0.1:3000
 ```
 
 …or nginx/Traefik with the usual `X-Forwarded-Proto`/`X-Forwarded-For` headers.
-Then set `APP_URL=https://tasks.example.com` and `TRUST_PROXY=true` in `.env`,
-and stop publishing port 3000 to the outside world
+Then set `TRUST_PROXY=true`, set `APP_URL=https://tasks.example.com`, and add
+`BETTER_AUTH_TRUSTED_ORIGINS=https://tasks.example.com` — a public hostname is
+neither `APP_URL` nor a private address, so the auth origin check needs to be
+told about it explicitly. (LAN access needs none of this.) Stop publishing port
+3000 to the outside world in that setup
 (`ports: ["127.0.0.1:${PORT:-3000}:3000"]`). CalDAV/ICS clients keep working
 over HTTP, but reminders by push do not.
 
@@ -114,7 +141,12 @@ docker build -t tasktick .                 # or uncomment `build: .` in compose
 docker buildx build --platform linux/amd64,linux/arm64 -t tasktick .
 ```
 
-No native compilation takes place: `better-sqlite3` ships prebuilt binaries for
-glibc and musl on both architectures, which is also why arm64 builds work under
-emulation. The runtime stage installs nothing — it copies `.next/standalone`,
-`drizzle/`, `scripts/` and `public/`.
+No native compilation of `better-sqlite3` binaries ends up in the runtime stage,
+but the **deps stage does install a C++ toolchain**. `better-sqlite3` ships a
+`binding.gyp` and no `install` script, so npm applies its default and runs
+`node-gyp rebuild` during `npm ci` — prebuilds are only consulted later, at
+`require()` time. Without `python3 make g++` the build fails with
+`not found: make`; CI masked this because `ubuntu-latest` has a toolchain already.
+The toolchain stays in the build stage, so the runtime image has no compiler.
+The runtime stage installs nothing: it copies `.next/standalone`, `drizzle/`,
+`scripts/` and `public/`.

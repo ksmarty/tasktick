@@ -78,6 +78,25 @@ let cached: Env | null = null;
 /** Dev-only fallback so `npm run dev` works with zero configuration. */
 const DEV_SECRET = 'tasktick-development-secret-do-not-use-in-production-000000';
 
+/**
+ * The value `APP_URL` ships with. Treated as "not explicitly configured", which
+ * lets request-derived URLs fill in when the operator never set it.
+ */
+export const DEFAULT_APP_URL = 'http://localhost:3000';
+
+/**
+ * Secrets that appear in this repository and must never be used to run an
+ * instance. A documented default is worse than no default: it looks configured,
+ * so nobody notices that session cookies are signed with a value anyone can
+ * read on GitHub.
+ */
+const KNOWN_PLACEHOLDER_SECRETS = new Set([
+  DEV_SECRET,
+  'change-me-openssl-rand-base64-32',
+  'build-time-placeholder-not-a-real-secret',
+  'ci-dummy-secret-not-used-outside-ci-000000',
+]);
+
 export function getEnv(): Env {
   if (cached) return cached;
 
@@ -110,6 +129,19 @@ export function resetEnvCache(): void {
 }
 
 export const isProduction = () => getEnv().NODE_ENV === 'production';
+
+/** True when `APP_URL` was never explicitly configured. */
+export const isAppUrlDefault = () => getEnv().APP_URL.replace(/\/$/, '') === DEFAULT_APP_URL;
+
+/**
+ * True when the session secret is a value published in this repository, or is
+ * too short to be a real key. Reported as a warning at boot rather than a hard
+ * failure: refusing to start would lock an operator out of their own data.
+ */
+export function isWeakSecret(): boolean {
+  const secret = getEnv().BETTER_AUTH_SECRET;
+  return KNOWN_PLACEHOLDER_SECRETS.has(secret) || secret.length < 32;
+}
 
 export const oidcConfigured = () => {
   const e = getEnv();

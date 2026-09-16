@@ -22,6 +22,7 @@ import { schema } from './db/schema';
 import { invites, user as userTable } from './db/schema';
 import { newId } from './crypto';
 import { getEnv, oidcConfigured } from '@/lib/env';
+import { isLocalNetworkOrigin, originFromRequest } from '@/lib/network';
 import { ensureUserBootstrap } from './bootstrap';
 
 const { user, session, account, verification } = schema;
@@ -204,7 +205,33 @@ function createAuth() {
       cookiePrefix: 'tasktick',
     },
 
-    trustedOrigins: [env.APP_URL],
+    /**
+     * Origin allow-list for state-changing auth requests.
+     *
+     * A self-hosted instance is normally reached on several addresses at once —
+     * `localhost`, a LAN IP, a NAS hostname, a Tailscale name — while `APP_URL`
+     * can only hold one of them. Without this, the very first screen a user sees
+     * (registration) fails with `INVALID_ORIGIN` on every address but one.
+     *
+     * So the request's own origin is trusted **when it is on a private network**.
+     * The reasoning lives in `src/lib/network.ts`; the short version is that the
+     * browser sets `Origin` and page script cannot forge it, so a hostile public
+     * page always presents a public origin and is still rejected.
+     *
+     * Deliberately NOT doing the tempting thing: trusting the origin implied by
+     * the request's `Host` header. That looks equivalent, and would additionally
+     * fix the public-reverse-proxy-with-wrong-APP_URL case, but it re-opens DNS
+     * rebinding — an attacker pointing `evil.com` at the internal address sends
+     * `Host: evil.com` AND `Origin: http://evil.com`, so both would match.
+     *
+     * `APP_URL` and additional origins still apply: better-auth itself reads
+     * `BETTER_AUTH_TRUSTED_ORIGINS` (comma-separated) and appends it, so public
+     * deployments are configured through that rather than by relaxing this.
+     */
+    trustedOrigins: async (request?: Request) => {
+      const requestOrigin = originFromRequest(request);
+      return isLocalNetworkOrigin(requestOrigin) ? [requestOrigin as string] : [];
+    },
 
     databaseHooks: {
       user: {

@@ -14,7 +14,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getAuth } from './auth';
-import { getEnv } from '@/lib/env';
+import { getEnv, isAppUrlDefault } from '@/lib/env';
 import type { ApiResult, SessionUser } from '@/lib/types';
 
 export class ApiError extends Error {
@@ -237,6 +237,46 @@ export function searchParamList(req: NextRequest, key: string): string[] | undef
     .map((v) => v.trim())
     .filter(Boolean);
   return values.length ? [...new Set(values)] : undefined;
+}
+
+/* -------------------------------------------------------------------------- */
+/* public URL                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The origin this request actually arrived on.
+ *
+ * Honours `X-Forwarded-*` only when `TRUST_PROXY` is set, because those headers
+ * are trivially forged by anything that is not a proxy we control.
+ */
+export function requestOrigin(req: NextRequest): string {
+  const env = getEnv();
+
+  if (env.TRUST_PROXY) {
+    const proto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
+    const host = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+    if (proto && host) return `${proto}://${host}`;
+  }
+
+  const host = req.headers.get('host');
+  if (host) return `${req.nextUrl.protocol}//${host}`;
+
+  return req.nextUrl.origin;
+}
+
+/**
+ * Base URL for links handed back to the user — currently the `webcal://`
+ * subscription URLs shown in Settings.
+ *
+ * An explicitly configured `APP_URL` always wins. When it was left at its
+ * default, the origin the user is actually browsing on is used instead, so a LAN
+ * or Tailscale user gets a link their phone can reach rather than one pointing
+ * at localhost.
+ */
+export function publicBaseUrl(req: NextRequest): string {
+  const env = getEnv();
+  const base = isAppUrlDefault() ? requestOrigin(req) : env.APP_URL;
+  return base.replace(/\/$/, '');
 }
 
 export { SESSION_TTL_MS };
