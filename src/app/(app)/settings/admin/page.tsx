@@ -19,7 +19,7 @@ export default function AdminSettingsPage() {
   const user = bootstrap.data?.user;
 
   return (
-    <div className="min-h-dvh pb-8">
+    <div className="pb-8">
       <NavBar title="Admin" back backHref="/settings" backLabel="Settings" largeTitle />
 
       {!user ? (

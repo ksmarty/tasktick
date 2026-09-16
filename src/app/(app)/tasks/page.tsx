@@ -10,7 +10,7 @@ import { TasksView } from '@/components/tasks';
  */
 export default function TasksPage() {
   return (
-    <Suspense fallback={<div className="min-h-dvh bg-bg" aria-hidden />}>
+    <Suspense fallback={<div aria-hidden />}>
       <TasksView />
     </Suspense>
   );

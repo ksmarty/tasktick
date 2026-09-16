@@ -81,8 +81,22 @@ export function NavBar({
 
   return (
     <>
+      {/*
+       * `sticky`, not `fixed`.
+       *
+       * The shell is a two-column frame on desktop, with the sidebar occupying
+       * the left. A `fixed` bar is positioned against the viewport, so it would
+       * stretch across the sidebar and bury the brand and the first sidebar
+       * rows underneath it. Sticky is scoped to the scrolling column instead, so
+       * the bar belongs to the content it titles — and on mobile, where that
+       * column is the whole screen, the two are visually identical.
+       *
+       * `glass-chrome` is used rather than `glass` because this sits above
+       * scrolling content: more blur, less tint, so text passing underneath
+       * stays legible as colour rather than mush.
+       */}
       <header
-        className={cn('material fixed inset-x-0 top-0', border && 'hairline-b', className)}
+        className={cn('glass-chrome sticky top-0 isolate', border && 'hairline-b', className)}
         style={{ zIndex: Z.chrome }}
         {...rest}
       >
@@ -120,13 +134,14 @@ export function NavBar({
         </div>
       </header>
 
-      {spacer ? (
-        <div
-          aria-hidden
-          className="w-full shrink-0"
-          style={{ height: largeTitle ? `calc(${headerHeight} + ${LARGE_TITLE_BLOCK})` : headerHeight }}
-        />
-      ) : null}
+      {/*
+       * No spacer.
+       *
+       * `sticky` keeps the bar in normal flow, so it already occupies its own
+       * height; a spacer on top of that would insert a gap the size of the
+       * header. The `spacer` prop is retained so existing callers keep
+       * compiling, but it is now inert by design.
+       */}
     </>
   );
 }

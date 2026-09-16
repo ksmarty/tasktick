@@ -133,7 +133,7 @@ export function InviteManager() {
             <Skeleton variant="rect" className="h-10" />
           </div>
         ) : list.length === 0 ? (
-          <ListRow title="No invitations yet" subtitle="Invite someone above to get a link." disabled />
+          <ListRow title="No invitations yet" subtitle="Invite someone above to get a link." />
         ) : (
           list.map((invite) => {
             const expired = invite.expiresAtMs < Date.now();

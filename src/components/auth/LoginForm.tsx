@@ -43,7 +43,7 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
   return (
     <div className="space-y-6">
       <header className="space-y-3 text-center">
-        <div className="mx-auto flex size-16 items-center justify-center rounded-ios-2xl bg-tint text-tint-contrast shadow-ios">
+        <div className="mx-auto flex size-16 items-center justify-center rounded-[19px] bg-tint text-tint-contrast shadow-ios">
           <ListChecks className="size-9" aria-hidden />
         </div>
         <div className="space-y-1">
@@ -68,6 +68,7 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@example.com"
+            className="hairline-b"
           />
           <TextField
             label="Password"

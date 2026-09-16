@@ -18,6 +18,7 @@
  *     session is recorded as abandoned, not silently dropped.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Check, Pause, Play, RotateCcw, SkipForward, Timer } from 'lucide-react';
 import { Button, NavBar, ProgressRing, Select, Skeleton, useToast } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api-client';
@@ -255,12 +256,14 @@ export default function PomodoroPage() {
   const loading = !settings;
 
   return (
-    <div className="min-h-dvh pb-10">
-      <NavBar title="Focus" largeTitle back backHref="/tasks" backLabel="Tasks" />
+    <div className="pb-10">
+      {/* No back control: the focus timer is a top-level destination reached
+          from the tab bar's "More" sheet and the sidebar's Tools. */}
+      <NavBar title="Focus" largeTitle />
 
       {loading ? (
         <div className="px-4">
-          <Skeleton variant="circle" className="mx-auto size-64" />
+          <Skeleton variant="circle" className="mx-auto size-50" />
         </div>
       ) : (
         <>
@@ -289,8 +292,8 @@ export default function PomodoroPage() {
 
             <ProgressRing
               value={phaseProgress(state, now)}
-              size={260}
-              strokeWidth={12}
+              size={200}
+              strokeWidth={8}
               color={state.phase === 'focus' ? 'tint' : 'success'}
               label={`${remaining} seconds remaining in the ${PHASE_LABEL[state.phase].toLowerCase()}`}
             >
@@ -300,20 +303,28 @@ export default function PomodoroPage() {
               </span>
             </ProgressRing>
 
-            <div className="mt-7 flex w-full max-w-sm items-center justify-center gap-3">
+            {/*
+             * One row, three equal columns.
+             *
+             * The three controls used to be sized by their own content, so
+             * Reset — the only plain one — read as smaller than the other two
+             * and the group sat left of the ring's centre. Equal columns give
+             * them one height, one baseline and one weight.
+             */}
+            <div className="mt-7 grid w-full max-w-sm grid-cols-3 gap-2">
               {state.status === 'running' ? (
-                <Button size="lg" variant="gray" icon={Pause} onClick={onPause} className="flex-1">
+                <Button size="lg" variant="gray" fullWidth icon={Pause} onClick={onPause} className="px-2">
                   Pause
                 </Button>
               ) : (
-                <Button size="lg" icon={Play} onClick={onStart} className="flex-1">
+                <Button size="lg" fullWidth icon={Play} onClick={onStart} className="px-2">
                   {state.status === 'paused' ? 'Resume' : 'Start'}
                 </Button>
               )}
-              <Button size="lg" variant="tinted" icon={SkipForward} onClick={onSkip}>
+              <Button size="lg" variant="tinted" fullWidth icon={SkipForward} onClick={onSkip} className="px-2">
                 Skip
               </Button>
-              <Button size="lg" variant="plain" icon={RotateCcw} onClick={onReset}>
+              <Button size="lg" variant="gray" fullWidth icon={RotateCcw} onClick={onReset} className="px-2">
                 Reset
               </Button>
             </div>
@@ -361,8 +372,11 @@ export default function PomodoroPage() {
           </div>
 
           <p className="px-4 pt-4 text-footnote text-secondary">
-            Durations come from Settings → Advanced: {config.focusMinutes} min focus, {config.shortBreakMinutes} min short
-            break, {config.longBreakMinutes} min long break, after every {config.longBreakEvery} focus sessions.
+            {config.focusMinutes} min focus · {config.shortBreakMinutes} min short break · {config.longBreakMinutes} min
+            long break every {config.longBreakEvery} sessions.{' '}
+            <Link href="/settings/advanced" className="font-semibold text-tint pressable">
+              Change in Settings
+            </Link>
           </p>
         </>
       )}

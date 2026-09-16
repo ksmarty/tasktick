@@ -26,8 +26,6 @@ export interface CalendarSidebarProps {
   filter: CalendarFilter | null;
   onClearFilter: () => void;
   onCreateEvent: () => void;
-  /** Owned by the screen so the sidebar does not need the whole payload. */
-  children?: React.ReactNode;
 }
 
 export function CalendarSidebar({
@@ -38,12 +36,9 @@ export function CalendarSidebar({
   filter,
   onClearFilter,
   onCreateEvent,
-  children,
 }: CalendarSidebarProps) {
   return (
     <div className="space-y-4 py-2">
-      {children}
-
       <div className="mx-4">
         <h2 className="pb-2 text-footnote font-medium uppercase tracking-wide text-secondary">Calendars</h2>
         <ul className="grouped">

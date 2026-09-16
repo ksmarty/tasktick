@@ -8,11 +8,23 @@
  * reveals Complete/Delete. A long press either lifts the row for reordering (on
  * touch) or offers the extra actions (on a mouse) — never both, so a finger drag
  * is never mistaken for a context menu.
+ *
+ * ## The drag grip
+ *
+ * A grip is only drawn where a pointer can actually use it. It used to be
+ * unconditional, which cost every row 44px of title width on a phone in exchange
+ * for an affordance a finger cannot grab — the width is what made
+ * "Reply to the design review thread" ellipsise. Which input the device has is a
+ * capability question, not a width one: an iPad is wide and has no pointer, a
+ * small laptop window is narrow and has one, so this is a `(hover: hover) and
+ * (pointer: fine)` test rather than a breakpoint. Long-press-to-lift still works
+ * on touch because that path is driven by `pointerType`, not by the grip.
  */
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import { Ban, Check, GripVertical, Trash } from 'lucide-react';
 import { ActionSheet, type ActionSheetAction } from '@/components/ui';
 import { cn } from '@/lib/cn';
+import { useMediaQuery } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import { TaskMeta } from './TaskMeta';
 
@@ -22,6 +34,8 @@ export const SWIPE_ACTION_WIDTH = 152;
 const LONG_PRESS_MS = 550;
 /** Movement that cancels a long press and decides the gesture axis. */
 const GESTURE_SLOP_PX = 8;
+/** True only on a device whose primary input can hover and point precisely. */
+const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
 
 /** Reorder wiring, supplied by `TaskListSection`. */
 export interface TaskRowDrag {
@@ -100,6 +114,10 @@ export function TaskRow({
   const wontDo = task.status === 'wont_do';
   const closed = completed || wontDo;
   const draggable = Boolean(drag?.draggable) && !selectionMode && !disabled;
+  // Resolved after hydration (the server snapshot is `false`), so touch never
+  // flashes a grip it cannot use.
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY);
+  const gripVisible = draggable && finePointer;
 
   // The pop needs to end, or the next render keeps the row mid-animation.
   useEffect(() => {
@@ -256,8 +274,26 @@ export function TaskRow({
         <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-0.5 bg-tint" />
       ) : null}
 
-      {/* Revealed by a swipe-left; kept mounted so the reveal can animate. */}
-      <div className="absolute inset-y-0 right-0 flex" aria-hidden={!revealed}>
+      {/*
+       * Revealed by a swipe-left; kept mounted so the reveal can animate.
+       *
+       * These actions sit UNDER the row content, which is why they are invisible
+       * in the common case — but only because the row paints over them. At the
+       * card's rounded corners the parent clips the row's background and the
+       * buttons show through as red and green crescents. `aria-hidden` does not
+       * help: it removes them from the accessibility tree, not from the screen.
+       *
+       * So they are translated fully out of the card until the row is actually
+       * revealed. That removes the artefact and makes the reveal slide in from
+       * the edge, which is how a native swipe action behaves anyway.
+       */}
+      <div
+        aria-hidden={!revealed}
+        className={cn(
+          'absolute inset-y-0 right-0 flex transition-transform duration-200 ease-ios-out',
+          revealed ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+        )}
+      >
         <button
           type="button"
           tabIndex={revealed ? 0 : -1}
@@ -304,10 +340,13 @@ export function TaskRow({
           touchAction: 'pan-y',
         }}
         className={cn(
-          'relative flex min-h-11 items-center gap-3 bg-elevated px-4',
+          // No background of its own: the card is the surface, so a translucent
+          // one reads as a single grouped list rather than N white slices. The
+          // lifted row needs its own solid paint, since it travels over others.
+          'relative flex min-h-11 items-center gap-3 px-4',
           first && 'rounded-t-ios-md',
           last && 'rounded-b-ios-md',
-          lifted ? 'z-20 shadow-ios-lg' : 'z-10',
+          lifted ? 'z-20 bg-elevated shadow-ios-lg' : 'z-10',
           !disabled && !selectionMode && 'pressable-row',
           disabled && 'opacity-60',
           // Hairline inset to the title column: 16px gutter + 24px circle + 12px gap.
@@ -357,7 +396,10 @@ export function TaskRow({
         >
           <span
             className={cn(
-              'w-full truncate text-body',
+              // The full width of the row's text column: the title is what the
+              // row is for, so it gets every px the checkbox and the (pointer-
+              // only) grip do not need.
+              'w-full min-w-0 truncate text-body',
               completed && 'text-secondary line-through',
               wontDo && 'text-tertiary line-through',
             )}
@@ -377,17 +419,17 @@ export function TaskRow({
           >
             {selected ? <Check className="size-4 stroke-[3]" aria-hidden /> : null}
           </span>
-        ) : draggable ? (
-          // The grip is the desktop drag handle: keeping the HTML5 drag here and
+        ) : gripVisible ? (
+          // The grip is the pointer drag handle: keeping the HTML5 drag here and
           // not on the whole row leaves the row free for the swipe gesture.
           <span
             draggable
             onDragStart={(event) => drag?.onDragStart(event)}
             onDragEnd={(event) => drag?.onDragEnd(event)}
             aria-hidden
-            className="flex size-8 shrink-0 cursor-grab items-center justify-center text-tertiary active:cursor-grabbing"
+            className="-mr-2 flex size-8 shrink-0 cursor-grab items-center justify-center text-tertiary transition-colors ease-ios hover:text-secondary active:cursor-grabbing"
           >
-            <GripVertical className="size-4" />
+            <GripVertical className="size-4" strokeWidth={2} />
           </span>
         ) : null}
       </div>

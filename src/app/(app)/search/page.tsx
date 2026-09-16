@@ -113,8 +113,19 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="min-h-dvh pb-8" onKeyDown={onKeyDown}>
-      <NavBar title="Search" back backHref="/today" backLabel="Today" />
+    //
+    // No `min-h-dvh` and no opaque background.
+    //
+    // This view renders inside the shell's scroll pane, and the shell paints
+    // `app-backdrop` behind it. A full-height opaque wrapper here would cover
+    // that backdrop, so every `glass-*` surface in the view would have nothing
+    // to refract and would read as flat grey. The shell also owns tab-bar
+    // clearance, so `pb-8` was double-padding.
+    <div onKeyDown={onKeyDown}>
+      // No back control: Search is a top-level destination reached from the Tools
+      // list and the More sheet, not a child of Today. A back arrow pointing at
+      // Today would misrepresent where the user came from.
+      <NavBar title="Search" />
 
       <div className="px-4 pb-2">
         <TextField

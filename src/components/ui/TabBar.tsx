@@ -103,7 +103,9 @@ export function TabBar<T extends string>({
   return (
     <>
       <nav
-        className={cn('material hairline-t fixed inset-x-0 bottom-0 h-tabbar', className)}
+        // glass-chrome rather than the old flat material: the bar floats over
+        // scrolling content, so it needs real refraction, not just a tint.
+        className={cn('glass-chrome hairline-t fixed inset-x-0 bottom-0 h-tabbar', className)}
         style={{ zIndex: Z.chrome }}
         {...rest}
       >

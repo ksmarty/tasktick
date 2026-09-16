@@ -71,6 +71,8 @@ export default function HabitsPage() {
   const [scope, setScope] = useState<string>('all');
   const [editing, setEditing] = useState<Habit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  /** Id of the habit whose check-in is still in flight, so only that row dims. */
+  const [checkingIn, setCheckingIn] = useState<string | null>(null);
 
   // Deep link from search: `/habits?habit=<id>` opens that habit's year view.
   const requestedHabit = useSearchParams().get('habit');
@@ -128,6 +130,7 @@ export default function HabitsPage() {
       // Snapshot first: an optimistic write has to be reversible.
       const snapshot = { list: habits.data, heatmap: heatmapHabits.data };
       applyLocally(habit.id, { date, count: change.count, delta: change.delta });
+      setCheckingIn(habit.id);
 
       try {
         await api.post<CheckInPayload>(`/api/habits/${habit.id}/checkin`, {
@@ -147,6 +150,8 @@ export default function HabitsPage() {
           description: errorMessage(error),
           variant: 'error',
         });
+      } finally {
+        setCheckingIn((current) => (current === habit.id ? null : current));
       }
     },
     [applyLocally, habits, heatmapHabits, heatmapOpen, today, toast],
@@ -214,7 +219,10 @@ export default function HabitsPage() {
   const failed = Boolean(habits.error) && list.length === 0;
 
   return (
-    <div className="min-h-dvh pb-8">
+    // The shell owns the scroll pane and the tab-bar clearance; this column only
+    // caps the reading width on a desktop so the cards are not stretched to
+    // 1100px while the phone layout stays edge to edge.
+    <div className="mx-auto w-full max-w-2xl pb-10">
       <NavBar
         title="Habits"
         largeTitle
@@ -237,7 +245,7 @@ export default function HabitsPage() {
       {loading ? (
         <div className="space-y-3">
           {[0, 1, 2].map((key) => (
-            <Skeleton key={key} variant="rect" className="mx-4 h-32" />
+            <Skeleton key={key} variant="rect" className="mx-4 h-40" />
           ))}
         </div>
       ) : failed ? (
@@ -270,7 +278,7 @@ export default function HabitsPage() {
             weekStartsOn={weekStartsOn}
             windowLabel={range?.label ?? 'This week'}
             timeFormat={timeFormat}
-            pending={reorder.isPending}
+            pendingId={checkingIn}
             onCheckIn={(habit, change) => void checkIn(habit, change)}
             onEdit={openEditor}
             onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}

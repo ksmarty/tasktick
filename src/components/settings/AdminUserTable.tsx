@@ -14,9 +14,10 @@
  */
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { Badge, ConfirmDialog, IconButton, ListRow, Skeleton, Switch, useToast } from '@/components/ui';
+import { Badge, ConfirmDialog, ListRow, Skeleton, Switch, useToast } from '@/components/ui';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
+import { cn } from '@/lib/cn';
 import { SettingsGroup } from './SettingsGroup';
 import type { AdminUserPayload } from '@/lib/view-types';
 
@@ -73,58 +74,65 @@ export function AdminUserTable({ currentUserId }: AdminUserTableProps) {
           <Skeleton variant="rect" className="h-10" />
         </div>
       ) : list.length === 0 ? (
-        <ListRow title="No users" subtitle="Something is wrong — you are signed in." disabled />
+        <ListRow title="No users" subtitle="Something is wrong — you are signed in." />
       ) : (
-        list.map((user) => {
+        list.map((user, index) => {
           const isSelf = user.id === currentUserId;
+          /*
+           * The controls sit on their own line below the identity.
+           *
+           * Trailing a row with two switches and a bin left "Demo …" and
+           * "demo@tasktick.local · joine…" at six characters on a phone. Each
+           * switch is labelled here, which also removes the need for the
+           * caption that used to explain which switch did what.
+           */
           return (
-            <ListRow
+            <div
               key={user.id}
-              title={
-                <span className="flex items-center gap-2">
-                  <span className="truncate">{user.name}</span>
+              className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5', index > 0 && 'hairline-t')}
+            >
+              <div className="min-w-0 flex-1 basis-full sm:basis-0">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-body text-label">{user.name}</span>
                   {user.isAdmin ? <Badge variant="tint">Admin</Badge> : null}
                   {user.banned ? <Badge variant="danger">Disabled</Badge> : null}
-                  {isSelf ? <span className="text-caption-1 text-tertiary">you</span> : null}
-                </span>
-              }
-              subtitle={`${user.email} · joined ${new Date(user.createdAt).toISOString().slice(0, 10)}`}
-              trailing={
-                <span className="flex items-center gap-2">
-                  <Switch
-                    size="sm"
-                    checked={user.isAdmin}
-                    disabled={isSelf}
-                    aria-label={`Administrator rights for ${user.name}`}
-                    onCheckedChange={(next) => void patch.run(user.id, { isAdmin: next })}
-                  />
-                  <Switch
-                    size="sm"
-                    checked={!user.banned}
-                    disabled={isSelf}
-                    aria-label={`${user.banned ? 'Enable' : 'Disable'} ${user.name}`}
-                    onCheckedChange={(next) => void patch.run(user.id, { banned: !next })}
-                  />
-                  <IconButton
-                    icon={Trash2}
-                    size="sm"
-                    variant="plain"
-                    aria-label={`Delete ${user.name}`}
-                    disabled={isSelf}
-                    onClick={() => setRemoveTarget(user)}
-                  />
-                </span>
-              }
-            />
+                  {isSelf ? <span className="shrink-0 text-caption-1 text-tertiary">you</span> : null}
+                </div>
+                <p className="truncate text-footnote text-secondary">
+                  {user.email} · joined {new Date(user.createdAt).toISOString().slice(0, 10)}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4">
+                <Switch
+                  size="sm"
+                  label="Admin"
+                  checked={user.isAdmin}
+                  disabled={isSelf}
+                  onCheckedChange={(next) => void patch.run(user.id, { isAdmin: next })}
+                />
+                <Switch
+                  size="sm"
+                  label="Active"
+                  checked={!user.banned}
+                  disabled={isSelf}
+                  onCheckedChange={(next) => void patch.run(user.id, { banned: !next })}
+                />
+                <button
+                  type="button"
+                  disabled={isSelf}
+                  aria-label={`Delete ${user.name}`}
+                  onClick={() => setRemoveTarget(user)}
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-ios px-1 text-subhead text-danger pressable disabled:pointer-events-none disabled:text-tertiary"
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                  Delete
+                </button>
+              </div>
+            </div>
           );
         })
       )}
-
-      <div className="hairline-t px-4 py-2">
-        <p className="text-caption-1 text-tertiary">
-          The first switch grants administrator rights, the second keeps the account active, the bin deletes it.
-        </p>
-      </div>
 
       <ConfirmDialog
         open={removeTarget !== null}

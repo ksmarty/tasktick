@@ -11,7 +11,7 @@
  */
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { SectionHeader, Badge } from '@/components/ui';
+import { SectionHeader } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import type { Task } from '@/lib/types';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
@@ -164,7 +164,19 @@ export function TaskListSection({
 
   const header = (
     <SectionHeader
-      title={<span className={cn(section.tone === 'danger' && 'text-danger')}>{section.title}</span>}
+      // The section title is the loudest thing on the line: a real label-sized
+      // 15px title, with the count and the chevron as quiet secondary marks.
+      // A filled badge and a 16px chevron used to outweigh the word itself.
+      title={
+        <span
+          className={cn(
+            'text-subhead font-semibold',
+            section.tone === 'danger' ? 'text-danger' : 'text-label',
+          )}
+        >
+          {section.title}
+        </span>
+      }
       className="pt-5 pb-1.5"
       action={
         <button
@@ -172,12 +184,17 @@ export function TaskListSection({
           onClick={() => setCollapsed((value) => !value)}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section.title}`}
-          className="-my-2 flex min-h-11 items-center gap-2 rounded-ios px-2 pressable"
+          className="-my-2 flex min-h-11 items-center gap-1.5 rounded-ios px-1 text-secondary pressable"
         >
-          <Badge value={section.tasks.length} label={`${section.tasks.length} tasks`} />
+          <span aria-hidden className="tnum text-footnote font-medium">
+            {section.tasks.length}
+          </span>
+          <span className="sr-only">
+            {`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}
+          </span>
           <ChevronDown
             className={cn(
-              'size-4 text-tertiary transition-transform duration-200 ease-ios-out',
+              'size-3.5 transition-transform duration-200 ease-ios-out',
               collapsed && '-rotate-90',
             )}
             aria-hidden
@@ -192,7 +209,12 @@ export function TaskListSection({
   return (
     <div>
       {header}
-      <ul className="mx-4 rounded-ios-md bg-elevated">
+      {/*
+       * Glass, not a flat white card: the rows themselves carry no background,
+       * so the group reads as one surface — which is also what makes the card's
+       * rounded corners and the swipe reveal below it behave.
+       */}
+      <ul className="glass-card mx-4 overflow-hidden rounded-ios-lg">
         {section.tasks.map((task, index) => (
           <TaskRow
             key={task.id}

@@ -101,7 +101,7 @@ export function TodayView() {
   const loading = data === undefined && !bootstrap.error;
 
   return (
-    <div className="min-h-dvh bg-bg">
+    <div>
       <NavBar
         largeTitle
         title="Today"
@@ -115,30 +115,37 @@ export function TodayView() {
 
       {data ? (
         <div className="px-4 pt-1 pb-2">
-          <div className="flex items-center gap-4">
+          {/*
+           * The ring and the copy are one block, so they share one surface.
+           * The fraction is absolutely positioned inside the ring: `ProgressRing`
+           * only centres its *own* percentage, so a hand-passed label has to
+           * place itself — otherwise it sits beside the ring and reads as if it
+           * belonged to the date next to it.
+           */}
+          <div className="glass-card flex items-center gap-3.5 rounded-ios-lg px-4 py-3">
             <ProgressRing
               value={progress.value}
               size={54}
               strokeWidth={5}
               label={`${progress.completed} of ${progress.total} tasks done today`}
             >
-              <span className="tnum text-caption-1 font-semibold text-label">
+              <span className="tnum absolute inset-0 flex items-center justify-center text-caption-1 font-semibold text-label">
                 {progress.completed}/{progress.total}
               </span>
             </ProgressRing>
             <div className="min-w-0">
-              <p className="truncate text-subhead text-secondary">
-                {formatFullDate(Date.now(), { zone, timeFormat, weekStartsOn })}
-              </p>
-              <p className="truncate text-headline font-semibold text-label">
+              <p className="truncate text-subhead font-semibold text-label">
                 {remaining === 0 ? 'Nothing left for today' : `${remaining} task${remaining === 1 ? '' : 's'} left`}
+              </p>
+              <p className="truncate text-footnote text-secondary">
+                {formatFullDate(Date.now(), { zone, timeFormat, weekStartsOn })}
               </p>
             </div>
           </div>
         </div>
       ) : (
         <div className="px-4 pt-2 pb-3">
-          <Skeleton variant="rect" className="h-14" />
+          <Skeleton variant="rect" className="h-20 rounded-ios-lg" />
         </div>
       )}
 

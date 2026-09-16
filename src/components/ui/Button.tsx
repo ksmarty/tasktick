@@ -69,7 +69,21 @@ export function Button({
       aria-busy={loading || undefined}
       className={cn(
         'inline-flex shrink-0 select-none items-center justify-center gap-2 font-semibold',
-        'pressable disabled:pointer-events-none disabled:opacity-40',
+        'pressable disabled:pointer-events-none',
+        //
+        // Disabled styling is per-variant rather than a blanket opacity.
+        //
+        // `opacity-40` on the filled variant left a pale blue pill with a
+        // see-through white label — grey on light blue — which reads as a
+        // rendering fault rather than as "fill the form in first". A neutral
+        // fill with secondary text is unmistakably a disabled control, and it
+        // keeps the label legible.
+        'disabled:shadow-none',
+        variant === 'filled' && 'disabled:bg-fill disabled:text-secondary',
+        variant === 'destructive' && 'disabled:bg-fill disabled:text-secondary',
+        variant === 'tinted' && 'disabled:bg-fill-tertiary disabled:text-tertiary',
+        variant === 'gray' && 'disabled:bg-fill-quaternary disabled:text-tertiary',
+        variant === 'plain' && 'disabled:text-tertiary',
         VARIANT_CLASSES[variant],
         SIZE_CLASSES[size],
         fullWidth && 'w-full',

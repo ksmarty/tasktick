@@ -11,7 +11,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Grid2x2, GripVertical } from 'lucide-react';
-import { Badge, EmptyState, NavBar, Skeleton, useToast } from '@/components/ui';import { accentVar } from '@/lib/colors';
+import { Badge, EmptyState, NavBar, Skeleton, useToast } from '@/components/ui';
+import { accentVar } from '@/lib/colors';
 import { cn } from '@/lib/cn';
 import { api, errorMessage } from '@/lib/api-client';
 import { useResource } from '@/lib/store';
@@ -30,7 +31,12 @@ import {
 } from './quadrants';
 import type { BootstrapPayload } from '@/lib/view-types';
 import type { DateOnly, Task } from '@/lib/types';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+
+/** How long a touch has to rest on a row before it starts dragging it. */
+const LONG_PRESS_MS = 450;
+/** Movement that cancels an armed long press — that was a scroll, not a hold. */
+const LONG_PRESS_SLOP_PX = 10;
 
 export default function MatrixPage() {
   const { toast } = useToast();
@@ -89,12 +95,14 @@ export default function MatrixPage() {
 
   const dragRef = useRef<{ task: Task } | null>(null);
 
-  function startDrag(task: Task, event: ReactPointerEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    dragRef.current = { task };
-    setDragId(task.id);
-    setHover(quadrantOf(task, todayDate, zone));
-  }
+  const startDrag = useCallback(
+    (task: Task) => {
+      dragRef.current = { task };
+      setDragId(task.id);
+      setHover(quadrantOf(task, todayDate, zone));
+    },
+    [todayDate, zone],
+  );
 
   const onPointerMove = useCallback((event: PointerEvent) => {
     const target = document.elementFromPoint(event.clientX, event.clientY);
@@ -131,19 +139,16 @@ export default function MatrixPage() {
   const loading = !today || tasks.isInitialLoading;
 
   return (
-    <div className="min-h-dvh pb-8">
-      <NavBar
-        title="Priority matrix"
-        largeTitle
-        back
-        backHref="/tasks"
-        backLabel="Tasks"
-        trailing={<Badge value={list.length} label={`${list.length} tasks`} />}
-      />
+    <div className="pb-8">
+      {/*
+       * No back control: the matrix is a top-level destination reached from the
+       * tab bar's "More" sheet and the sidebar's Tools, not from Tasks.
+       */}
+      <NavBar title="Priority matrix" largeTitle trailing={<Badge value={list.length} label={`${list.length} tasks`} />} />
 
       <p className="px-4 pb-3 text-footnote text-secondary">
-        Urgent means due within three days or overdue. Important means high or medium priority. Drag a task — or use the
-        handle&apos;s arrow keys — to reclassify it.
+        Urgent means due within three days or overdue; important means high or medium priority. Drag a task to
+        reclassify it — on a touch screen, press and hold it first.
       </p>
 
       {loading ? (
@@ -183,8 +188,12 @@ export default function MatrixPage() {
                   <h2 id={`quadrant-${quadrant.id}`} className="min-w-0 flex-1 truncate text-subhead font-semibold text-label">
                     {quadrant.title}
                   </h2>
-                  <span className="shrink-0 text-caption-1 text-secondary">{quadrant.hint}</span>
-                  <Badge value={items.length} label={`${items.length} tasks`} />
+                  {/* The strategy hint is advice, the count is data: neither
+                      competes with the name of the quadrant. */}
+                  <span className="shrink-0 text-caption-1 text-tertiary">{quadrant.hint}</span>
+                  <span className="tnum shrink-0 text-caption-1 text-tertiary" aria-label={`${items.length} tasks`}>
+                    {items.length}
+                  </span>
                 </header>
 
                 {items.length === 0 ? (
@@ -199,7 +208,7 @@ export default function MatrixPage() {
                           today={todayDate}
                           dragging={dragId === task.id}
                           onOpen={() => setEditing(task)}
-                          onGripPointerDown={(event) => startDrag(task, event)}
+                          onStartDrag={() => startDrag(task)}
                           onMoveToQuadrant={(target) => void applyDrop(task, target)}
                         />
                       </li>
@@ -230,7 +239,7 @@ function TaskRow({
   today,
   dragging,
   onOpen,
-  onGripPointerDown,
+  onStartDrag,
   onMoveToQuadrant,
 }: {
   task: Task;
@@ -238,47 +247,135 @@ function TaskRow({
   today: DateOnly;
   dragging: boolean;
   onOpen: () => void;
-  onGripPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onStartDrag: () => void;
   onMoveToQuadrant: (target: QuadrantId) => void;
 }) {
   const current = quadrantOf(task, today, zone);
   const due = task.dueDate ?? null;
   const overdue = isUrgent(task, today, zone) && Boolean(due && due < today);
+  const longPress = useLongPressDrag(onStartDrag);
 
   return (
-    <div className={cn('flex items-center gap-2 px-2 py-1', dragging && 'opacity-60')}>
+    <div className={cn('group/row flex items-center gap-0.5 py-0.5 pl-2 pr-1', dragging && 'opacity-60')}>
       <button
         type="button"
         onClick={onOpen}
-        className="pressable-row flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-ios px-2 text-left"
+        onClickCapture={longPress.onClickCapture}
+        onContextMenu={(event) => {
+          // A held touch must not raise the native text-selection callout.
+          if (dragging) event.preventDefault();
+        }}
+        {...longPress.handlers}
+        className="pressable-row flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-ios py-1 pl-2 pr-1 text-left"
       >
-        <span className={cn('min-w-0 flex-1 truncate text-body', overdue ? 'text-danger' : 'text-label')}>{task.title}</span>
+        {/*
+         * The title takes the row and the due date yields.
+         *
+         * The title's flex basis is zero, so it absorbs every free pixel and
+         * only ellipsises when the text is genuinely longer than the row; the
+         * date is capped, so a longer label can never eat the title's width.
+         *
+         * The type tokens are interpolated rather than passed to `cn`: there is
+         * no `tailwind-merge` theme here, so `text-body` and `text-footnote`
+         * look like *colours* to it and are dropped in favour of `text-danger`.
+         */}
+        <span className={`min-w-0 flex-1 truncate text-body ${overdue ? 'text-danger' : 'text-label'}`}>
+          {task.title}
+        </span>
         {due ? (
-          <span className={cn('shrink-0 text-footnote', overdue ? 'text-danger' : 'text-secondary')}>
+          <span
+            className={`min-w-0 max-w-24 shrink truncate text-footnote ${overdue ? 'text-danger' : 'text-secondary'}`}
+          >
             {relativeDayLabel(due, zone)}
           </span>
         ) : null}
       </button>
 
-      <button
-        type="button"
-        aria-label={`Move ${task.title} to another quadrant`}
-        aria-roledescription="sortable"
-        onPointerDown={onGripPointerDown}
-        onKeyDown={(event) => {
-          const key = event.key;
-          if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
-          const target = neighbourQuadrant(current, key);
-          if (!target) return;
-          event.preventDefault();
-          onMoveToQuadrant(target);
-        }}
-        className="flex size-11 shrink-0 touch-none items-center justify-center rounded-ios text-tertiary pressable"
-      >
-        <GripVertical className="size-4" aria-hidden />
-      </button>
+      {/*
+       * One drag affordance, for pointers only.
+       *
+       * A mouse cursor reveals the grip on hover; a touch screen has no hover
+       * and a handle on every row is permanent noise, so touch reorders with a
+       * long press on the row itself (see `useLongPressDrag`). It stays
+       * keyboard-reachable wherever it is rendered.
+       */}
+      <span className="pointer-coarse:hidden">
+        <button
+          type="button"
+          aria-label={`Move ${task.title} to another quadrant`}
+          aria-roledescription="sortable"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            onStartDrag();
+          }}
+          onKeyDown={(event) => {
+            const key = event.key;
+            if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+            const target = neighbourQuadrant(current, key);
+            if (!target) return;
+            event.preventDefault();
+            onMoveToQuadrant(target);
+          }}
+          className="flex size-11 shrink-0 touch-none items-center justify-center rounded-ios text-tertiary opacity-0 pressable transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+        >
+          <GripVertical className="size-4" aria-hidden />
+        </button>
+      </span>
     </div>
   );
+}
+
+/**
+ * Touch reorder: press and hold a row to start dragging it.
+ *
+ * A pointer device gets the visible grip instead; a touch device has no hover to
+ * reveal one. Any movement cancels the press, so a scroll never becomes a
+ * reorder, and the click that follows a fired long press is swallowed so the
+ * editor sheet does not open behind the drag.
+ */
+function useLongPressDrag(start: () => void) {
+  const timer = useRef<number | null>(null);
+  const origin = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
+
+  const cancel = useCallback(() => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+    origin.current = null;
+  }, []);
+
+  useEffect(() => () => cancel(), [cancel]);
+
+  const handlers = {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.pointerType === 'mouse') return;
+      cancel();
+      fired.current = false;
+      origin.current = { x: event.clientX, y: event.clientY };
+      timer.current = window.setTimeout(() => {
+        timer.current = null;
+        fired.current = true;
+        start();
+      }, LONG_PRESS_MS);
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const from = origin.current;
+      if (!from || timer.current === null) return;
+      if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > LONG_PRESS_SLOP_PX) cancel();
+    },
+    onPointerUp: () => cancel(),
+    onPointerCancel: () => cancel(),
+  };
+
+  return {
+    handlers,
+    onClickCapture: (event: ReactMouseEvent<HTMLElement>) => {
+      if (!fired.current) return;
+      fired.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+  };
 }
 
 /** Attaches the window-level pointer listeners only while a drag is active. */
@@ -301,14 +398,18 @@ function useDragListeners(
     const move = (event: PointerEvent) => moveRef.current(event);
     const up = (event: PointerEvent) => upRef.current(event);
     const cancel = () => cancelRef.current();
+    const blockTouchScroll = (event: TouchEvent) => event.preventDefault();
 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', cancel);
+    // A touch reorder must not scroll the pane out from under the drop.
+    window.addEventListener('touchmove', blockTouchScroll, { passive: false });
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('touchmove', blockTouchScroll);
     };
   }, [active]);
 }

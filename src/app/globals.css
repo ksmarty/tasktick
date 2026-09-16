@@ -179,6 +179,45 @@
   --tint: var(--ios-blue);
   --tint-soft: color-mix(in oklab, var(--tint) 14%, transparent);
   --tint-contrast: #ffffff;
+
+  /*
+   * --- Liquid Glass -------------------------------------------------------
+   *
+   * Glass is four layers, and leaving any one out is what makes the effect look
+   * like plain transparency instead of glass:
+   *
+   *   1. a translucent tint over whatever is behind it;
+   *   2. a backdrop blur with a saturation lift, so the colour behind survives
+   *      the blur instead of turning grey;
+   *   3. a specular rim — a gradient hairline that is bright where light would
+   *      catch the top-left edge and fades around the curve;
+   *   4. an ambient shadow, tinted rather than pure black, that lifts the
+   *     surface off the content underneath.
+   *
+   * Layer 3 is the one that reads as "glass" rather than "frosted plastic", so
+   * it is drawn as a masked gradient border that follows the border radius.
+   */
+  --glass-tint: rgb(255 255 255 / 0.55);
+  /*
+   * Chrome (nav and tab bars) is deliberately much more opaque than the other
+   * glass surfaces. It sits over scrolling content, so it has to stay legible
+   * even when `backdrop-filter` is unsupported, disabled by the user, or simply
+   * fails to sample the scrolled layer behind a fixed element — all of which
+   * leave list text overlapping the tab labels. The glass read comes from the
+   * specular rim, not from transparency.
+   */
+  --glass-tint-chrome: rgb(250 250 252 / 0.92);
+  --glass-tint-card: rgb(255 255 255 / 0.72);
+  --glass-tint-sheet: rgb(252 252 254 / 0.9);
+  --glass-blur: 20px;
+  --glass-blur-chrome: 28px;
+  --glass-saturate: 190%;
+  /* The bright edge, and the dim edge opposite it. */
+  --glass-specular: rgb(255 255 255 / 0.92);
+  --glass-specular-fade: rgb(255 255 255 / 0.12);
+  --glass-inner: rgb(255 255 255 / 0.45);
+  --glass-shadow: 0 10px 30px -8px rgb(16 20 40 / 0.18), 0 2px 6px -2px rgb(16 20 40 / 0.10);
+  --glass-shadow-chrome: 0 2px 20px -6px rgb(16 20 40 / 0.14);
 }
 
 .dark {
@@ -220,6 +259,21 @@
   --fill-secondary: rgb(120 120 128 / 0.32);
   --fill-tertiary: rgb(118 118 128 / 0.24);
   --fill-quaternary: rgb(118 118 128 / 0.18);
+
+  /*
+   * Glass in dark appearance is not the light values darkened — it is a lighter
+   * tint over a dark backdrop, with a dimmer specular. A bright white rim on a
+   * black background reads as a cheap outline, not as light on glass.
+   */
+  --glass-tint: rgb(48 48 54 / 0.52);
+  --glass-tint-chrome: rgb(24 24 27 / 0.92);
+  --glass-tint-card: rgb(38 38 44 / 0.62);
+  --glass-tint-sheet: rgb(32 32 37 / 0.88);
+  --glass-specular: rgb(255 255 255 / 0.30);
+  --glass-specular-fade: rgb(255 255 255 / 0.03);
+  --glass-inner: rgb(255 255 255 / 0.10);
+  --glass-shadow: 0 12px 34px -10px rgb(0 0 0 / 0.62), 0 2px 8px -2px rgb(0 0 0 / 0.45);
+  --glass-shadow-chrome: 0 2px 22px -6px rgb(0 0 0 / 0.5);
 }
 
 /* Accent overrides, applied by `<html data-accent="...">` from user settings. */
@@ -434,16 +488,166 @@
   height: 100dvh;
   height: -webkit-fill-available;
 }
-/* The signature iOS frosted-glass chrome. */
+/*
+ * Liquid Glass surfaces.
+ *
+ * All four glass utilities share the same recipe (tint + blur + specular rim +
+ * ambient shadow) and differ only in how opaque and how blurred they are. The
+ * specular rim is a masked gradient border: `mask-composite: exclude` with a
+ * content-box mask paints only the 1px band, and because it is a border on the
+ * element's own radius it follows any corner shape automatically.
+ *
+ * `@supports` guards the whole effect. Without backdrop-filter (or with
+ * `prefers-reduced-transparency`) the fallback is a solid surface, which is what
+ * accessibility settings are asking for anyway.
+ */
+
+@utility glass-chrome {
+  position: relative;
+  background-color: var(--glass-tint-chrome);
+  -webkit-backdrop-filter: blur(var(--glass-blur-chrome)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-chrome)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow-chrome);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding-bottom: 1px;
+    background: linear-gradient(to bottom, var(--glass-inner), var(--glass-specular-fade) 65%, transparent);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@utility glass {
+  position: relative;
+  background-color: var(--glass-tint);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow);
+
+  /* The specular rim: bright at the top-left, fading around the curve. */
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      155deg,
+      var(--glass-specular) 0%,
+      var(--glass-specular-fade) 38%,
+      transparent 62%,
+      var(--glass-specular-fade) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/**
+ * Card-weight glass. More opaque and less blurred than the chrome variants: a
+ * list of tasks has to stay effortlessly readable, so this leans on the tint and
+ * the rim for the glass read rather than on heavy refraction. It also keeps the
+ * compositing cost down when dozens of rows are on screen at once.
+ */
+@utility glass-card {
+  position: relative;
+  background-color: var(--glass-tint-card);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: var(--glass-shadow);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(160deg, var(--glass-specular), transparent 45%, var(--glass-specular-fade));
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/** Sheet/modal glass — the most opaque, because text sits directly on it. */
+@utility glass-sheet {
+  position: relative;
+  background-color: var(--glass-tint-sheet);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  backdrop-filter: blur(32px) saturate(180%);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Fallback when the platform cannot blur, or the user asked for less transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-chrome,
+  .glass,
+  .glass-card {
+    background-color: var(--bg-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-chrome,
+  .glass,
+  .glass-card,
+  .glass-sheet {
+    background-color: var(--bg-elevated);
+  }
+}
+
+/**
+ * The app shell is a fixed-height frame whose columns own their scrolling, so
+ * the document itself never scrolls. That is what makes sticky chrome behave
+ * like a native nav bar and stops iOS rubber-banding the whole page.
+ */
+@utility scroll-pane {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/** Legacy aliases kept so existing callers keep working. */
 @utility material {
-  background-color: var(--bg-chrome);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  background-color: var(--glass-tint-chrome);
+  -webkit-backdrop-filter: blur(var(--glass-blur-chrome)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-chrome)) saturate(var(--glass-saturate));
 }
 @utility material-thick {
-  background-color: var(--bg-chrome);
-  -webkit-backdrop-filter: saturate(180%) blur(40px);
-  backdrop-filter: saturate(180%) blur(40px);
+  background-color: var(--glass-tint-sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
 }
 /* Native-feeling scroll container. */
 @utility scroll-ios {
@@ -476,10 +680,47 @@
   }
 }
 
-/* Grouped-list container: the rounded white card that iOS settings use. */
+/**
+ * Ambient backdrop.
+ *
+ * Glass only reads as glass when there is something behind it to refract. Over a
+ * flat `--bg` every translucent surface collapses into "slightly lighter grey".
+ * This paints a very soft, accent-tinted mesh underneath the whole app so the
+ * chrome and the cards have colour to pick up as content scrolls beneath them.
+ *
+ * Deliberately only a few percent of tint: the goal is that the surface colour
+ * shifts as things move behind it, not that the user sees a gradient.
+ */
+@utility app-backdrop {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(115% 70% at 8% -8%, color-mix(in oklab, var(--tint) 16%, transparent), transparent 58%),
+    radial-gradient(95% 60% at 102% 2%, color-mix(in oklab, var(--ios-purple) 11%, transparent), transparent 52%),
+    radial-gradient(85% 55% at 50% 108%, color-mix(in oklab, var(--ios-teal) 9%, transparent), transparent 58%);
+  background-attachment: fixed;
+}
+
+.dark .app-backdrop {
+  background-image:
+    radial-gradient(115% 70% at 8% -8%, color-mix(in oklab, var(--tint) 24%, transparent), transparent 58%),
+    radial-gradient(95% 60% at 102% 2%, color-mix(in oklab, var(--ios-purple) 15%, transparent), transparent 52%),
+    radial-gradient(85% 55% at 50% 108%, color-mix(in oklab, var(--ios-teal) 13%, transparent), transparent 58%);
+}
+
+/**
+ * Grouped-list container.
+ *
+ * Was a flat white card; now a glass surface with concentric corners. The outer
+ * radius is deliberately the larger `ios-lg` so that a row inset by 12px lands
+ * on a curve parallel to its parent's — mismatched nested radii are what make
+ * rounded UI look subtly wrong without the viewer being able to name why.
+ */
 @utility grouped {
-  background-color: var(--bg-elevated);
-  border-radius: var(--radius-ios-md);
+  background-color: var(--glass-tint-card);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  border-radius: var(--radius-ios-lg);
+  box-shadow: var(--glass-shadow);
   overflow: hidden;
 }
 /* Hairline separator that stays 1 physical pixel on retina. */

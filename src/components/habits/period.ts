@@ -178,6 +178,29 @@ export function goalSummary(habit: Pick<Habit, 'goalType' | 'goalTarget' | 'unit
       : `${amount} a day`;
 }
 
+/**
+ * The secondary line of a habit row: the goal amount, then the schedule.
+ *
+ * Composed from `goalSummary` / `frequencySummary` rather than re-deriving them,
+ * so the row and the editor can never disagree about what a habit asks for. A
+ * weekly or monthly habit already spells its period out in the goal phrase
+ * ("3 glasses a week"), so the "3× per week" schedule phrase is only appended
+ * for the day-based cadences, where it carries information instead of repeating
+ * it.
+ */
+export function habitMetaSummary(
+  habit: Pick<Habit, 'goalType' | 'goalTarget' | 'unit' | 'frequency' | 'weekDays' | 'timesPerPeriod'>,
+): string {
+  const cadence = frequencySummary(habit);
+  if (habit.frequency === 'weekly' || habit.frequency === 'monthly') {
+    return habit.goalType === 'boolean' ? cadence : goalSummary(habit);
+  }
+  if (habit.goalType === 'boolean') return cadence;
+  const unit = habit.unit ?? (habit.goalType === 'duration' ? 'min' : '');
+  const target = Math.max(1, habit.goalTarget);
+  return `${target}${unit ? ` ${unit}` : ''} · ${cadence}`;
+}
+
 /* -------------------------------------------------------------------------- */
 /* the current period                                                         */
 /* -------------------------------------------------------------------------- */

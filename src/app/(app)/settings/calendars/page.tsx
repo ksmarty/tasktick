@@ -29,7 +29,7 @@ export default function CalendarSettingsPage() {
   }
 
   return (
-    <div className="min-h-dvh pb-8">
+    <div className="pb-8">
       <NavBar title="Calendars" back backHref="/settings" backLabel="Settings" largeTitle />
 
       {accounts.isInitialLoading ? (

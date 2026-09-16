@@ -82,7 +82,13 @@ export function TextField({
 
       <div
         className={cn(
-          'flex items-center gap-2 rounded-ios-md bg-elevated px-3',
+          // A hairline border, not just a background: the grouped cards are
+          // translucent glass now, so a white input on a near-white card had no
+          // perceptible edge and the password fields on /settings looked like
+          // empty space with a floating icon.
+          'flex items-center gap-2 rounded-ios-md border border-separator/70 bg-elevated px-3',
+          'transition-colors duration-150 ease-ios',
+          'focus-within:border-tint',
           'focus-within:ring-2 focus-within:ring-tint',
           error && 'ring-2 ring-danger',
         )}
@@ -198,7 +204,7 @@ export function TextArea({
 
       <div
         className={cn(
-          'rounded-ios-md bg-elevated px-3 py-2',
+          'rounded-ios-md border border-separator/70 bg-elevated px-3 py-2',
           'focus-within:ring-2 focus-within:ring-tint',
           error && 'ring-2 ring-danger',
         )}

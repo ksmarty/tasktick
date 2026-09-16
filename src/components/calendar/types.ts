@@ -1,8 +1,5 @@
 import type { AccentColor, Calendar, CalendarItem } from '@/lib/types';
 
-/** The four modes the calendar screen can render. */
-export type CalendarViewMode = 'month' | 'week' | 'day' | 'agenda';
-
 /** Everything the calendar views need to render times consistently. */
 export interface CalendarPrefs {
   zone: string;

@@ -86,7 +86,7 @@ export function IcalSubscriptionCard() {
             <Skeleton variant="rect" className="h-10" />
           </div>
         ) : list.length === 0 ? (
-          <ListRow title="No subscriptions yet" subtitle="Create one to publish a read-only feed." disabled />
+          <ListRow title="No subscriptions yet" subtitle="Create one to publish a read-only feed." />
         ) : (
           list.map((token) => (
             <div key={token.id} className="hairline-t px-4 py-3 first:border-t-0">

@@ -13,7 +13,7 @@ export default function NotificationSettingsPage() {
   const settings = useResource<SettingsPayload>('/api/settings');
 
   return (
-    <div className="min-h-dvh pb-8">
+    <div className="pb-8">
       <NavBar title="Notifications" back backHref="/settings" backLabel="Settings" largeTitle />
 
       {!settings.data ? (

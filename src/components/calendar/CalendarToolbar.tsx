@@ -1,95 +1,57 @@
 'use client';
 
 /**
- * The calendar toolbar.
+ * The calendar toolbar — one tidy row, and nothing else.
  *
- * The nav bar title carries the range label from `rangeForView` ("March 2025",
- * "10–16 March 2025", "Monday 10 March"), so what the user sees at the top is
- * exactly the window the server was asked for. Because that label changes
- * without a page navigation, a screen reader is told about it through a hidden
- * `aria-live` region in the pager row — otherwise a keyboard user would page
- * through months in silence.
+ * `[◀] [Month Year] [▶]` on the left, `[Today] [+]` on the right. The previous
+ * version squeezed a four-item segmented control in beside the title, which on a
+ * phone rendered as "M.. W.. D.. A..", and parked the prev/next chevrons in a
+ * second row that floated over the weekday header. Both are gone: the toolbar is
+ * a single `NavBar` row, so it is `sticky` inside the scroll pane and the grid
+ * below it can never collide with it.
+ *
+ * The month label is the `NavBar` title in spirit but sits with the chevrons, so
+ * the three read as one control; the visible `h1` is a screen-reader-only
+ * "Calendar" heading instead. Because the label changes without a navigation,
+ * the selected day is announced through an `aria-live` region.
  */
-import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal } from 'lucide-react';
-import { Button, Chip, IconButton, NavBar, SegmentedControl, type SegmentedOption } from '@/components/ui';
-import type { CalendarFilter, CalendarViewMode } from './types';
-
-const VIEW_OPTIONS: SegmentedOption<CalendarViewMode>[] = [
-  { value: 'month', label: 'Month' },
-  { value: 'week', label: 'Week' },
-  { value: 'day', label: 'Day' },
-  { value: 'agenda', label: 'Agenda' },
-];
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Button, IconButton, NavBar } from '@/components/ui';
 
 export interface CalendarToolbarProps {
-  view: CalendarViewMode;
-  onViewChange: (view: CalendarViewMode) => void;
-  /** `rangeForView(...).label` for the visible window. */
+  /** The visible month, e.g. "September 2025". */
   label: string;
-  /** A short label for the anchor day, e.g. "Mon 10 Mar". */
-  anchorLabel: string;
+  /** The selected day in full, e.g. "Wednesday 16 September 2025". */
+  selectedLabel: string;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
   onAdd: () => void;
-  onOpenCalendars: () => void;
-  /** Set when `?calendar=` is pinning the view to one calendar. */
-  filter: CalendarFilter | null;
-  onClearFilter: () => void;
 }
 
-export function CalendarToolbar({
-  view,
-  onViewChange,
-  label,
-  anchorLabel,
-  onPrev,
-  onNext,
-  onToday,
-  onAdd,
-  onOpenCalendars,
-  filter,
-  onClearFilter,
-}: CalendarToolbarProps) {
+export function CalendarToolbar({ label, selectedLabel, onPrev, onNext, onToday, onAdd }: CalendarToolbarProps) {
   return (
     <NavBar
-      title={label}
+      title={<span className="sr-only">Calendar</span>}
       leading={
-        <Button variant="plain" size="sm" onClick={onToday} className="px-2">
-          Today
-        </Button>
+        <div className="flex min-w-0 items-center gap-1">
+          <IconButton aria-label="Previous month" icon={ChevronLeft} size="sm" onClick={onPrev} />
+          <span className="min-w-0 truncate text-headline font-semibold text-label">{label}</span>
+          <IconButton aria-label="Next month" icon={ChevronRight} size="sm" onClick={onNext} />
+        </div>
       }
       trailing={
         <div className="flex items-center gap-1">
-          <SegmentedControl
-            size="sm"
-            label="Calendar view"
-            options={VIEW_OPTIONS}
-            value={view}
-            onChange={onViewChange}
-            className="w-[9.5rem] sm:w-[11rem]"
-          />
-          <IconButton aria-label="New event" icon={Plus} size="md" onClick={onAdd} />
+          <Button variant="plain" size="sm" onClick={onToday} className="px-2">
+            Today
+          </Button>
+          <IconButton aria-label="New event" icon={Plus} size="sm" variant="tinted" onClick={onAdd} />
         </div>
       }
     >
-      <div className="flex items-center gap-1 px-2 pb-1.5">
-        <IconButton aria-label="Previous period" icon={ChevronLeft} size="sm" onClick={onPrev} />
-        <IconButton aria-label="Next period" icon={ChevronRight} size="sm" onClick={onNext} />
-
-        <span className="min-w-0 flex-1 truncate px-1 text-center text-footnote text-secondary">{anchorLabel}</span>
-        <span aria-live="polite" className="sr-only">
-          {label}
-        </span>
-
-        {filter ? (
-          <Chip color={filter.color} onRemove={onClearFilter} removeLabel={`Stop filtering by ${filter.name}`}>
-            {filter.name}
-          </Chip>
-        ) : null}
-
-        <IconButton aria-label="Calendars" icon={SlidersHorizontal} size="sm" onClick={onOpenCalendars} />
-      </div>
+      <span aria-live="polite" className="sr-only">
+        {selectedLabel}
+      </span>
     </NavBar>
   );
 }

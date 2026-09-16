@@ -31,6 +31,7 @@ export {
   completionLabel,
   frequencySummary,
   goalSummary,
+  habitMetaSummary,
   habitProgressView,
   habitWindowRange,
   isHabitDueOn,

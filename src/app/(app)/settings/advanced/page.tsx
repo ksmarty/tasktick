@@ -17,7 +17,7 @@ export default function AdvancedSettingsPage() {
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
 
   return (
-    <div className="min-h-dvh pb-8">
+    <div className="pb-8">
       <NavBar title="Advanced" back backHref="/settings" backLabel="Settings" largeTitle />
 
       {!bootstrap.data ? (

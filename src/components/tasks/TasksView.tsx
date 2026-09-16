@@ -234,7 +234,7 @@ export function TasksView() {
   const showEmpty = !loading && !resource.error && sections.length === 0;
 
   return (
-    <div className="min-h-dvh bg-bg">
+    <div>
       <NavBar
         largeTitle
         title={

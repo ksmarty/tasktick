@@ -95,7 +95,7 @@ export function CalendarListEditor() {
             <Skeleton variant="rect" className="h-10" />
           </div>
         ) : list.length === 0 ? (
-          <ListRow title="No calendars yet" subtitle="Add a local calendar to start planning." disabled />
+          <ListRow title="No calendars yet" subtitle="Add a local calendar to start planning." />
         ) : (
           list.map((calendar) => (
             <ListRow

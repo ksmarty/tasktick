@@ -114,7 +114,10 @@ export function AccountSettings({ user }: AccountSettingsProps) {
           </div>
         </div>
 
-        <ListRow title="Email" subtitle={user.email} disabled />
+        {/* The email is the account's identity and cannot be changed here, but
+            it is not a disabled control either — dimming a fact to 40% made it
+            unreadable. */}
+        <ListRow title="Email" subtitle={user.email} />
 
         <div className="hairline-t px-4 py-3">
           <Button fullWidth variant="gray" icon={LogOut} loading={leave.isPending} onClick={() => void leave.run()}>

@@ -220,11 +220,15 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
           >
             Test on this device
           </Button>
-          <p className="pt-2 text-caption-1 text-tertiary">
-            {state === 'server-not-configured'
-              ? 'Unavailable: this server has no VAPID keys, so it cannot send push messages at all.'
-              : 'Shows a notification through this device’s service worker. It proves the device side works; a message from the server would arrive the same way.'}
-          </p>
+          {/* When the server has no VAPID keys the group's own footer already
+              says so — repeating it here in grey on grey only looked like a
+              rendering fault. */}
+          {state === 'server-not-configured' ? null : (
+            <p className="pt-2 text-footnote text-secondary">
+              Shows a notification through this device’s service worker. It proves the device side works; a message from
+              the server would arrive the same way.
+            </p>
+          )}
         </div>
       </SettingsGroup>
 

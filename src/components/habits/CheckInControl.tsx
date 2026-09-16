@@ -3,13 +3,17 @@
 /**
  * The check-in control that sits on the leading edge of a habit card.
  *
- * Two shapes, chosen by the habit's goal type:
+ * Two shapes, chosen by the habit's goal type, in one 44px-tall box so the row
+ * geometry is identical for every habit:
  *
  *   - **boolean** — one circular checkbox, exactly the iOS task circle, that
  *     toggles between `{ count: 1 }` and `{ count: null }`.
- *   - **count / duration** — the current progress (`3/8 glasses`) with `−` and
- *     `+` buttons that send `delta: -1` / `delta: 1`, so the server increments
- *     the stored amount instead of the client guessing it.
+ *   - **count / duration** — `[−] 3/8 glasses [+]`: the amount the server holds
+ *     for the period, with `−` and `+` sending `delta: -1` / `delta: 1` so the
+ *     server increments the stored amount instead of the client guessing it.
+ *
+ * Both buttons are full 44×44 targets; the glyph inside is smaller than the
+ * button, so the control stays visually compact without shrinking the hit area.
  *
  * The satisfying bit is deliberately tiny: the tick pops (`animate-pop`) each
  * time the habit becomes done, which is enough feedback without a confetti
@@ -36,12 +40,14 @@ export function CheckInControl({ habit, today, onCheckIn, pending = false, class
 
   if (!view.counted) {
     return (
-      <span className={cn('flex items-center', className)} data-checked={habit.doneToday ? 'true' : 'false'}>
+      <span className={cn('flex shrink-0 items-center', className)} data-checked={habit.doneToday ? 'true' : 'false'}>
         {/* Remounting on the flip replays the pop, which is the whole animation. */}
         <span key={habit.doneToday ? 'checked' : 'open'} className="animate-pop inline-flex">
           <Checkbox
             checked={Boolean(habit.doneToday)}
             disabled={pending}
+            size="md"
+            className="size-11 justify-center"
             aria-label={habit.doneToday ? `Uncheck ${habit.name} for today` : `Check in ${habit.name} for today`}
             onCheckedChange={(next) => onCheckIn({ count: next ? 1 : null })}
           />
@@ -51,32 +57,36 @@ export function CheckInControl({ habit, today, onCheckIn, pending = false, class
   }
 
   const canDecrease = view.logged > 0 && !pending;
+  const amount = `${view.logged} of ${view.target}${view.unit ? ` ${view.unit}` : ''}`;
 
   return (
-    <span className={cn('flex items-center gap-1', className)} data-checked={habit.doneToday ? 'true' : 'false'}>
+    <span className={cn('flex shrink-0 items-center', className)} data-checked={habit.doneToday ? 'true' : 'false'}>
       <IconButton
         icon={Minus}
         size="md"
         variant="tinted"
+        iconClassName="size-4"
         disabled={!canDecrease}
         aria-label={`Remove one from ${habit.name} today`}
         onClick={() => onCheckIn({ delta: -1 })}
       />
 
       <span
-        className="tnum flex min-w-11 flex-col items-center leading-none"
-        aria-label={`${habit.name}: ${view.logged} of ${view.target}${view.unit ? ` ${view.unit}` : ''} ${view.periodNoun}`}
+        role="img"
+        aria-label={`${amount} ${view.periodNoun}`}
+        className={cn(
+          'tnum min-w-16 px-1 text-center text-footnote font-semibold leading-none',
+          habit.doneToday ? 'text-success' : 'text-label',
+        )}
       >
-        <span className={cn('text-subhead font-semibold', habit.doneToday ? 'text-success' : 'text-label')}>
-          {view.logged}/{view.target}
-        </span>
-        {view.unit ? <span className="mt-0.5 text-caption-2 text-secondary">{view.unit}</span> : null}
+        {view.label}
       </span>
 
       <IconButton
         icon={Plus}
         size="md"
         variant={habit.doneToday ? 'tinted' : 'filled'}
+        iconClassName="size-4"
         disabled={pending}
         aria-label={`Add one to ${habit.name} today`}
         onClick={() => onCheckIn({ delta: 1 })}

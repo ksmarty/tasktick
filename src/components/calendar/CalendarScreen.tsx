@@ -1,24 +1,33 @@
 'use client';
 
 /**
- * The calendar screen: one place that owns the visible window.
+ * The calendar screen: one TickTick-style surface — a month grid on top and the
+ * selected day's agenda below — replacing the old month/week/day/agenda modes.
  *
- * There is exactly ONE read for every mode — `/api/calendar/items` with the range
- * `rangeForView` produced — and the range is recomputed whenever the view or the
- * anchor day changes. Everything the server already did (recurrence expansion,
- * day bucketing, overlap columns) is consumed as-is; nothing about dates is
- * re-derived here. Writes are optimistic through `mutate`, then invalidated and
- * refetched so the server's answer always wins in the end.
+ * What this file owns is the *window*: there is exactly ONE read of
+ * `/api/calendar/items`, for the month containing the anchor day, recomputed
+ * whenever the anchor changes. Everything the server already did (recurrence
+ * expansion, day bucketing) is consumed as-is; nothing about dates is re-derived
+ * here beyond the arithmetic of "which month am I looking at". Writes are
+ * optimistic through `mutate`, then invalidated and refetched so the server's
+ * answer always wins in the end.
+ *
+ * The neighbouring months are prefetched, so paging the month (or selecting a
+ * day just past the month edge) renders from cache instead of flashing a
+ * skeleton. The layout is a plain CSS breakpoint rather than a media-query hook:
+ * on a phone the grid is a fixed share of the viewport and the agenda takes the
+ * rest; on `lg:` the two sit side by side, the agenda a fixed 380px column.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api-client';
 import {
+  DATE_FORMAT,
   addDaysToDateOnly,
   combineDateAndTime,
   dateOnlyToMillis,
-  eachDayInclusive,
   fromDateOnly,
   rangeForView,
   shiftViewAnchor,
@@ -27,32 +36,20 @@ import {
   todayIn,
 } from '@/lib/dates';
 import { invalidate, useResource } from '@/lib/store';
-import { Sheet, Skeleton, useToast } from '@/components/ui';
+import { cn } from '@/lib/cn';
+import { Chip, Sheet, Skeleton, useToast } from '@/components/ui';
 import type { Calendar, CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
-import { AgendaView } from './AgendaView';
 import { CalendarSidebar } from './CalendarSidebar';
 import { CalendarToolbar } from './CalendarToolbar';
+import { DayAgenda } from './DayAgenda';
 import { DayDetailSheet, DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
-import { DayView } from './DayView';
 import { EventEditorSheet, type EventDefaults } from './EventEditorSheet';
-import { MiniMonth } from './MiniMonth';
 import { MonthGrid } from './MonthGrid';
-import { WeekView } from './WeekView';
 import { SWIPE_PAGE_PX, minuteToTime, timeToMinute } from './geometry';
 import { moveItemInPayload } from './optimistic';
 import { createInteraction } from './types';
-import type {
-  CalendarInteraction,
-  CalendarLookup,
-  CalendarPrefs,
-  CalendarViewMode,
-  RescheduleTarget,
-} from './types';
-
-/** Days the agenda starts with, how much each scroll adds, and the hard cap. */
-const AGENDA_PAGE_DAYS = 30;
-const AGENDA_MAX_DAYS = 360;
+import type { CalendarInteraction, CalendarLookup, CalendarPrefs, RescheduleTarget } from './types';
 
 /**
  * Sent as `calendarIds` when the user has hidden every calendar.
@@ -63,14 +60,13 @@ const AGENDA_MAX_DAYS = 360;
 const NO_CALENDAR_ID = '__none__';
 
 export interface CalendarScreenProps {
-  initialView: CalendarViewMode;
   /** `null` when `?date=` was missing or invalid: the screen falls back to today. */
   initialDate: DateOnly | null;
   /** `?calendar=<id>` — pins the view to one calendar. */
   initialCalendarId: string | null;
 }
 
-export function CalendarScreen({ initialView, initialDate, initialCalendarId }: CalendarScreenProps) {
+export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScreenProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { toast } = useToast();
@@ -81,23 +77,23 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
   const weekStartsOn = settings?.weekStartsOn ?? 1;
   const timeFormat = settings?.timeFormat ?? '24h';
 
-  const [view, setView] = useState<CalendarViewMode>(initialView);
   const [anchor, setAnchor] = useState<DateOnly | null>(initialDate);
   const [selectedDate, setSelectedDate] = useState<DateOnly | null>(initialDate);
+  const [collapsed, setCollapsed] = useState(false);
   const [filterId, setFilterId] = useState<string | null>(initialCalendarId);
-  const [agendaExtraDays, setAgendaExtraDays] = useState(0);
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [daySheetDate, setDaySheetDate] = useState<DateOnly | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; eventId: string | null; defaults: EventDefaults } | null>(null);
 
-  // One mutable gesture record, shared with every view: it is how a paging
-  // swipe knows to stand down during a drag, and how a drag swallows the click
-  // that follows it.
+  // One mutable gesture record, shared with the grid and the agenda: it is how a
+  // paging swipe knows to stand down during a drag, and how a drag swallows the
+  // click that follows it.
   const [interaction] = useState<CalendarInteraction>(createInteraction);
 
   const today = todayIn(zone);
   const activeDate = anchor ?? today;
+  const selected = selectedDate ?? today;
   const prefs: CalendarPrefs = useMemo(() => ({ zone, weekStartsOn, timeFormat }), [zone, weekStartsOn, timeFormat]);
 
   const calendars = bootstrap.data?.calendars ?? [];
@@ -118,22 +114,11 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
     return visible.length > 0 ? visible : [NO_CALENDAR_ID];
   }, [filterCalendar, calendars, visibilityById]);
 
-  /** The visible window, widened by whole agenda pages as the list is scrolled. */
-  const range = useMemo(() => {
-    const base = rangeForView(view, activeDate, zone, weekStartsOn);
-    if (view !== 'agenda' || agendaExtraDays === 0) return base;
-
-    const endDate = addDaysToDateOnly(base.endDate, agendaExtraDays, zone);
-    return {
-      ...base,
-      endDate,
-      endMs: dateOnlyToMillis(addDaysToDateOnly(endDate, 1, zone), zone),
-      days: eachDayInclusive(base.startDate, endDate, zone),
-      label: `Next ${base.days.length + agendaExtraDays} days`,
-    };
-  }, [view, activeDate, zone, weekStartsOn, agendaExtraDays]);
-
-  const wantsLayout = view === 'day' || view === 'week';
+  /** The visible month, padded out to whole weeks by the server's own range helper. */
+  const range = useMemo(
+    () => rangeForView('month', activeDate, zone, weekStartsOn),
+    [activeDate, zone, weekStartsOn],
+  );
 
   // Wait for the user's timezone before asking for a range: the window depends
   // on it, and a UTC range would be a wasted round trip that is immediately
@@ -142,79 +127,67 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
 
   const resource = useResource<CalendarItemsPayload>(
     '/api/calendar/items',
-    {
-      startMs: range.startMs,
-      endMs: range.endMs,
-      layout: wantsLayout ? 1 : undefined,
-      calendarIds,
-    },
+    { startMs: range.startMs, endMs: range.endMs, calendarIds },
     { enabled: settingsReady },
   );
 
-  // Keep the last answer for this view while the next one is in flight, so
-  // widening the agenda (or landing on a prefetched month) never flashes a
-  // skeleton. `resource.data` still wins the moment it arrives.
-  const lastPayload = useRef<{ view: CalendarViewMode; payload: CalendarItemsPayload } | null>(null);
-  if (resource.data) lastPayload.current = { view, payload: resource.data };
-  const payload = resource.data ?? (lastPayload.current?.view === view ? lastPayload.current.payload : undefined);
-
-  const isLoadingMore = Boolean(payload) && resource.isLoading;
+  const payload = resource.data;
+  const emptyPayload = useMemo<CalendarItemsPayload>(() => ({ items: [], calendars, days: {} }), [calendars]);
+  const activePayload = payload ?? emptyPayload;
+  const selectedItems = payload?.days[selected] ?? [];
 
   /* ------------------------------------------------------------------ */
   /* navigation                                                         */
   /* ------------------------------------------------------------------ */
 
-  const goTo = useCallback(
+  /** Moves a day by whole months, keeping the day-of-month where it exists. */
+  const shiftMonthKeepingDay = useCallback(
+    (date: DateOnly, delta: number): DateOnly =>
+      fromDateOnly(date, zone).plus({ months: delta }).toFormat(DATE_FORMAT),
+    [zone],
+  );
+
+  /** Selects a day, moving the displayed month with it when they disagree. */
+  const selectDate = useCallback(
     (date: DateOnly) => {
-      setAnchor(date);
       setSelectedDate(date);
-      setAgendaExtraDays(0);
+      setAnchor((current) => {
+        const base = current ?? date;
+        return base.slice(0, 7) === date.slice(0, 7) ? base : date;
+      });
     },
     [],
   );
 
-  const page = useCallback(
-    (delta: number) => {
-      setAnchor(shiftViewAnchor(view, activeDate, delta, zone));
-      // The selection travels with the view, so the month view's "add" action
-      // never prefills a day from the month the user just paged away from.
-      setSelectedDate(shiftViewAnchor(view, selectedDate ?? activeDate, delta, zone));
-      setAgendaExtraDays(0);
-    },
-    [view, activeDate, selectedDate, zone],
-  );
-
-  const changeView = useCallback((next: CalendarViewMode) => {
-    setView(next);
-    setAgendaExtraDays(0);
+  const goTo = useCallback((date: DateOnly) => {
+    setAnchor(date);
+    setSelectedDate(date);
   }, []);
 
+  const page = useCallback(
+    (delta: number) => {
+      setAnchor(shiftViewAnchor('month', activeDate, delta, zone));
+      // The selection travels with the view, so the agenda keeps showing the
+      // same day-of-month as the user pages.
+      setSelectedDate((current) => shiftMonthKeepingDay(current ?? activeDate, delta));
+    },
+    [activeDate, zone, shiftMonthKeepingDay],
+  );
+
+  const moveDay = useCallback(
+    (delta: number) => {
+      selectDate(addDaysToDateOnly(selected, delta, zone));
+    },
+    [selected, zone, selectDate],
+  );
+
   // Mirror the state into the URL so a reload, a bookmark or the back gesture
-  // lands on the same window.
+  // lands on the same day.
   useEffect(() => {
-    const params = new URLSearchParams({ view, date: activeDate });
+    const params = new URLSearchParams({ date: selected });
     if (filterId) params.set('calendar', filterId);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [view, activeDate, filterId, pathname, router]);
-
-  // Horizontal swipe across the grid body pages the period on touch.
-  const swipe = useRef<{ x: number; y: number } | null>(null);
-
-  function onSwipeStart(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === 'mouse' || interaction.dragging) return;
-    swipe.current = { x: event.clientX, y: event.clientY };
-  }
-
-  function onSwipeEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    const start = swipe.current;
-    swipe.current = null;
-    if (!start || interaction.dragging || event.pointerType === 'mouse') return;
-
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (Math.abs(dx) < SWIPE_PAGE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    page(dx < 0 ? 1 : -1);
-  }
+  }, [selected, filterId, pathname, router]);
 
   /* ------------------------------------------------------------------ */
   /* writes                                                             */
@@ -324,97 +297,109 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
   );
 
   const addFromToolbar = useCallback(() => {
-    if (view === 'month') {
-      createAt(selectedDate ?? activeDate, DEFAULT_EVENT_START_MINUTE);
-      return;
-    }
-    createAt(activeDate, DEFAULT_EVENT_START_MINUTE);
-  }, [view, selectedDate, activeDate, createAt]);
+    createAt(selected, DEFAULT_EVENT_START_MINUTE);
+  }, [selected, createAt]);
 
-  const hasMoreAgenda = range.days.length < AGENDA_MAX_DAYS;
-  const loadMoreAgenda = useCallback(() => {
-    setAgendaExtraDays((current) =>
-      Math.min(current + AGENDA_PAGE_DAYS, AGENDA_MAX_DAYS - AGENDA_PAGE_DAYS),
-    );
-  }, []);
+  /* ------------------------------------------------------------------ */
+  /* swipe paging                                                       */
+  /* ------------------------------------------------------------------ */
 
-  const daySheetItems = daySheetDate && payload ? (payload.days[daySheetDate] ?? []) : [];
-
-  const emptyPayload = useMemo<CalendarItemsPayload>(
-    () => ({ items: [], calendars, days: {} }),
-    [calendars],
-  );
-  const activePayload = payload ?? emptyPayload;
-
-  const viewProps = {
-    today,
-    payload: activePayload,
-    prefs,
-    calendars: calendarLookup,
-    interaction,
-    onCreateAt: createAt,
-    onOpenItem: openItem,
-    onReschedule: reschedule,
-    onOpenDay: setDaySheetDate,
-  };
+  // Horizontal swipe across the grid pages the month; across the agenda it moves
+  // the selected day. A drag in flight stands both down (`interaction.dragging`).
+  const gridSwipe = useSwipePaging(interaction, page);
+  const agendaSwipe = useSwipePaging(interaction, moveDay);
 
   return (
     <>
-      <CalendarToolbar
-        view={view}
-        onViewChange={changeView}
-        label={range.label}
-        anchorLabel={fromDateOnly(activeDate, prefs.zone).toFormat('ccc d LLL')}
-        onPrev={() => page(-1)}
-        onNext={() => page(1)}
-        onToday={() => goTo(today)}
-        onAdd={addFromToolbar}
-        onOpenCalendars={() => setSidebarOpen(true)}
-        filter={filterCalendar ? { id: filterCalendar.id, name: filterCalendar.name, color: filterCalendar.color } : null}
-        onClearFilter={() => setFilterId(null)}
-      />
+      <div className="flex h-full min-h-0 flex-col">
+        <CalendarToolbar
+          label={range.label}
+          selectedLabel={fromDateOnly(selected, prefs.zone).toFormat('cccc d LLLL yyyy')}
+          onPrev={() => page(-1)}
+          onNext={() => page(1)}
+          onToday={() => goTo(today)}
+          onAdd={addFromToolbar}
+        />
 
-      <div
-        onPointerDown={onSwipeStart}
-        onPointerUp={onSwipeEnd}
-        onPointerCancel={() => {
-          swipe.current = null;
-        }}
-        className="touch-pan-y"
-      >
-        {!payload ? (
-          resource.error ? (
-            <p role="alert" className="px-4 py-8 text-center text-footnote text-danger">
-              {resource.error}
-            </p>
-          ) : (
-            <CalendarSkeleton />
-          )
-        ) : view === 'month' ? (
-          <MonthGrid
-            {...viewProps}
-            days={range.days}
-            anchor={activeDate}
-            selectedDate={selectedDate ?? activeDate}
-          />
-        ) : view === 'week' ? (
-          <WeekView {...viewProps} days={range.days} />
-        ) : view === 'day' ? (
-          <DayView {...viewProps} days={range.days} />
-        ) : (
-          <AgendaView
-            days={range.days}
-            today={today}
-            payload={activePayload}
-            prefs={prefs}
-            calendars={calendarLookup}
-            onOpenItem={openItem}
-            onOpenDay={setDaySheetDate}
-            onLoadMore={loadMoreAgenda}
-            hasMore={hasMoreAgenda}
-            isLoadingMore={isLoadingMore}
-          />
-        )}
+        {filterCalendar ? (
+          <div className="flex shrink-0 items-center px-4 pb-1.5">
+            <Chip
+              color={filterCalendar.color}
+              onRemove={() => setFilterId(null)}
+              removeLabel={`Stop filtering by ${filterCalendar.name}`}
+            >
+              {filterCalendar.name}
+            </Chip>
+          </div>
+        ) : null}
+
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-4 lg:p-3">
+          <section
+            aria-label="Month"
+            {...gridSwipe}
+            className={cn(
+              'flex min-h-0 flex-col touch-pan-y',
+              // A fixed share of the viewport on a phone keeps the grid stable
+              // while the agenda scrolls; on desktop it becomes the left column.
+              collapsed ? 'shrink-0' : 'h-[48dvh] shrink-0 lg:h-auto lg:flex-1',
+            )}
+          >
+            {!payload ? (
+              resource.error ? (
+                <p role="alert" className="px-4 py-8 text-center text-footnote text-danger">
+                  {resource.error}
+                </p>
+              ) : (
+                <CalendarSkeleton />
+              )
+            ) : (
+              <MonthGrid
+                days={range.days}
+                anchor={activeDate}
+                selectedDate={selected}
+                today={today}
+                weeks={collapsed ? 1 : 6}
+                payload={activePayload}
+                prefs={prefs}
+                calendars={calendarLookup}
+                interaction={interaction}
+                onSelectDate={selectDate}
+                onOpenDay={setDaySheetDate}
+                onOpenItem={openItem}
+                onReschedule={reschedule}
+              />
+            )}
+
+            <button
+              type="button"
+              aria-label={collapsed ? 'Expand the month' : 'Collapse to a week'}
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed((current) => !current)}
+              className="flex h-4 w-full shrink-0 items-center justify-center text-tertiary pressable"
+            >
+              {collapsed ? <ChevronDown className="size-4" aria-hidden /> : <ChevronUp className="size-4" aria-hidden />}
+            </button>
+          </section>
+
+          <section
+            aria-label="Day agenda"
+            {...agendaSwipe}
+            className="flex min-h-0 flex-1 flex-col lg:h-auto lg:w-[380px] lg:flex-none"
+          >
+            <DayAgenda
+              date={selected}
+              today={today}
+              items={selectedItems}
+              prefs={prefs}
+              calendars={calendarLookup}
+              interaction={interaction}
+              onOpenItem={openItem}
+              onReschedule={reschedule}
+              onCreateAt={createAt}
+              onOpenCalendars={() => setSidebarOpen(true)}
+            />
+          </section>
+        </div>
       </div>
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen} title="Calendars" snapPoints={[0.6, 0.95]}>
@@ -427,21 +412,9 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
           onClearFilter={() => setFilterId(null)}
           onCreateEvent={() => {
             setSidebarOpen(false);
-            createAt(selectedDate ?? activeDate, DEFAULT_EVENT_START_MINUTE);
+            createAt(selected, DEFAULT_EVENT_START_MINUTE);
           }}
-        >
-          <MiniMonth
-            anchor={activeDate}
-            selectedDate={selectedDate ?? activeDate}
-            today={today}
-            counts={payload?.days ? Object.fromEntries(Object.entries(payload.days).map(([day, items]) => [day, items.length])) : {}}
-            prefs={prefs}
-            onSelectDate={(date) => {
-              goTo(date);
-              setSidebarOpen(false);
-            }}
-          />
-        </CalendarSidebar>
+        />
       </Sheet>
 
       <DayDetailSheet
@@ -450,7 +423,7 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
           if (!open) setDaySheetDate(null);
         }}
         date={daySheetDate ?? activeDate}
-        items={daySheetItems}
+        items={daySheetDate && payload ? (payload.days[daySheetDate] ?? []) : []}
         calendars={calendarLookup}
         prefs={prefs}
         onOpenItem={(item) => {
@@ -468,7 +441,7 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
         eventId={editor?.eventId ?? null}
         defaults={
           editor?.defaults ?? {
-            date: activeDate,
+            date: selected,
             startMinute: DEFAULT_EVENT_START_MINUTE,
             endMinute: DEFAULT_EVENT_START_MINUTE + 60,
             calendarId: filterCalendar?.id ?? null,
@@ -480,17 +453,13 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
         onChanged={refresh}
       />
 
-      {view !== 'agenda' ? (
-        <PrefetchNeighbours
-          view={view}
-          anchor={activeDate}
-          zone={zone}
-          weekStartsOn={weekStartsOn}
-          layout={wantsLayout}
-          calendarIds={calendarIds}
-          enabled={Boolean(payload) && !resource.isLoading}
-        />
-      ) : null}
+      <PrefetchNeighbours
+        anchor={activeDate}
+        zone={zone}
+        weekStartsOn={weekStartsOn}
+        calendarIds={calendarIds}
+        enabled={Boolean(payload) && !resource.isLoading}
+      />
     </>
   );
 }
@@ -498,6 +467,36 @@ export function CalendarScreen({ initialView, initialDate, initialCalendarId }: 
 /* -------------------------------------------------------------------------- */
 /* helpers                                                                     */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * A horizontal swipe on `element` calls `onPage(±1)`.
+ *
+ * Deliberately touch-only: a mouse already has the chevrons and the keyboard,
+ * and hijacking a mouse drag would fight the drag-to-reschedule gesture.
+ */
+function useSwipePaging(interaction: CalendarInteraction, onPage: (delta: number) => void) {
+  const start = useRef<{ x: number; y: number } | null>(null);
+
+  return {
+    onPointerDown(event: ReactPointerEvent<HTMLElement>) {
+      if (event.pointerType === 'mouse' || interaction.dragging) return;
+      start.current = { x: event.clientX, y: event.clientY };
+    },
+    onPointerUp(event: ReactPointerEvent<HTMLElement>) {
+      const from = start.current;
+      start.current = null;
+      if (!from || interaction.dragging || event.pointerType === 'mouse') return;
+
+      const dx = event.clientX - from.x;
+      const dy = event.clientY - from.y;
+      if (Math.abs(dx) < SWIPE_PAGE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      onPage(dx < 0 ? 1 : -1);
+    },
+    onPointerCancel() {
+      start.current = null;
+    },
+  };
+}
 
 interface MovePlan {
   isAllDay: boolean;
@@ -563,47 +562,43 @@ function defaultsFor(item: CalendarItem, prefs: CalendarPrefs): EventDefaults {
 }
 
 /**
- * Warms the neighbouring ranges so paging a month (or a week) renders instantly.
+ * Warms the neighbouring months so paging renders instantly.
  *
  * It is a second `useResource` on purpose: the cache is keyed by range, so the
  * only way to have the next month ready is to have asked for it. It renders
  * nothing and never blocks the view.
  */
 function PrefetchNeighbours({
-  view,
   anchor,
   zone,
   weekStartsOn,
-  layout,
   calendarIds,
   enabled,
 }: {
-  view: CalendarViewMode;
   anchor: DateOnly;
   zone: string;
   weekStartsOn: number;
-  layout: boolean;
   calendarIds: string[] | undefined;
   enabled: boolean;
 }) {
   const [previous, next] = useMemo(
     () =>
       [-1, 1].map((delta) =>
-        rangeForView(view, shiftViewAnchor(view, anchor, delta, zone), zone, weekStartsOn),
+        rangeForView('month', shiftViewAnchor('month', anchor, delta, zone), zone, weekStartsOn),
       ),
-    [view, anchor, zone, weekStartsOn],
+    [anchor, zone, weekStartsOn],
   );
 
   const options = { enabled, staleAfterMs: 60_000, revalidateOnFocus: false } as const;
 
   useResource<CalendarItemsPayload>(
     '/api/calendar/items',
-    { startMs: previous.startMs, endMs: previous.endMs, layout: layout ? 1 : undefined, calendarIds },
+    { startMs: previous.startMs, endMs: previous.endMs, calendarIds },
     options,
   );
   useResource<CalendarItemsPayload>(
     '/api/calendar/items',
-    { startMs: next.startMs, endMs: next.endMs, layout: layout ? 1 : undefined, calendarIds },
+    { startMs: next.startMs, endMs: next.endMs, calendarIds },
     options,
   );
 
@@ -613,11 +608,10 @@ function PrefetchNeighbours({
 /** The first-load placeholder: shapes only, never a fake calendar. */
 function CalendarSkeleton() {
   return (
-    <div className="space-y-2 p-4" aria-busy>
-      <Skeleton variant="rect" className="h-8" />
+    <div className="flex min-h-0 flex-1 flex-col gap-2 p-4" aria-busy>
       <div className="grid grid-cols-7 gap-1">
         {Array.from({ length: 42 }, (_, index) => (
-          <Skeleton key={index} variant="rect" className="h-12" />
+          <Skeleton key={index} variant="rect" className="h-10" />
         ))}
       </div>
     </div>

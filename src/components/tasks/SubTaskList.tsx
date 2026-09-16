@@ -48,7 +48,7 @@ export function SubTaskList({
   return (
     <div>
       {subtasks.length ? (
-        <ul className="rounded-ios-md bg-elevated">
+        <ul className="overflow-hidden rounded-ios-md bg-elevated">
           {subtasks.map((subtask, index) => {
             const completed = subtask.status === 'completed';
             return (
