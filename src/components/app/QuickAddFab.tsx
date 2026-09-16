@@ -14,7 +14,7 @@
  */
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { requestQuickAdd } from '@/lib/events';
+import { requestPrimaryAction } from '@/lib/events';
 
 export interface QuickAddFabProps {
   /** Accessible name. Defaults to "Add a task". */
@@ -27,7 +27,7 @@ export function QuickAddFab({ label = 'Add a task', className }: QuickAddFabProp
     <button
       type="button"
       aria-label={label}
-      onClick={requestQuickAdd}
+      onClick={requestPrimaryAction}
       className={cn(
         /*
          * Sits above the floating tab bar, not beside it: the bar is centred and

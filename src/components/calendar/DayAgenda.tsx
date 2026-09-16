@@ -8,20 +8,35 @@
  * sorting and no recurrence work happens here: the day's contents are whatever
  * the single `/api/calendar/items` response said they were.
  *
- * A row is one focusable button whose accessible name carries the time and the
- * title, because the visual layout (a time gutter, a colour bar and the text)
- * does not survive as a linear reading order on its own. Tasks are drawn with a
- * checkbox glyph and a dashed edge, so "a to-do I scheduled" is never confused
- * with "a meeting I was invited to" — colour is not the only signal.
+ * A row is `[time gutter] │ [card]`. The gutter is a fixed column, right-aligned
+ * against a hairline rule, so the times form a clean edge down the left of the
+ * list; an all-day item reads "all-day" in that same column rather than being
+ * indented somewhere else. The card then leads with the time range in the
+ * calendar's accent colour and the title beneath it — the reading order the
+ * reference uses, and the reason the range is set in `caption-1` and the title
+ * in `subhead`: the eye lands on the time first and the name second.
+ *
+ * Colour is never the only signal. A task is drawn with a checkbox glyph and a
+ * softer leading edge than an event's solid one, so "a to-do I scheduled" is
+ * never mistaken for "a meeting I was invited to".
+ *
+ * The whole row is one focusable button whose accessible name carries the time,
+ * the title and the item's kind, because the visual layout (a gutter, a rule and
+ * a two-line card) does not survive as a linear reading order on its own.
  *
  * Dragging a row horizontally moves the item by whole days. It goes through the
- * same `useItemDrag` hook as the month grid, so the lift threshold, the
- * click-swallow and the Escape-to-cancel behaviour are identical in both places.
+ * same `useItemDrag` hook as before, so the lift threshold, the click-swallow
+ * and the Escape-to-cancel behaviour are identical everywhere in the calendar.
+ *
+ * The pane reserves the shell's floating action button's band at its end
+ * (`pb-20` on a phone) so the last row is never underneath it, and the trailing
+ * "New event" row is therefore desktop-only: on a phone the FAB and the nav
+ * bar's "+" are the ways in.
  */
 import { useRef } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { CalendarDays, Plus, SlidersHorizontal } from 'lucide-react';
-import { accentHex } from '@/lib/colors';
+import { accentSoft, accentVar } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import type { CalendarItem, DateOnly } from '@/lib/types';
@@ -41,6 +56,15 @@ import type { CalendarInteraction, CalendarLookup, CalendarPrefs, ItemOpenHandle
  * day, and the index sits in the middle so the item can move either way.
  */
 const DRAG_COLUMNS = 7;
+
+/**
+ * Alpha of a task's leading edge.
+ *
+ * Events get the calendar colour at full strength; tasks get the same hue as a
+ * tint, which together with the checkbox glyph is what keeps the two kinds apart
+ * at a glance.
+ */
+const TASK_EDGE_ALPHA = 0.5;
 
 export interface DayAgendaProps {
   date: DateOnly;
@@ -113,12 +137,22 @@ export function DayAgenda({
         />
       </header>
 
-      <ul ref={listRef} className="scroll-pane min-h-0 flex-1 space-y-1.5 px-3 pb-4">
+      {/*
+        `pb-20` reserves the shell's floating action button's band at the end of
+        the list — the FAB is `bottom: 5.5rem` + `size-14`, so it reaches 4.25rem
+        above this pane's bottom edge, and the extra room is what keeps the last
+        row clear of it once the list is scrolled all the way down.
+      */}
+      <ul ref={listRef} className="scroll-pane min-h-0 flex-1 space-y-1.5 px-3 pb-20 lg:pb-4">
         {items.map((item) => {
-          const hex = accentHex(itemColor(item, calendars));
+          const color = itemColor(item, calendars);
           const isTask = item.kind === 'task';
           const done = Boolean(item.completed);
-          const timeLabel = item.isAllDay ? 'All-day' : formatTime(item.startMs, prefs);
+          // The gutter carries the start of the row; the card carries the range.
+          const gutterLabel = item.isAllDay ? 'all-day' : formatTime(item.startMs, prefs);
+          const rangeLabel = item.isAllDay
+            ? 'All-day'
+            : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
           const accessibleName = [
             item.isAllDay ? 'All-day' : `${formatTime(item.startMs, prefs)} to ${formatTime(item.endMs, prefs)}`,
             item.title,
@@ -128,6 +162,7 @@ export function DayAgenda({
           ]
             .filter(Boolean)
             .join(', ');
+          const dragging = drag.ghost?.item.key === item.key;
 
           return (
             <li key={item.key}>
@@ -144,24 +179,30 @@ export function DayAgenda({
                   })
                 }
                 className={cn(
-                  'glass-card flex w-full items-stretch gap-2 rounded-ios-md px-2.5 py-2 text-left pressable-row',
+                  'flex w-full items-stretch gap-2 text-left pressable-row',
                   done && 'opacity-60',
-                  drag.ghost?.item.key === item.key && 'relative z-40 shadow-ios-lg opacity-90',
+                  dragging && 'relative z-40',
                 )}
-                style={
-                  drag.ghost?.item.key === item.key
-                    ? { transform: `translate3d(${drag.ghost.offsetX}px, 0, 0)` }
-                    : undefined
-                }
+                style={dragging ? { transform: `translate3d(${drag.ghost?.offsetX ?? 0}px, 0, 0)` } : undefined}
               >
-                <span className="tnum w-14 shrink-0 pt-0.5 text-right text-caption-1 text-secondary">{timeLabel}</span>
+                <span className="tnum w-14 shrink-0 pt-1.5 text-right text-caption-1 text-secondary">
+                  {gutterLabel}
+                </span>
+
+                {/* The hairline the times are aligned against. */}
+                <span aria-hidden className="w-px shrink-0 self-stretch bg-separator" />
+
                 <span
-                  aria-hidden
-                  className={cn('w-1 shrink-0 rounded-full', isTask && 'border border-dashed')}
-                  style={isTask ? { borderColor: hex } : { backgroundColor: hex }}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className={cn('block truncate text-subhead text-label', done && 'text-secondary line-through')}>
+                  className="card-edge flex min-w-0 flex-1 flex-col justify-center py-1.5 pr-2.5 pl-3"
+                  style={{ '--edge-color': isTask ? accentSoft(color, TASK_EDGE_ALPHA) : accentVar(color) } as CSSProperties}
+                >
+                  <span
+                    className="block truncate text-caption-1 font-semibold"
+                    style={{ color: accentVar(color) }}
+                  >
+                    {rangeLabel}
+                  </span>
+                  <span className={cn('mt-0.5 block truncate text-subhead text-label', done && 'line-through')}>
                     {isTask ? (
                       <span aria-hidden className="mr-1">
                         {done ? '☑' : '☐'}
@@ -170,7 +211,7 @@ export function DayAgenda({
                     {item.title}
                   </span>
                   {item.location ? (
-                    <span className="mt-0.5 block truncate text-caption-1 text-secondary">{item.location}</span>
+                    <span className="mt-0.5 block truncate text-caption-2 text-secondary">{item.location}</span>
                   ) : null}
                 </span>
               </button>
@@ -196,7 +237,12 @@ export function DayAgenda({
             />
           </li>
         ) : (
-          <li>
+          /*
+            Phone-sized screens have the FAB in this corner and the nav bar's
+            "+" is one tap away, so the row only renders where there is room for
+            it; that is also why the pane above reserves the FAB's band.
+          */
+          <li className="hidden lg:block">
             <button
               type="button"
               onClick={() => onCreateAt(date, DEFAULT_EVENT_START_MINUTE)}

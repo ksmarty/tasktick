@@ -14,13 +14,20 @@
  */
 import { useEffect } from 'react';
 
-/** Raised when the user asks for a new task from the shell. */
-export const QUICK_ADD_EVENT = 'tasktick:quick-add';
+/**
+ * Raised when the user presses the shell's action button.
+ *
+ * Deliberately not "quick add a task": the button is contextual. On the task
+ * lists it opens the quick-add sheet, on /habits it opens the habit editor, and
+ * on /calendar it starts a new event. A single global event keeps the button in
+ * the shell while each mounted view decides what it means.
+ */
+export const PRIMARY_ACTION_EVENT = 'tasktick:quick-add';
 
-/** Asks the mounted view to open its quick-add sheet. */
-export function requestQuickAdd(): void {
+/** Asks the mounted view to perform its primary "create" action. */
+export function requestPrimaryAction(): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(QUICK_ADD_EVENT));
+  window.dispatchEvent(new CustomEvent(PRIMARY_ACTION_EVENT));
 }
 
 /**
@@ -30,10 +37,10 @@ export function requestQuickAdd(): void {
  * every render — the caller passes an inline arrow, which would otherwise
  * resubscribe constantly.
  */
-export function useQuickAddRequest(open: () => void): void {
+export function usePrimaryAction(open: () => void): void {
   useEffect(() => {
     const handler = () => open();
-    window.addEventListener(QUICK_ADD_EVENT, handler);
-    return () => window.removeEventListener(QUICK_ADD_EVENT, handler);
+    window.addEventListener(PRIMARY_ACTION_EVENT, handler);
+    return () => window.removeEventListener(PRIMARY_ACTION_EVENT, handler);
   }, [open]);
 }

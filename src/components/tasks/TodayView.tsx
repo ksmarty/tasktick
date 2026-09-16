@@ -20,6 +20,7 @@ import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { EmptyTasks } from './EmptyTasks';
 import { QuickAddBar } from './QuickAddBar';
+import { usePrimaryAction } from '@/lib/events';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
 import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
@@ -37,6 +38,9 @@ export function TodayView() {
   const actions = useTaskActions(zone);
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+
+  // The shell's action button asks the mounted view for its primary create action.
+  usePrimaryAction(() => setQuickAddOpen(true));
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
 
   const sections = useMemo(() => buildTodaySections(data?.agenda), [data?.agenda]);
@@ -44,6 +48,10 @@ export function TodayView() {
   const progress = todayProgress(data?.agenda);
   const listNames = useMemo(
     () => new Map((data?.lists ?? []).map((list) => [list.id, list.name])),
+    [data?.lists],
+  );
+  const listColors = useMemo(
+    () => new Map((data?.lists ?? []).map((list) => [list.id, list.color])),
     [data?.lists],
   );
 
@@ -107,7 +115,17 @@ export function TodayView() {
         title="Today"
         trailing={
           <>
-            <IconButton aria-label="Add a task" icon={Plus} onClick={() => setQuickAddOpen(true)} />
+            {/*
+             * Desktop only: on a phone the floating `QuickAddFab` is the add
+             * affordance and this would be a second, redundant one in a corner
+             * a thumb cannot reach anyway.
+             */}
+            <IconButton
+              aria-label="Add a task"
+              icon={Plus}
+              className="hidden lg:inline-flex"
+              onClick={() => setQuickAddOpen(true)}
+            />
             <IconButton aria-label="Search everything" icon={Search} onClick={() => router.push('/search')} />
           </>
         }
@@ -182,6 +200,7 @@ export function TodayView() {
               zone={zone}
               timeFormat={timeFormat}
               listNames={listNames}
+              listColors={listColors}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
               onDelete={deleteTask}

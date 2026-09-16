@@ -248,7 +248,15 @@ export function HabitHeatmap({
                           cell.level === 0 && 'bg-fill-tertiary',
                           cell.date === today && 'ring-1 ring-label',
                         )}
-                        style={cell.level > 0 ? cellBackground(cell, series.color, dark) : undefined}
+                        // An empty button has no intrinsic size, so the cell's
+                        // geometry has to be stated here — the same 12px box the
+                        // gutter and the empty-cell placeholders use, or the
+                        // whole grid collapses to a zero-height strip.
+                        style={{
+                          width: CELL_PX,
+                          height: CELL_PX,
+                          ...(cell.level > 0 ? cellBackground(cell, series.color, dark) : {}),
+                        }}
                       />
                     ) : (
                       <span key={`${weekIndex}-${row}`} aria-hidden style={{ width: CELL_PX, height: CELL_PX }} />

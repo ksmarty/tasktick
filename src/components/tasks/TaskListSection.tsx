@@ -3,17 +3,31 @@
 /**
  * One collapsible group of task rows, with drag reordering.
  *
+ * The section header is the card's *first row*: one card per section, starting
+ * with `Pinned  4  ⌄` and followed by the rows, rather than a caption floating
+ * above a separate card. Each card also paints a stripe down its leading edge in
+ * the colour of the list most of its rows belong to, which is what makes a long
+ * scroll scannable — see `edgeColorFor`.
+ *
  * Reordering is deliberately browser-native on a desktop pointer (HTML5
  * drag-and-drop, with a real drop indicator) and pointer-driven on touch (press
  * and hold to lift the row so it follows the finger, with a shadow). Both paths
  * finish in the same place: the full ordered id list for the section is handed to
  * `onReorder`, which POSTs it to `/api/tasks/reorder`.
  */
-import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { ChevronDown } from 'lucide-react';
 import { SectionHeader } from '@/components/ui';
 import { cn } from '@/lib/cn';
-import type { Task } from '@/lib/types';
+import { accentVar } from '@/lib/colors';
+import type { AccentColor, Task } from '@/lib/types';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
 import type { TaskSection } from './sections';
@@ -29,12 +43,44 @@ interface LiftState extends DragState {
   offset: number;
 }
 
+/**
+ * The stripe colour for a section card.
+ *
+ * Overdue is about urgency rather than about a list, so it always paints the
+ * danger colour. Every other section paints the list colour most of its rows
+ * share: a section that mixes lists still has to show one stripe, and the most
+ * common list is the one the section reads as. No known list colour falls back
+ * to the tint, which is the same fallback `card-edge` itself uses.
+ */
+function edgeColorFor(section: TaskSection, listColors?: ReadonlyMap<string, AccentColor>): string {
+  if (section.tone === 'danger') return 'var(--danger)';
+
+  const counts = new Map<AccentColor, number>();
+  for (const task of section.tasks) {
+    const color = task.listId ? listColors?.get(task.listId) : undefined;
+    if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
+  }
+
+  let winner: AccentColor | undefined;
+  let winnerCount = 0;
+  for (const [color, count] of counts) {
+    if (count > winnerCount) {
+      winner = color;
+      winnerCount = count;
+    }
+  }
+
+  return winner ? accentVar(winner) : 'var(--tint)';
+}
+
 export interface TaskListSectionProps {
   section: TaskSection;
   zone: string;
   timeFormat: '12h' | '24h';
   /** `listId -> name`, so rows in a mixed view can name their list. */
   listNames?: ReadonlyMap<string, string>;
+  /** `listId -> colour`, which sets each card's leading-edge stripe. */
+  listColors?: ReadonlyMap<string, AccentColor>;
   onToggle: (task: Task) => void;
   onOpen: (task: Task) => void;
   onDelete?: (task: Task) => void;
@@ -52,6 +98,7 @@ export function TaskListSection({
   zone,
   timeFormat,
   listNames,
+  listColors,
   onToggle,
   onOpen,
   onDelete,
@@ -164,6 +211,10 @@ export function TaskListSection({
 
   const header = (
     <SectionHeader
+      // The section header is the card's first row, 44px like any other row, so
+      // the title, the count and the chevron sit on the row's own baseline
+      // rather than in a caption block above the card.
+      className="h-11 items-center px-4 pt-0 pb-0"
       // The section title is the loudest thing on the line: a real label-sized
       // 15px title, with the count and the chevron as quiet secondary marks.
       // A filled badge and a 16px chevron used to outweigh the word itself.
@@ -177,14 +228,13 @@ export function TaskListSection({
           {section.title}
         </span>
       }
-      className="pt-5 pb-1.5"
       action={
         <button
           type="button"
           onClick={() => setCollapsed((value) => !value)}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section.title}`}
-          className="-my-2 flex min-h-11 items-center gap-1.5 rounded-ios px-1 text-secondary pressable"
+          className="flex h-11 items-center gap-1.5 rounded-ios px-1 text-secondary pressable"
         >
           <span aria-hidden className="tnum text-footnote font-medium">
             {section.tasks.length}
@@ -204,42 +254,52 @@ export function TaskListSection({
     />
   );
 
-  if (collapsed) return header;
-
   return (
-    <div>
-      {header}
+    <div className="mx-4 pt-3 first:pt-1">
       {/*
-       * Glass, not a flat white card: the rows themselves carry no background,
-       * so the group reads as one surface — which is also what makes the card's
-       * rounded corners and the swipe reveal below it behave.
+       * One card per section. `card-edge` is the glass surface plus the 3px
+       * stripe down the leading edge and the `overflow-hidden` that keeps a
+       * revealed swipe action inside the rounded corners.
        */}
-      <ul className="glass-card mx-4 overflow-hidden rounded-ios-lg">
-        {section.tasks.map((task, index) => (
-          <TaskRow
-            key={task.id}
-            ref={(node) => {
-              if (node) rowRefs.current.set(task.id, node);
-              else rowRefs.current.delete(task.id);
-            }}
-            task={task}
-            zone={zone}
-            timeFormat={timeFormat}
-            listName={listNames?.get(task.listId ?? '') ?? null}
-            onToggle={onToggle}
-            onOpen={onOpen}
-            onDelete={onDelete}
-            onWontDo={onWontDo}
-            disabled={disabled}
-            selectionMode={selectionMode}
-            selected={selectedIds?.has(task.id) ?? false}
-            onSelect={onSelect}
-            drag={dragPropsFor(task)}
-            first={index === 0}
-            last={index === section.tasks.length - 1}
-          />
-        ))}
-      </ul>
+      <div className="card-edge" style={{ '--edge-color': edgeColorFor(section, listColors) } as CSSProperties}>
+        {header}
+
+        {collapsed ? null : (
+          <>
+            <div aria-hidden className="h-px bg-separator" />
+            {/*
+             * The rows carry no background of their own, so the card reads as
+             * one surface — header row first, then the tasks.
+             */}
+            <ul>
+              {section.tasks.map((task, index) => (
+                <TaskRow
+                  key={task.id}
+                  ref={(node) => {
+                    if (node) rowRefs.current.set(task.id, node);
+                    else rowRefs.current.delete(task.id);
+                  }}
+                  task={task}
+                  zone={zone}
+                  timeFormat={timeFormat}
+                  listName={listNames?.get(task.listId ?? '') ?? null}
+                  onToggle={onToggle}
+                  onOpen={onOpen}
+                  onDelete={onDelete}
+                  onWontDo={onWontDo}
+                  disabled={disabled}
+                  selectionMode={selectionMode}
+                  selected={selectedIds?.has(task.id) ?? false}
+                  onSelect={onSelect}
+                  drag={dragPropsFor(task)}
+                  first={index === 0}
+                  last={index === section.tasks.length - 1}
+                />
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </div>
   );
 }

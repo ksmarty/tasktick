@@ -117,6 +117,35 @@ export interface WeekStripDay {
   isToday: boolean;
 }
 
+export interface WeekDayCell {
+  date: DateOnly;
+  weekday: number;
+  /** Single weekday letter, e.g. `M`. */
+  letter: string;
+  /** Day of the month, e.g. `12`. */
+  dayOfMonth: number;
+}
+
+/**
+ * The seven days of the week containing `anchor`, in the user's week order.
+ *
+ * Schedule-free, unlike `weekStripDays`: this is the page header's week strip,
+ * where the selected day — not the habit — decides what is highlighted.
+ */
+export function weekOfDays(anchor: DateOnly, weekStartsOn: number): WeekDayCell[] {
+  const start = startOfWeekDate(anchor, weekStartsOn, ZONE);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = addDaysToDateOnly(start, index, ZONE);
+    const weekday = weekdayOfDate(date);
+    return {
+      date,
+      weekday,
+      letter: WEEKDAY_INITIALS[weekday],
+      dayOfMonth: Number.parseInt(date.slice(8), 10),
+    };
+  });
+}
+
 /** The seven days of the week containing `today`, in the user's week order. */
 export function weekStripDays(
   habit: Pick<Habit, 'frequency' | 'weekDays' | 'startDate' | 'entries'>,
@@ -229,6 +258,18 @@ export interface HabitProgressView {
  * period spans several days and only the server can aggregate it, so the raw
  * amount is presented back from `progress` rather than summed here.
  */
+/**
+ * Whether the habit counts as done on `date`.
+ *
+ * Today is answered by the server's `doneToday`; any other day is read straight
+ * from the `entries` map the server sent for the requested window. Neither is a
+ * streak or a completion rate — those stay server-side.
+ */
+export function habitDoneOn(habit: Habit, date: DateOnly, today: DateOnly): boolean {
+  if (date === today) return Boolean(habit.doneToday);
+  return (habit.entries?.[date] ?? 0) > 0;
+}
+
 export function habitProgressView(habit: Habit, today: DateOnly): HabitProgressView {
   const counted = habit.goalType !== 'boolean';
   const periodic = habit.frequency === 'weekly' || habit.frequency === 'monthly';
@@ -282,6 +323,12 @@ export function streakLabel(streak: number, frequency: HabitFrequency): string {
   return `${streak} ${unit}${streak === 1 ? '' : 's'} streak`;
 }
 
+/** `1 day`, `2 days`, `5 weeks` — the unit that matches the habit's period. */
+export function streakPhrase(streak: number, frequency: HabitFrequency): string {
+  const unit = streakUnit(frequency);
+  return `${streak} ${unit}${streak === 1 ? '' : 's'}`;
+}
+
 /** Compact ratio label, e.g. `5/8`. */
 export function progressCountLabel(view: HabitProgressView): string {
   return `${view.logged}/${view.target}`;
@@ -324,8 +371,12 @@ export interface CheckInChange {
  * habit, where "an entry exists" and "the goal is met" are the same statement.
  * Everything the server derives (streak, completion rate, `progress` for a
  * multi-day period) is left alone and corrected by the refresh that follows.
+ *
+ * `today` marks which day the derived fields actually describe. Back-filling an
+ * earlier day (the week strip can select one) must not flip `doneToday`; when
+ * `today` is omitted the change is assumed to be for the current period.
  */
-export function applyCheckInOptimistically(habit: Habit, change: CheckInChange): Habit {
+export function applyCheckInOptimistically(habit: Habit, change: CheckInChange, today?: DateOnly): Habit {
   const entries: Record<DateOnly, number> = { ...(habit.entries ?? {}) };
   const previous = entries[change.date] ?? 0;
 
@@ -338,7 +389,7 @@ export function applyCheckInOptimistically(habit: Habit, change: CheckInChange):
   else delete entries[change.date];
 
   const patch: Habit = { ...habit, entries };
-  if (habit.goalType === 'boolean') {
+  if (habit.goalType === 'boolean' && (!today || change.date === today)) {
     patch.doneToday = next > 0;
     patch.progress = next > 0 ? 1 : 0;
   }

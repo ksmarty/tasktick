@@ -1,51 +1,60 @@
 'use client';
 
 /**
- * The month grid — the top region of the calendar screen.
+ * The month grid — the top region of the calendar screen — and the week strip
+ * it collapses into.
  *
- * It renders the server's padded day list for the visible month, chunked into
- * whole weeks by `buildMonthRows`; it never derives a date of its own, so the
- * grid, the agenda and the day sheet can never disagree about which days a month
+ * The cell is deliberately almost empty: the day number and a row of up to three
+ * small dots. No titles, no bars, no counts. A phone cell is ~55px wide, so it
+ * has room for either a legible day number or four characters of an event title;
+ * the previous bar-chart treatment chose the title, which made the grid noisy and
+ * buried the date itself. The dots answer the only question the grid is asked —
+ * "is anything happening that day?" — and the *what* lives in the agenda below
+ * and in the day detail sheet, both one tap away.
+ *
+ * A dot is still a handle on its item: pressing one opens it and dragging one
+ * reschedules it, exactly as the bars did, so nothing the grid could do before
+ * is lost. The visual is a dot cluster, never a bar: the item's title is not
+ * rendered here at all.
+ *
+ * The selected day is a filled circle behind its number; today, when it is not
+ * selected, is a tinted ring, so the two can never be confused. The days that
+ * pad the month out to whole weeks are dimmed.
+ *
+ * `weeks` is 6 for the month and 1 for the week strip. The strip is not a time
+ * grid: it is seven tappable day cells, each carrying its own weekday letter,
+ * with the same filled-circle selection and the same dimmed out-of-month
+ * treatment as the month — the same visual language as the habits screen, so the
+ * two read as siblings. It follows the selection, which is what makes it a
+ * useful "where am I" ruler while the agenda takes the rest of the screen.
+ *
+ * It never derives a date of its own: `days` is the server's padded day list for
+ * the visible window, chunked into whole weeks by `buildMonthRows`, so the grid,
+ * the agenda and the day sheet cannot disagree about which days a month
  * contains. Recurrence expansion, EXDATE handling and timed-overlap columns are
  * all absent here because the API already did them.
- *
- * Two things make the compact TickTick cell work:
- *
- *   · The number of event bars a cell can hold is *measured*, not guessed. The
- *     cell height is read with a `ResizeObserver` and turned into a bar budget,
- *     so a phone (a short cell) shows one bar plus "+N" while a desktop column
- *     shows five, with no overflow and no overlap either way.
- *   · When the budget is exceeded, one slot is reserved for a "+N" button rather
- *     than letting the last bar be clipped — a count the user cannot see is
- *     worse than a bar they cannot see.
- *
- * `weeks` is 6 for the full month and 1 for the collapsed week strip. The strip
- * follows the selection, which is what makes it a useful "where am I" ruler
- * while the agenda takes the rest of the screen.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { addDaysToDateOnly, fromDateOnly, toDateOnly } from '@/lib/dates';
+import { accentVar } from '@/lib/colors';
+import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import type { CalendarItem, DateOnly } from '@/lib/types';
 import type { CalendarItemsPayload } from '@/lib/view-types';
+import { itemColor } from './colors';
 import { DragGhostLabel } from './DragGhostLabel';
-import { EventBlock } from './EventBlock';
-import { MONTH_COLUMNS, MONTH_ROWS, buildMonthRows, clamp, minuteOfDay, weekdayLabels } from './geometry';
+import { MONTH_COLUMNS, MONTH_ROWS, buildMonthRows, minuteOfDay, weekdayLabels } from './geometry';
 import { useItemDrag } from './use-item-drag';
 import type { CalendarInteraction, CalendarLookup, CalendarPrefs, ItemOpenHandler, RescheduleHandler } from './types';
 
-/** Height of the day-number row inside a cell, in px. */
-const DAY_ROW_PX = 26;
-/** Bar height in a phone-sized cell, and in a roomy desktop one. */
-const COMPACT_BAR_PX = 14;
-const ROOMY_BAR_PX = 20;
-/** A cell at least this tall gets the roomier bar. */
-const ROOMY_CELL_PX = 90;
-/** Gap between two stacked bars. */
-const BAR_GAP_PX = 2;
-/** Bars assumed before the first measurement, so the first paint is not empty. */
-const FALLBACK_BARS = 2;
+/**
+ * Dots a cell will show.
+ *
+ * Beyond three the cluster stops saying "this day is busy" and starts being a
+ * bar chart again; the exact count is in the day's accessible name and in the
+ * day detail sheet.
+ */
+const MAX_DOTS = 3;
 
 export interface MonthGridProps {
   /** The server's padded day list for the visible month window. */
@@ -57,6 +66,7 @@ export interface MonthGridProps {
   today: DateOnly;
   /** 6 for the whole month, 1 for the collapsed week strip. */
   weeks: number;
+  /** The server's response: `days` is the single source of truth for the dots. */
   payload: CalendarItemsPayload;
   prefs: CalendarPrefs;
   /** Lookup used to honour each calendar's colour override. */
@@ -89,17 +99,8 @@ export function MonthGrid({
   const dayRefs = useRef(new Map<DateOnly, HTMLButtonElement>());
   const [focusDate, setFocusDate] = useState(selectedDate);
   const pendingFocus = useRef(false);
-  const [cellHeight, setCellHeight] = useState(0);
 
   const collapsed = weeks < MONTH_ROWS;
-  const roomy = cellHeight >= ROOMY_CELL_PX;
-  const barHeight = roomy ? ROOMY_BAR_PX : COMPACT_BAR_PX;
-  // The pill's own classes follow the same measurement that sizes the budget, so
-  // the two can never disagree and clip a row the count promised was visible.
-  const barClasses = roomy ? 'h-5 text-caption-1 leading-5' : 'h-3.5 text-caption-2 leading-[14px]';
-  // The "+N" shares the pill's slot but not its type size: at 11px a bold accent
-  // is still small, and this is the one control that says "there is more here".
-  const moreClasses = roomy ? 'h-5 leading-5' : 'h-3.5 leading-[14px]';
   const allRows = useMemo(() => buildMonthRows(days, anchor), [days, anchor]);
   const rows = useMemo(() => {
     if (!collapsed) return allRows;
@@ -110,22 +111,9 @@ export function MonthGrid({
   /** Only the days actually on screen — the lattice a drag or an arrow key moves across. */
   const visibleDays = useMemo(() => rows.flat().map((cell) => cell.date), [rows]);
   const headers = useMemo(() => weekdayLabels(prefs.weekStartsOn), [prefs.weekStartsOn]);
-
-  // Measure the cell so the bar budget matches the space actually available.
-  useEffect(() => {
-    const node = gridRef.current;
-    if (!node) return;
-    const measure = () => setCellHeight(node.clientHeight / Math.max(rows.length, 1));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [rows.length]);
-
-  const capacity =
-    cellHeight > 0
-      ? clamp(Math.floor((cellHeight - DAY_ROW_PX - BAR_GAP_PX) / (barHeight + BAR_GAP_PX)), 1, 8)
-      : FALLBACK_BARS;
+  // The strip carries its own weekday letter per column (habits-style), so it
+  // does not need the caption row above the month.
+  const initials = useMemo(() => weekdayLabels(prefs.weekStartsOn, 'initial'), [prefs.weekStartsOn]);
 
   // The roving focus follows the selection whenever it is changed from outside.
   useEffect(() => setFocusDate(selectedDate), [selectedDate]);
@@ -160,7 +148,7 @@ export function MonthGrid({
   });
 
   function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    // An event bar is its own control: Enter there opens the item, not the day.
+    // A dot is its own control: Enter there opens the item, not the day.
     if ((event.target as HTMLElement).dataset.itemBlock) return;
 
     const index = visibleDays.indexOf(focusDate);
@@ -206,20 +194,22 @@ export function MonthGrid({
 
   return (
     <div className={cn('flex min-h-0 flex-col', !collapsed && 'flex-1')}>
-      <div aria-hidden className="grid shrink-0 grid-cols-7 border-b border-separator">
-        {headers.map((label, index) => (
-          <span key={`${label}-${index}`} className="py-0.5 text-center text-caption-2 font-medium text-secondary">
-            {label}
-          </span>
-        ))}
-      </div>
+      {collapsed ? null : (
+        <div aria-hidden className="grid shrink-0 grid-cols-7 border-b border-separator">
+          {headers.map((label, index) => (
+            <span key={`${label}-${index}`} className="py-0.5 text-center text-caption-2 font-medium text-secondary">
+              {label}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div
         ref={gridRef}
         role="grid"
         aria-label={collapsed ? 'Week' : 'Month'}
         onKeyDown={onKeyDown}
-        className={cn('grid select-none', collapsed ? 'h-16 shrink-0' : 'min-h-0 flex-1')}
+        className={cn('grid select-none', collapsed ? 'h-18 shrink-0 gap-1' : 'min-h-0 flex-1')}
         style={{
           gridTemplateColumns: `repeat(${MONTH_COLUMNS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`,
@@ -229,12 +219,6 @@ export function MonthGrid({
           <div key={rowIndex} role="row" className="contents">
             {row.map((cell, columnIndex) => {
               const dayItems = payload.days[cell.date] ?? [];
-              const overflowing = dayItems.length > capacity;
-              // One slot is kept back for "+N" whenever something would be hidden.
-              const shownCount = overflowing ? Math.max(1, capacity - 1) : dayItems.length;
-              const bars = dayItems.slice(0, shownCount);
-              const hidden = dayItems.length - bars.length;
-              const isToday = cell.date === today;
               const isSelected = cell.date === selectedDate;
               const cellIndex = rowIndex * MONTH_COLUMNS + columnIndex;
               const fullLabel = fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy');
@@ -244,93 +228,63 @@ export function MonthGrid({
                   key={cell.date}
                   role="gridcell"
                   aria-selected={isSelected}
-                  className={cn(
-                    'min-h-0 overflow-hidden border-b border-separator px-0.5 pt-0.5',
-                    columnIndex < MONTH_COLUMNS - 1 && 'border-r',
-                    !cell.inMonth && 'bg-bg/70',
-                    isSelected && 'bg-tint-soft',
-                  )}
                   onClick={() => onSelectDate(cell.date)}
+                  className={cn(
+                    'flex min-h-0 flex-col items-center',
+                    collapsed
+                      ? 'justify-center gap-1 rounded-ios px-1'
+                      : cn(
+                          'border-b border-separator',
+                          columnIndex < MONTH_COLUMNS - 1 && 'border-r',
+                          !cell.inMonth && 'bg-bg/70',
+                        ),
+                  )}
                 >
-                  <button
-                    ref={(node) => {
+                  <DayNumber
+                    date={cell.date}
+                    mode={collapsed ? 'strip' : 'month'}
+                    inMonth={cell.inMonth}
+                    isSelected={isSelected}
+                    isToday={cell.date === today}
+                    itemCount={dayItems.length}
+                    weekdayInitial={initials[columnIndex]}
+                    fullLabel={fullLabel}
+                    tabIndex={focusDate === cell.date ? 0 : -1}
+                    registerRef={(node) => {
                       if (node) dayRefs.current.set(cell.date, node);
                       else dayRefs.current.delete(cell.date);
                     }}
-                    type="button"
-                    tabIndex={focusDate === cell.date ? 0 : -1}
-                    aria-current={isToday ? 'date' : undefined}
-                    aria-label={
-                      dayItems.length > 0
-                        ? `${fullLabel}, ${dayItems.length} ${dayItems.length === 1 ? 'item' : 'items'}`
-                        : fullLabel
-                    }
-                    onClick={(event) => {
-                      event.stopPropagation();
+                    activate={() => {
                       // Tapping the day already selected reveals the whole day.
                       if (isSelected) onOpenDay(cell.date);
                       else onSelectDate(cell.date);
                     }}
-                    className="flex h-6 w-full items-center justify-center"
-                  >
-                    <span
-                      className={cn(
-                        'tnum flex size-6 items-center justify-center rounded-full text-footnote',
-                        isSelected
-                          ? 'bg-tint font-semibold text-tint-contrast'
-                          : isToday
-                            ? 'font-semibold text-tint'
-                            : cell.inMonth
-                              ? 'text-label'
-                              : 'text-tertiary',
-                      )}
-                    >
-                      {Number(cell.date.slice(8, 10))}
-                    </span>
-                  </button>
+                  />
 
-                  <ul className="mt-0.5 space-y-0.5">
-                    {bars.map((item: CalendarItem) => (
-                      <li key={item.key}>
-                        <EventBlock
-                          item={item}
-                          prefs={prefs}
-                          calendars={calendars}
-                          className={barClasses}
-                          onOpen={onOpenItem}
-                          onPointerDown={(target, event: ReactPointerEvent<HTMLButtonElement>) => {
-                            event.stopPropagation();
-                            drag.begin(target, event, {
-                              // `hourHeight` is 0 for the month, so this value is
-                              // carried straight through to the drop: it keeps a
-                              // timed item's clock time instead of zeroing it.
-                              startMinute: target.isAllDay ? 0 : minuteOfDay(target.startMs, prefs.zone),
-                              durationMinutes: 0,
-                              cellIndex,
-                            });
-                          }}
-                          drag={drag.ghost?.item.key === item.key ? drag.ghost : null}
-                        />
-                      </li>
+                  {/* Fixed height, so every number sits on the same line. */}
+                  <span className={cn('flex h-3.5 shrink-0 items-center justify-center gap-0.5', !collapsed && 'mt-0.5')}>
+                    {dayItems.slice(0, MAX_DOTS).map((item) => (
+                      <DayDot
+                        key={item.key}
+                        item={item}
+                        prefs={prefs}
+                        calendars={calendars}
+                        drag={drag.ghost?.item.key === item.key ? drag.ghost : null}
+                        onOpen={onOpenItem}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          drag.begin(item, event, {
+                            // `hourHeight` is 0 for the month, so this value is
+                            // carried straight through to the drop: it keeps a
+                            // timed item's clock time instead of zeroing it.
+                            startMinute: item.isAllDay ? 0 : minuteOfDay(item.startMs, prefs.zone),
+                            durationMinutes: 0,
+                            cellIndex,
+                          });
+                        }}
+                      />
                     ))}
-                  </ul>
-
-                  {hidden > 0 && capacity >= 2 ? (
-                    <button
-                      type="button"
-                      aria-label={`${hidden} more on ${fullLabel}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenDay(cell.date);
-                      }}
-                      className={cn(
-                        'mt-0.5 w-full truncate text-left text-caption-1 font-semibold text-tint pressable',
-                        moreClasses,
-                      )}
-                    >
-                      +{hidden}
-                    </button>
-                  ) : null}
+                  </span>
                 </div>
               );
             })}
@@ -340,5 +294,131 @@ export function MonthGrid({
 
       {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}
     </div>
+  );
+}
+
+interface DayNumberProps {
+  date: DateOnly;
+  /** `month` is the bordered grid cell; `strip` is the habits-style week cell. */
+  mode: 'month' | 'strip';
+  inMonth: boolean;
+  isSelected: boolean;
+  isToday: boolean;
+  /** How many items the server bucketed on this day; 0 means no dots. */
+  itemCount: number;
+  weekdayInitial: string;
+  /** The full accessible date name the button announces. */
+  fullLabel: string;
+  tabIndex: number;
+  registerRef: (node: HTMLButtonElement | null) => void;
+  activate: () => void;
+}
+
+/**
+ * The day number (plus its weekday letter in the strip) as one button.
+ *
+ * The item count is in the accessible name rather than on screen — a "3" in a
+ * 55px cell is exactly the noise the dots replaced — so a screen reader still
+ * hears everything the day holds.
+ */
+function DayNumber({
+  date,
+  mode,
+  inMonth,
+  isSelected,
+  isToday,
+  itemCount,
+  weekdayInitial,
+  fullLabel,
+  tabIndex,
+  registerRef,
+  activate,
+}: DayNumberProps) {
+  const strip = mode === 'strip';
+
+  return (
+    <button
+      ref={registerRef}
+      type="button"
+      tabIndex={tabIndex}
+      aria-current={isToday ? 'date' : undefined}
+      aria-label={itemCount > 0 ? `${fullLabel}, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}` : fullLabel}
+      onClick={(event) => {
+        event.stopPropagation();
+        activate();
+      }}
+      className={cn('flex w-full flex-col items-center gap-1', strip ? '' : 'pt-1')}
+    >
+      {strip ? (
+        <span aria-hidden className={cn('text-caption-2 leading-none', inMonth ? 'text-secondary' : 'text-tertiary')}>
+          {weekdayInitial}
+        </span>
+      ) : null}
+
+      <span
+        className={cn(
+          'tnum flex shrink-0 items-center justify-center rounded-full leading-none',
+          // The strip's circle is the habits screen's (`size-8`, `subhead`), the
+          // month's is a step down so six rows still fit a phone.
+          strip ? 'size-8 text-subhead' : 'size-6 text-footnote',
+          isSelected
+            ? 'bg-tint font-semibold text-tint-contrast'
+            : isToday
+              ? 'font-semibold text-tint ring-1 ring-tint'
+              : inMonth
+                ? 'text-label'
+                : 'text-tertiary',
+        )}
+      >
+        {Number(date.slice(8, 10))}
+      </span>
+    </button>
+  );
+}
+
+interface DayDotProps {
+  item: CalendarItem;
+  prefs: CalendarPrefs;
+  calendars: CalendarLookup;
+  /** Pixel offset while this dot is being dragged. */
+  drag: { offsetX: number; offsetY: number } | null;
+  onOpen: ItemOpenHandler;
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+}
+
+/**
+ * One item, drawn as a dot.
+ *
+ * Deliberately no title and no fill: at this size a title is unreadable and a
+ * fill is a bar. The dot's own button is what keeps the item tappable and
+ * draggable, and its accessible name is what keeps it reachable by keyboard.
+ */
+function DayDot({ item, prefs, calendars, drag, onOpen, onPointerDown }: DayDotProps) {
+  const isTask = item.kind === 'task';
+  const timeLabel = item.isAllDay ? 'All-day' : formatTime(item.startMs, prefs);
+  const accessibleName = [timeLabel, item.title, isTask ? 'task' : 'event', item.completed ? 'completed' : null]
+    .filter(Boolean)
+    .join(', ');
+
+  return (
+    <button
+      type="button"
+      data-item-block="true"
+      aria-label={accessibleName}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(item);
+      }}
+      onPointerDown={onPointerDown}
+      onContextMenu={(event) => event.preventDefault()}
+      className={cn('flex size-3.5 items-center justify-center', drag && 'relative z-40')}
+      style={drag ? { transform: `translate3d(${drag.offsetX}px, ${drag.offsetY}px, 0)` } : undefined}
+    >
+      <span
+        aria-hidden
+        className={cn('size-1.5 rounded-full', item.completed && 'opacity-60')}
+        style={{ backgroundColor: accentVar(itemColor(item, calendars)) }}
+      />
+    </button>
   );
 }

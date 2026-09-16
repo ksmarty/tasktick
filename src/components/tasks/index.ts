@@ -9,7 +9,15 @@
 /* ------------------------------- components ------------------------------ */
 export { TaskRow, type TaskRowProps, type TaskRowDrag } from './TaskRow';
 export { TaskListSection, type TaskListSectionProps } from './TaskListSection';
-export { TaskMeta, dueLabel, type TaskMetaProps, type DueLabel, type DueTone } from './TaskMeta';
+export {
+  DueDateLabel,
+  TaskMeta,
+  dueLabel,
+  type DueDateLabelProps,
+  type TaskMetaProps,
+  type DueLabel,
+  type DueTone,
+} from './TaskMeta';
 export { TaskEditorSheet, type TaskEditorSheetProps } from './TaskEditorSheet';
 export { QuickAddBar, type QuickAddBarProps } from './QuickAddBar';
 export { SubTaskList, type SubTaskListProps } from './SubTaskList';

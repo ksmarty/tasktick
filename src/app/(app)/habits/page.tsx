@@ -3,25 +3,29 @@
 /**
  * Habits: check in, see the streaks, and read the year back as a heatmap.
  *
- * The page owns exactly four pieces of state — which window the cards are scored
- * over, whether archived habits are listed, whether the heatmap is open and what
- * it shows — because everything else (streaks, completion rates, period
- * progress) is computed server-side and merely formatted here.
+ * The layout is the reference one: a compact week strip as the page header — the
+ * selected day filled — then one card whose first row is the group name, and one
+ * quiet row per habit (check-in control, glyph, name, right-aligned streak).
  *
- * Two reads, on purpose: the card list is scoped to the selected window so the
- * server's `completionRate` answers "how did I do this week", while the heatmap
- * always asks for the trailing twelve months. An optimistic check-in patches
- * both, so a tap updates the card and the grid at the same instant.
+ * The page owns three pieces of state — which day the cards are scoped to,
+ * whether archived habits are listed, and whether the heatmap is open — because
+ * everything else (streaks, completion rates, period progress) is computed
+ * server-side and merely formatted here.
+ *
+ * Two reads, on purpose: the card list is scoped to the current week so the
+ * selected day's `entries` are present, while the heatmap always asks for the
+ * trailing twelve months. An optimistic check-in patches both, so a tap updates
+ * the row and the grid at the same instant.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { usePrimaryAction } from '@/lib/events';
 import { CalendarRange, CheckCircle2, ChevronDown, Plus } from 'lucide-react';
 import {
   Button,
   EmptyState,
   IconButton,
   NavBar,
-  SegmentedControl,
   Select,
   Skeleton,
   Switch,
@@ -31,25 +35,19 @@ import {
   HabitEditorSheet,
   HabitHeatmap,
   HabitList,
+  HabitWeekStrip,
   HeatmapHabitList,
-  HABIT_WINDOWS,
   applyCheckInOptimistically,
   combineHabitEntries,
   habitWindowRange,
   isHabitDueOn,
-  type HabitWindow,
+  type CheckInChange,
 } from '@/components/habits';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { addDaysToDateOnly, todayIn } from '@/lib/dates';
 import type { BootstrapPayload, CheckInPayload } from '@/lib/view-types';
 import type { DateOnly, Habit } from '@/lib/types';
-
-interface CheckInChange {
-  date?: DateOnly;
-  count?: number | null;
-  delta?: number;
-}
 
 export default function HabitsPage() {
   const { toast } = useToast();
@@ -58,19 +56,28 @@ export default function HabitsPage() {
   const settings = bootstrap.data?.settings;
   const zone = settings?.timezone ?? 'utc';
   const weekStartsOn = settings?.weekStartsOn ?? 1;
-  const timeFormat = settings?.timeFormat ?? '24h';
 
   // The zone comes from the server, so server and client agree on "today" and
   // the first paint cannot show yesterday's check-ins.
   const today = useMemo(() => (settings ? todayIn(zone) : null), [settings, zone]);
   const todayDate = today ?? todayIn(zone);
 
-  const [habitWindow, setHabitWindow] = useState<HabitWindow>('week');
+  /** The day the card list is scoped to; `null` means today. */
+  const [selectedDay, setSelectedDay] = useState<DateOnly | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [heatmapOpen, setHeatmapOpen] = useState(false);
   const [scope, setScope] = useState<string>('all');
   const [editing, setEditing] = useState<Habit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+
+  // The shell's action button creates a HABIT here. Left to the default it would
+  // open the task quick-add, which is the wrong object on this screen entirely.
+  usePrimaryAction(
+    useCallback(() => {
+      setEditing(null);
+      setEditorOpen(true);
+    }, []),
+  );
   /** Id of the habit whose check-in is still in flight, so only that row dims. */
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
 
@@ -82,9 +89,11 @@ export default function HabitsPage() {
     setHeatmapOpen(true);
   }, [requestedHabit]);
 
+  // The cards only ever need the current week: the header strip selects days
+  // inside it, and the streak and period values are server-side anyway.
   const range = useMemo(
-    () => (today ? habitWindowRange(habitWindow, today, weekStartsOn) : null),
-    [habitWindow, today, weekStartsOn],
+    () => (today ? habitWindowRange('week', today, weekStartsOn) : null),
+    [today, weekStartsOn],
   );
 
   const archives = showArchived ? '1' : undefined;
@@ -108,14 +117,27 @@ export default function HabitsPage() {
   // while the year fetch is still in flight.
   const yearList = heatmapHabits.data ?? [];
 
+  // The strip's selection, defaulting to today until the user picks a day.
+  const activeDate = selectedDay ?? todayDate;
+  // Days before the earliest habit existed are dimmed and inert in the strip.
+  const earliestStart = useMemo(
+    () =>
+      list.length
+        ? list.reduce((min, habit) => (habit.startDate < min ? habit.startDate : min), list[0].startDate)
+        : null,
+    [list],
+  );
+
   /* ---------------------------------------------------------------------- */
   /* check-in                                                               */
   /* ---------------------------------------------------------------------- */
 
   const applyLocally = useCallback(
-    (habitId: string, change: Required<Pick<CheckInChange, 'date'>> & CheckInChange) => {
+    (habitId: string, change: CheckInChange, todayDate: DateOnly) => {
       const patch = (current: Habit[] | undefined) =>
-        current?.map((habit) => (habit.id === habitId ? applyCheckInOptimistically(habit, change) : habit));
+        current?.map((habit) =>
+          habit.id === habitId ? applyCheckInOptimistically(habit, change, todayDate) : habit,
+        );
       habits.mutate(patch);
       heatmapHabits.mutate(patch);
     },
@@ -125,11 +147,11 @@ export default function HabitsPage() {
   const checkIn = useCallback(
     async (habit: Habit, change: CheckInChange) => {
       if (!today) return;
-      const date = change.date ?? today;
+      const date = change.date;
 
       // Snapshot first: an optimistic write has to be reversible.
       const snapshot = { list: habits.data, heatmap: heatmapHabits.data };
-      applyLocally(habit.id, { date, count: change.count, delta: change.delta });
+      applyLocally(habit.id, change, today);
       setCheckingIn(habit.id);
 
       try {
@@ -229,19 +251,6 @@ export default function HabitsPage() {
         trailing={<IconButton icon={Plus} variant="plain" aria-label="New habit" onClick={() => openEditor(null)} />}
       />
 
-      <div className="px-4 pt-1 pb-3">
-        <SegmentedControl
-          options={HABIT_WINDOWS.map((option) => ({ value: option.value, label: option.label }))}
-          value={habitWindow}
-          onChange={setHabitWindow}
-          label="Scoring window"
-          size="sm"
-        />
-        <p className="pt-2 px-1 text-footnote text-secondary">
-          Streaks and completion are scored over {range?.label.toLowerCase() ?? 'this week'}.
-        </p>
-      </div>
-
       {loading ? (
         <div className="space-y-3">
           {[0, 1, 2].map((key) => (
@@ -272,12 +281,17 @@ export default function HabitsPage() {
         />
       ) : (
         <>
-          <HabitList
-            habits={list}
+          <HabitWeekStrip
+            selected={activeDate}
             today={todayDate}
             weekStartsOn={weekStartsOn}
-            windowLabel={range?.label ?? 'This week'}
-            timeFormat={timeFormat}
+            earliest={earliestStart}
+            onSelect={setSelectedDay}
+          />
+          <HabitList
+            habits={list}
+            date={activeDate}
+            today={todayDate}
             pendingId={checkingIn}
             onCheckIn={(habit, change) => void checkIn(habit, change)}
             onEdit={openEditor}

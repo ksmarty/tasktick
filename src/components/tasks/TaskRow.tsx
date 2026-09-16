@@ -26,7 +26,7 @@ import { ActionSheet, type ActionSheetAction } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useMediaQuery } from '@/lib/store';
 import type { Task } from '@/lib/types';
-import { TaskMeta } from './TaskMeta';
+import { DueDateLabel, TaskMeta } from './TaskMeta';
 
 /** Width of the revealed Complete + Delete pair (2 × 76px). */
 export const SWIPE_ACTION_WIDTH = 152;
@@ -392,21 +392,38 @@ export function TaskRow({
           }}
           aria-pressed={selectionMode ? selected : undefined}
           aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
-          className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center py-1.5 text-left"
+          className="flex min-h-11 min-w-0 flex-1 flex-col justify-center py-1.5 text-left"
         >
-          <span
-            className={cn(
-              // The full width of the row's text column: the title is what the
-              // row is for, so it gets every px the checkbox and the (pointer-
-              // only) grip do not need.
-              'w-full min-w-0 truncate text-body',
-              completed && 'text-secondary line-through',
-              wontDo && 'text-tertiary line-through',
-            )}
-          >
-            {task.title}
+          {/*
+           * The title, with the due date pinned to the row's trailing edge.
+           *
+           * The wrap is the point: the date is `shrink-0` and the title grows
+           * into whatever is left, so the two share the line whenever the title
+           * fits beside the date (which is how a short row reads in the
+           * reference), and when it does not, the *date* wraps to its own
+           * right-aligned line rather than the title ellipsising to make room
+           * for it.
+           *
+           * `grow`, not `flex-1`: `flex-1` sets `flex-basis: 0`, which makes the
+           * title's hypothetical width zero, so flexbox never sees a line that
+           * cannot fit and the date never wraps — the title just ellipsises.
+           * `flex-basis: auto` is what lets the wrap happen.
+           */}
+          <span className="flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span
+              className={cn(
+                // Every px the checkbox and the (pointer-only) grip do not need,
+                // minus what the date reserves at the trailing edge.
+                'min-w-0 grow truncate text-body',
+                completed && 'text-secondary line-through',
+                wontDo && 'text-tertiary line-through',
+              )}
+            >
+              {task.title}
+            </span>
+            <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} className="ml-auto" />
           </span>
-          <TaskMeta task={task} zone={zone} timeFormat={timeFormat} listName={listName} />
+          <TaskMeta task={task} listName={listName} className="mt-0" />
         </button>
 
         {selectionMode ? (

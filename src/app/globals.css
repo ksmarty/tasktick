@@ -365,7 +365,14 @@
      * flush against the island when the OS reports a tiny value.
      */
     --nav-h: 44px;
-    --tab-h: 76px;   /* floating capsule + the gap beneath it */
+    /*
+     * Clears the whole floating band, not just the tab bar: the action button
+     * sits above the capsule on the trailing edge, and reserving only the bar's
+     * height left it covering the last interactive row on /settings and /matrix.
+     * Reserved once here rather than per view, so no screen has to know the
+     * button exists.
+     */
+    --tab-h: 9.5rem;
     --header-total: calc(var(--sat) + var(--nav-h));
     --tabbar-total: calc(var(--sab) + var(--tab-h));
 

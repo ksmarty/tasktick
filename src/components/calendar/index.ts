@@ -14,7 +14,6 @@ export { DayAgenda, type DayAgendaProps } from './DayAgenda';
 export { CalendarToolbar, type CalendarToolbarProps } from './CalendarToolbar';
 
 /* -------------------------------- pieces --------------------------------- */
-export { EventBlock, type EventBlockProps } from './EventBlock';
 export { DayDetailSheet, type DayDetailSheetProps } from './DayDetailSheet';
 export { EventEditorSheet, type EventEditorSheetProps, type EventDefaults } from './EventEditorSheet';
 export { CalendarSidebar, type CalendarSidebarProps } from './CalendarSidebar';

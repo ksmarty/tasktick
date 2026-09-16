@@ -42,6 +42,7 @@ import { TaskFilterSheet } from './FilterMenu';
 import { ListPicker } from './ListPicker';
 import { PriorityPicker } from './PriorityPicker';
 import { QuickAddBar } from './QuickAddBar';
+import { usePrimaryAction } from '@/lib/events';
 import { TagPicker } from './TagPicker';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
@@ -89,12 +90,16 @@ export function TasksView() {
   const resource = useResource<Task[]>('/api/tasks', query);
   const tasks = useMemo(() => resource.data ?? [], [resource.data]);
   const listNames = useMemo(() => new Map(lists.map((list) => [list.id, list.name])), [lists]);
+  const listColors = useMemo(() => new Map(lists.map((list) => [list.id, list.color])), [lists]);
 
   const [searchDraft, setSearchDraft] = useState(state.q);
   const [filterOpen, setFilterOpen] = useState(false);
   const [bulkSheet, setBulkSheet] = useState<BulkSheet>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+
+  // The shell's action button asks the mounted view for its primary create action.
+  usePrimaryAction(() => setQuickAddOpen(true));
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
@@ -251,7 +256,16 @@ export function TasksView() {
         }
         trailing={
           <>
-            <IconButton aria-label="Add a task" icon={Plus} onClick={() => setQuickAddOpen(true)} />
+            {/*
+             * Desktop only: on a phone the floating `QuickAddFab` is the add
+             * affordance, and a second one in the corner is just noise.
+             */}
+            <IconButton
+              aria-label="Add a task"
+              icon={Plus}
+              className="hidden lg:inline-flex"
+              onClick={() => setQuickAddOpen(true)}
+            />
             <IconButton
               aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
               icon={selectionMode ? X : CheckCheck}
@@ -358,6 +372,7 @@ export function TasksView() {
               zone={zone}
               timeFormat={timeFormat}
               listNames={listNames}
+              listColors={listColors}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
               onDelete={deleteTask}

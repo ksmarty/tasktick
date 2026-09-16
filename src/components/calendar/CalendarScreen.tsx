@@ -4,6 +4,10 @@
  * The calendar screen: one TickTick-style surface — a month grid on top and the
  * selected day's agenda below — replacing the old month/week/day/agenda modes.
  *
+ * The month grid above is a dot indicator — the server's bucketed `days` map
+ * says which days have anything on them — and the agenda below is the detail,
+ * so the two never have to agree about anything but the selected date.
+ *
  * What this file owns is the *window*: there is exactly ONE read of
  * `/api/calendar/items`, for the month containing the anchor day, recomputed
  * whenever the anchor changes. Everything the server already did (recurrence
@@ -18,6 +22,7 @@
  * on a phone the grid is a fixed share of the viewport and the agenda takes the
  * rest; on `lg:` the two sit side by side, the agenda a fixed 380px column.
  */
+import { usePrimaryAction } from '@/lib/events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -294,6 +299,18 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
       });
     },
     [filterCalendar, calendars],
+  );
+
+  /*
+   * The shell's action button starts a new event on the selected day.
+   *
+   * Registered AFTER `createAt` exists — a hook that closes over a `const`
+   * declared below it hits the temporal dead zone the moment it runs.
+   */
+  usePrimaryAction(
+    useCallback(() => {
+      createAt(selected, DEFAULT_EVENT_START_MINUTE);
+    }, [createAt, selected]),
   );
 
   const addFromToolbar = useCallback(() => {
