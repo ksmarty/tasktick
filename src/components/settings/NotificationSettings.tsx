@@ -18,7 +18,7 @@
  * explicit about what it tests.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Send, Smartphone } from 'lucide-react';
+import { BellRing, Send, Smartphone } from 'lucide-react';
 import { Button, ListRow, Switch, useToast } from '@/components/ui';
 import { IosInstallHint } from '@/components/pwa';
 import { isIos, isStandalone } from '@/components/pwa/platform';
@@ -189,18 +189,41 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
       >
         <div className="px-4 py-3">
           {state === 'needs-install' ? <IosInstallHint className="pb-3" /> : null}
-          <Switch
-            label="Notifications on this device"
-            checked={subscribed}
-            disabled={busy || state === null || state !== 'ready'}
-            onCheckedChange={(next) => {
-              // Only ever from this tap; `checked` is server-confirmed, so the
-              // switch is not optimistically flipped.
-              if (next) void enable();
-              else void disable();
-            }}
-            aria-label="Notifications on this device"
-          />
+
+          {/*
+           * A switch is rendered only when it can actually do something.
+           *
+           * This was a permanently `disabled` Switch whenever the server had no
+           * VAPID keys, which is indistinguishable from a broken toggle: it looks
+           * like every other switch, it is the first control on the page, and
+           * tapping it does nothing, forever. That is what users reported as "the
+           * toggles do not work". When the control cannot work, it should not be
+           * drawn — show a status row and say why instead.
+           */}
+          {state === 'ready' ? (
+            <Switch
+              label="Notifications on this device"
+              checked={subscribed}
+              disabled={busy}
+              onCheckedChange={(next) => {
+                // Only ever from this tap; `checked` is server-confirmed, so the
+                // switch is not optimistically flipped.
+                if (next) void enable();
+                else void disable();
+              }}
+              aria-label="Notifications on this device"
+            />
+          ) : (
+            <div className="flex items-start gap-3">
+              <BellRing className="mt-0.5 size-5 shrink-0 text-tertiary" aria-hidden />
+              <div className="min-w-0">
+                <p className="text-body font-medium text-label">Notifications on this device</p>
+                <p className="pt-0.5 text-footnote text-secondary">
+                  {state ? PUSH_STATE_MESSAGE[state] : 'Checking what this device supports\u2026'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         <ListRow

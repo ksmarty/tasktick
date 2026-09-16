@@ -55,10 +55,16 @@
  * no other invalidation mechanism, because a cache-first shell can never
  * discover a new build by itself. Keep the `tasktick-v<n>` shape.
  *
+ * This is not optional bookkeeping. A deploy that changes the app but leaves
+ * this string alone does not simply serve a stale page: because `sw.js` itself
+ * is byte-identical, the browser never installs a new worker at all, so existing
+ * clients stay pinned to the old shell AND the old content-hashed chunks
+ * indefinitely. `npm run verify:sw` guards this in CI.
+ *
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v1';
+const VERSION = 'tasktick-v3';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -95,11 +101,56 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(PRECACHE_CACHE);
+
+      /*
+       * The two HTML documents are precached together with the assets they
+       * reference.
+       *
+       * Caching the HTML alone is not enough to render a page offline. A Next.js
+       * document pulls content-hashed chunks (`/_next/static/chunks/...`), and
+       * those hashes do not exist until a build does, so they cannot be listed
+       * above. The result was an offline page that loaded its HTML and then died
+       * with `ChunkLoadError` — "Application error: a client-side exception has
+       * occurred" — because the script it needed had never been cached.
+       *
+       * Reading each document's own asset references at install time is what
+       * closes that gap. `/offline` is otherwise never visited online, so its
+       * chunks would never enter the runtime cache either.
+       */
       await Promise.all(PRECACHE_URLS.map((url) => precacheOne(cache, url)));
+      await Promise.all([precacheDocumentTree(cache, SHELL_URL), precacheDocumentTree(cache, OFFLINE_URL)]);
       await self.skipWaiting();
     })(),
   );
 });
+
+/**
+ * Caches an HTML document together with every build asset it references.
+ *
+ * Deliberately one level deep: this covers the page's own entry chunk, which is
+ * what the offline fallback needs. Chunks pulled in later by client-side
+ * navigation are handled by the runtime cache on the way through, as they always
+ * were.
+ */
+async function precacheDocumentTree(cache, url) {
+  try {
+    const response = await fetch(new Request(url, { cache: 'reload' }));
+    if (!response.ok || response.redirected) {
+      throw new Error(`${response.status}${response.redirected ? ' (redirected)' : ''}`);
+    }
+
+    const html = await response.clone().text();
+    await cache.put(url, response);
+
+    const assets = new Set();
+    for (const match of html.matchAll(/(?:src|href)="(\/_next\/[^"]+)"/g)) {
+      assets.add(match[1]);
+    }
+    await Promise.all([...assets].map((asset) => precacheOne(cache, asset)));
+  } catch (error) {
+    console.warn('[sw] document precache skipped', url, error);
+  }
+}
 
 /**
  * Install-time precache of one allow-listed URL.
@@ -202,19 +253,45 @@ async function navigationNetworkFirst(event) {
     if (preloaded) return preloaded;
     return await fetch(event.request);
   } catch (error) {
+    const requestedPath = new URL(event.request.url).pathname;
     const precache = await caches.open(PRECACHE_CACHE);
-    const shell = await precache.match(SHELL_URL);
-    if (shell) return shell;
 
-    const offline = await precache.match(OFFLINE_URL);
-    if (offline) return offline;
+    /*
+     * Cached HTML is only ever valid at the URL it was cached for.
+     *
+     * A Next.js App Router document carries the RSC payload for one specific
+     * route. Serving a cached document at a DIFFERENT path — the root shell for
+     * /settings, or even /offline for /settings — hands React a payload
+     * describing another route, and the client throws:
+     *
+     *   "Application error: a client-side exception has occurred"
+     *
+     * which is a page that renders nothing and responds to nothing. So the only
+     * permitted reuse is an exact-path match.
+     */
+    if (requestedPath === SHELL_URL || requestedPath === OFFLINE_URL) {
+      const cached = await precache.match(requestedPath);
+      if (cached) return cached;
 
-    // Only reachable if precaching failed entirely (e.g. first visit happened
-    // while offline). Better a readable page than the browser's dino.
-    return new Response(LAST_RESORT_HTML, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
-    });
+      // /offline is itself unreachable and uncached. This document is
+      // payload-free, so unlike a cached route it IS safe to serve anywhere.
+      return new Response(LAST_RESORT_HTML, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+
+    /*
+     * Any other failing navigation is REDIRECTED to /offline rather than
+     * answered with a cached document.
+     *
+     * The redirect is what makes it correct: the browser then requests /offline
+     * itself, that request fails too, and the exact-path branch above serves the
+     * precached /offline document at its own URL — so route and payload agree.
+     * The user sees the offline page with a correct address bar instead of a
+     * broken render.
+     */
+    return Response.redirect(new URL(OFFLINE_URL, self.location.origin).href, 302);
   }
 }
 

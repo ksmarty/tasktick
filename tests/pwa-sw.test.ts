@@ -18,6 +18,18 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = fs.readFileSync(path.join(ROOT, 'public/sw.js'), 'utf8');
 const ORIGIN = 'https://tasks.example.com';
 
+/**
+ * Read from the worker's own source rather than pinned here.
+ *
+ * `VERSION` exists to change on every deploy that alters a precached file; a
+ * test that hardcodes it would have to be edited on every release, which is
+ * exactly when nobody is reading the diff carefully.
+ */
+const SW_VERSION = /const VERSION = '([^']+)'/.exec(SOURCE)?.[1];
+if (!SW_VERSION) throw new Error('could not read VERSION out of public/sw.js');
+const PRECACHE = `precache-${SW_VERSION}`;
+const RUNTIME = `runtime-${SW_VERSION}`;
+
 /* -------------------------------------------------------------------------- */
 /* stubs                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -55,6 +67,17 @@ class FakeResponse {
     const response = new FakeResponse('', { status: 0 });
     response.ok = false;
     response.type = 'error';
+    return response;
+  }
+
+  /**
+   * Mirrors the real `Response.redirect`, which the worker uses to send a failed
+   * navigation to `/offline` instead of answering it with a cached document from
+   * a different route.
+   */
+  static redirect(url: string, status = 302): FakeResponse {
+    const response = new FakeResponse('', { status, headers: { location: url } });
+    response.type = 'default';
     return response;
   }
 
@@ -269,7 +292,7 @@ function seedCache(harness: Harness, name: string, entries: Record<string, strin
 }
 
 const shellResponse = async (harness: Harness, url = `${ORIGIN}/`) => {
-  const cache = await harness.caches.get('precache-tasktick-v1')!.get(new URL(url, ORIGIN).href);
+  const cache = await harness.caches.get(PRECACHE)!.get(new URL(url, ORIGIN).href);
   return cache;
 };
 
@@ -321,20 +344,49 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(harness.writes).toEqual([]); // navigations are never written at runtime
   });
 
-  it('falls back to the precached shell, then /offline', async () => {
+  it('redirects a failed non-root navigation to /offline rather than serving foreign HTML', async () => {
     const harness = await installedHarness();
-    const shell = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));
-    expect(shell?.body).toBe(`<html>${ORIGIN}/</html>`);
 
-    // Same worker, but with the shell evicted (iOS does this): /offline is next.
-    await harness.caches.get('precache-tasktick-v1')!.delete(`${ORIGIN}/`);
-    const offlinePage = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));
+    /*
+     * Serving cached HTML at a URL it was not cached for hands React an RSC
+     * payload for a different route, and the client throws
+     * "Application error: a client-side exception has occurred" — a page that
+     * renders nothing and responds to nothing. The redirect is what keeps route
+     * and payload in agreement.
+     */
+    const other = await harness.navigation(`${ORIGIN}/settings`, () => new Error('offline'));
+    expect(other?.status).toBe(302);
+    expect(other?.headers.get('location')).toBe(`${ORIGIN}/offline`);
+  });
+
+  it('serves the precached /offline document at its own URL, after the redirect', async () => {
+    const harness = await installedHarness();
+    // What the browser requests once it follows the redirect above.
+    const offlinePage = await harness.navigation(`${ORIGIN}/offline`, () => new Error('offline'));
+    expect(offlinePage?.status).toBe(200);
     expect(offlinePage?.body).toBe(`<html>${ORIGIN}/offline</html>`);
   });
 
-  it('serves a last-resort document if the precache is empty', async () => {
+  it('may serve the shell at the root, which is the route it belongs to', async () => {
+    const harness = await installedHarness();
+    const root = await harness.navigation(`${ORIGIN}/`, () => new Error('offline'));
+    expect(root?.body).toBe(`<html>${ORIGIN}/</html>`);
+  });
+
+  it('redirects to /offline when the precache is empty, then shows a last-resort document there', async () => {
     const harness = createHarness();
-    const response = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));
+
+    // Nothing is precached and the network is down: a non-root navigation cannot
+    // be answered with a document, so it is redirected to /offline.
+    const redirect = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));
+    expect(redirect?.status).toBe(302);
+    expect(redirect?.headers.get('location')).toBe(`${ORIGIN}/offline`);
+
+    // /offline itself has nothing cached, so the payload-free document is served
+    // there. It is safe at any URL precisely because it carries no RSC payload —
+    // which is also why it must never be served as a substitute for a route that
+    // does have one.
+    const response = await harness.navigation(`${ORIGIN}/offline`, () => new Error('offline'));
     expect(response?.status).toBe(200);
     expect(response?.body).toContain('TaskTick');
     expect(response?.headers.get('Cache-Control')).toBe('no-store');
@@ -348,8 +400,17 @@ describe('navigations are network-first with a shell fallback', () => {
       return new FakeResponse('asset');
     });
     expect(await shellResponse(harness)).toBeUndefined();
-    const response = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));
-    expect(response?.body).toBe('<html>offline</html>');
+
+    // A rejected login redirect must not become the shell, so the root has
+    // nothing to serve and falls through to the payload-free document.
+    const root = await harness.navigation(`${ORIGIN}/`, () => new Error('offline'));
+    expect(root?.body).toContain('TaskTick');
+
+    // Other routes redirect, and /offline serves its own precached copy.
+    const elsewhere = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));
+    expect(elsewhere?.status).toBe(302);
+    const offline = await harness.navigation(`${ORIGIN}/offline`, () => new Error('offline'));
+    expect(offline?.body).toBe('<html>offline</html>');
   });
 });
 
@@ -359,7 +420,7 @@ describe('immutable assets are cache-first', () => {
     const url = `${ORIGIN}/_next/static/chunks/main-abc123.js`;
     const first = await harness.get(url, () => new FakeResponse('chunk-v1'));
     expect(first?.body).toBe('chunk-v1');
-    expect(harness.writes).toEqual([`runtime-tasktick-v1 ${url}`]);
+    expect(harness.writes).toEqual([`${RUNTIME} ${url}`]);
 
     const second = await harness.get(url, () => new FakeResponse('chunk-v2'));
     expect(second?.body).toBe('chunk-v1'); // served from cache
@@ -367,7 +428,7 @@ describe('immutable assets are cache-first', () => {
 
   it('treats /icons as immutable too', async () => {
     const harness = await installedHarness();
-    seedCache(harness, 'runtime-tasktick-v1', { [`${ORIGIN}/icons/icon-192.png`]: 'icon' });
+    seedCache(harness, RUNTIME, { [`${ORIGIN}/icons/icon-192.png`]: 'icon' });
     const response = await harness.get(`${ORIGIN}/icons/icon-192.png`, () => new FakeResponse('fresh'));
     expect(response?.body).toBe('icon');
   });
@@ -377,12 +438,12 @@ describe('other same-origin GETs are stale-while-revalidate', () => {
   it('answers from cache and revalidates in the background', async () => {
     const harness = createHarness();
     const url = `${ORIGIN}/api-proxy/notes.css`;
-    seedCache(harness, 'runtime-tasktick-v1', { [url]: 'cached-css' });
+    seedCache(harness, RUNTIME, { [url]: 'cached-css' });
     const response = await harness.get(url, () => new FakeResponse('fresh-css'));
     expect(response?.body).toBe('cached-css');
     // The revalidation still ran and refreshed the entry.
     expect(harness.fetchCalls).toContain(`GET ${url}`);
-    expect(harness.caches.get('runtime-tasktick-v1')!.get(url)?.body).toBe('fresh-css');
+    expect(harness.caches.get(RUNTIME)!.get(url)?.body).toBe('fresh-css');
   });
 
   it('returns a network error rather than inventing content when nothing is cached', async () => {
@@ -415,7 +476,7 @@ describe('the no-store gate applies to every runtime write', () => {
 describe('lifecycle', () => {
   it('precaches the shell, the manifest and every icon', async () => {
     const harness = await installedHarness();
-    const entries = [...harness.caches.get('precache-tasktick-v1')!.keys()].map((url) =>
+    const entries = [...harness.caches.get(PRECACHE)!.keys()].map((url) =>
       url.replace(ORIGIN, ''),
     );
     expect(entries).toContain('/');
@@ -432,6 +493,6 @@ describe('lifecycle', () => {
     seedCache(harness, 'precache-tasktick-v0', { x: 'stale' });
     seedCache(harness, 'runtime-tasktick-v0', {});
     await harness.activate();
-    expect([...harness.caches.keys()].sort()).toEqual(['precache-tasktick-v1']);
+    expect([...harness.caches.keys()].sort()).toEqual([PRECACHE]);
   });
 });
