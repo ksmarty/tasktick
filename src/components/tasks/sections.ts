@@ -6,7 +6,7 @@
  * here and unit-tested, so the view components stay presentational.
  */
 import type { AgendaBuckets } from '@/lib/agenda-types';
-import { fromDateOnly, relativeDayLabel, taskDay } from '@/lib/dates';
+import { addDaysToDateOnly, taskDay } from '@/lib/dates';
 import type { DateOnly, Task } from '@/lib/types';
 
 export type TaskSectionTone = 'default' | 'danger';
@@ -124,82 +124,81 @@ export interface ListSectionOptions {
   zone: string;
   /** Today's floating day, injected so the grouping is testable. */
   today: DateOnly;
-  /** Group by due day. Off for sorts where a day grouping would fight the order. */
-  groupByDay: boolean;
-  /** Title of the single section used when `groupByDay` is false. */
-  title?: string;
 }
 
 /**
- * The list screen's grouping.
+ * How far ahead the "Next 7 days" group reaches: today through today + 7.
  *
- * Overdue first (in red), then one section per day with the same relative
- * labels the rows use, then "No date", then "Completed" — which starts
- * collapsed because it is history, not work.
+ * Kept in step with the server's agenda bucket and `dueWindowBounds`, so the
+ * group means the same slice of time whichever endpoint built it.
+ */
+export const NEXT_7_DAYS_SPAN = 7;
+
+/**
+ * The open-work groups of the list screen, in render order.
+ *
+ * These are not filters the user picks — they are the same data bucketed by
+ * urgency, so the screen shows one pass over every open task instead of asking
+ * which slice to look at first.
+ */
+export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectionTone }[] = [
+  { id: 'pinned', title: 'Pinned', tone: 'default' },
+  { id: 'overdue', title: 'Overdue', tone: 'danger' },
+  { id: 'next7days', title: 'Next 7 days', tone: 'default' },
+  { id: 'later', title: 'Later', tone: 'default' },
+];
+
+/**
+ * The list screen's grouping: Pinned, Overdue, Next 7 days, Later.
+ *
+ * One pass over the rows, each open task landing in exactly one group — a task
+ * that is both pinned and overdue is pinned, and never appears twice. A group
+ * with nothing in it is skipped rather than rendered as an empty header.
+ *
+ * Pinned wins over everything because it is the user's own ordering of their
+ * day; Overdue is anything due before today; Next 7 days is today through the
+ * end of the week-long horizon; Later is the rest, undated work included, so
+ * nothing has a home it does not belong in.
+ *
+ * Closed rows are kept reachable in a collapsed trailing section: ticking a task
+ * off must never make it vanish with no way back.
  */
 export function buildListSections(tasks: readonly Task[], options: ListSectionOptions): TaskSection[] {
-  const { zone, today, groupByDay, title = 'All tasks' } = options;
-  const open = tasks.filter((task) => task.status === 'todo');
-  const closed = tasks.filter((task) => task.status !== 'todo');
+  const { zone, today } = options;
+  const horizon = addDaysToDateOnly(today, NEXT_7_DAYS_SPAN, zone);
 
-  if (!groupByDay) {
-    const sections: TaskSection[] = [];
-    if (open.length) {
-      sections.push({ id: 'all', title, tasks: open.slice(), tone: 'default', defaultCollapsed: false, reorderable: true });
+  const buckets = new Map<string, Task[]>(LIST_GROUPS.map((group) => [group.id, []]));
+  const closed: Task[] = [];
+
+  for (const task of tasks) {
+    if (task.status !== 'todo') {
+      closed.push(task);
+      continue;
     }
-    if (closed.length) {
-      sections.push({
-        id: 'completed',
-        title: 'Completed',
-        tasks: closed.slice(),
-        tone: 'default',
-        defaultCollapsed: true,
-        reorderable: false,
-      });
+    if (task.isPinned) {
+      buckets.get('pinned')?.push(task);
+      continue;
     }
-    return sections;
-  }
 
-  const overdue: Task[] = [];
-  const noDate: Task[] = [];
-  const byDay = new Map<DateOnly, Task[]>();
-
-  for (const task of open) {
     const day = taskDay(task, zone);
-    if (!day) {
-      noDate.push(task);
-      continue;
-    }
-    if (day < today) {
-      overdue.push(task);
-      continue;
-    }
-    const bucket = byDay.get(day);
-    if (bucket) bucket.push(task);
-    else byDay.set(day, [task]);
+    if (day && day < today) buckets.get('overdue')?.push(task);
+    else if (day && day <= horizon) buckets.get('next7days')?.push(task);
+    else buckets.get('later')?.push(task);
   }
 
   const sections: TaskSection[] = [];
-  if (overdue.length) {
-    sections.push({ id: 'overdue', title: 'Overdue', tasks: overdue, tone: 'danger', defaultCollapsed: false, reorderable: true });
-  }
 
-  // The caller's notion of "today" drives the labels, not the wall clock.
-  const anchor = fromDateOnly(today, zone);
-
-  for (const day of [...byDay.keys()].sort()) {
+  for (const group of LIST_GROUPS) {
+    const grouped = buckets.get(group.id) ?? [];
+    if (grouped.length === 0) continue;
     sections.push({
-      id: `day:${day}`,
-      title: relativeDayLabel(day, zone, anchor),
-      tasks: byDay.get(day) ?? [],
-      tone: 'default',
+      id: group.id,
+      title: group.title,
+      tasks: grouped,
+      tone: group.tone,
       defaultCollapsed: false,
       reorderable: true,
     });
-  }
-
-  if (noDate.length) {
-    sections.push({ id: 'noDate', title: 'No date', tasks: noDate, tone: 'default', defaultCollapsed: false, reorderable: true });
   }
 
   if (closed.length) {

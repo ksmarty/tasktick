@@ -9,6 +9,10 @@
  * touch) or offers the extra actions (on a mouse) — never both, so a finger drag
  * is never mistaken for a context menu.
  *
+ * A pinned task carries a pin glyph beside its title, which is the one mark the
+ * row adds to say "this one was pinned deliberately": it belongs on the name,
+ * not down in the meta line where the derived facts live.
+ *
  * ## The drag grip
  *
  * A grip is only drawn where a pointer can actually use it. It used to be
@@ -21,7 +25,7 @@
  * on touch because that path is driven by `pointerType`, not by the grip.
  */
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
-import { Ban, Check, GripVertical, Trash } from 'lucide-react';
+import { Ban, Check, GripVertical, Pin, Trash } from 'lucide-react';
 import { ActionSheet, type ActionSheetAction } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useMediaQuery } from '@/lib/store';
@@ -421,6 +425,12 @@ export function TaskRow({
             >
               {task.title}
             </span>
+            {task.isPinned ? (
+              <span className="inline-flex shrink-0 items-center text-tint">
+                <Pin className="size-3.5" strokeWidth={2.25} aria-hidden />
+                <span className="sr-only">Pinned</span>
+              </span>
+            ) : null}
             <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} className="ml-auto" />
           </span>
           <TaskMeta task={task} listName={listName} className="mt-0" />

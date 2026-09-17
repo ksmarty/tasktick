@@ -1,6 +1,6 @@
 /**
  * `/tasks` URL state: parsing, serialising, the API query it drives, and the
- * chips that describe the active filters.
+ * active filters the header button reports.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,7 +8,6 @@ import {
   clearFilter,
   parseTaskView,
   serializeTaskView,
-  shouldGroupByDay,
   taskQuery,
   taskViewTitle,
   updateTaskView,
@@ -105,16 +104,6 @@ describe('taskQuery', () => {
       priorities: 'high',
       includeCompleted: 1,
     });
-  });
-});
-
-describe('shouldGroupByDay', () => {
-  it('groups only the chronological sorts', () => {
-    expect(shouldGroupByDay('smart')).toBe(true);
-    expect(shouldGroupByDay('due')).toBe(true);
-    expect(shouldGroupByDay('manual')).toBe(false);
-    expect(shouldGroupByDay('priority')).toBe(false);
-    expect(shouldGroupByDay('title')).toBe(false);
   });
 });
 

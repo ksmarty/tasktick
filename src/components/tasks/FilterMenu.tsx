@@ -1,19 +1,22 @@
 'use client';
 
 /**
- * The filter sheet behind the list screen's filter button.
+ * The one menu behind the list screen's header button: filtering and sorting.
  *
- * One group per filter dimension, each a single-choice list, so the URL state can
- * only ever hold one of each — which is exactly what the chips row in the list
- * header is able to describe and clear.
+ * They are two halves of the same question — "what is in this list, and in what
+ * order" — so they share a sheet rather than a filter button plus a separate
+ * sort select that the user had to find on its own.
+ *
+ * Each filter dimension is a single-choice list, so the URL state can only ever
+ * hold one of each, and the active sort is a single-choice list too.
  */
 import type { ReactNode } from 'react';
-import { Check, Flag } from 'lucide-react';
+import { ArrowDownWideNarrow, Check, Flag } from 'lucide-react';
 import { SectionHeader, Sheet } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { accentHex } from '@/lib/colors';
 import type { List, Tag } from '@/lib/types';
-import { TASK_WINDOWS, type TaskViewState } from './filters';
+import { TASK_SORTS, TASK_WINDOWS, type TaskViewState } from './filters';
 import { PRIORITY_ITEMS } from './priority';
 
 export interface TaskFilterSheetProps {
@@ -54,7 +57,7 @@ function OptionRow({ selected, label, onSelect, leading, first = false }: Option
 
 export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChange }: TaskFilterSheetProps) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Filter" dismissible>
+    <Sheet open={open} onOpenChange={onOpenChange} title="Filter & Sort" dismissible>
       <div className="pb-4">
         <SectionHeader title="Due" className="px-0 pt-2 pb-2" />
         <div role="radiogroup" aria-label="Due window" className="grouped">
@@ -128,6 +131,20 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
             </div>
           </>
         ) : null}
+
+        <SectionHeader title="Sort" className="px-0 pt-6 pb-2" />
+        <div role="radiogroup" aria-label="Sort" className="grouped">
+          {TASK_SORTS.map((option, index) => (
+            <OptionRow
+              key={option.value}
+              first={index === 0}
+              selected={state.sort === option.value}
+              label={option.label}
+              leading={<ArrowDownWideNarrow className="size-5 shrink-0 text-secondary" aria-hidden />}
+              onSelect={() => onChange({ sort: option.value })}
+            />
+          ))}
+        </div>
       </div>
     </Sheet>
   );

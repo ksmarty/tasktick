@@ -3,7 +3,8 @@
  *
  * Everything shown here is derived: priority, list name, repeat, subtask
  * progress and tags. The glyphs are the row's only signal that a task is not a
- * plain one-liner.
+ * plain one-liner. The pin is not here — it is a deliberate mark on the task
+ * itself, so it sits beside the title (see `TaskRow`).
  *
  * The due date used to lead this line. It now lives at the row's trailing edge
  * (see `DueDateLabel`), because it is the one datum that has to keep its
@@ -21,7 +22,7 @@
  * louder than the words beside it; the flag is now a small filled mark whose
  * height matches the text's cap height rather than a full-size outline icon.
  */
-import { Flag, ListChecks, Pin, Repeat } from 'lucide-react';
+import { Flag, ListChecks, Repeat } from 'lucide-react';
 import { Chip } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { formatTime, isOverdue, relativeDayLabel, taskDay, todayIn } from '@/lib/dates';
@@ -117,7 +118,7 @@ export function TaskMeta({ task, listName, className }: TaskMetaProps) {
   const tags = task.tags ?? [];
 
   const hasAnything = Boolean(
-    task.priority !== 'none' || tags.length || task.recurrenceRule || subtasks.length || task.isPinned || listName,
+    task.priority !== 'none' || tags.length || task.recurrenceRule || subtasks.length || listName,
   );
   if (!hasAnything) return null;
 
@@ -159,13 +160,6 @@ export function TaskMeta({ task, listName, className }: TaskMetaProps) {
           #{tag.name}
         </Chip>
       ))}
-
-      {task.isPinned ? (
-        <span className="inline-flex shrink-0 items-center text-tint">
-          <Pin className={META_ICON} strokeWidth={META_ICON_STROKE} aria-hidden />
-          <span className="sr-only">Pinned</span>
-        </span>
-      ) : null}
     </span>
   );
 }

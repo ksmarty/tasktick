@@ -136,64 +136,88 @@ describe('countRemaining / todayProgress', () => {
 });
 
 describe('buildListSections', () => {
-  const options = { zone: 'utc', today: '2025-05-12', groupByDay: true };
+  const options = { zone: 'utc', today: '2025-05-12' };
 
-  it('groups open work by day with relative labels, overdue first', () => {
+  it('buckets open work into the four groups, in order', () => {
     const sections = buildListSections(
       [
-        task('late', { dueDate: '2025-05-10' }),
+        task('later', { dueDate: '2025-05-25' }),
         task('now', { dueDate: '2025-05-12' }),
-        task('next', { dueDate: '2025-05-13' }),
-        task('soon', { dueDate: '2025-05-14' }),
+        task('pinned', { isPinned: true }),
+        task('late', { dueDate: '2025-05-10' }),
       ],
       options,
     );
 
-    expect(sections.map((s) => s.title)).toEqual(['Overdue', 'Today', 'Tomorrow', 'Wednesday']);
-    expect(sections.map((s) => s.id)).toEqual(['overdue', 'day:2025-05-12', 'day:2025-05-13', 'day:2025-05-14']);
-    expect(sections[0].tone).toBe('danger');
+    expect(sections.map((s) => s.id)).toEqual(['pinned', 'overdue', 'next7days', 'later']);
+    expect(sections.map((s) => s.title)).toEqual(['Pinned', 'Overdue', 'Next 7 days', 'Later']);
+    expect(sections.find((s) => s.id === 'overdue')?.tone).toBe('danger');
+    expect(sections.every((s) => s.reorderable)).toBe(true);
+  });
+
+  it('keeps a pinned task out of every other group', () => {
+    const sections = buildListSections([task('both', { isPinned: true, dueDate: '2025-05-01' })], options);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].id).toBe('pinned');
+    expect(sections[0].tasks.map((t) => t.id)).toEqual(['both']);
+  });
+
+  it('omits a group with nothing in it', () => {
+    const sections = buildListSections([task('a', { dueDate: '2025-05-20' })], options);
+    expect(sections.map((s) => s.id)).toEqual(['later']);
+  });
+
+  it('reads the horizon as today through today + 7', () => {
+    const sections = buildListSections(
+      [
+        task('today', { dueDate: '2025-05-12' }),
+        task('edge', { dueDate: '2025-05-19' }),
+        task('past-edge', { dueDate: '2025-05-20' }),
+      ],
+      options,
+    );
+
+    expect(sections.find((s) => s.id === 'next7days')?.tasks.map((t) => t.id)).toEqual(['today', 'edge']);
+    expect(sections.find((s) => s.id === 'later')?.tasks.map((t) => t.id)).toEqual(['past-edge']);
+  });
+
+  it('sends undated work to Later', () => {
+    const sections = buildListSections([task('someday')], options);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].id).toBe('later');
   });
 
   it('reads an instant-only task through the user zone', () => {
     // 2025-05-12T23:30Z is still the 12th in UTC.
     const sections = buildListSections([task('a', { dueAtMs: Date.UTC(2025, 4, 12, 23, 30) })], options);
-    expect(sections[0].id).toBe('day:2025-05-12');
+    expect(sections[0].id).toBe('next7days');
   });
 
-  it('puts undated work in "No date" and closed work last, collapsed', () => {
+  it('keeps the incoming order inside a group', () => {
+    const sections = buildListSections(
+      [task('b', { dueDate: '2025-05-12' }), task('a', { dueDate: '2025-05-13' })],
+      options,
+    );
+    expect(sections[0].tasks.map((t) => t.id)).toEqual(['b', 'a']);
+  });
+
+  it('keeps closed work last, collapsed and un-reorderable', () => {
     const sections = buildListSections(
       [
         task('a', { dueDate: '2025-05-12' }),
-        task('b'),
         task('c', { status: 'completed' }),
         task('d', { status: 'wont_do' }),
       ],
       options,
     );
 
-    expect(sections.map((s) => s.title)).toEqual(['Today', 'No date', 'Completed']);
-    expect(sections[2].defaultCollapsed).toBe(true);
-    expect(sections[2].tasks.map((t) => t.id)).toEqual(['c', 'd']);
-  });
-
-  it('keeps the incoming order inside a day', () => {
-    const sections = buildListSections(
-      [task('b', { dueDate: '2025-05-12' }), task('a', { dueDate: '2025-05-12' })],
-      options,
-    );
-    expect(sections[0].tasks.map((t) => t.id)).toEqual(['b', 'a']);
-  });
-
-  it('renders one flat section when the sort is not chronological', () => {
-    const sections = buildListSections([task('a'), task('b')], {
-      ...options,
-      groupByDay: false,
-      title: 'Manual order',
-    });
-
-    expect(sections).toHaveLength(1);
-    expect(sections[0].id).toBe('all');
-    expect(sections[0].title).toBe('Manual order');
+    expect(sections.map((s) => s.title)).toEqual(['Next 7 days', 'Completed']);
+    const completed = sections[sections.length - 1];
+    expect(completed.defaultCollapsed).toBe(true);
+    expect(completed.reorderable).toBe(false);
+    expect(completed.tasks.map((t) => t.id)).toEqual(['c', 'd']);
   });
 
   it('returns nothing at all for an empty list', () => {

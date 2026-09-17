@@ -87,7 +87,6 @@ export {
   DEFAULT_TASK_VIEW,
   parseTaskView,
   serializeTaskView,
-  shouldGroupByDay,
   taskQuery,
   taskViewTitle,
   TASK_SORTS,

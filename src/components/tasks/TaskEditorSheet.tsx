@@ -9,7 +9,7 @@
  * the duration, which keeps Escape from closing both at once.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, Calendar, Clock, Flag, Link2, List as ListIcon, Repeat, Tag as TagIcon, Trash } from 'lucide-react';
+import { Bell, Calendar, Clock, Flag, Link2, List as ListIcon, Pin, Repeat, Tag as TagIcon, Trash } from 'lucide-react';
 import {
   Button,
   ConfirmDialog,
@@ -327,15 +327,24 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 onChange={(event) => edit({ url: event.target.value })}
               />
             </div>
-            <div className="flex min-h-11 items-center px-4">
-              <Switch
-                className="w-full"
-                checked={isPinned}
-                disabled={disabled}
-                label="Pin to top"
-                onCheckedChange={(checked) => edit({ isPinned: checked })}
-              />
-            </div>
+            <ListRow
+              title="Pin to top"
+              leading={<Pin className="size-5" aria-hidden />}
+              trailing={
+                <Switch
+                  size="sm"
+                  checked={isPinned}
+                  disabled={disabled}
+                  /*
+                   * A switch keeps one name and reports its state through
+                   * `aria-checked` — a name that flips between "Pin…" and
+                   * "Unpin…" would be announced as a different control.
+                   */
+                  aria-label="Pin to top"
+                  onCheckedChange={(checked) => edit({ isPinned: checked })}
+                />
+              }
+            />
           </ListGroup>
 
           <SectionHeader title="Subtasks" className="px-0 pt-6 pb-2" />

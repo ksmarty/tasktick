@@ -1,7 +1,13 @@
 'use client';
 
 /**
- * The task list screen: a filtered, grouped, reorderable view of `/api/tasks`.
+ * The task list screen: every open task, grouped by urgency.
+ *
+ * One pass over `/api/tasks`, bucketed into Pinned / Overdue / Next 7 days /
+ * Later by `buildListSections` — the user does not choose a window here, they
+ * read one list. Filtering and sorting both live in the header's single menu,
+ * and the search field is revealed by a scroll-up gesture rather than sitting
+ * permanently under the title.
  *
  * The URL is the state — `?list=`, `?tag=`, `?window=`, `?q=`, `?sort=`,
  * `?priority=` — so a filtered view can be linked, bookmarked and reloaded, and
@@ -23,16 +29,15 @@ import {
 } from 'lucide-react';
 import {
   Button,
-  Chip,
   ConfirmDialog,
   EmptyState,
   IconButton,
   NavBar,
-  Select,
   Skeleton,
   TextField,
 } from '@/components/ui';
 import { accentHex } from '@/lib/colors';
+import { cn } from '@/lib/cn';
 import { todayIn } from '@/lib/dates';
 import { useIsDesktop, useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
@@ -46,15 +51,12 @@ import { QuickAddBar } from './QuickAddBar';
 import { usePrimaryAction } from '@/lib/events';
 import { TagPicker } from './TagPicker';
 import { TaskEditorSheet } from './TaskEditorSheet';
-import { TaskFilterBar } from './TaskFilterBar';
 import { TaskListSection } from './TaskListSection';
 import { ViewportDock } from './ViewportDock';
 import {
   activeFilters,
-  clearFilter,
   parseTaskView,
   serializeTaskView,
-  shouldGroupByDay,
   taskQuery,
   taskViewTitle,
   updateTaskView,
@@ -64,6 +66,7 @@ import {
 import { removeByIds, reorderList, setPriorityByIds, setStatusByIds } from './optimistic';
 import type { BulkAction, BulkPayload } from './payloads';
 import { buildListSections, type TaskSection } from './sections';
+import { useScrollReveal } from './useScrollReveal';
 import { useTaskActions } from './useTaskActions';
 
 /** Debounce for the search field, so typing does not fire a request per key. */
@@ -96,6 +99,7 @@ export function TasksView() {
   const listColors = useMemo(() => new Map(lists.map((list) => [list.id, list.color])), [lists]);
 
   const [searchDraft, setSearchDraft] = useState(state.q);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [bulkSheet, setBulkSheet] = useState<BulkSheet>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -113,7 +117,7 @@ export function TasksView() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  // Keep the field in step with the URL (back button, chip removal).
+  // Keep the field in step with the URL (back button, a query typed elsewhere).
   useEffect(() => {
     setSearchDraft(state.q);
   }, [state.q]);
@@ -130,16 +134,20 @@ export function TasksView() {
   const chips = useMemo(() => activeFilters(state, lookups), [state, lookups]);
   const title = taskViewTitle(state, lookups);
   const activeList = state.listId ? (lists.find((list) => list.id === state.listId) ?? null) : null;
+  const activeSort = TASK_SORTS.find((sort) => sort.value === state.sort) ?? TASK_SORTS[0];
+
+  const scrollReveal = useScrollReveal();
+  /*
+   * The field is on screen while the list is being scrolled up, while it holds
+   * focus (so a tap on the freshly revealed field cannot make it disappear from
+   * under the finger), and whenever a query is actually applied — an active
+   * filter must never be invisible.
+   */
+  const searchVisible = scrollReveal || searchFocused || state.q.trim().length > 0;
 
   const sections = useMemo(
-    () =>
-      buildListSections(tasks, {
-        zone,
-        today: todayIn(zone),
-        groupByDay: shouldGroupByDay(state.sort),
-        title,
-      }),
-    [tasks, zone, state.sort, title],
+    () => buildListSections(tasks, { zone, today: todayIn(zone) }),
+    [tasks, zone],
   );
 
   function toggleSelect(task: Task) {
@@ -260,14 +268,41 @@ export function TasksView() {
         trailing={
           <>
             {/*
-             * Desktop only: the pinned "Add a task" bar is the mobile add
-             * affordance now, so a second one in the corner is just noise.
+             * Desktop only. The floating band — and with it the action
+             * button — is hidden at `lg`, so this is the only way to create a
+             * task from a desktop-sized window.
              */}
             <HeaderActionButton
               aria-label="Add a task"
               icon={Plus}
               className="hidden lg:inline-flex"
               onClick={() => setQuickAddOpen(true)}
+            />
+            {/*
+             * The active sort, as a quiet label rather than a control of its
+             * own: it answers "what order is this list in?" without opening
+             * anything, and tapping it opens the same menu the funnel does. The
+             * hit slop is what keeps a 13px word a usable target; it is
+             * invisible and costs no layout.
+             */}
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              aria-label={`Sort: ${activeSort.label}. Change the sort`}
+              className="relative shrink-0 rounded-ios px-1 text-footnote text-secondary pressable after:absolute after:-inset-2 after:content-['']"
+            >
+              {activeSort.label}
+            </button>
+            {/*
+             * One menu for both halves of list setup: filtering and sorting.
+             * It used to be a filter button next to the search field plus a
+             * "Smart" select under it, which is two spellings of one idea.
+             */}
+            <HeaderActionButton
+              aria-label="Filter and sort tasks"
+              icon={Funnel}
+              variant={chips.length ? 'filled' : 'tinted'}
+              onClick={() => setFilterOpen(true)}
             />
             <HeaderActionButton
               aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
@@ -277,76 +312,50 @@ export function TasksView() {
             />
           </>
         }
-      />
-
-      {/*
-       * The window filter sits directly under the title: the list below it is
-       * one of these four slices of the data, and Today (the old tab) is one of
-       * them. Kept out of the search/count block so it reads as chrome for the
-       * list rather than as part of the search row.
-       */}
-      <TaskFilterBar className="pt-1 pb-1.5" />
-
-      <div className="space-y-2 px-4 pt-1 pb-3">
-        <div className="flex items-center gap-2">
-          <TextField
-            className="flex-1"
-            aria-label="Search tasks"
-            placeholder="Search"
-            value={searchDraft}
-            leading={<Search className="size-4" />}
-            trailing={
-              searchDraft ? (
-                <IconButton aria-label="Clear search" icon={X} size="sm" onClick={() => setSearchDraft('')} />
-              ) : undefined
-            }
-            onChange={(event) => setSearchDraft(event.target.value)}
-          />
-          <IconButton
-            aria-label="Filter tasks"
-            icon={Funnel}
-            variant={chips.length ? 'tinted' : 'plain'}
-            onClick={() => setFilterOpen(true)}
-          />
-        </div>
-
-        {chips.length ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {chips.map((chip) => (
-              <Chip
-                key={chip.key}
-                onRemove={() => applyState(clearFilter(state, chip.key))}
-                removeLabel={`Clear ${chip.label}`}
-                color={
-                  chip.key === 'list'
-                    ? (lists.find((list) => list.id === chip.value)?.color ?? undefined)
-                    : chip.key === 'tag'
-                      ? (tags.find((tag) => tag.id === chip.value)?.color ?? undefined)
-                      : undefined
+      >
+        {/*
+         * Search, revealed by a scroll-up gesture — see `useScrollReveal`.
+         *
+         * It sits inside the nav bar's own band rather than in the scrolling
+         * content, because the gesture has to bring it into *view*: a row in the
+         * content is scrolled past the top of the pane by the same scroll that
+         * asks for it back, so it would reveal off screen. In the chrome it drops
+         * in under the title, which is exactly what iOS does.
+         *
+         * The row is a `grid` whose single track animates between `0fr` and `1fr`,
+         * so a hidden field collapses to nothing instead of leaving a hole, and
+         * `inert` takes it out of the tab order and off the accessibility tree: a
+         * field nobody can see must not be reachable. The transition rides the
+         * gesture, so the row unfolds as the list comes back up and folds away as
+         * it goes down again.
+         */}
+        <div
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-200 ease-ios-out',
+            searchVisible ? 'grid-rows-[1fr]' : 'grid-rows-[0fr] opacity-0',
+          )}
+          inert={!searchVisible}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pt-0.5 pb-2">
+              <TextField
+                aria-label="Search tasks"
+                placeholder="Search"
+                value={searchDraft}
+                leading={<Search className="size-4" />}
+                trailing={
+                  searchDraft ? (
+                    <IconButton aria-label="Clear search" icon={X} size="sm" onClick={() => setSearchDraft('')} />
+                  ) : undefined
                 }
-              >
-                {chip.label}
-              </Chip>
-            ))}
+                onChange={(event) => setSearchDraft(event.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+              />
+            </div>
           </div>
-        ) : null}
-
-        <div className="flex items-center justify-between gap-2">
-          <span className="tnum text-footnote text-secondary">
-            {loading ? 'Loading…' : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
-          </span>
-          <Select
-            label="Sort"
-            className="w-40"
-            value={state.sort}
-            options={TASK_SORTS.map((sort) => ({ value: sort.value, label: sort.label }))}
-            onChange={(value) => {
-              const next = TASK_SORTS.find((sort) => sort.value === value);
-              if (next) applyState({ sort: next.value });
-            }}
-          />
         </div>
-      </div>
+      </NavBar>
 
       {resource.error && resource.data === undefined ? (
         <EmptyState
@@ -399,23 +408,10 @@ export function TasksView() {
       )}
 
       {/*
-       * The inline add bar is pinned above the bottom band now, so it is not part
-       * of the list any more — but it is hidden while a multi-select is running.
-       *
-       * The bulk-action bar occupies exactly the same band, and two bars stacked
-       * there would put roughly 150px of chrome over a 390×844 list. Selection
-       * wins it: it is a modal state (rows switch to select mode, the header
-       * action becomes "Done selecting") and adding a task is not what a hand is
-       * doing while it is picking tasks. The bar's clearance spacer stays in the
-       * list, so nothing moves when the two swap over.
+       * The bulk-action bar is the only thing left that wants the band above the
+       * tab bar: adding a task is the shell's action button opening the sheet,
+       * the same gesture as every other screen.
        */}
-      <QuickAddBar
-        variant="inline"
-        visible={!selectionMode}
-        listId={state.listId ?? data?.inboxListId ?? null}
-        onCreated={refresh}
-      />
-
       {selectionMode ? (
         /*
          * Docked rather than `fixed` in place: the route wrapper's animation keeps
@@ -520,7 +516,6 @@ export function TasksView() {
       />
 
       <QuickAddBar
-        variant="sheet"
         open={quickAddOpen}
         onOpenChange={setQuickAddOpen}
         listId={state.listId}

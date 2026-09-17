@@ -23,7 +23,6 @@ import { HeaderActionButton } from './HeaderActionButton';
 import { QuickAddBar } from './QuickAddBar';
 import { usePrimaryAction } from '@/lib/events';
 import { TaskEditorSheet } from './TaskEditorSheet';
-import { TaskFilterBar } from './TaskFilterBar';
 import { TaskListSection } from './TaskListSection';
 import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
 import { buildTodaySections, countRemaining, todayProgress, type TaskSection } from './sections';
@@ -118,9 +117,9 @@ export function TodayView() {
         trailing={
           <>
             {/*
-             * Desktop only: the pinned "Add a task" bar below is the mobile add
-             * affordance, and this would be a second, redundant one in a corner a
-             * thumb cannot reach anyway.
+             * Desktop only. The floating band — and with it the action button —
+             * is hidden at `lg`, so this is the only way to create a task from a
+             * desktop-sized window.
              */}
             <HeaderActionButton
               aria-label="Add a task"
@@ -136,10 +135,6 @@ export function TodayView() {
           </>
         }
       />
-
-      {/* The same window filter as `/tasks`, with `Today` active: the chip bar is
-       * the home of the old Today tab on both lists. */}
-      <TaskFilterBar className="pt-1 pb-1.5" />
 
       {data ? (
         <div className="px-4 pt-1 pb-2">
@@ -222,9 +217,7 @@ export function TodayView() {
         </div>
       )}
 
-      <QuickAddBar variant="inline" listId={data?.inboxListId ?? null} onCreated={refresh} />
-
-      <QuickAddBar variant="sheet" open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
+      <QuickAddBar open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
       <TaskEditorSheet
         open={editor.open}
         task={editor.task}

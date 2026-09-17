@@ -141,14 +141,6 @@ export function taskQuery(state: TaskViewState): Record<string, string | number 
   return query;
 }
 
-/**
- * A day grouping only makes sense while the order is chronological; sorting by
- * title or priority across days is something the user asked to see flat.
- */
-export function shouldGroupByDay(sort: TaskSort): boolean {
-  return sort === 'smart' || sort === 'due';
-}
-
 export interface FilterLookups {
   lists: readonly { id: string; name: string }[];
   tags: readonly { id: string; name: string }[];
@@ -161,7 +153,8 @@ export interface ActiveFilter {
   value: string;
 }
 
-/** The chip row: only filters that are actually narrowing the list. */
+/** The filters that are actually narrowing the list: the filter sheet marks
+ * them, and the header's filter button tints while any is set. */
 export function activeFilters(state: TaskViewState, lookups: FilterLookups): ActiveFilter[] {
   const chips: ActiveFilter[] = [];
 
