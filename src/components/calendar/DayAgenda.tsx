@@ -123,7 +123,11 @@ export function DayAgenda({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-2 px-4 pt-1.5 pb-2">
+      {/*
+        A tighter header than the rest of the app's panes: the month above is a
+        tight block now, and the 4px this gives back goes to the list.
+      */}
+      <header className="flex shrink-0 items-center gap-2 px-4 pt-1 pb-1.5">
         <h2 className={cn('min-w-0 truncate text-subhead font-semibold', date === today ? 'text-tint' : 'text-label')}>
           {dayLabel}
         </h2>

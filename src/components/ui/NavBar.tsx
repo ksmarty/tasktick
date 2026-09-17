@@ -100,36 +100,42 @@ export function NavBar({
         style={{ zIndex: Z.chrome }}
         {...rest}
       >
-        <div
-          className={cn('flex flex-col pt-safe', !largeTitle && 'h-header')}
-          style={largeTitle ? { minHeight: headerHeight } : undefined}
-        >
-          <div className="flex h-11 items-center justify-between gap-2 px-2">
-            <div className="flex min-w-0 items-center gap-1">{back ? backControl : leading}</div>
-
-            {largeTitle ? (
-              <span aria-hidden className={cn('truncate px-2 text-headline font-semibold text-label transition-opacity duration-200 ease-ios', collapsed ? 'opacity-100' : 'opacity-0')}>
-                {title}
-              </span>
-            ) : (
-              <h1 className="truncate px-2 text-headline font-semibold text-label">{title}</h1>
+        {/*
+         * ONE row for a large-title bar: back control, title and actions share a
+         * single line, with the title shrinking as the page scrolls instead of a
+         * second block collapsing out of the way.
+         *
+         * The previous two-row treatment (a compact strip on top of a 52px
+         * title block) cost about 96px of a phone's height before any content
+         * started, and left the actions floating in the strip above the title
+         * rather than beside it. Collapsing the title's SIZE rather than its
+         * presence keeps the same effect with half the vertical cost.
+         */}
+        <div className={cn('flex flex-col pt-safe', !largeTitle && 'h-header')}>
+          <div
+            className={cn(
+              'flex items-center justify-between gap-3 px-3',
+              largeTitle ? 'pb-1.5' : 'h-11',
             )}
-
-            <div className="flex min-w-0 items-center gap-1">{trailing}</div>
-          </div>
-
-          {largeTitle ? (
-            <div
-              className={cn(
-                'overflow-hidden transition-[height,opacity] duration-200 ease-ios-out',
-                collapsed ? 'h-0 opacity-0' : 'opacity-100',
-              )}
-              style={collapsed ? undefined : { height: LARGE_TITLE_BLOCK }}
-            >
-              <h1 className="truncate px-4 pb-2 text-large-title font-bold text-label">{title}</h1>
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              {back ? backControl : leading}
+              <h1
+                className={cn(
+                  'truncate font-bold text-label transition-[font-size] duration-200 ease-ios',
+                  largeTitle ? (collapsed ? 'text-headline' : 'text-title-1') : 'text-headline',
+                )}
+              >
+                {title}
+              </h1>
             </div>
-          ) : null}
 
+            {/*
+             * Actions are round, floating controls rather than bare glyphs,
+             * matching the header buttons in the reference.
+             */}
+            <div className="flex min-w-0 shrink-0 items-center gap-2">{trailing}</div>
+          </div>
           {children}
         </div>
       </header>

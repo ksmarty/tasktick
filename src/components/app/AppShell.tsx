@@ -107,6 +107,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return { today: agenda.today.length + agenda.overdue.length };
   }, [data]);
 
+  // The task screens pin their own add-a-task field above this band, so the
+  // action button would be a second, identical affordance on the same edge.
+  const pinOwnsCreation = pathname.startsWith('/tasks') || pathname.startsWith('/today');
+
   const activeTab: TabValue = pathname.startsWith('/calendar')
     ? 'calendar'
     : pathname.startsWith('/habits')
@@ -283,10 +287,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
        * just clear of the home indicator rather than floating high above it.
        */}
       <div
-        className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] z-40 flex items-center justify-center gap-2 px-3 lg:hidden"
+        className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+0.25rem)] z-40 flex items-center justify-center gap-2 px-3 lg:hidden"
       >
         <TabBar items={tabs} value={activeTab} onChange={onTabChange} label="Main sections" />
-        <QuickAddFab />
+        {/* Hidden where a pinned "Add a task" field already owns creation. */}
+        {!pinOwnsCreation && <QuickAddFab />}
       </div>
     </div>
   );

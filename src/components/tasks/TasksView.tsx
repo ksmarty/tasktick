@@ -39,6 +39,7 @@ import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { EmptyTasks } from './EmptyTasks';
 import { TaskFilterSheet } from './FilterMenu';
+import { HeaderActionButton } from './HeaderActionButton';
 import { ListPicker } from './ListPicker';
 import { PriorityPicker } from './PriorityPicker';
 import { QuickAddBar } from './QuickAddBar';
@@ -47,6 +48,7 @@ import { TagPicker } from './TagPicker';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskFilterBar } from './TaskFilterBar';
 import { TaskListSection } from './TaskListSection';
+import { ViewportDock } from './ViewportDock';
 import {
   activeFilters,
   clearFilter,
@@ -258,19 +260,19 @@ export function TasksView() {
         trailing={
           <>
             {/*
-             * Desktop only: on a phone the floating `QuickAddFab` is the add
-             * affordance, and a second one in the corner is just noise.
+             * Desktop only: the pinned "Add a task" bar is the mobile add
+             * affordance now, so a second one in the corner is just noise.
              */}
-            <IconButton
+            <HeaderActionButton
               aria-label="Add a task"
               icon={Plus}
               className="hidden lg:inline-flex"
               onClick={() => setQuickAddOpen(true)}
             />
-            <IconButton
+            <HeaderActionButton
               aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
               icon={selectionMode ? X : CheckCheck}
-              variant={selectionMode ? 'tinted' : 'plain'}
+              variant={selectionMode ? 'filled' : 'tinted'}
               onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
             />
           </>
@@ -396,16 +398,32 @@ export function TasksView() {
         </div>
       )}
 
-      <div className="pt-4 pb-6">
-        <QuickAddBar
-          variant="inline"
-          listId={state.listId ?? data?.inboxListId ?? null}
-          onCreated={refresh}
-        />
-      </div>
+      {/*
+       * The inline add bar is pinned above the bottom band now, so it is not part
+       * of the list any more — but it is hidden while a multi-select is running.
+       *
+       * The bulk-action bar occupies exactly the same band, and two bars stacked
+       * there would put roughly 150px of chrome over a 390×844 list. Selection
+       * wins it: it is a modal state (rows switch to select mode, the header
+       * action becomes "Done selecting") and adding a task is not what a hand is
+       * doing while it is picking tasks. The bar's clearance spacer stays in the
+       * list, so nothing moves when the two swap over.
+       */}
+      <QuickAddBar
+        variant="inline"
+        visible={!selectionMode}
+        listId={state.listId ?? data?.inboxListId ?? null}
+        onCreated={refresh}
+      />
 
       {selectionMode ? (
-        <div
+        /*
+         * Docked rather than `fixed` in place: the route wrapper's animation keeps
+         * a transform on it, and a transform makes it the containing block for a
+         * `fixed` descendant — which pinned this bar to the foot of the *content*,
+         * off screen until the list was scrolled to its end. See `ViewportDock`.
+         */
+        <ViewportDock
           className="fixed inset-x-0 px-3"
           style={{ bottom: isDesktop ? '0.75rem' : 'var(--tabbar-total)', zIndex: 30 }}
         >
@@ -447,7 +465,7 @@ export function TasksView() {
               />
             </div>
           </div>
-        </div>
+        </ViewportDock>
       ) : null}
 
       <TaskFilterSheet

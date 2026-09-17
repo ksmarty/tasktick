@@ -29,8 +29,15 @@
    * Page transitions.
    *
    * App Router navigations swap the tree with no motion of their own, which
-   * reads as a flicker rather than a move. These are applied to the route
-   * container keyed on pathname so each navigation plays once.
+   * reads as a flicker rather than a move.
+   *
+   * OPACITY ONLY, deliberately. Any transform on this wrapper — including the
+   * identity matrix a finished animation leaves behind with `fill-mode: both` —
+   * makes it the CONTAINING BLOCK for `position: fixed` descendants, per spec.
+   * A docked bar inside a route then positions against the content box instead
+   * of the viewport: off-screen at the top of a scroll and covering the last row
+   * at the bottom. Moving the wrapper is not worth breaking every fixed element
+   * inside it; the list stagger carries the movement instead.
    */
   --animate-page-in: page-in 0.34s var(--ease-ios-out) both;
   --animate-list-in: list-in 0.32s var(--ease-ios-out) both;
@@ -38,11 +45,9 @@
   @keyframes page-in {
     from {
       opacity: 0;
-      transform: translateY(8px) scale(0.994);
     }
     to {
       opacity: 1;
-      transform: none;
     }
   }
 

@@ -25,9 +25,17 @@
  * no fill: the days are separated by whitespace, the only rule in the whole
  * month is the hairline under the weekday header, and a stray day from a
  * neighbouring month is marked by a dimmer number. A 1px box around every cell
- * is what made the month read as a spreadsheet. Each row is also only as tall as
- * its contents (~44px), so six weeks stay under a third of a phone viewport and
- * the agenda below is on screen without scrolling.
+ * is what made the month read as a spreadsheet.
+ *
+ * The month is a *tight block*, the way the reference draws it: a 24px day
+ * circle immediately followed by the dot lane, six of them stacked at a 36px
+ * pitch — 216px of grid, about a quarter of a 844px phone viewport, so the
+ * agenda below is on screen without scrolling. The dots are laid over the
+ * bottom of the cell rather than stacked under the number, which is what lets
+ * the row stay 36px while the day itself is still a 40px tap target: the
+ * button is `min-h-10` and pays for the extra 4px with negative margins, so the
+ * hit box grows without the grid growing. The dots are painted after it, so
+ * they keep receiving their own taps and drags.
  *
  * `weeks` is 6 for the month and 1 for the week strip. The strip is not a time
  * grid: it is seven tappable day cells, each carrying its own weekday letter,
@@ -205,7 +213,10 @@ export function MonthGrid({
       {collapsed ? null : (
         <div aria-hidden className="grid shrink-0 grid-cols-7 border-b border-separator">
           {headers.map((label, index) => (
-            <span key={`${label}-${index}`} className="py-0.5 text-center text-caption-2 font-medium text-secondary">
+            <span
+              key={`${label}-${index}`}
+              className="pb-0.5 text-center text-caption-2 leading-none font-medium text-secondary"
+            >
               {label}
             </span>
           ))}
@@ -247,7 +258,7 @@ export function MonthGrid({
                   aria-selected={isSelected}
                   onClick={() => onSelectDate(cell.date)}
                   className={cn(
-                    'flex min-h-0 flex-col items-center',
+                    'relative flex min-h-0 flex-col items-center',
                     collapsed && 'justify-center gap-1 rounded-ios px-1',
                   )}
                 >
@@ -272,8 +283,22 @@ export function MonthGrid({
                     }}
                   />
 
-                  {/* Fixed height, so every number sits on the same line. */}
-                  <span className={cn('flex h-3.5 shrink-0 items-center justify-center gap-0.5', !collapsed && 'mt-0.5')}>
+                  {/*
+                    Fixed height, so every number sits on the same line — and in
+                    the month it is taken out of the flow entirely (pinned to the
+                    bottom of the cell) so it adds no height to the row.
+
+                    `pointer-events-none` on the lane itself is what keeps the
+                    day's hit box honest: only the dots are handles, so a tap
+                    beside them falls through to the day button underneath
+                    rather than stopping at an invisible strip.
+                  */}
+                  <span
+                    className={cn(
+                      'pointer-events-none flex shrink-0 items-center justify-center gap-0.5',
+                      collapsed ? 'mt-0.5 h-3.5' : 'absolute inset-x-0 bottom-0 h-3',
+                    )}
+                  >
                     {dayItems.slice(0, MAX_DOTS).map((item) => (
                       <DayDot
                         key={item.key}
@@ -358,7 +383,16 @@ function DayNumber({
         event.stopPropagation();
         activate();
       }}
-      className={cn('flex w-full flex-col items-center gap-1', strip ? '' : 'pt-1')}
+      /*
+       * The month's button is taller than the row it sits in: the visible row is
+       * 36px, the day is a 40px tap target. `-my-0.5` pays for it, so the grid
+       * does not grow, and `pt-0.5` keeps the number off the row's top edge —
+       * the button's own box starts 2px above the cell.
+       */
+      className={cn(
+        'flex w-full flex-col items-center gap-1',
+        strip ? '' : '-my-0.5 min-h-10 justify-start pt-0.5',
+      )}
     >
       {strip ? (
         <span aria-hidden className={cn('text-caption-2 leading-none', inMonth ? 'text-secondary' : 'text-tertiary')}>
@@ -426,7 +460,7 @@ function DayDot({ item, prefs, calendars, drag, onOpen, onPointerDown }: DayDotP
       }}
       onPointerDown={onPointerDown}
       onContextMenu={(event) => event.preventDefault()}
-      className={cn('flex size-3.5 items-center justify-center', drag && 'relative z-40')}
+      className={cn('flex size-3.5 pointer-events-auto items-center justify-center', drag && 'relative z-40')}
       style={drag ? { transform: `translate3d(${drag.offsetX}px, ${drag.offsetY}px, 0)` } : undefined}
     >
       <span

@@ -12,13 +12,14 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { CircleAlert } from 'lucide-react';
-import { Button, EmptyState, IconButton, NavBar, ProgressRing, Skeleton } from '@/components/ui';
+import { Button, EmptyState, NavBar, ProgressRing, Skeleton } from '@/components/ui';
 import type { AgendaBuckets } from '@/lib/agenda-types';
 import { formatFullDate } from '@/lib/dates';
 import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { EmptyTasks } from './EmptyTasks';
+import { HeaderActionButton } from './HeaderActionButton';
 import { QuickAddBar } from './QuickAddBar';
 import { usePrimaryAction } from '@/lib/events';
 import { TaskEditorSheet } from './TaskEditorSheet';
@@ -117,17 +118,21 @@ export function TodayView() {
         trailing={
           <>
             {/*
-             * Desktop only: on a phone the floating `QuickAddFab` is the add
-             * affordance and this would be a second, redundant one in a corner
-             * a thumb cannot reach anyway.
+             * Desktop only: the pinned "Add a task" bar below is the mobile add
+             * affordance, and this would be a second, redundant one in a corner a
+             * thumb cannot reach anyway.
              */}
-            <IconButton
+            <HeaderActionButton
               aria-label="Add a task"
               icon={Plus}
               className="hidden lg:inline-flex"
               onClick={() => setQuickAddOpen(true)}
             />
-            <IconButton aria-label="Search everything" icon={Search} onClick={() => router.push('/search')} />
+            <HeaderActionButton
+              aria-label="Search everything"
+              icon={Search}
+              onClick={() => router.push('/search')}
+            />
           </>
         }
       />
@@ -217,9 +222,7 @@ export function TodayView() {
         </div>
       )}
 
-      <div className="pt-4 pb-6">
-        <QuickAddBar variant="inline" listId={data?.inboxListId ?? null} onCreated={refresh} />
-      </div>
+      <QuickAddBar variant="inline" listId={data?.inboxListId ?? null} onCreated={refresh} />
 
       <QuickAddBar variant="sheet" open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
       <TaskEditorSheet

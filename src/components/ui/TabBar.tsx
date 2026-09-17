@@ -8,6 +8,9 @@ import { Sheet } from './Sheet';
 import { Z } from './internal';
 import { TAB_BAR_MAX_ITEMS, resolveTabBarItems } from './tab-bar-layout';
 
+/** Width of one tab plus the gap, i.e. the distance the capsule travels. */
+const TAB_STRIDE = 48;
+
 export interface TabBarItem<T extends string = string> {
   value: T;
   /** Short label under the glyph. */
@@ -56,6 +59,9 @@ export function TabBar<T extends string>({
   const { visible, overflow, hasOverflow } = resolveTabBarItems(items, max);
   const moreActive = overflow.some((item) => item.value === value);
   const slotCount = visible.length + (hasOverflow ? 1 : 0);
+
+  /** Index of the active slot, for the sliding capsule. -1 when nothing matches. */
+  const activeIndex = hasOverflow && moreActive ? slotCount - 1 : visible.findIndex((item) => item.value === value);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (slotCount === 0) return;
@@ -112,15 +118,30 @@ export function TabBar<T extends string>({
          * the button hard against the screen edge; sizing to content keeps the
          * pair compact and centred.
          */
-        className={cn('glass flex w-auto items-center gap-1 rounded-full p-1.5', className)}
+        className={cn('glass relative flex w-auto items-center gap-1 rounded-full p-1.5', className)}
         style={{ zIndex: Z.chrome }}
         {...rest}
       >
+        {/*
+         * The active capsule, as ONE element that slides.
+         *
+         * Previously each tab painted its own background, so the highlight
+         * appeared on one and vanished from another — a blink rather than a
+         * movement. A single capsule travelling between tabs is what makes the
+         * bar feel connected to the tap, and fixed-width tabs keep its geometry
+         * exact instead of needing the positions measured.
+         */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-1.5 top-1.5 size-11 rounded-full bg-tint-soft transition-transform duration-300 ease-ios-spring"
+          style={{ transform: `translateX(${Math.max(0, activeIndex) * TAB_STRIDE}px)` }}
+        />
+
         <div
           role="tablist"
           aria-label={label}
           onKeyDown={onKeyDown}
-          className="flex min-w-0 items-center justify-between gap-1"
+          className="relative flex items-center gap-1"
         >
           {visible.map((item, index) => {
             const active = item.value === value;
@@ -138,7 +159,7 @@ export function TabBar<T extends string>({
                 tabIndex={tabIndexFor(index, active)}
                 onClick={() => onChange(item.value)}
                 className={cn(
-                  'relative flex min-h-11 min-w-11 flex-1 items-center justify-center',
+                  'relative flex size-11 items-center justify-center',
                   'select-none disabled:opacity-40',
                   active ? 'text-tint' : 'text-secondary',
                   !item.disabled && 'pressable',
@@ -146,13 +167,13 @@ export function TabBar<T extends string>({
               >
                 {/* The active tab sits in its own filled capsule, which is how
                     the current section is marked without a colour change alone. */}
-                <span
-                  className={cn(
-                    'flex size-11 items-center justify-center rounded-full transition-colors duration-200 ease-ios',
-                    active && 'bg-tint-soft',
-                  )}
-                >
-                  <span className="relative">
+                <span className="flex size-11 items-center justify-center">
+                  <span
+                    className={cn(
+                      "relative transition-transform duration-300 ease-ios-spring",
+                      active && "scale-110",
+                    )}
+                  >
                     <Icon className="size-[22px]" strokeWidth={active ? 2.25 : 1.75} aria-hidden />
                     {renderBadge(item.badge)}
                   </span>
@@ -175,17 +196,12 @@ export function TabBar<T extends string>({
               tabIndex={tabIndexFor(slotCount - 1, moreActive)}
               onClick={() => setMoreOpen(true)}
               className={cn(
-                'relative flex min-h-11 min-w-11 flex-1 items-center justify-center',
+                'relative flex size-11 items-center justify-center',
                 'select-none pressable',
                 moreActive ? 'text-tint' : 'text-secondary',
               )}
             >
-              <span
-                className={cn(
-                  'flex size-11 items-center justify-center rounded-full transition-colors duration-200 ease-ios',
-                  moreActive && 'bg-tint-soft',
-                )}
-              >
+              <span className="flex size-11 items-center justify-center">
                 <Ellipsis className="size-[22px]" strokeWidth={moreActive ? 2.25 : 1.75} aria-hidden />
               </span>
               <span className="sr-only">{moreLabel}</span>
