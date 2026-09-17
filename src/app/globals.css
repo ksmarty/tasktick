@@ -451,6 +451,18 @@
 
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /*
+     * Paint the root element, not just the body.
+     *
+     * In an installed iOS PWA the area behind the status bar and the Dynamic
+     * Island is outside the body's painted box whenever the web view is inset
+     * for a non-translucent status bar. With nothing on `html`, that strip falls
+     * through to the browser's default surface — black — and a black band across
+     * the top of a light app looks like a rendering fault.
+     *
+     * `--bg` flips with the theme, so this matches the app in both appearances.
+     */
+    background-color: var(--bg);
     /* Kill the grey flash on tap; we render our own pressed states. */
     -webkit-tap-highlight-color: transparent;
     /* Pinch-zoom is a web page affordance; an app shell should not rubber-band. */

@@ -8,7 +8,8 @@
  * sort select that the user had to find on its own.
  *
  * Each filter dimension is a single-choice list, so the URL state can only ever
- * hold one of each, and the active sort is a single-choice list too.
+ * hold one of each, and the active sort is a single-choice list too. Picking any
+ * row applies it and closes the sheet — see `choose` below.
  */
 import type { ReactNode } from 'react';
 import { ArrowDownWideNarrow, Check, Flag } from 'lucide-react';
@@ -56,6 +57,24 @@ function OptionRow({ selected, label, onSelect, leading, first = false }: Option
 }
 
 export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChange }: TaskFilterSheetProps) {
+  /**
+   * Applies a choice, then gets out of the way.
+   *
+   * Every row here is a single choice that takes effect behind the sheet, so
+   * there is nothing left to do once it has been picked — leaving the sheet up
+   * made the user dismiss a menu they had already finished with. The patch goes
+   * in first, so the list behind is already updated when the sheet slides away.
+   *
+   * Sort closes too. It is the same kind of row as the filters — one choice out
+   * of a fixed set — and a user comparing two orders is served better by one
+   * consistent rule than by a special case they have to learn: pick, look, and
+   * reopen in one tap if it was not the one.
+   */
+  function choose(patch: Partial<TaskViewState>) {
+    onChange(patch);
+    onOpenChange(false);
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Filter & Sort" dismissible>
       <div className="pb-4">
@@ -67,7 +86,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
               first={index === 0}
               selected={state.window === option.value}
               label={option.label}
-              onSelect={() => onChange({ window: option.value })}
+              onSelect={() => choose({ window: option.value })}
             />
           ))}
         </div>
@@ -81,7 +100,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
               selected={state.priority === item.value}
               label={item.label}
               leading={<Flag className={cn('size-5 shrink-0', item.text)} aria-hidden />}
-              onSelect={() => onChange({ priority: state.priority === item.value ? null : item.value })}
+              onSelect={() => choose({ priority: state.priority === item.value ? null : item.value })}
             />
           ))}
         </div>
@@ -94,7 +113,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
                 first
                 selected={state.listId === null}
                 label="All lists"
-                onSelect={() => onChange({ listId: null })}
+                onSelect={() => choose({ listId: null })}
               />
               {lists.map((list) => (
                 <OptionRow
@@ -108,7 +127,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
                       style={{ backgroundColor: accentHex(list.color) }}
                     />
                   }
-                  onSelect={() => onChange({ listId: state.listId === list.id ? null : list.id })}
+                  onSelect={() => choose({ listId: state.listId === list.id ? null : list.id })}
                 />
               ))}
             </div>
@@ -125,7 +144,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
                   first={index === 0}
                   selected={state.tagId === tag.id}
                   label={`#${tag.name}`}
-                  onSelect={() => onChange({ tagId: state.tagId === tag.id ? null : tag.id })}
+                  onSelect={() => choose({ tagId: state.tagId === tag.id ? null : tag.id })}
                 />
               ))}
             </div>
@@ -141,7 +160,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
               selected={state.sort === option.value}
               label={option.label}
               leading={<ArrowDownWideNarrow className="size-5 shrink-0 text-secondary" aria-hidden />}
-              onSelect={() => onChange({ sort: option.value })}
+              onSelect={() => choose({ sort: option.value })}
             />
           ))}
         </div>

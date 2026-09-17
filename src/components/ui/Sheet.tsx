@@ -72,7 +72,6 @@ export function Sheet({
   children,
   ...rest
 }: SheetProps) {
-  const [rendered, setRendered] = useState(open);
   const [closing, setClosing] = useState(false);
   const [entered, setEntered] = useState(false);
   const [dragY, setDragY] = useState(0);
@@ -86,23 +85,37 @@ export function Sheet({
 
   const detents = useMemo(() => normaliseSnapPoints(snapPoints), [snapPoints]);
 
+  /*
+   * Mounted whenever the sheet is open, or while it plays its exit animation.
+   *
+   * This used to be a `rendered` state flipped from an effect, which mounted the
+   * panel one frame AFTER the tap that opened it. That is fine for a sheet, and
+   * fatal for a sheet containing an input: iOS only raises the keyboard when
+   * `focus()` runs inside the user-gesture task, and a panel that appears on the
+   * next frame is already too late — the field would take focus and the keyboard
+   * would stay down.
+   *
+   * Deriving it from `open` during render mounts the panel in the same commit
+   * that sets `open`, so a child's `useLayoutEffect` can focus within the
+   * gesture. `closing` still holds it mounted long enough to animate out.
+   */
+  const mounted = open || closing;
+
   // Mount on open, stay mounted through the exit animation.
   useEffect(() => {
     if (!open) return;
-    setRendered(true);
     setClosing(false);
     setDetent(Math.max(0, detents.length - 1));
   }, [open, detents.length]);
 
   useEffect(() => {
-    if (open || !rendered) return;
+    if (open || !mounted) return;
     setClosing(true);
     const timer = window.setTimeout(() => {
-      setRendered(false);
       setClosing(false);
     }, EXIT_MS);
     return () => window.clearTimeout(timer);
-  }, [open, rendered]);
+  }, [open, mounted]);
 
   // The entry animation uses `both` fill, which would keep overriding the drag
   // transform once it finished — so the class is dropped as soon as it is done.
@@ -117,7 +130,7 @@ export function Sheet({
     if (dismissible) onOpenChange(false);
   };
 
-  useBodyScrollLock(rendered);
+  useBodyScrollLock(mounted);
   useEscapeKey(open && dismissible, () => onOpenChange(false));
   useFocusTrap(panelRef, open);
 
@@ -166,7 +179,7 @@ export function Sheet({
     setDetent(nearest);
   }
 
-  if (!rendered) return null;
+  if (!mounted) return null;
 
   const panelStyle: CSSProperties = {
     zIndex: Z.sheet,

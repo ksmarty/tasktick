@@ -9,6 +9,7 @@
  * the cache revalidates behind it.
  */
 import { useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { CircleAlert } from 'lucide-react';
@@ -41,8 +42,17 @@ export function TodayView() {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // The shell's action button asks the mounted view for its primary create action.
-  usePrimaryAction(() => setQuickAddOpen(true));
+  usePrimaryAction(openQuickAdd);
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+
+  /**
+   * Opens quick add *inside* the gesture that asked for it — see `TasksView` for
+   * why: iOS raises the keyboard only for a `focus()` in the task that handled
+   * the tap, and the sheet's panel is a couple of renders away otherwise.
+   */
+  function openQuickAdd() {
+    flushSync(() => setQuickAddOpen(true));
+  }
 
   const sections = useMemo(() => buildTodaySections(data?.agenda), [data?.agenda]);
   const remaining = countRemaining(sections);
@@ -121,7 +131,7 @@ export function TodayView() {
               aria-label="Add a task"
               icon={Plus}
               className="hidden lg:inline-flex"
-              onClick={() => setQuickAddOpen(true)}
+              onClick={openQuickAdd}
             />
             <HeaderActionButton
               aria-label="Search everything"
@@ -190,7 +200,7 @@ export function TodayView() {
         <EmptyTasks
           title="Today is clear"
           description="Nothing is due and nothing is overdue. Add something now, or enjoy the quiet."
-          onAdd={() => setQuickAddOpen(true)}
+          onAdd={openQuickAdd}
         />
       ) : (
         <div>

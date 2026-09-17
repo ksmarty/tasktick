@@ -14,6 +14,7 @@
  * the resource cache key follows from it automatically.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   CheckCheck,
@@ -105,10 +106,25 @@ export function TasksView() {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // The shell's action button asks the mounted view for its primary create action.
-  usePrimaryAction(() => setQuickAddOpen(true));
+  usePrimaryAction(openQuickAdd);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+
+  /**
+   * Opens quick add *inside* the gesture that asked for it.
+   *
+   * iOS only raises the keyboard when `focus()` runs in the task that handled
+   * the tap. The sheet's panel arrives through a portal and an effect, so a plain
+   * `setState` here leaves the input a couple of renders away — by which time the
+   * gesture is over and the keyboard never comes up, however focused the field
+   * looks. Flushing the open synchronously means the field is in the DOM before
+   * this handler returns, and `QuickAddInput`'s layout effect can focus it while
+   * the tap is still being processed.
+   */
+  function openQuickAdd() {
+    flushSync(() => setQuickAddOpen(true));
+  }
 
   function applyState(patch: Partial<TaskViewState>) {
     const next = updateTaskView(state, patch);
@@ -280,7 +296,7 @@ export function TasksView() {
               aria-label="Add a task"
               icon={Plus}
               className="hidden lg:inline-flex"
-              onClick={() => setQuickAddOpen(true)}
+              onClick={openQuickAdd}
             />
             {/*
              * The active sort, as a quiet label rather than a control of its
@@ -338,7 +354,11 @@ export function TasksView() {
          */}
         <div
           className={cn(
-            'grid transition-[grid-template-rows,opacity] duration-200 ease-ios-out',
+            // Both halves of the motion are transitioned, over a duration long
+            // enough to read as a slide-and-fade: the track unfolding is the
+            // slide, and the opacity is what keeps the text from appearing at
+            // full strength in the first frame of it.
+            'grid transition-[grid-template-rows,opacity] duration-300 ease-ios',
             searchVisible ? 'grid-rows-[1fr]' : 'grid-rows-[0fr] opacity-0',
           )}
           inert={!searchVisible}
@@ -388,7 +408,7 @@ export function TasksView() {
               ? 'No task fits these filters. Clear one of them, or add something new.'
               : 'This list is empty. Add the first task and it will show up here.'
           }
-          onAdd={() => setQuickAddOpen(true)}
+          onAdd={openQuickAdd}
         />
       ) : (
         <div>

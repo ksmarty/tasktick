@@ -26,7 +26,6 @@ import { usePrimaryAction } from '@/lib/events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, ChevronUp } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api-client';
 import {
   DATE_FORMAT,
@@ -41,11 +40,9 @@ import {
   todayIn,
 } from '@/lib/dates';
 import { invalidate, useResource } from '@/lib/store';
-import { cn } from '@/lib/cn';
-import { Chip, Sheet, Skeleton, useToast } from '@/components/ui';
-import type { Calendar, CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
+import { Chip, Skeleton, useToast } from '@/components/ui';
+import type { CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
-import { CalendarSidebar } from './CalendarSidebar';
 import { CalendarToolbar } from './CalendarToolbar';
 import { DayAgenda } from './DayAgenda';
 import { DayDetailSheet, DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
@@ -84,10 +81,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const [anchor, setAnchor] = useState<DateOnly | null>(initialDate);
   const [selectedDate, setSelectedDate] = useState<DateOnly | null>(initialDate);
-  const [collapsed, setCollapsed] = useState(false);
   const [filterId, setFilterId] = useState<string | null>(initialCalendarId);
-  const [visibility, setVisibility] = useState<Record<string, boolean>>({});
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [daySheetDate, setDaySheetDate] = useState<DateOnly | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; eventId: string | null; defaults: EventDefaults } | null>(null);
 
@@ -115,23 +109,29 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const selected = selectedDate ?? today;
   const prefs: CalendarPrefs = useMemo(() => ({ zone, weekStartsOn, timeFormat }), [zone, weekStartsOn, timeFormat]);
 
+  /*
+   * The toolbar shows the month alone — no year, because there are no arrows to
+   * page with any more; the swipe and the month itself are the title.
+   */
+  const monthLabel = useMemo(() => fromDateOnly(activeDate, zone).toFormat('LLLL'), [activeDate, zone]);
+
   const calendars = bootstrap.data?.calendars ?? [];
   const calendarLookup: CalendarLookup = useMemo(() => new Map(calendars.map((c) => [c.id, c])), [calendars]);
   const filterCalendar = filterId ? (calendarLookup.get(filterId) ?? null) : null;
 
-  const visibilityById = useMemo(() => {
-    const out: Record<string, boolean> = {};
-    for (const calendar of calendars) out[calendar.id] = visibility[calendar.id] ?? calendar.isVisible;
-    return out;
-  }, [calendars, visibility]);
-
-  /** The `calendarIds` the request is scoped to; `undefined` until we know better. */
+  /**
+   * The `calendarIds` the request is scoped to; `undefined` until we know better.
+   *
+   * Visibility is the calendar's own `isVisible`, set in Settings → Calendars:
+   * the calendar view no longer carries a visibility control of its own, so
+   * there is nothing local to overlay on top of it.
+   */
   const calendarIds = useMemo(() => {
     if (filterCalendar) return [filterCalendar.id];
     if (calendars.length === 0) return undefined;
-    const visible = calendars.filter((calendar) => visibilityById[calendar.id]).map((calendar) => calendar.id);
+    const visible = calendars.filter((calendar) => calendar.isVisible).map((calendar) => calendar.id);
     return visible.length > 0 ? visible : [NO_CALENDAR_ID];
-  }, [filterCalendar, calendars, visibilityById]);
+  }, [filterCalendar, calendars]);
 
   /** The visible month, padded out to whole weeks by the server's own range helper. */
   const range = useMemo(
@@ -177,11 +177,6 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     },
     [],
   );
-
-  const goTo = useCallback((date: DateOnly) => {
-    setAnchor(date);
-    setSelectedDate(date);
-  }, []);
 
   const page = useCallback(
     (delta: number) => {
@@ -264,20 +259,6 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     [resource, payload, prefs, toast],
   );
 
-  const toggleCalendar = useCallback(
-    async (calendar: Calendar, visible: boolean) => {
-      setVisibility((current) => ({ ...current, [calendar.id]: visible }));
-      try {
-        await api.patch(`/api/calendars/${calendar.id}`, { isVisible: visible });
-        invalidate('/api/bootstrap');
-      } catch (error) {
-        setVisibility((current) => ({ ...current, [calendar.id]: !visible }));
-        toast({ title: 'Could not update the calendar', description: errorMessage(error), variant: 'error' });
-      }
-    },
-    [toast],
-  );
-
   /* ------------------------------------------------------------------ */
   /* item interactions                                                   */
   /* ------------------------------------------------------------------ */
@@ -330,29 +311,25 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     }, [createAt, selected]),
   );
 
-  const addFromToolbar = useCallback(() => {
-    createAt(selected, DEFAULT_EVENT_START_MINUTE);
-  }, [selected, createAt]);
-
   /* ------------------------------------------------------------------ */
   /* swipe paging                                                       */
   /* ------------------------------------------------------------------ */
 
-  // Horizontal swipe across the grid pages the month; across the agenda it moves
-  // the selected day. A drag in flight stands both down (`interaction.dragging`).
-  const gridSwipe = useSwipePaging(interaction, page);
+  /*
+   * The month grid owns its own two gestures (vertical height, horizontal
+   * paging) — see `MonthGrid` and `use-month-gestures` — because they share one
+   * surface and must agree on their axis lock. What is left here is the agenda's
+   * swipe: across the agenda it moves the selected day by one. A drag in flight
+   * stands both down (`interaction.dragging`).
+   */
   const agendaSwipe = useSwipePaging(interaction, moveDay);
 
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
         <CalendarToolbar
-          label={range.label}
+          label={monthLabel}
           selectedLabel={fromDateOnly(selected, prefs.zone).toFormat('cccc d LLLL yyyy')}
-          onPrev={() => page(-1)}
-          onNext={() => page(1)}
-          onToday={() => goTo(today)}
-          onAdd={addFromToolbar}
         />
 
         {filterCalendar ? (
@@ -368,19 +345,14 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-4 lg:p-3">
-          <section
-            aria-label="Month"
-            {...gridSwipe}
-            className={cn(
-              'flex min-h-0 flex-col touch-pan-y',
-              // Sized by its own content — six ~44px rows — not by a share of
-              // the viewport. The old `h-[48dvh]` stretched every row on a
-              // phone (~62px of mostly empty cell) and pushed the agenda down;
-              // the month is a plain surface now, so it only needs the room its
-              // numbers and dots occupy. Desktop keeps the left column.
-              collapsed ? 'shrink-0' : 'shrink-0 lg:flex-1',
-            )}
-          >
+          {/*
+            Sized by its own content — six 36px rows — not by a share of the
+            viewport. The old `h-[48dvh]` stretched every row on a phone (~62px
+            of mostly empty cell) and pushed the agenda down; the month is a
+            plain surface now, so it only needs the room its numbers and dots
+            occupy. Desktop keeps the left column.
+          */}
+          <section aria-label="Month" className="flex min-h-0 shrink-0 flex-col lg:flex-1">
             {!payload ? (
               resource.error ? (
                 <p role="alert" className="px-4 py-8 text-center text-footnote text-danger">
@@ -395,7 +367,6 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
                 anchor={activeDate}
                 selectedDate={selected}
                 today={today}
-                weeks={collapsed ? 1 : 6}
                 pageSeq={pageMotion.seq}
                 pageDirection={pageMotion.direction}
                 payload={activePayload}
@@ -406,18 +377,9 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
                 onOpenDay={setDaySheetDate}
                 onOpenItem={openItem}
                 onReschedule={reschedule}
+                onPage={page}
               />
             )}
-
-            <button
-              type="button"
-              aria-label={collapsed ? 'Expand the month' : 'Collapse to a week'}
-              aria-expanded={!collapsed}
-              onClick={() => setCollapsed((current) => !current)}
-              className="flex h-4 w-full shrink-0 items-center justify-center text-tertiary pressable"
-            >
-              {collapsed ? <ChevronDown className="size-4" aria-hidden /> : <ChevronUp className="size-4" aria-hidden />}
-            </button>
           </section>
 
           <section
@@ -435,26 +397,10 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
               onOpenItem={openItem}
               onReschedule={reschedule}
               onCreateAt={createAt}
-              onOpenCalendars={() => setSidebarOpen(true)}
             />
           </section>
         </div>
       </div>
-
-      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen} title="Calendars" snapPoints={[0.6, 0.95]}>
-        <CalendarSidebar
-          calendars={calendars}
-          visibility={visibilityById}
-          onToggleVisibility={toggleCalendar}
-          onFocusCalendar={(calendar) => setFilterId(calendar.id)}
-          filter={filterCalendar ? { id: filterCalendar.id, name: filterCalendar.name, color: filterCalendar.color } : null}
-          onClearFilter={() => setFilterId(null)}
-          onCreateEvent={() => {
-            setSidebarOpen(false);
-            createAt(selected, DEFAULT_EVENT_START_MINUTE);
-          }}
-        />
-      </Sheet>
 
       <DayDetailSheet
         open={Boolean(daySheetDate)}

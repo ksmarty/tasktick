@@ -12,7 +12,8 @@
  * one-to-many and time-scoped: whichever view is mounted should respond, and no
  * view should care whether a button exists.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 
 /**
  * Raised when the user presses the shell's action button.
@@ -33,14 +34,33 @@ export function requestPrimaryAction(): void {
 /**
  * Runs `open` when the shell's action button is pressed.
  *
- * `open` is held in a ref so the listener does not have to be re-attached on
- * every render — the caller passes an inline arrow, which would otherwise
- * resubscribe constantly.
+ * ## Why the update is forced to flush synchronously
+ *
+ * The action button announces itself with a custom DOM event. React only treats
+ * the native events it manages as *discrete*, so a `setState` inside a listener
+ * for a custom event is batched and committed on a later frame — the sheet then
+ * mounts after the tap has finished.
+ *
+ * That matters for exactly one reason, and it is the reason this wrapper exists:
+ * iOS raises the software keyboard only when `focus()` runs inside the
+ * user-gesture task. A panel that appears on the next frame is too late, so the
+ * field takes focus and the keyboard stays down — which is precisely the reported
+ * symptom.
+ *
+ * `flushSync` commits inside the dispatch, still within the gesture, so the
+ * sheet's input exists by the time its layout effect focuses it. `open` is held
+ * in a ref so the listener does not resubscribe on every render — the caller
+ * passes an inline arrow.
  */
 export function usePrimaryAction(open: () => void): void {
+  const latest = useRef(open);
+  latest.current = open;
+
   useEffect(() => {
-    const handler = () => open();
+    const handler = () => {
+      flushSync(() => latest.current());
+    };
     window.addEventListener(PRIMARY_ACTION_EVENT, handler);
     return () => window.removeEventListener(PRIMARY_ACTION_EVENT, handler);
-  }, [open]);
+  }, []);
 }

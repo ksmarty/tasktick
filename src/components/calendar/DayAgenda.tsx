@@ -37,12 +37,12 @@
  */
 import { useRef } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarDays, Plus, SlidersHorizontal } from 'lucide-react';
+import { CalendarDays, Plus } from 'lucide-react';
 import { accentSoft, accentVar } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import type { CalendarItem, DateOnly } from '@/lib/types';
-import { Button, EmptyState, IconButton } from '@/components/ui';
+import { Button, EmptyState } from '@/components/ui';
 import { itemColor } from './colors';
 import { DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
 import { DragGhostLabel } from './DragGhostLabel';
@@ -80,8 +80,6 @@ export interface DayAgendaProps {
   onReschedule: RescheduleHandler;
   /** Opens the editor on the selected day at the given minute. */
   onCreateAt: (date: DateOnly, startMinute: number) => void;
-  /** Opens the calendars sheet (visibility toggles + "only this calendar"). */
-  onOpenCalendars: () => void;
 }
 
 export function DayAgenda({
@@ -94,7 +92,6 @@ export function DayAgenda({
   onOpenItem,
   onReschedule,
   onCreateAt,
-  onOpenCalendars,
 }: DayAgendaProps) {
   const listRef = useRef<HTMLUListElement>(null);
   const dayLabel = fromDateOnly(date, prefs.zone).toFormat('cccc d LLLL');
@@ -125,7 +122,10 @@ export function DayAgenda({
     <div className="flex min-h-0 flex-1 flex-col">
       {/*
         A tighter header than the rest of the app's panes: the month above is a
-        tight block now, and the 4px this gives back goes to the list.
+        tight block now, and the 4px this gives back goes to the list. The
+        header is the day and its count and nothing else — the calendars button
+        that used to sit here was the last piece of chrome on the screen, and
+        hiding a calendar lives in Settings → Calendars.
       */}
       <header className="flex shrink-0 items-center gap-2 px-4 pt-1 pb-1.5">
         <h2 className={cn('min-w-0 truncate text-subhead font-semibold', date === today ? 'text-tint' : 'text-label')}>
@@ -134,13 +134,6 @@ export function DayAgenda({
         <span className="tnum shrink-0 text-footnote text-secondary">
           {items.length === 0 ? null : items.length === 1 ? '1 item' : `${items.length} items`}
         </span>
-        <IconButton
-          aria-label="Calendars"
-          icon={SlidersHorizontal}
-          size="sm"
-          className="ml-auto"
-          onClick={onOpenCalendars}
-        />
       </header>
 
       {/*
@@ -148,7 +141,15 @@ export function DayAgenda({
         tab bar and the action button lives in that same row, so an extra
         `pb-20` here was pure double padding.
       */}
-      <ul ref={listRef} className="scroll-pane min-h-0 flex-1 space-y-1.5 px-3 pb-2 lg:pb-4">
+      {/*
+        `touch-pan-y` belongs on the scroller, not on the section around it:
+        touch-action is resolved up to the nearest scrolling element, so a value
+        on an ancestor of this `ul` is ignored. Without it the browser claims a
+        horizontal touch as a pan and cancels the pointer series, which killed
+        the day-swipe; with it, vertical scrolls still pass through to the list
+        and the horizontal drag stays ours.
+      */}
+      <ul ref={listRef} className="scroll-pane touch-pan-y min-h-0 flex-1 space-y-1.5 px-3 pb-2 lg:pb-4">
         {items.map((item) => {
           const color = itemColor(item, calendars);
           const isTask = item.kind === 'task';

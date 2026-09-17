@@ -23,6 +23,15 @@ export { DragGhostLabel } from './DragGhostLabel';
 export { itemColor } from './colors';
 export { moveItemInPayload, type MovedInstants } from './optimistic';
 export { useItemDrag, type DragGhost, type DragInit, type ItemDragConfig } from './use-item-drag';
+export {
+  useMonthGestures,
+  MONTH_ROW_PX,
+  MONTH_EXPANDED_PX,
+  MONTH_COLLAPSED_PX,
+  AXIS_LOCK_PX,
+  type MonthGestures,
+  type MonthGestureOptions,
+} from './use-month-gestures';
 export * from './geometry';
 export {
   createInteraction,

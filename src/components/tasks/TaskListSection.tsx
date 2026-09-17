@@ -47,6 +47,14 @@ interface DragState {
  */
 const STAGGER_MS = 600;
 
+/**
+ * The collapse/expand transition, in ms.
+ *
+ * In step with the `duration-300` on the rows' track below — the rows have to
+ * stay mounted for at least this long to be seen shrinking.
+ */
+const COLLAPSE_MS = 300;
+
 interface LiftState extends DragState {
   startY: number;
   offset: number;
@@ -116,6 +124,10 @@ export function TaskListSection({
   disabled = false,
 }: TaskListSectionProps) {
   const [collapsed, setCollapsed] = useState(section.defaultCollapsed);
+  /** Whether the row list is in the DOM — kept through the closing transition. */
+  const [rowsMounted, setRowsMounted] = useState(!section.defaultCollapsed);
+  /** Whether the track is open. One render behind `collapsed` on the way in. */
+  const [rowsOpen, setRowsOpen] = useState(!section.defaultCollapsed);
   const [htmlDrag, setHtmlDrag] = useState<DragState | null>(null);
   const [lift, setLift] = useState<LiftState | null>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
@@ -134,6 +146,34 @@ export function TaskListSection({
     const timer = window.setTimeout(() => setEntering(false), STAGGER_MS);
     return () => window.clearTimeout(timer);
   }, [entering]);
+
+  /*
+   * The collapse/expand transition, driven by a track that opens from `0fr` to
+   * `1fr` rather than by a measured pixel height. Two things have to happen in the
+   * right order for it to read as motion:
+   *
+   *   - opening, the rows come back *first*, while the track is still shut, and the
+   *     track is opened on the next frame — a track with nothing in it has nothing
+   *     to grow into, so the two in one commit is a jump, not a transition;
+   *   - closing, the rows stay mounted for the length of the transition, because
+   *     they are what is being seen to shrink. They are dropped afterwards, so a
+   *     collapsed section — the completed one can hold hundreds of rows — costs
+   *     the DOM nothing at rest.
+   *
+   * Nothing here is keyed to a re-render: the transition runs when `rowsOpen`
+   * actually changes, which only a toggle does. `prefers-reduced-motion` is
+   * handled globally, in `globals.css`.
+   */
+  useEffect(() => {
+    if (!collapsed) {
+      setRowsMounted(true);
+      const frame = window.requestAnimationFrame(() => setRowsOpen(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    setRowsOpen(false);
+    const timer = window.setTimeout(() => setRowsMounted(false), COLLAPSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [collapsed]);
 
   const reorderable = Boolean(onReorder) && section.reorderable && !selectionMode && !disabled;
 
@@ -285,43 +325,59 @@ export function TaskListSection({
       <div className="card-edge" style={{ '--edge-color': edgeColorFor(section, listColors) } as CSSProperties}>
         {header}
 
-        {collapsed ? null : (
-          <>
-            {/*
-             * The rows carry no background of their own, so the card reads as
-             * one surface — header row first, then the tasks. No hairline under
-             * the header: the two are one card rather than two groups, so a rule
-             * there drew a box around the title instead of separating anything,
-             * and the header's own weight already marks where the section
-             * starts.
-             */}
-            <ul className={cn(entering && 'stagger')}>
-              {section.tasks.map((task, index) => (
-                <TaskRow
-                  key={task.id}
-                  ref={(node) => {
-                    if (node) rowRefs.current.set(task.id, node);
-                    else rowRefs.current.delete(task.id);
-                  }}
-                  task={task}
-                  zone={zone}
-                  timeFormat={timeFormat}
-                  onToggle={onToggle}
-                  onOpen={onOpen}
-                  onDelete={onDelete}
-                  onWontDo={onWontDo}
-                  disabled={disabled}
-                  selectionMode={selectionMode}
-                  selected={selectedIds?.has(task.id) ?? false}
-                  onSelect={onSelect}
-                  drag={dragPropsFor(task)}
-                  first={index === 0}
-                  last={index === section.tasks.length - 1}
-                />
-              ))}
-            </ul>
-          </>
-        )}
+        {/*
+         * The rows live in a one-track grid whose track animates between `0fr` and
+         * `1fr`: a collapsed section then takes no space at all, without anyone
+         * measuring pixels in JS. `inert` while it is shut keeps rows a user cannot
+         * see out of the tab order and off the accessibility tree — they are still
+         * in the DOM for the length of the closing transition, and reachable by
+         * neither pointer nor keyboard once it has finished.
+         */}
+        <div
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-300 ease-ios-out',
+            rowsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr] opacity-0',
+          )}
+          inert={!rowsOpen}
+        >
+          <div className="min-h-0 overflow-hidden">
+            {rowsMounted ? (
+              /*
+               * The rows carry no background of their own, so the card reads as
+               * one surface — header row first, then the tasks. No hairline under
+               * the header: the two are one card rather than two groups, so a rule
+               * there drew a box around the title instead of separating anything,
+               * and the header's own weight already marks where the section
+               * starts.
+               */
+              <ul className={cn(entering && 'stagger')}>
+                {section.tasks.map((task, index) => (
+                  <TaskRow
+                    key={task.id}
+                    ref={(node) => {
+                      if (node) rowRefs.current.set(task.id, node);
+                      else rowRefs.current.delete(task.id);
+                    }}
+                    task={task}
+                    zone={zone}
+                    timeFormat={timeFormat}
+                    onToggle={onToggle}
+                    onOpen={onOpen}
+                    onDelete={onDelete}
+                    onWontDo={onWontDo}
+                    disabled={disabled}
+                    selectionMode={selectionMode}
+                    selected={selectedIds?.has(task.id) ?? false}
+                    onSelect={onSelect}
+                    drag={dragPropsFor(task)}
+                    first={index === 0}
+                    last={index === section.tasks.length - 1}
+                  />
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );

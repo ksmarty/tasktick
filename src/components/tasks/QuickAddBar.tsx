@@ -17,7 +17,7 @@
  * `ResizeObserver` and a viewport portal to stop covering the last row. The
  * sheet needs none of that.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { CornerDownLeft, Sparkles } from 'lucide-react';
 import { Button, Chip, Sheet, TextField, useToast } from '@/components/ui';
 import { parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
@@ -139,12 +139,17 @@ function QuickAddInput({
    * The caret goes into the field when the sheet is deliberately opened — and at
    * no other time. `open` is the only trigger: `autoFocus` would also fire on
    * whatever render happens to remount the field, and focusing unconditionally
-   * would grab the page's focus on load. The sheet renders its children only
-   * while it is open, so mounting this field *is* an open, which is why the
-   * effect also covers the first one (the sheet mounts its children a render
-   * after `open` flips, when `panelRef` is still null for its own focus trap).
+   * would grab the page's focus on load.
+   *
+   * A *layout* effect, not a passive one, and that distinction is the whole
+   * point: iOS raises the keyboard only when `focus()` runs in the task that
+   * handled the tap, and a passive effect is flushed after the browser has had
+   * its chance to paint — a frame later, in another task, where the gesture is
+   * spent and the keyboard never appears. A layout effect runs in the same commit
+   * that `open` arrived in, which the caller flushes synchronously with the tap
+   * (see `TasksView.openQuickAdd`), so the focus still belongs to the gesture.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     inputRef.current?.focus({ preventScroll: true });
   }, [open]);
