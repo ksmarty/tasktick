@@ -298,7 +298,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+0.125rem)] z-40 flex items-center justify-center gap-2 px-3 lg:hidden"
       >
         <TabBar items={tabs} value={activeTab} onChange={onTabChange} label="Main sections" />
-        <QuickAddFab />
+        {/*
+         * The button is contextual, so its name has to be too. It sits on the
+         * calendar and opens the event editor; announcing that as "Add a task"
+         * is simply wrong, and now that the agenda's own create button is gone
+         * this is the only create affordance on a phone.
+         */}
+        <QuickAddFab
+          label={
+            activeTab === 'calendar'
+              ? 'New event'
+              : activeTab === 'habits'
+                ? 'New habit'
+                : 'Add a task'
+          }
+        />
       </div>
     </div>
   );

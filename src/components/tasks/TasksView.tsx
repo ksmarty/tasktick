@@ -165,6 +165,18 @@ export function TasksView() {
    */
   const searchVisible = scrollReveal || searchFocused || state.q.trim().length > 0;
 
+  /**
+   * An applied query makes the field permanent, so it belongs in the header's
+   * flow rather than hanging over the first row. It is always visible in that
+   * state (`searchVisible` is true whenever `state.q` is non-empty), so putting
+   * it back in flow cannot animate — and therefore cannot feed the scroll —
+   * while a query is active: it is simply pushed in when the query is applied
+   * and taken out when it is cleared. Only the wrapper's positioning changes,
+   * never its identity, so the focused field does not remount and the keyboard
+   * stays up.
+   */
+  const searchInFlow = state.q.trim().length > 0;
+
   const sections = useMemo(
     () => buildListSections(tasks, { zone, today: todayIn(zone) }),
     [tasks, zone],
@@ -336,34 +348,42 @@ export function TasksView() {
         {/*
          * Search, revealed by a scroll-up gesture — see `useScrollReveal`. It is
          * hidden on load and stays hidden while the user reads down the list;
-         * only scrolling back up brings it out (or a list too short to scroll,
-         * where the field is always visible).
+         * only scrolling back up brings it out.
          *
-         * It sits inside the nav bar's own band rather than in the scrolling
-         * content, because the gesture has to bring it into *view*: a row in the
-         * content is scrolled past the top of the pane by the same scroll that
-         * asks for it back, so it would reveal off screen. In the chrome it drops
-         * in under the title, which is exactly what iOS does.
+         * It is absolutely positioned below the sticky header (`top-full`), out
+         * of the pane's flow. That placement is the fix for the reveal's old
+         * stutter: while the field was a normal row of the header, unfolding it
+         * grew the pane's content and the browser re-anchored the scroll to keep
+         * the content still — which changed the offset under the user's finger,
+         * fed back into the gesture, and flipped the field in and out. Out of
+         * flow it hangs over the content instead, so animating it cannot change
+         * the scroll height and cannot move the scroll at all.
          *
-         * The row is a `grid` whose single track animates between `0fr` and `1fr`,
-         * so a hidden field collapses to nothing instead of leaving a hole, and
-         * `inert` takes it out of the tab order and off the accessibility tree: a
-         * field nobody can see must not be reachable. The transition rides the
-         * gesture, so the row unfolds as the list comes back up and folds away as
-         * it goes down again.
+         * The row is still a `grid` whose single track animates between `0fr`
+         * and `1fr`, so a hidden field collapses to nothing instead of leaving a
+         * hole, and `inert` takes it out of the tab order and off the
+         * accessibility tree: a field nobody can see must not be reachable. It
+         * is also `pointer-events-none` while hidden, so the overlay cannot
+         * swallow taps meant for the rows underneath it.
          */}
         <div
+          data-search-reveal
           className={cn(
-            // Both halves of the motion are transitioned, over a duration long
-            // enough to read as a slide-and-fade: the track unfolding is the
-            // slide, and the opacity is what keeps the text from appearing at
-            // full strength in the first frame of it.
+            // `top-full` puts it directly below the header when it is an
+            // overlay; `inset-x-0` gives it the full width. `glass-chrome`
+            // extends the header's own surface under it, so the field reads as
+            // part of the chrome rather than as a control floating over the
+            // list. Both halves of the motion are transitioned, over a duration
+            // long enough to read as a slide-and-fade: the track unfolding is
+            // the slide, and the opacity is what keeps the text from appearing
+            // at full strength in the first frame of it.
             'grid transition-[grid-template-rows,opacity] duration-300 ease-ios',
-            searchVisible ? 'grid-rows-[1fr]' : 'grid-rows-[0fr] opacity-0',
+            searchInFlow ? 'relative' : 'absolute inset-x-0 top-full glass-chrome',
+            searchVisible ? 'grid-rows-[1fr]' : 'pointer-events-none grid-rows-[0fr] opacity-0',
           )}
           inert={!searchVisible}
         >
-          <div className="overflow-hidden">
+          <div className="min-h-0 overflow-hidden">
             <div className="px-4 pt-0.5 pb-2">
               <TextField
                 aria-label="Search tasks"
@@ -396,7 +416,7 @@ export function TasksView() {
           }
         />
       ) : loading ? (
-        <div className="space-y-6 px-4">
+        <div className="space-y-6 px-2">
           <Skeleton variant="text" lines={3} />
           <Skeleton variant="text" lines={3} />
         </div>

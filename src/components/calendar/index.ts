@@ -9,7 +9,7 @@
 export { CalendarScreen, type CalendarScreenProps } from './CalendarScreen';
 
 /* ------------------------------- the screen ------------------------------ */
-export { MonthGrid, type MonthGridProps } from './MonthGrid';
+export { MonthGrid, type MonthGridProps, type MonthPage } from './MonthGrid';
 export { DayAgenda, type DayAgendaProps } from './DayAgenda';
 export { CalendarToolbar, type CalendarToolbarProps } from './CalendarToolbar';
 

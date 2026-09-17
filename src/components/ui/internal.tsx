@@ -56,15 +56,29 @@ export function composeRefs<T>(...refs: (Ref<T> | undefined)[]): (node: T | null
 }
 
 /**
- * Renders its children into `document.body`. Returns `null` during SSR and on
- * the very first client render, so hydration always matches.
+ * Renders its children into `document.body`.
+ *
+ * The host is resolved lazily during the first render rather than from an effect.
+ *
+ * It used to be `useState(null)` plus an effect that assigned `document.body`,
+ * which meant the portal could not render until after paint. Because an overlay
+ * returns `null` while closed, `Portal` unmounts with it and remounts on every
+ * open — so every open paid that delay, and the contents of a sheet did not
+ * exist until a task after the tap that opened it.
+ *
+ * That is fatal for a sheet containing a text field: iOS raises the keyboard only
+ * when `focus()` runs inside the user-gesture task, and a field that arrives a
+ * task later takes focus with the keyboard staying down. It is also why the sheet
+ * felt like it snapped in rather than opening.
+ *
+ * SSR still matches: `document` is undefined on the server, so this returns
+ * `null`, and overlays render `null` while closed anyway — nothing is portalled
+ * during hydration, so the first client render agrees with the server's HTML.
  */
 export function Portal({ children }: { children: ReactNode }): ReactNode {
-  const [host, setHost] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setHost(document.body);
-  }, []);
+  const [host] = useState<HTMLElement | null>(() =>
+    typeof document === 'undefined' ? null : document.body,
+  );
 
   if (!host) return null;
   return createPortal(children, host);

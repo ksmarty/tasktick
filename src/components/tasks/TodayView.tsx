@@ -143,7 +143,7 @@ export function TodayView() {
       />
 
       {data ? (
-        <div className="px-4 pt-1 pb-2">
+        <div className="px-2 pt-1 pb-2">
           {/*
            * The ring and the copy are one block, so they share one surface.
            * The fraction is absolutely positioned inside the ring: `ProgressRing`
@@ -173,7 +173,7 @@ export function TodayView() {
           </div>
         </div>
       ) : (
-        <div className="px-4 pt-2 pb-3">
+        <div className="px-2 pt-2 pb-3">
           <Skeleton variant="rect" className="h-20 rounded-ios-lg" />
         </div>
       )}
@@ -192,7 +192,7 @@ export function TodayView() {
           }
         />
       ) : loading ? (
-        <div className="space-y-6 px-4">
+        <div className="space-y-6 px-2">
           <Skeleton variant="text" lines={4} />
           <Skeleton variant="text" lines={3} />
         </div>

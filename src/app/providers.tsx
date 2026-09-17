@@ -11,10 +11,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
 import { ToastProvider } from '@/components/ui';
+import { THEME_COLOR } from '@/lib/theme-colors';
 import type { AccentColor } from '@/lib/types';
 
 type ThemePreference = 'light' | 'dark' | 'system';
-
 interface AppearanceContextValue {
   theme: ThemePreference;
   accent: AccentColor;
@@ -77,6 +77,18 @@ export function Providers({
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
+
+    /*
+     * Keep the OS-drawn band in step with the appearance.
+     *
+     * The server emits a single `theme-color` (see `generateViewport`), because
+     * iOS ignores `media` on that tag and a light/dark pair collapses to whichever
+     * one comes last — which painted the status bar and Dynamic Island black over
+     * a light app. A single tag means the client has to maintain it, and this is
+     * the effect that already knows the resolved appearance.
+     */
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) meta.content = THEME_COLOR[resolvedTheme];
   }, [resolvedTheme]);
 
   useEffect(() => {

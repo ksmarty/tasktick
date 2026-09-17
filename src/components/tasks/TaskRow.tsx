@@ -74,7 +74,7 @@ export interface TaskRowProps {
   selected?: boolean;
   onSelect?: (task: Task) => void;
   drag?: TaskRowDrag | null;
-  /** Drops the separator under the last row of a group. */
+  /** Rounds the bottom corner of the last row of a card. */
   last?: boolean;
   /** Rounds the top corner of the first row of a card. */
   first?: boolean;
@@ -345,15 +345,12 @@ export function TaskRow({
           // No background of its own: the card is the surface, so a translucent
           // one reads as a single grouped list rather than N white slices. The
           // lifted row needs its own solid paint, since it travels over others.
-          'relative flex min-h-11 items-center gap-3 px-4',
+          'relative flex min-h-11 items-center gap-3 px-3',
           first && 'rounded-t-ios-md',
           last && 'rounded-b-ios-md',
           lifted ? 'z-20 bg-elevated shadow-ios-lg' : 'z-10',
           !disabled && !selectionMode && 'pressable-row',
           disabled && 'opacity-60',
-          // Hairline inset to the title column: 16px gutter + 24px circle + 12px gap.
-          !last &&
-            'after:pointer-events-none after:absolute after:bottom-0 after:right-0 after:left-13 after:h-px after:bg-separator',
         )}
       >
         <button
@@ -368,7 +365,7 @@ export function TaskRow({
           <span
             aria-hidden
             className={cn(
-              'flex size-6 items-center justify-center rounded-full border-[1.5px] transition-colors duration-150 ease-ios',
+              'flex size-6 items-center justify-center rounded-[6px] border-[1.5px] transition-colors duration-150 ease-ios',
               completed && 'border-tint bg-tint text-on-tint',
               wontDo && 'border-dashed border-separator-opaque text-tertiary',
               !closed && 'border-separator-opaque text-tint',
@@ -438,7 +435,7 @@ export function TaskRow({
           <span
             aria-hidden
             className={cn(
-              'flex size-6 shrink-0 items-center justify-center rounded-full border-[1.5px]',
+              'flex size-6 shrink-0 items-center justify-center rounded-[6px] border-[1.5px]',
               selected ? 'border-tint bg-tint text-on-tint' : 'border-separator-opaque',
             )}
           >

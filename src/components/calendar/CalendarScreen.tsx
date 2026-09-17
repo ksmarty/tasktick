@@ -16,11 +16,14 @@
  * optimistic through `mutate`, then invalidated and refetched so the server's
  * answer always wins in the end.
  *
- * The neighbouring months are prefetched, so paging the month (or selecting a
- * day just past the month edge) renders from cache instead of flashing a
- * skeleton. The layout is a plain CSS breakpoint rather than a media-query hook:
- * on a phone the grid is a fixed share of the viewport and the agenda takes the
- * rest; on `lg:` the two sit side by side, the agenda a fixed 380px column.
+ * The neighbouring months are read alongside the current one and drawn in the
+ * grid's paging track, so a swipe shows the month it is dragging to. The same
+ * two reads are what warm the cache when the swipe commits — paging, or
+ * selecting a day just past the month edge, therefore renders from cache instead
+ * of flashing a skeleton. The layout is a plain CSS breakpoint rather than a
+ * media-query hook: on a phone the grid is a fixed share of the viewport and the
+ * agenda takes the rest; on `lg:` the two sit side by side, the agenda a fixed
+ * 380px column.
  */
 import { usePrimaryAction } from '@/lib/events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -47,7 +50,7 @@ import { CalendarToolbar } from './CalendarToolbar';
 import { DayAgenda } from './DayAgenda';
 import { DayDetailSheet, DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
 import { EventEditorSheet, type EventDefaults } from './EventEditorSheet';
-import { MonthGrid } from './MonthGrid';
+import { MonthGrid, type MonthPage } from './MonthGrid';
 import { SWIPE_PAGE_PX, minuteToTime, timeToMinute } from './geometry';
 import { moveItemInPayload } from './optimistic';
 import { createInteraction } from './types';
@@ -91,18 +94,26 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const [interaction] = useState<CalendarInteraction>(createInteraction);
 
   /*
-   * Which way the last paging move went.
+   * How many paging moves have happened.
    *
-   * `seq` is what the grid is keyed on: it changes on every paging move, so
-   * React remounts the grid and the entrance animation replays instead of
-   * playing once on first render. `direction` picks the side it enters from —
-   * +1 for the next period, -1 for the previous one.
-   *
-   * Only `page` bumps it, so a period change caused by selecting a day (a
-   * padding day from a neighbouring month) stays immediate: there is no gesture
-   * direction to honour there.
+   * This is what the month grid's paging track is keyed on. A committed swipe
+   * finishes its slide inside the gesture hook, so the track has to be
+   * re-rendered against its settled offset instead of keeping the drag's pixel
+   * transform — the key is what guarantees that clean re-base. Only `page` bumps
+   * it: a period change caused by selecting a padding day from a neighbouring
+   * month moves the panels in place, at the offset they already sit on.
    */
-  const [pageMotion, setPageMotion] = useState<{ seq: number; direction: 1 | -1 }>({ seq: 0, direction: 1 });
+  const [pageSeq, setPageSeq] = useState(0);
+
+  /*
+   * The month the finger is currently showing, as a page delta from the anchor.
+   *
+   * A swipe reports this while it is still moving, so the toolbar names the
+   * month whose numbers are under the finger rather than the one it started on.
+   * It is only the *title* that follows the gesture: the selection and the
+   * agenda change on commit, because a drag has not chosen a day.
+   */
+  const [pagePreview, setPagePreview] = useState<-1 | 0 | 1>(0);
 
   const today = todayIn(zone);
   const activeDate = anchor ?? today;
@@ -111,9 +122,14 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   /*
    * The toolbar shows the month alone — no year, because there are no arrows to
-   * page with any more; the swipe and the month itself are the title.
+   * page with any more; the swipe and the month itself are the title. During a
+   * swipe the label follows the finger (see `pagePreview`), so the name always
+   * belongs to the grid that fills the screen.
    */
-  const monthLabel = useMemo(() => fromDateOnly(activeDate, zone).toFormat('LLLL'), [activeDate, zone]);
+  const monthLabel = useMemo(
+    () => fromDateOnly(shiftViewAnchor('month', activeDate, pagePreview, zone), zone).toFormat('LLLL'),
+    [activeDate, pagePreview, zone],
+  );
 
   const calendars = bootstrap.data?.calendars ?? [];
   const calendarLookup: CalendarLookup = useMemo(() => new Map(calendars.map((c) => [c.id, c])), [calendars]);
@@ -155,6 +171,58 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const activePayload = payload ?? emptyPayload;
   const selectedItems = payload?.days[selected] ?? [];
 
+  /*
+   * The two months either side of this one, which the grid's paging track draws
+   * beside it.
+   *
+   * They are ordinary reads of the same resource, keyed by their own range, and
+   * that is the whole prefetch story: the same request that paints the incoming
+   * month during a drag is the one already in the cache when the drag commits.
+   * The ranges are stepped through `lib/dates` — the client never does more date
+   * arithmetic than “the month before this one”. They are only asked for once
+   * the current month has arrived, so a first load is still one request.
+   */
+  const neighboursEnabled = settingsReady && Boolean(payload) && !resource.isLoading;
+
+  const neighbourWindows = useMemo(
+    () =>
+      ([-1, 1] as const).map((delta) => {
+        const anchorDate = shiftViewAnchor('month', activeDate, delta, zone);
+        return { anchor: anchorDate, range: rangeForView('month', anchorDate, zone, weekStartsOn) };
+      }),
+    [activeDate, zone, weekStartsOn],
+  );
+
+  const neighbourOptions = { enabled: neighboursEnabled, staleAfterMs: 60_000, revalidateOnFocus: false } as const;
+
+  const previousItems = useResource<CalendarItemsPayload>(
+    '/api/calendar/items',
+    { startMs: neighbourWindows[0].range.startMs, endMs: neighbourWindows[0].range.endMs, calendarIds },
+    neighbourOptions,
+  );
+  const nextItems = useResource<CalendarItemsPayload>(
+    '/api/calendar/items',
+    { startMs: neighbourWindows[1].range.startMs, endMs: neighbourWindows[1].range.endMs, calendarIds },
+    neighbourOptions,
+  );
+
+  const previousPage = useMemo<MonthPage>(
+    () => ({
+      days: neighbourWindows[0].range.days,
+      anchor: neighbourWindows[0].anchor,
+      payload: previousItems.data ?? emptyPayload,
+    }),
+    [neighbourWindows, previousItems.data, emptyPayload],
+  );
+  const nextPage = useMemo<MonthPage>(
+    () => ({
+      days: neighbourWindows[1].range.days,
+      anchor: neighbourWindows[1].anchor,
+      payload: nextItems.data ?? emptyPayload,
+    }),
+    [neighbourWindows, nextItems.data, emptyPayload],
+  );
+
   /* ------------------------------------------------------------------ */
   /* navigation                                                         */
   /* ------------------------------------------------------------------ */
@@ -180,9 +248,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const page = useCallback(
     (delta: number) => {
-      if (delta !== 0) {
-        setPageMotion((current) => ({ seq: current.seq + 1, direction: delta > 0 ? 1 : -1 }));
-      }
+      if (delta !== 0) setPageSeq((current) => current + 1);
       setAnchor(shiftViewAnchor('month', activeDate, delta, zone));
       // The selection travels with the view, so the agenda keeps showing the
       // same day-of-month as the user pages.
@@ -365,10 +431,11 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
               <MonthGrid
                 days={range.days}
                 anchor={activeDate}
+                previous={previousPage}
+                next={nextPage}
                 selectedDate={selected}
                 today={today}
-                pageSeq={pageMotion.seq}
-                pageDirection={pageMotion.direction}
+                pageSeq={pageSeq}
                 payload={activePayload}
                 prefs={prefs}
                 calendars={calendarLookup}
@@ -378,6 +445,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
                 onOpenItem={openItem}
                 onReschedule={reschedule}
                 onPage={page}
+                onPagePreview={setPagePreview}
               />
             )}
           </section>
@@ -388,15 +456,12 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
             className="flex min-h-0 flex-1 flex-col lg:h-auto lg:w-[380px] lg:flex-none"
           >
             <DayAgenda
-              date={selected}
-              today={today}
               items={selectedItems}
               prefs={prefs}
               calendars={calendarLookup}
               interaction={interaction}
               onOpenItem={openItem}
               onReschedule={reschedule}
-              onCreateAt={createAt}
             />
           </section>
         </div>
@@ -436,14 +501,6 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         prefs={prefs}
         filter={filterCalendar ? { id: filterCalendar.id, name: filterCalendar.name, color: filterCalendar.color } : null}
         onChanged={refresh}
-      />
-
-      <PrefetchNeighbours
-        anchor={activeDate}
-        zone={zone}
-        weekStartsOn={weekStartsOn}
-        calendarIds={calendarIds}
-        enabled={Boolean(payload) && !resource.isLoading}
       />
     </>
   );
@@ -544,50 +601,6 @@ function defaultsFor(item: CalendarItem, prefs: CalendarPrefs): EventDefaults {
       : startMinute + Math.max(30, Math.round((item.endMs - item.startMs) / 60_000)),
     calendarId: item.calendarId,
   };
-}
-
-/**
- * Warms the neighbouring months so paging renders instantly.
- *
- * It is a second `useResource` on purpose: the cache is keyed by range, so the
- * only way to have the next month ready is to have asked for it. It renders
- * nothing and never blocks the view.
- */
-function PrefetchNeighbours({
-  anchor,
-  zone,
-  weekStartsOn,
-  calendarIds,
-  enabled,
-}: {
-  anchor: DateOnly;
-  zone: string;
-  weekStartsOn: number;
-  calendarIds: string[] | undefined;
-  enabled: boolean;
-}) {
-  const [previous, next] = useMemo(
-    () =>
-      [-1, 1].map((delta) =>
-        rangeForView('month', shiftViewAnchor('month', anchor, delta, zone), zone, weekStartsOn),
-      ),
-    [anchor, zone, weekStartsOn],
-  );
-
-  const options = { enabled, staleAfterMs: 60_000, revalidateOnFocus: false } as const;
-
-  useResource<CalendarItemsPayload>(
-    '/api/calendar/items',
-    { startMs: previous.startMs, endMs: previous.endMs, calendarIds },
-    options,
-  );
-  useResource<CalendarItemsPayload>(
-    '/api/calendar/items',
-    { startMs: next.startMs, endMs: next.endMs, calendarIds },
-    options,
-  );
-
-  return null;
 }
 
 /** The first-load placeholder: shapes only, never a fake calendar. */

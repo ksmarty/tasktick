@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { THEME_COLOR } from '@/lib/theme-colors';
 import { cookies } from 'next/headers';
 import './globals.css';
 import { Providers } from './providers';
@@ -42,21 +43,38 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  // `viewport-fit=cover` is what lets the app paint under the Dynamic Island and
-  // the home indicator; globals.css then insets content with env(safe-area-*).
-  viewportFit: 'cover',
-  // Locking zoom keeps the installed app feeling native. The 16px minimum input
-  // font-size (globals.css) is what prevents iOS from zooming on focus.
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f2f2f7' },
-    { media: '(prefers-color-scheme: dark)', color: '#000000' },
-  ],
-};
+/**
+ * The band behind the status bar and the Dynamic Island is painted by the OS
+ * from `theme-color` — it is not the page background, which is why giving `html`
+ * a background did nothing for it.
+ *
+ * iOS honours a single `theme-color` and ignores the `media` attribute, taking
+ * whichever tag it finds last. Emitting the light/dark pair therefore handed it
+ * `#000000` in both appearances, and the band came out black across the top of
+ * a light app. So exactly one value is emitted, chosen for the appearance this
+ * request will actually use.
+ *
+ * `system` cannot be resolved on the server, so it starts light and the client
+ * corrects it on the first effect (see `providers.tsx`). A wrong value for one
+ * frame is invisible; a wrong value for the whole session was the bug.
+ */
+export async function generateViewport(): Promise<Viewport> {
+  const store = await cookies();
+  const preference = store.get('tasktick-theme')?.value;
+
+  return {
+    width: 'device-width',
+    initialScale: 1,
+    // `viewport-fit=cover` is what lets the app paint under the Dynamic Island and
+    // the home indicator; globals.css then insets content with env(safe-area-*).
+    viewportFit: 'cover',
+    // Locking zoom keeps the installed app feeling native. The 16px minimum input
+    // font-size (globals.css) is what prevents iOS from zooming on focus.
+    maximumScale: 1,
+    userScalable: false,
+    themeColor: THEME_COLOR[preference === 'dark' ? 'dark' : 'light'],
+  };
+}
 
 /** Splash screens, keyed by the CSS media query that selects the device. */
 const SPLASH_SCREENS: { file: string; media: string }[] = [

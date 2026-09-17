@@ -32,19 +32,28 @@
  * reserves the tab band (`pb-tabbar`), and the floating action button now shares
  * that one row with the tab bar instead of floating above it — so reserving the
  * button's band again inside this pane was double padding, which is what left a
- * dead gap under the last row. The trailing "New event" row stays desktop-only:
- * on a phone the action button and the nav bar's "+" are the ways in.
+ * dead gap under the last row.
+ *
+ * There is no "New event" affordance here at all: creating an event is the
+ * shell's action button (which the calendar screen answers through
+ * `usePrimaryAction`), or the day detail sheet. A create button inside the
+ * agenda was a third way in for a job that already had two, and it sat under the
+ * last row where it read as part of the day's contents.
+ *
+ * The agenda also carries no header. The selected day used to be repeated here
+ * ("Thursday 17 September, 2 items") directly under a grid that already shows
+ * which day is selected; the screen-reader announcement of the selected day
+ * lives in `CalendarToolbar`, where it belongs.
  */
 import { useRef } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { CalendarDays, Plus } from 'lucide-react';
+import { CalendarDays } from 'lucide-react';
 import { accentSoft, accentVar } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/cn';
-import type { CalendarItem, DateOnly } from '@/lib/types';
-import { Button, EmptyState } from '@/components/ui';
+import type { CalendarItem } from '@/lib/types';
+import { EmptyState } from '@/components/ui';
 import { itemColor } from './colors';
-import { DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
 import { DragGhostLabel } from './DragGhostLabel';
 import { minuteOfDay } from './geometry';
 import { useItemDrag } from './use-item-drag';
@@ -69,8 +78,6 @@ const DRAG_COLUMNS = 7;
 const TASK_EDGE_ALPHA = 0.5;
 
 export interface DayAgendaProps {
-  date: DateOnly;
-  today: DateOnly;
   /** `payload.days[date] ?? []`, straight from the server. */
   items: CalendarItem[];
   prefs: CalendarPrefs;
@@ -78,23 +85,17 @@ export interface DayAgendaProps {
   interaction: CalendarInteraction;
   onOpenItem: ItemOpenHandler;
   onReschedule: RescheduleHandler;
-  /** Opens the editor on the selected day at the given minute. */
-  onCreateAt: (date: DateOnly, startMinute: number) => void;
 }
 
 export function DayAgenda({
-  date,
-  today,
   items,
   prefs,
   calendars,
   interaction,
   onOpenItem,
   onReschedule,
-  onCreateAt,
 }: DayAgendaProps) {
   const listRef = useRef<HTMLUListElement>(null);
-  const dayLabel = fromDateOnly(date, prefs.zone).toFormat('cccc d LLLL');
 
   const drag = useItemDrag({
     hourHeight: 0,
@@ -120,22 +121,6 @@ export function DayAgenda({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/*
-        A tighter header than the rest of the app's panes: the month above is a
-        tight block now, and the 4px this gives back goes to the list. The
-        header is the day and its count and nothing else — the calendars button
-        that used to sit here was the last piece of chrome on the screen, and
-        hiding a calendar lives in Settings → Calendars.
-      */}
-      <header className="flex shrink-0 items-center gap-2 px-4 pt-1 pb-1.5">
-        <h2 className={cn('min-w-0 truncate text-subhead font-semibold', date === today ? 'text-tint' : 'text-label')}>
-          {dayLabel}
-        </h2>
-        <span className="tnum shrink-0 text-footnote text-secondary">
-          {items.length === 0 ? null : items.length === 1 ? '1 item' : `${items.length} items`}
-        </span>
-      </header>
-
       {/*
         No reserved band at the bottom: the shell's `main` already pads for the
         tab bar and the action button lives in that same row, so an extra
@@ -234,34 +219,9 @@ export function DayAgenda({
               icon={CalendarDays}
               title="Nothing scheduled"
               description="This day is clear. Add an event, or drag one here from another day."
-              action={
-                <Button
-                  variant="tinted"
-                  icon={Plus}
-                  onClick={() => onCreateAt(date, DEFAULT_EVENT_START_MINUTE)}
-                >
-                  New event
-                </Button>
-              }
             />
           </li>
-        ) : (
-          /*
-            Phone-sized screens have the action button in this corner and the
-            nav bar's "+" is one tap away, so the row only renders where there
-            is room for it.
-          */
-          <li className="hidden lg:block">
-            <button
-              type="button"
-              onClick={() => onCreateAt(date, DEFAULT_EVENT_START_MINUTE)}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-ios-md border border-dashed border-separator px-3 text-subhead text-tint pressable"
-            >
-              <Plus className="size-4" aria-hidden />
-              New event
-            </button>
-          </li>
-        )}
+        ) : null}
       </ul>
 
       {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}

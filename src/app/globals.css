@@ -56,8 +56,6 @@
    * This is the ONLY motion the calendar adds: selecting a day, opening a sheet
    * and dragging an item are direct manipulation and stay immediate.
    */
-  --animate-grid-in-from-right: grid-in-from-right 0.26s var(--ease-ios-out) both;
-  --animate-grid-in-from-left: grid-in-from-left 0.26s var(--ease-ios-out) both;
 
   @keyframes page-in {
     from {
@@ -72,27 +70,6 @@
     from {
       opacity: 0;
       transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  /* `transform: none` at rest, so the grid never keeps a containing block. */
-  @keyframes grid-in-from-right {
-    from {
-      opacity: 0;
-      transform: translateX(24px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-  @keyframes grid-in-from-left {
-    from {
-      opacity: 0;
-      transform: translateX(-24px);
     }
     to {
       opacity: 1;

@@ -275,7 +275,7 @@ export function TaskListSection({
       // The section header is the card's first row, 44px like any other row, so
       // the title, the count and the chevron sit on the row's own baseline
       // rather than in a caption block above the card.
-      className="h-11 items-center px-4 pt-0 pb-0"
+      className="h-11 items-center px-3 pt-0 pb-0"
       // The section title is the loudest thing on the line: a real label-sized
       // 15px title, with the count and the chevron as quiet secondary marks.
       // A filled badge and a 16px chevron used to outweigh the word itself.
@@ -316,7 +316,7 @@ export function TaskListSection({
   );
 
   return (
-    <div className="mx-4 pt-3 first:pt-1">
+    <div className="mx-2 pt-3 first:pt-1">
       {/*
        * One card per section. `card-edge` is the glass surface plus the 3px
        * stripe down the leading edge and the `overflow-hidden` that keeps a
