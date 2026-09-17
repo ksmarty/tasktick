@@ -270,7 +270,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
            * element persists across routes and the animation runs exactly once,
            * ever — which is the opposite of what it is for.
            */}
-          <div key={pathname} className="animate-page-in">
+          {/*
+           * `min-h-[calc(100%+3rem)]` guarantees the pane can always scroll a
+           * little, even when the content is shorter than the screen.
+           *
+           * The search field on the task lists is revealed by an upward scroll,
+           * so on a list with three items there was no gesture available to
+           * bring it back — the reveal depended on the user having enough tasks,
+           * which is not something a control should ever depend on. A small
+           * guaranteed overscroll means the gesture exists on every screen at
+           * every length, and short pages simply scroll by a few centimetres
+           * instead of not at all.
+           */}
+          <div key={pathname} className="animate-page-in min-h-[calc(100%+3rem)]">
             {children}
           </div>
         </main>

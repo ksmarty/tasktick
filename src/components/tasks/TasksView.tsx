@@ -140,9 +140,12 @@ export function TasksView() {
    * The field is on screen while the list is being scrolled up, while it holds
    * focus (so a tap on the freshly revealed field cannot make it disappear from
    * under the finger), and whenever a query is actually applied — an active
-   * filter must never be invisible. `useScrollReveal` also reports the field as
-   * revealed when the pane cannot scroll at all, which is the one case where
-   * hiding it would put search out of reach: a list too short to gesture on.
+   * filter must never be invisible, because there would be no other sign that
+   * the list is filtered.
+   *
+   * Being reachable on a short list is not handled here: the shell guarantees
+   * every route a small overscroll, so the reveal gesture exists whatever the
+   * content length. See `useScrollReveal` for why that lives there instead.
    */
   const searchVisible = scrollReveal || searchFocused || state.q.trim().length > 0;
 
