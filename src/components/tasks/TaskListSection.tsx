@@ -38,6 +38,15 @@ interface DragState {
   edge: 'before' | 'after';
 }
 
+/**
+ * How long the entrance stagger is allowed to run.
+ *
+ * The utility's longest delay is 242ms plus a 320ms animation, so 600ms clears
+ * the whole envelope. After it has played, the class is dropped — see
+ * `entering` below.
+ */
+const STAGGER_MS = 600;
+
 interface LiftState extends DragState {
   startY: number;
   offset: number;
@@ -113,6 +122,21 @@ export function TaskListSection({
   const [htmlDrag, setHtmlDrag] = useState<DragState | null>(null);
   const [lift, setLift] = useState<LiftState | null>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
+
+  /*
+   * `stagger` is an entrance, not a decoration. React reuses the row elements
+   * across a re-render (they are keyed by task id), so a plain class would not
+   * restart — but a *new* element would animate, and a checkbox tick or a cache
+   * revalidation can insert one. Dropping the class once the entrance has played
+   * makes that impossible: only the very first paint of a mounted section
+   * staggers, and collapsing/expanding it later stays still.
+   */
+  const [entering, setEntering] = useState(true);
+  useEffect(() => {
+    if (!entering) return;
+    const timer = window.setTimeout(() => setEntering(false), STAGGER_MS);
+    return () => window.clearTimeout(timer);
+  }, [entering]);
 
   const reorderable = Boolean(onReorder) && section.reorderable && !selectionMode && !disabled;
 
@@ -271,7 +295,7 @@ export function TaskListSection({
              * The rows carry no background of their own, so the card reads as
              * one surface — header row first, then the tasks.
              */}
-            <ul>
+            <ul className={cn(entering && 'stagger')}>
               {section.tasks.map((task, index) => (
                 <TaskRow
                   key={task.id}

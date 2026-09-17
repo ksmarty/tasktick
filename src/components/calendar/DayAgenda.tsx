@@ -28,10 +28,12 @@
  * same `useItemDrag` hook as before, so the lift threshold, the click-swallow
  * and the Escape-to-cancel behaviour are identical everywhere in the calendar.
  *
- * The pane reserves the shell's floating action button's band at its end
- * (`pb-20` on a phone) so the last row is never underneath it, and the trailing
- * "New event" row is therefore desktop-only: on a phone the FAB and the nav
- * bar's "+" are the ways in.
+ * The pane adds no bottom padding of its own. The shell's `main` already
+ * reserves the tab band (`pb-tabbar`), and the floating action button now shares
+ * that one row with the tab bar instead of floating above it — so reserving the
+ * button's band again inside this pane was double padding, which is what left a
+ * dead gap under the last row. The trailing "New event" row stays desktop-only:
+ * on a phone the action button and the nav bar's "+" are the ways in.
  */
 import { useRef } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
@@ -138,12 +140,11 @@ export function DayAgenda({
       </header>
 
       {/*
-        `pb-20` reserves the shell's floating action button's band at the end of
-        the list — the FAB is `bottom: 5.5rem` + `size-14`, so it reaches 4.25rem
-        above this pane's bottom edge, and the extra room is what keeps the last
-        row clear of it once the list is scrolled all the way down.
+        No reserved band at the bottom: the shell's `main` already pads for the
+        tab bar and the action button lives in that same row, so an extra
+        `pb-20` here was pure double padding.
       */}
-      <ul ref={listRef} className="scroll-pane min-h-0 flex-1 space-y-1.5 px-3 pb-20 lg:pb-4">
+      <ul ref={listRef} className="scroll-pane min-h-0 flex-1 space-y-1.5 px-3 pb-2 lg:pb-4">
         {items.map((item) => {
           const color = itemColor(item, calendars);
           const isTask = item.kind === 'task';
@@ -151,7 +152,10 @@ export function DayAgenda({
           // The gutter carries the start of the row; the card carries the range.
           const gutterLabel = item.isAllDay ? 'all-day' : formatTime(item.startMs, prefs);
           const rangeLabel = item.isAllDay
-            ? 'All-day'
+            ? // The gutter column already says "all-day". Repeating it on the card
+              // is the kind of duplication that makes a dense list feel noisy, so
+              // the card carries only the title for an all-day row.
+              null
             : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
           const accessibleName = [
             item.isAllDay ? 'All-day' : `${formatTime(item.startMs, prefs)} to ${formatTime(item.endMs, prefs)}`,
@@ -196,12 +200,12 @@ export function DayAgenda({
                   className="card-edge flex min-w-0 flex-1 flex-col justify-center py-1.5 pr-2.5 pl-3"
                   style={{ '--edge-color': isTask ? accentSoft(color, TASK_EDGE_ALPHA) : accentVar(color) } as CSSProperties}
                 >
-                  <span
-                    className="block truncate text-caption-1 font-semibold"
-                    style={{ color: accentVar(color) }}
-                  >
-                    {rangeLabel}
-                  </span>
+                  {/* An all-day row has no range to show; the gutter says it. */}
+                  {rangeLabel ? (
+                    <span className="block truncate text-caption-1 font-semibold" style={{ color: accentVar(color) }}>
+                      {rangeLabel}
+                    </span>
+                  ) : null}
                   <span className={cn('mt-0.5 block truncate text-subhead text-label', done && 'line-through')}>
                     {isTask ? (
                       <span aria-hidden className="mr-1">
@@ -238,9 +242,9 @@ export function DayAgenda({
           </li>
         ) : (
           /*
-            Phone-sized screens have the FAB in this corner and the nav bar's
-            "+" is one tap away, so the row only renders where there is room for
-            it; that is also why the pane above reserves the FAB's band.
+            Phone-sized screens have the action button in this corner and the
+            nav bar's "+" is one tap away, so the row only renders where there
+            is room for it.
           */
           <li className="hidden lg:block">
             <button

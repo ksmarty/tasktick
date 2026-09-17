@@ -21,6 +21,14 @@
  * selected, is a tinted ring, so the two can never be confused. The days that
  * pad the month out to whole weeks are dimmed.
  *
+ * The month is drawn as a plain surface, not a table. A cell has no border and
+ * no fill: the days are separated by whitespace, the only rule in the whole
+ * month is the hairline under the weekday header, and a stray day from a
+ * neighbouring month is marked by a dimmer number. A 1px box around every cell
+ * is what made the month read as a spreadsheet. Each row is also only as tall as
+ * its contents (~44px), so six weeks stay under a third of a phone viewport and
+ * the agenda below is on screen without scrolling.
+ *
  * `weeks` is 6 for the month and 1 for the week strip. The strip is not a time
  * grid: it is seven tappable day cells, each carrying its own weekday letter,
  * with the same filled-circle selection and the same dimmed out-of-month
@@ -223,6 +231,15 @@ export function MonthGrid({
               const cellIndex = rowIndex * MONTH_COLUMNS + columnIndex;
               const fullLabel = fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy');
 
+              /*
+                A plain surface, never a boxed cell: the days are separated by
+                whitespace, the only rule left in the whole month is the
+                hairline under the weekday header, and a day from a
+                neighbouring month is told apart by its dimmed number alone. A
+                per-cell tint was tried and removed — wherever the backdrop
+                gradient made it visible it read as exactly the boxed cell this
+                change exists to delete.
+              */
               return (
                 <div
                   key={cell.date}
@@ -231,13 +248,7 @@ export function MonthGrid({
                   onClick={() => onSelectDate(cell.date)}
                   className={cn(
                     'flex min-h-0 flex-col items-center',
-                    collapsed
-                      ? 'justify-center gap-1 rounded-ios px-1'
-                      : cn(
-                          'border-b border-separator',
-                          columnIndex < MONTH_COLUMNS - 1 && 'border-r',
-                          !cell.inMonth && 'bg-bg/70',
-                        ),
+                    collapsed && 'justify-center gap-1 rounded-ios px-1',
                   )}
                 >
                   <DayNumber
@@ -299,7 +310,7 @@ export function MonthGrid({
 
 interface DayNumberProps {
   date: DateOnly;
-  /** `month` is the bordered grid cell; `strip` is the habits-style week cell. */
+  /** `month` is the borderless month cell; `strip` is the habits-style week cell. */
   mode: 'month' | 'strip';
   inMonth: boolean;
   isSelected: boolean;
@@ -358,6 +369,10 @@ function DayNumber({
       <span
         className={cn(
           'tnum flex shrink-0 items-center justify-center rounded-full leading-none',
+          // Selection fades between fill, ring and tint over a fifth of a
+          // second. Colour and shadow only: the circle keeps its box, so the
+          // grid never re-lays-out when the selected day changes.
+          'transition-[background-color,color,box-shadow] duration-200 ease-ios',
           // The strip's circle is the habits screen's (`size-8`, `subhead`), the
           // month's is a step down so six rows still fit a phone.
           strip ? 'size-8 text-subhead' : 'size-6 text-footnote',

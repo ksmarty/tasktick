@@ -45,7 +45,10 @@ export function CalendarToolbar({ label, selectedLabel, onPrev, onNext, onToday,
           <Button variant="plain" size="sm" onClick={onToday} className="px-2">
             Today
           </Button>
-          <IconButton aria-label="New event" icon={Plus} size="sm" variant="tinted" onClick={onAdd} />
+          {/* Desktop only: on a phone the floating action button owns creation. */}
+          <span className="hidden lg:inline-flex">
+            <IconButton aria-label="New event" icon={Plus} size="sm" variant="tinted" onClick={onAdd} />
+          </span>
         </div>
       }
     >

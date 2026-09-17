@@ -40,6 +40,14 @@ import type { DateOnly, Habit } from '@/lib/types';
 const LONG_PRESS_MS = 320;
 /** Movement past this before the timer fires means "scroll", not "pick up". */
 const LONG_PRESS_SLOP_PX = 8;
+/**
+ * How long the rows keep their entrance animation class.
+ *
+ * The `stagger` utility's longest row is a 242ms delay plus a 320ms animation,
+ * so a little over half a second covers every row; after that the class is
+ * dropped and the list is inert for the rest of its life.
+ */
+const ROW_STAGGER_MS = 600;
 
 export interface HabitListProps {
   habits: Habit[];
@@ -74,6 +82,23 @@ export function HabitList({
   /** Swallows the click that a completed drag would otherwise deliver. */
   const swallowClickRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
+
+  /**
+   * The rows lay themselves down once, when the list first appears.
+   *
+   * `stagger` is a plain CSS animation, so it plays whenever a row mounts — and
+   * a check-in re-renders this list (the optimistic patch, then the refetch),
+   * which must not replay the entrance. Leaving the class on would already be
+   * enough for that, but collapsing and expanding the card remounts the rows
+   * and would replay it, so the class is removed once the animation has run.
+   * "Animate in" then means "on the first mount" and nothing else.
+   */
+  const [entering, setEntering] = useState(true);
+  useEffect(() => {
+    if (!entering) return;
+    const timer = window.setTimeout(() => setEntering(false), ROW_STAGGER_MS);
+    return () => window.clearTimeout(timer);
+  }, [entering]);
 
   // A fetch that adds or removes a habit invalidates the local order — except
   // mid-drag, and except when the list still holds exactly the same habits (which
@@ -276,9 +301,9 @@ export function HabitList({
           </button>
         </div>
 
-        {collapsed
-          ? null
-          : ordered.map((habit, index) => (
+        {collapsed ? null : (
+          <div className={cn(entering && 'stagger')}>
+            {ordered.map((habit, index) => (
               <div key={habit.id} data-habit-id={habit.id} className={cn(index > 0 && 'hairline-t')}>
                 <HabitRow
                   habit={habit}
@@ -296,6 +321,8 @@ export function HabitList({
                 />
               </div>
             ))}
+          </div>
+        )}
       </section>
     </div>
   );

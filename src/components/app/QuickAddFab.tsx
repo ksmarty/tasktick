@@ -30,19 +30,18 @@ export function QuickAddFab({ label = 'Add a task', className }: QuickAddFabProp
       onClick={requestPrimaryAction}
       className={cn(
         /*
-         * Sits above the floating tab bar, not beside it: the bar is centred and
-         * the button is on the trailing edge, so they only collide on the
-         * narrowest phones. `--tabbar-total` plus a gap keeps it clear of both
-         * the bar and the home indicator.
+         * A flex sibling of the tab bar, not an absolutely positioned overlay.
+         *
+         * "Floating" here means the band floats over the content — the button
+         * itself is laid out next to the pill so the two can never overlap and
+         * the button never needs a reserved row of its own.
          */
-        'fixed right-4 z-40 flex size-14 items-center justify-center rounded-full',
-        'bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]',
-        'bg-tint text-tint-contrast shadow-ios-lg pressable',
-        'lg:hidden',
+        'glass flex size-13 shrink-0 items-center justify-center rounded-full',
+        'text-tint pressable',
         className,
       )}
     >
-      <Plus className="size-7" strokeWidth={2.5} aria-hidden />
+      <Plus className="size-6" strokeWidth={2.5} aria-hidden />
     </button>
   );
 }

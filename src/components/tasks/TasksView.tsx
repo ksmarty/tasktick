@@ -45,6 +45,7 @@ import { QuickAddBar } from './QuickAddBar';
 import { usePrimaryAction } from '@/lib/events';
 import { TagPicker } from './TagPicker';
 import { TaskEditorSheet } from './TaskEditorSheet';
+import { TaskFilterBar } from './TaskFilterBar';
 import { TaskListSection } from './TaskListSection';
 import {
   activeFilters,
@@ -275,6 +276,14 @@ export function TasksView() {
           </>
         }
       />
+
+      {/*
+       * The window filter sits directly under the title: the list below it is
+       * one of these four slices of the data, and Today (the old tab) is one of
+       * them. Kept out of the search/count block so it reads as chrome for the
+       * list rather than as part of the search row.
+       */}
+      <TaskFilterBar className="pt-1 pb-1.5" />
 
       <div className="space-y-2 px-4 pt-1 pb-3">
         <div className="flex items-center gap-2">

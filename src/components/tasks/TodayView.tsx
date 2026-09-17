@@ -22,6 +22,7 @@ import { EmptyTasks } from './EmptyTasks';
 import { QuickAddBar } from './QuickAddBar';
 import { usePrimaryAction } from '@/lib/events';
 import { TaskEditorSheet } from './TaskEditorSheet';
+import { TaskFilterBar } from './TaskFilterBar';
 import { TaskListSection } from './TaskListSection';
 import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
 import { buildTodaySections, countRemaining, todayProgress, type TaskSection } from './sections';
@@ -130,6 +131,10 @@ export function TodayView() {
           </>
         }
       />
+
+      {/* The same window filter as `/tasks`, with `Today` active: the chip bar is
+       * the home of the old Today tab on both lists. */}
+      <TaskFilterBar className="pt-1 pb-1.5" />
 
       {data ? (
         <div className="px-4 pt-1 pb-2">

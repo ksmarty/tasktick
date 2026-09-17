@@ -20,17 +20,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { usePrimaryAction } from '@/lib/events';
-import { CalendarRange, CheckCircle2, ChevronDown, Plus } from 'lucide-react';
+import { CalendarRange, CheckCircle2, ChevronDown, Ellipsis, Plus } from 'lucide-react';
 import {
   Button,
   EmptyState,
   IconButton,
   NavBar,
+  Popover,
   Select,
   Skeleton,
   Switch,
   useToast,
 } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import {
   HabitEditorSheet,
   HabitHeatmap,
@@ -244,11 +246,38 @@ export default function HabitsPage() {
     // The shell owns the scroll pane and the tab-bar clearance; this column only
     // caps the reading width on a desktop so the cards are not stretched to
     // 1100px while the phone layout stays edge to edge.
-    <div className="mx-auto w-full max-w-2xl pb-10">
+    <div className="mx-auto w-full max-w-2xl">
       <NavBar
         title="Habits"
         largeTitle
-        trailing={<IconButton icon={Plus} variant="plain" aria-label="New habit" onClick={() => openEditor(null)} />}
+        trailing={
+          <>
+            {/*
+             * List options live in a toolbar menu, not in the page flow. The
+             * archived filter is a view setting on this screen — the same kind
+             * of thing iOS keeps behind an overflow button — so it must not sit
+             * below the cards as a heading attached to nothing. One tap, and
+             * the switch keeps the menu open so the list behind it updates.
+             */}
+            <Popover
+              align="end"
+              trigger={<IconButton icon={Ellipsis} variant="plain" aria-label="Habit list options" />}
+            >
+              <div className="w-60 px-2 py-1.5">
+                <Switch
+                  label="Show archived habits"
+                  checked={showArchived}
+                  onCheckedChange={setShowArchived}
+                  size="sm"
+                />
+                <p className="pt-1 text-caption-1 text-tertiary">
+                  Archived habits keep their history but are hidden from the check-in list.
+                </p>
+              </div>
+            </Popover>
+            <IconButton icon={Plus} variant="plain" aria-label="New habit" onClick={() => openEditor(null)} />
+          </>
+        }
       />
 
       {loading ? (
@@ -305,71 +334,78 @@ export default function HabitsPage() {
         </>
       )}
 
-      <section className="mt-8">
-        <div className="flex items-center justify-between gap-2 px-4">
-          <h2>
-            <button
-              type="button"
-              aria-expanded={heatmapOpen}
-              onClick={() => setHeatmapOpen((open) => !open)}
-              className="flex min-h-11 items-center gap-1.5 text-title-3 font-semibold text-label pressable"
-            >
-              Activity
-              <ChevronDown
-                className={heatmapOpen ? 'size-4 rotate-180 transition-transform' : 'size-4 transition-transform'}
-                aria-hidden
+      {/*
+       * Activity is a card whose own header row carries the disclosure, the
+       * same shape the habit card uses. As a bare `Activity ⌄` heading in the
+       * flow it read as neither a section nor a setting — it sat above the
+       * archived card with a gap, so the two looked like one broken section.
+       * Attached to its own surface the label belongs to the grid it opens,
+       * and the archived control is no longer underneath it.
+       *
+       * The card is deliberately not `.grouped`: that utility clips its
+       * content, and the heatmap's day popover has to escape the card.
+       */}
+      <section className="mt-6">
+        <div className="glass-card mx-4 rounded-ios-lg">
+          <div className={cn('flex items-center justify-between gap-2 px-3', heatmapOpen && 'hairline-b')}>
+            <h2 className="min-w-0">
+              <button
+                type="button"
+                aria-expanded={heatmapOpen}
+                onClick={() => setHeatmapOpen((open) => !open)}
+                className="flex min-h-11 items-center gap-1.5 text-subhead font-semibold text-label pressable"
+              >
+                Activity
+                <ChevronDown
+                  className={cn(
+                    'size-3.5 transition-transform duration-200 ease-ios-out',
+                    heatmapOpen && 'rotate-180',
+                  )}
+                  aria-hidden
+                />
+              </button>
+            </h2>
+
+            {heatmapOpen ? (
+              <Select
+                value={scope}
+                onChange={setScope}
+                options={scopeOptions}
+                label="Habit shown in the heatmap"
+                placeholder="All habits"
+                className="w-40"
               />
-            </button>
-          </h2>
+            ) : null}
+          </div>
 
           {heatmapOpen ? (
-            <Select
-              value={scope}
-              onChange={setScope}
-              options={scopeOptions}
-              label="Habit shown in the heatmap"
-              placeholder="All habits"
-              className="w-40"
-            />
+            heatmapHabits.error && yearList.length === 0 ? (
+              <div className="p-3">
+                <EmptyState icon={CalendarRange} title="Could not load activity" description={heatmapHabits.error} />
+              </div>
+            ) : !heatmapHabits.data ? (
+              <Skeleton variant="rect" className="m-3 h-40" />
+            ) : (
+              <div className="p-3">
+                <HabitHeatmap
+                  series={series}
+                  today={todayDate}
+                  weekStartsOn={weekStartsOn}
+                  {...(selectedHabit
+                    ? {
+                        isScheduled: (date: DateOnly) => isHabitDueOn(selectedHabit, date),
+                        earliest: selectedHabit.startDate,
+                        onSetEntry: (date: DateOnly, count: number | null) =>
+                          void checkIn(selectedHabit, { date, count }),
+                      }
+                    : {
+                        renderDetail: (date: DateOnly) => <HeatmapHabitList habits={yearList} date={date} />,
+                      })}
+                />
+              </div>
+            )
           ) : null}
         </div>
-
-        {heatmapOpen ? (
-          heatmapHabits.error && yearList.length === 0 ? (
-            <EmptyState icon={CalendarRange} title="Could not load activity" description={heatmapHabits.error} />
-          ) : !heatmapHabits.data ? (
-            <Skeleton variant="rect" className="mx-4 mt-3 h-40" />
-          ) : (
-            // Deliberately not `.grouped`: that utility clips its content, and
-            // the day popover has to be able to escape the card.
-            <div className="mx-4 mt-3 rounded-ios-lg bg-elevated p-3 shadow-ios-sm">
-              <HabitHeatmap
-                series={series}
-                today={todayDate}
-                weekStartsOn={weekStartsOn}
-                {...(selectedHabit
-                  ? {
-                      isScheduled: (date: DateOnly) => isHabitDueOn(selectedHabit, date),
-                      earliest: selectedHabit.startDate,
-                      onSetEntry: (date: DateOnly, count: number | null) =>
-                        void checkIn(selectedHabit, { date, count }),
-                    }
-                  : {
-                      renderDetail: (date: DateOnly) => <HeatmapHabitList habits={yearList} date={date} />,
-                    })}
-              />
-            </div>
-          )
-        ) : null}
-      </section>
-
-      <section className="mt-6">
-        <div className="grouped mx-4 flex items-center px-4">
-          <Switch label="Show archived habits" checked={showArchived} onCheckedChange={setShowArchived} size="sm" />
-        </div>
-        <p className="px-4 pt-2 text-footnote text-secondary">
-          Archived habits keep their history but are hidden from the check-in list.
-        </p>
       </section>
 
       <HabitEditorSheet

@@ -25,6 +25,38 @@
 /* ------------------------------------------------------------------------ */
 
 @theme {
+  /*
+   * Page transitions.
+   *
+   * App Router navigations swap the tree with no motion of their own, which
+   * reads as a flicker rather than a move. These are applied to the route
+   * container keyed on pathname so each navigation plays once.
+   */
+  --animate-page-in: page-in 0.34s var(--ease-ios-out) both;
+  --animate-list-in: list-in 0.32s var(--ease-ios-out) both;
+
+  @keyframes page-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.994);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes list-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
   /* SF Pro first, then the closest system stack per platform. */
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
@@ -366,13 +398,11 @@
      */
     --nav-h: 44px;
     /*
-     * Clears the whole floating band, not just the tab bar: the action button
-     * sits above the capsule on the trailing edge, and reserving only the bar's
-     * height left it covering the last interactive row on /settings and /matrix.
-     * Reserved once here rather than per view, so no screen has to know the
-     * button exists.
+     * Clearance for the floating bottom band: one row holding the tab bar and the
+     * action button side by side. Reserving the button its own row above the bar
+     * left a visible dead gap on screens with short content.
      */
-    --tab-h: 9.5rem;
+    --tab-h: 5.25rem;
     --header-total: calc(var(--sat) + var(--nav-h));
     --tabbar-total: calc(var(--sab) + var(--tab-h));
 
@@ -722,6 +752,32 @@
  * on a curve parallel to its parent's — mismatched nested radii are what make
  * rounded UI look subtly wrong without the viewer being able to name why.
  */
+/**
+ * Staggered entrance for a list.
+ *
+ * Rows arrive a few milliseconds apart rather than all at once, which is what
+ * gives a list the sense of being laid down instead of appearing. Capped at
+ * twelve so a long list does not end up with a visible queue, and every delay
+ * is short enough that the whole thing is over in about a third of a second.
+ */
+@utility stagger {
+  & > * {
+    animation: list-in 0.22s var(--ease-ios-out) both;
+  }
+  & > *:nth-child(1) { animation-delay: 0ms; }
+  & > *:nth-child(2) { animation-delay: 10ms; }
+  & > *:nth-child(3) { animation-delay: 20ms; }
+  & > *:nth-child(4) { animation-delay: 30ms; }
+  & > *:nth-child(5) { animation-delay: 40ms; }
+  & > *:nth-child(6) { animation-delay: 50ms; }
+  & > *:nth-child(7) { animation-delay: 60ms; }
+  & > *:nth-child(8) { animation-delay: 70ms; }
+  & > *:nth-child(9) { animation-delay: 80ms; }
+  & > *:nth-child(10) { animation-delay: 90ms; }
+  & > *:nth-child(11) { animation-delay: 100ms; }
+  & > *:nth-child(n + 12) { animation-delay: 120ms; }
+}
+
 /**
  * A grouped card with a coloured edge.
  *

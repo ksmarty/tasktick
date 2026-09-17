@@ -74,7 +74,7 @@ export function RegisterForm({
       return;
     }
 
-    router.replace('/today');
+    router.replace('/tasks');
     router.refresh();
   }
 
@@ -175,7 +175,7 @@ export function RegisterForm({
           <ListRow
             title={`Continue with ${oidcName}`}
             leading={<ShieldCheck className="size-5 text-tint" aria-hidden />}
-            onClick={() => void startOidcSignIn('/today')}
+            onClick={() => void startOidcSignIn('/tasks')}
             showChevron
           />
         </ListGroup>

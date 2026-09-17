@@ -8,7 +8,7 @@
  * their own screen (calendars, notifications, focus, admin). Everything here is
  * a real write against `/api/settings` or `/api/bootstrap`; nothing is a mock.
  */
-import { Bell, Cloud, Palmtree, ShieldCheck } from 'lucide-react';
+import { Bell, Cloud, Grid2x2, Palmtree, Search, ShieldCheck, Timer } from 'lucide-react';
 import { ListRow, NavBar, Skeleton } from '@/components/ui';
 import { useResource } from '@/lib/store';
 import { AccountSettings } from '@/components/settings/AccountSettings';
@@ -24,7 +24,7 @@ export default function SettingsPage() {
   return (
     <div className="pb-8">
       {/* No back control: Settings is a top-level destination, reached from the
-          sidebar and from the tab bar's "More" sheet. */}
+          sidebar and from the tab bar. */}
       <NavBar title="Settings" largeTitle />
 
       {!data ? (
@@ -64,6 +64,33 @@ export default function SettingsPage() {
               subtitle={`${data.settings.pomodoroFocus} min focus · ${data.settings.pomodoroLongBreakEvery} sessions per long break`}
               leading={<Palmtree className="size-5" aria-hidden />}
               href="/settings/advanced"
+            />
+          </SettingsGroup>
+
+          {/*
+           * Tools is the phone's only door to the matrix, the focus timer and
+           * search: they used to live behind the tab bar's "More" sheet, which
+           * is gone, and the desktop sidebar is not on a phone. On mobile this
+           * group is therefore load-bearing, not a convenience.
+           */}
+          <SettingsGroup title="Tools" footer="Also in the desktop sidebar.">
+            <ListRow
+              title="Priority matrix"
+              subtitle="Urgent and important, at a glance"
+              leading={<Grid2x2 className="size-5" aria-hidden />}
+              href="/matrix"
+            />
+            <ListRow
+              title="Focus timer"
+              subtitle="Pomodoro sessions"
+              leading={<Timer className="size-5" aria-hidden />}
+              href="/pomodoro"
+            />
+            <ListRow
+              title="Search"
+              subtitle="Tasks, events and habits"
+              leading={<Search className="size-5" aria-hidden />}
+              href="/search"
             />
           </SettingsGroup>
 

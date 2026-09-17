@@ -36,7 +36,7 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
     }
 
     // A full replace (not push) so the sign-in page is not in the back stack.
-    router.replace('/today');
+    router.replace('/tasks');
     router.refresh();
   }
 
@@ -106,7 +106,7 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
               title={oidcName}
               subtitle="Continue with your identity provider"
               leading={<ShieldCheck className="size-5 text-tint" aria-hidden />}
-              onClick={() => void startOidcSignIn('/today')}
+              onClick={() => void startOidcSignIn('/tasks')}
               showChevron
             />
           </ListGroup>

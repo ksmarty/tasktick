@@ -104,18 +104,15 @@ export function TabBar<T extends string>({
     <>
       <nav
         /*
-         * A floating capsule rather than a full-width bar.
+         * No positioning and no `flex-1`.
          *
-         * Edge-to-edge chrome is a browser convention; a detached, translucent
-         * pill is what a native iOS app does, and it keeps the content visible
-         * underneath instead of walling off the bottom of the screen. It sits
-         * clear of the home indicator rather than through it.
+         * This is a flex child of the shell's floating bottom band, which holds
+         * the tab bar and the action button side by side. `flex-1` stretched four
+         * icon-sized tabs across the whole width, which looked loose and pushed
+         * the button hard against the screen edge; sizing to content keeps the
+         * pair compact and centred.
          */
-        className={cn(
-          'glass fixed bottom-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] left-1/2',
-          'w-[min(22rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-full',
-          className,
-        )}
+        className={cn('glass flex w-auto items-center gap-1 rounded-full p-1.5', className)}
         style={{ zIndex: Z.chrome }}
         {...rest}
       >
@@ -123,7 +120,7 @@ export function TabBar<T extends string>({
           role="tablist"
           aria-label={label}
           onKeyDown={onKeyDown}
-          className="flex items-center gap-1 p-1.5"
+          className="flex min-w-0 items-center justify-between gap-1"
         >
           {visible.map((item, index) => {
             const active = item.value === value;

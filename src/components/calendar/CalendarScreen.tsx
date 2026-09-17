@@ -356,9 +356,12 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
             {...gridSwipe}
             className={cn(
               'flex min-h-0 flex-col touch-pan-y',
-              // A fixed share of the viewport on a phone keeps the grid stable
-              // while the agenda scrolls; on desktop it becomes the left column.
-              collapsed ? 'shrink-0' : 'h-[48dvh] shrink-0 lg:h-auto lg:flex-1',
+              // Sized by its own content — six ~44px rows — not by a share of
+              // the viewport. The old `h-[48dvh]` stretched every row on a
+              // phone (~62px of mostly empty cell) and pushed the agenda down;
+              // the month is a plain surface now, so it only needs the room its
+              // numbers and dots occupy. Desktop keeps the left column.
+              collapsed ? 'shrink-0' : 'shrink-0 lg:flex-1',
             )}
           >
             {!payload ? (

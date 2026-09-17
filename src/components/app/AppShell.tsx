@@ -28,7 +28,7 @@
  * literally off-screen. The nav bar being `fixed` compounded it by spanning the
  * viewport and covering the sidebar's own header.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -50,16 +50,25 @@ import { cn } from '@/lib/cn';
 import { useResource } from '@/lib/store';
 import { accentHex } from '@/lib/colors';
 import type { BootstrapPayload } from '@/lib/view-types';
-import { Badge, IconButton, ListGroup, ListRow, SectionHeader, Sheet, Skeleton, TabBar, type TabBarItem } from '@/components/ui';
+import { IconButton, ListRow, SectionHeader, Skeleton, TabBar, type TabBarItem } from '@/components/ui';
 import { QuickAddFab } from './QuickAddFab';
 
-type TabValue = 'today' | 'calendar' | 'habits' | 'tasks' | 'more';
+type TabValue = 'tasks' | 'calendar' | 'habits' | 'settings';
 
-const TAB_ROUTES: Record<Exclude<TabValue, 'more'>, string> = {
-  today: '/today',
+/**
+ * The four destinations, in order.
+ *
+ * Tasks leads because it is the thing a task app is opened for, and it absorbs
+ * the old Today tab: Today is a filter over that list rather than a separate
+ * place, so it lives in the list's own filter bar. More is gone too — with
+ * four tabs there is nothing left to overflow, and Settings is a destination
+ * people actually visit rather than a drawer.
+ */
+const TAB_ROUTES: Record<TabValue, string> = {
+  tasks: '/tasks',
   calendar: '/calendar',
   habits: '/habits',
-  tasks: '/tasks',
+  settings: '/settings',
 };
 
 /** Smart lists, in the order TickTick shows them. */
@@ -76,10 +85,17 @@ const TOOL_LINKS = [
   { href: '/search', label: 'Search', icon: Search },
 ] as const;
 
+/** The smart-list filters the Tasks screen exposes, including the old Today tab. */
+export const TASK_FILTERS = [
+  { value: 'today', label: 'Today' },
+  { value: 'next7days', label: 'Next 7 days' },
+  { value: 'all', label: 'All' },
+  { value: 'completed', label: 'Done' },
+] as const;
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const { data, isInitialLoading } = useResource<BootstrapPayload>('/api/bootstrap');
 
@@ -95,25 +111,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ? 'calendar'
     : pathname.startsWith('/habits')
       ? 'habits'
-      : pathname.startsWith('/tasks') || pathname.startsWith('/matrix') || pathname.startsWith('/search')
-        ? 'tasks'
-        : pathname.startsWith('/settings') || pathname.startsWith('/pomodoro')
-          ? 'more'
-          : 'today';
+      : pathname.startsWith('/settings')
+        ? 'settings'
+        : 'tasks';
 
   const tabs: TabBarItem<TabValue>[] = [
-    { value: 'today', label: 'Today', icon: Sun, badge: agendaCounts.today || undefined },
+    { value: 'tasks', label: 'Tasks', icon: ListChecks, badge: agendaCounts.today || undefined },
     { value: 'calendar', label: 'Calendar', icon: CalendarDays },
     { value: 'habits', label: 'Habits', icon: CheckCircle2 },
-    { value: 'tasks', label: 'Tasks', icon: Inbox },
-    { value: 'more', label: 'More', icon: MoreHorizontal },
+    { value: 'settings', label: 'Settings', icon: Settings },
   ];
 
+  /*
+   * Prefetch every tab once the shell mounts.
+   *
+   * The bar used to call `router.push` with nothing prefetched, so every tap was a
+   * cold server render — the dynamic route, the session lookup and the RSC
+   * payload all had to come back before anything moved. Warm them up and the
+   * switch is immediate.
+   */
+  useEffect(() => {
+    for (const href of Object.values(TAB_ROUTES)) router.prefetch(href);
+  }, [router]);
+
   function onTabChange(value: TabValue) {
-    if (value === 'more') {
-      setMoreOpen(true);
-      return;
-    }
     router.push(TAB_ROUTES[value]);
   }
 
@@ -243,72 +264,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* ---------------------------------------------------------------- */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <main id="main" className="scroll-pane flex-1 pb-tabbar lg:pb-0">
-          {children}
+          {/*
+           * Keyed on the pathname so React remounts this wrapper on every
+           * navigation and the entrance animation replays. Without the key the
+           * element persists across routes and the animation runs exactly once,
+           * ever — which is the opposite of what it is for.
+           */}
+          <div key={pathname} className="animate-page-in">
+            {children}
+          </div>
         </main>
       </div>
 
-      {/* Mobile: floating action button, then the floating tab bar under it. */}
-      <QuickAddFab />
-      <div className="lg:hidden">
+      {/*
+       * The floating bottom band: tab bar and action button sharing one row.
+       *
+       * One fixed container holding both means they cannot overlap, and it sits
+       * just clear of the home indicator rather than floating high above it.
+       */}
+      <div
+        className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] z-40 flex items-center justify-center gap-2 px-3 lg:hidden"
+      >
         <TabBar items={tabs} value={activeTab} onChange={onTabChange} label="Main sections" />
+        <QuickAddFab />
       </div>
-
-      <Sheet open={moreOpen} onOpenChange={setMoreOpen} title="More">
-        <div className="space-y-5 px-4 pb-6">
-          <ListGroup>
-            {TOOL_LINKS.map((item) => (
-              <ListRow
-                key={item.href}
-                title={item.label}
-                leading={<item.icon className="size-5 text-tint" aria-hidden />}
-                onClick={() => {
-                  setMoreOpen(false);
-                  router.push(item.href);
-                }}
-              />
-            ))}
-          </ListGroup>
-
-          <div>
-            <SectionHeader title="Lists" className="px-1 pt-0" />
-            <ListGroup>
-              {lists.map((list) => (
-                <ListRow
-                  key={list.id}
-                  title={list.name}
-                  leading={
-                    list.emoji ? (
-                      <span aria-hidden>{list.emoji}</span>
-                    ) : (
-                      <span
-                        className="size-2.5 rounded-full"
-                        style={{ backgroundColor: accentHex(list.color) }}
-                        aria-hidden
-                      />
-                    )
-                  }
-                  trailing={list.openTaskCount ? <Badge value={list.openTaskCount} /> : undefined}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    router.push(`/tasks?list=${list.id}`);
-                  }}
-                />
-              ))}
-            </ListGroup>
-          </div>
-
-          <ListGroup>
-            <ListRow
-              title="Settings"
-              leading={<Settings className="size-5 text-tint" aria-hidden />}
-              onClick={() => {
-                setMoreOpen(false);
-                router.push('/settings');
-              }}
-            />
-          </ListGroup>
-        </div>
-      </Sheet>
     </div>
   );
 }
