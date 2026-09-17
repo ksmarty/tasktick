@@ -4,9 +4,11 @@
  * Natural-language quick add.
  *
  * One presentation: a bottom sheet opened from the shell's action button, on
- * every screen alike. It parses on every keystroke (`parseQuickAdd`), shows
- * exactly what was understood as tinted chips, and stays open after a submit so
- * several tasks can be typed in a row.
+ * every screen alike. It parses on every keystroke (`parseQuickAdd`) and shows
+ * exactly what was understood as tinted chips. The caret lands in the field the
+ * moment the sheet opens, and a successful submit closes it — one task is one
+ * gesture. A submit that *fails* leaves the sheet open with the sentence still
+ * in the field, so nothing typed is lost to an error.
  *
  * It used to have a second presentation — a bar pinned above the floating bottom
  * band, on this screen and on Today — and that bar is gone. It competed with the
@@ -15,7 +17,7 @@
  * `ResizeObserver` and a viewport portal to stop covering the last row. The
  * sheet needs none of that.
  */
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { CornerDownLeft, Sparkles } from 'lucide-react';
 import { Button, Chip, Sheet, TextField, useToast } from '@/components/ui';
 import { parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
@@ -41,7 +43,8 @@ interface QuickAddState {
   setValue: (value: string) => void;
   result: QuickAddResult;
   chips: QuickAddChip[];
-  submit: () => Promise<void>;
+  /** Resolves `true` once the task exists, `false` when the submit did not go through. */
+  submit: () => Promise<boolean>;
   online: boolean;
   offlineNotice: string;
   busy: boolean;
@@ -80,24 +83,24 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
 
   const submit = useCallback(async () => {
     const raw = value.trim();
-    if (!raw) return;
+    if (!raw) return false;
 
     const plan = planQuickAdd(result, context);
     if (!plan) {
       toast({ title: 'Give the task a name', description: 'Type a title before adding it.', variant: 'error' });
-      return;
+      return false;
     }
 
     let payload = plan.payload;
     if (plan.createListName) {
       // The list does not exist yet; create it so `@Groceries` really files there.
       const created = await actions.createList(plan.createListName);
-      if (!created) return;
+      if (!created) return false;
       payload = { ...payload, listId: created.id };
     }
 
     const task = await actions.create(payload);
-    if (!task) return;
+    if (!task) return false;
 
     setValue('');
     toast({
@@ -106,6 +109,7 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
       variant: 'success',
     });
     onCreated?.(task);
+    return true;
   }, [actions, context, onCreated, result, timeFormat, toast, value, zone]);
 
   return {
@@ -120,13 +124,47 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
   };
 }
 
-function QuickAddInput({ state }: { state: QuickAddState }) {
+function QuickAddInput({
+  state,
+  open,
+  onClose,
+}: {
+  state: QuickAddState;
+  open: boolean;
+  onClose: () => void;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /*
+   * The caret goes into the field when the sheet is deliberately opened — and at
+   * no other time. `open` is the only trigger: `autoFocus` would also fire on
+   * whatever render happens to remount the field, and focusing unconditionally
+   * would grab the page's focus on load. The sheet renders its children only
+   * while it is open, so mounting this field *is* an open, which is why the
+   * effect also covers the first one (the sheet mounts its children a render
+   * after `open` flips, when `panelRef` is still null for its own focus trap).
+   */
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  /*
+   * A created task closes the sheet: the row is in the list behind it and the
+   * user asked for the popup to go away, so making them dismiss it too would be
+   * a second gesture for one action. A failed submit keeps the sheet open and
+   * puts the caret back where the typing was, so the sentence is not lost.
+   */
+  async function submit() {
+    const created = await state.submit();
+    if (created) onClose();
+    else inputRef.current?.focus();
+  }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Enter') {
       event.preventDefault();
-      void state.submit().then(() => inputRef.current?.focus());
+      void submit();
     }
   }
 
@@ -146,7 +184,7 @@ function QuickAddInput({ state }: { state: QuickAddState }) {
             icon={CornerDownLeft}
             disabled={!state.online || !state.value.trim()}
             loading={state.busy}
-            onClick={() => void state.submit().then(() => inputRef.current?.focus())}
+            onClick={() => void submit()}
           >
             Add
           </Button>
@@ -192,7 +230,7 @@ export function QuickAddBar({ open, onOpenChange, listId = null, onCreated }: Qu
       description="Type it the way you would say it — the date, priority and tags are read out of the sentence."
     >
       <div className="pb-4">
-        <QuickAddInput state={state} />
+        <QuickAddInput state={state} open={open} onClose={() => onOpenChange(false)} />
       </div>
     </Sheet>
   );

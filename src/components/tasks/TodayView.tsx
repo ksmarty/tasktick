@@ -47,10 +47,6 @@ export function TodayView() {
   const sections = useMemo(() => buildTodaySections(data?.agenda), [data?.agenda]);
   const remaining = countRemaining(sections);
   const progress = todayProgress(data?.agenda);
-  const listNames = useMemo(
-    () => new Map((data?.lists ?? []).map((list) => [list.id, list.name])),
-    [data?.lists],
-  );
   const listColors = useMemo(
     () => new Map((data?.lists ?? []).map((list) => [list.id, list.color])),
     [data?.lists],
@@ -204,7 +200,6 @@ export function TodayView() {
               section={section}
               zone={zone}
               timeFormat={timeFormat}
-              listNames={listNames}
               listColors={listColors}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}

@@ -15,6 +15,7 @@ import {
   habitProgressView,
   habitWindowRange,
   isHabitDueOn,
+  longDateLabel,
   reminderLabel,
   streakLabel,
   streakUnit,
@@ -55,6 +56,17 @@ describe('habitWindowRange', () => {
     expect(habitWindowRange('week', TODAY, 0).from).toBe('2025-03-09');
     expect(habitWindowRange('month', TODAY, 1)).toEqual({ from: '2025-03-01', to: TODAY, label: 'March to date' });
     expect(habitWindowRange('year', TODAY, 1)).toEqual({ from: '2025-01-01', to: TODAY, label: '2025 to date' });
+  });
+});
+
+describe('longDateLabel', () => {
+  it('spells a floating day out in full', () => {
+    expect(longDateLabel('2025-03-12')).toBe('12 March 2025');
+    expect(longDateLabel('2025-11-01')).toBe('1 November 2025');
+  });
+
+  it('falls back to the raw value when the day is unparseable', () => {
+    expect(longDateLabel('not-a-date' as DateOnly)).toBe('not-a-date');
   });
 });
 

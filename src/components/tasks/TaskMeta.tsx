@@ -1,10 +1,14 @@
 /**
  * The second line of a task row.
  *
- * Everything shown here is derived: priority, list name, repeat, subtask
- * progress and tags. The glyphs are the row's only signal that a task is not a
- * plain one-liner. The pin is not here — it is a deliberate mark on the task
- * itself, so it sits beside the title (see `TaskRow`).
+ * Everything shown here is derived: priority, repeat, subtask progress and tags.
+ * The glyphs are the row's only signal that a task is not a plain one-liner. The
+ * pin is not here — it is a deliberate mark on the task itself, so it sits beside
+ * the title (see `TaskRow`).
+ *
+ * The list name used to lead this line. It is gone: the card's coloured edge
+ * already says which list a row belongs to, so naming it again was duplication —
+ * and it was the one item that could shrink a tag chip to make room for itself.
  *
  * The due date used to lead this line. It now lives at the row's trailing edge
  * (see `DueDateLabel`), because it is the one datum that has to keep its
@@ -14,8 +18,8 @@
  *
  * The line is a single non-wrapping row: it never grows to two lines, so every
  * row's meta is the same height and the list keeps a steady rhythm. When it runs
- * out of room the *meta* ellipsises — the list name and the tag chips are the
- * only items that may shrink — because the title above it always outranks it.
+ * out of room the *meta* ellipsises — the tag chips are the only items that may
+ * shrink — because the title above it always outranks it.
  *
  * Every glyph is the same 12px, drawn against the 13px caption it sits in. The
  * icons used to be a mix of 14px lucide defaults, which made the priority flag
@@ -107,18 +111,16 @@ export function DueDateLabel({ task, zone, timeFormat, className }: DueDateLabel
 
 export interface TaskMetaProps {
   task: Task;
-  /** Shown when the row is not already scoped to one list. */
-  listName?: string | null;
   className?: string;
 }
 
-export function TaskMeta({ task, listName, className }: TaskMetaProps) {
+export function TaskMeta({ task, className }: TaskMetaProps) {
   const subtasks = task.subtasks ?? [];
   const doneSubtasks = subtasks.filter((subtask) => subtask.status === 'completed').length;
   const tags = task.tags ?? [];
 
   const hasAnything = Boolean(
-    task.priority !== 'none' || tags.length || task.recurrenceRule || subtasks.length || listName,
+    task.priority !== 'none' || tags.length || task.recurrenceRule || subtasks.length,
   );
   if (!hasAnything) return null;
 
@@ -134,10 +136,6 @@ export function TaskMeta({ task, listName, className }: TaskMetaProps) {
           <Flag className={cn(META_ICON, 'fill-current')} strokeWidth={META_ICON_STROKE} aria-hidden />
           <span className="sr-only">{priorityLabel(task.priority)} priority</span>
         </span>
-      ) : null}
-
-      {listName ? (
-        <span className="max-w-32 min-w-0 shrink truncate text-secondary">{listName}</span>
       ) : null}
 
       {task.recurrenceRule ? (

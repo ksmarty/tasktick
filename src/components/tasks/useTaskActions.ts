@@ -23,7 +23,19 @@ import type { BulkAction, BulkPayload, CreateTaskPayload, TaskPatch } from './pa
 
 export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. They will work again once you reconnect.';
 
-const INVALIDATES = ['/api/tasks', '/api/bootstrap'];
+/**
+ * Cache keys a task write can affect.
+ *
+ * `/api/calendar/items` belongs here because a task with a due date IS a
+ * calendar item — it renders in the day agenda and contributes a dot to the
+ * month grid. Leaving it out meant a task created or completed on the tasks
+ * screen did not appear on the calendar until a full reload, which reads as
+ * "the calendar does not include tasks" rather than as a stale cache.
+ *
+ * `/api/bootstrap` carries the sidebar counts and the Today agenda, so it goes
+ * with every write for the same reason.
+ */
+const INVALIDATES = ['/api/tasks', '/api/bootstrap', '/api/calendar/items'];
 
 /** Maps a thrown value onto something worth showing a human. */
 function writeFailure(error: unknown, what: string): Error {

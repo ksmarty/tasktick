@@ -11,6 +11,7 @@
  * The single thing that *is* mirrored is the schedule (`isHabitDueOn`), because
  * marking which weekdays a habit is expected on is presentation, not scoring.
  */
+import { DateTime } from 'luxon';
 import {
   addDaysToDateOnly,
   formatTime,
@@ -78,6 +79,22 @@ function monthName(date: DateOnly): string {
   ];
   const index = Number.parseInt(date.slice(5, 7), 10) - 1;
   return names[index] ?? date.slice(0, 7);
+}
+
+/* -------------------------------------------------------------------------- */
+/* day labels                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `12 March 2025` — the long form of a floating day.
+ *
+ * Used wherever a control has to name the day it acts on (the check-in
+ * control's and the week strip's accessible names), because a reader that only
+ * hears "12" or "Wed" cannot tell which of the seven days is meant.
+ */
+export function longDateLabel(date: DateOnly): string {
+  const parsed = DateTime.fromFormat(date, 'yyyy-MM-dd');
+  return parsed.isValid ? parsed.toFormat('d LLLL yyyy') : date;
 }
 
 /* -------------------------------------------------------------------------- */

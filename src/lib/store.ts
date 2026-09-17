@@ -113,7 +113,12 @@ export function useResource<T>(
       const version = current.version + 1;
       setEntry<T>(cacheKey, { isLoading: true, version, error: null });
 
-      const promise = (async () => {
+      /*
+       * `run` is referenced from inside its own finally, which only executes
+       * after the assignment below has completed.
+       */
+      let run!: Promise<void>;
+      run = (async () => {
         try {
           const data = await api.get<T>(key!, queryRef.current as never);
           // Ignore a response that a newer request has already superseded.
@@ -124,11 +129,31 @@ export function useResource<T>(
           if (getEntry<T>(cacheKey).version === version) {
             setEntry<T>(cacheKey, { isLoading: false, error: errorMessage(error) });
           }
+        } finally {
+          /*
+           * Clear the in-flight marker once the request settles.
+           *
+           * This marker is what dedupes concurrent callers, but it was left set
+           * forever after the request resolved. The next `load()` then saw a
+           * truthy `promise`, returned the OLD settled one, and never fetched —
+           * so `invalidate()` marked an entry stale and nothing ever came of it.
+           *
+           * The symptom was a screen that only refreshed after a full reload:
+           * which is every case of "I added it and it did not appear until I
+           * restarted the app". A reload throws the module cache away, which is
+           * why restarting 'fixed' it.
+           *
+           * Only clear it if it is still ours, so a request that a newer load
+           * has already replaced cannot delete that newer request's marker.
+           */
+          if (getEntry<T>(cacheKey).promise === run) {
+            setEntry<T>(cacheKey, { promise: undefined });
+          }
         }
       })();
 
-      setEntry<T>(cacheKey, { promise });
-      return promise;
+      setEntry<T>(cacheKey, { promise: run });
+      return run;
     },
     [cacheKey, enabled, key, staleAfterMs],
   );

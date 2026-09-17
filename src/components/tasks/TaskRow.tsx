@@ -62,7 +62,6 @@ export interface TaskRowProps {
   task: Task;
   zone: string;
   timeFormat: '12h' | '24h';
-  listName?: string | null;
   /** Ticks the task off, or un-ticks it when it is already done. */
   onToggle: (task: Task) => void;
   /** Opens the editor sheet. */
@@ -91,7 +90,6 @@ export function TaskRow({
   task,
   zone,
   timeFormat,
-  listName,
   onToggle,
   onOpen,
   onDelete,
@@ -433,7 +431,7 @@ export function TaskRow({
             ) : null}
             <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} className="ml-auto" />
           </span>
-          <TaskMeta task={task} listName={listName} className="mt-0" />
+          <TaskMeta task={task} className="mt-0" />
         </button>
 
         {selectionMode ? (

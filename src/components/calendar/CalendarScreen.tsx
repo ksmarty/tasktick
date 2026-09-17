@@ -96,6 +96,20 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   // click that follows it.
   const [interaction] = useState<CalendarInteraction>(createInteraction);
 
+  /*
+   * Which way the last paging move went.
+   *
+   * `seq` is what the grid is keyed on: it changes on every paging move, so
+   * React remounts the grid and the entrance animation replays instead of
+   * playing once on first render. `direction` picks the side it enters from —
+   * +1 for the next period, -1 for the previous one.
+   *
+   * Only `page` bumps it, so a period change caused by selecting a day (a
+   * padding day from a neighbouring month) stays immediate: there is no gesture
+   * direction to honour there.
+   */
+  const [pageMotion, setPageMotion] = useState<{ seq: number; direction: 1 | -1 }>({ seq: 0, direction: 1 });
+
   const today = todayIn(zone);
   const activeDate = anchor ?? today;
   const selected = selectedDate ?? today;
@@ -171,6 +185,9 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const page = useCallback(
     (delta: number) => {
+      if (delta !== 0) {
+        setPageMotion((current) => ({ seq: current.seq + 1, direction: delta > 0 ? 1 : -1 }));
+      }
       setAnchor(shiftViewAnchor('month', activeDate, delta, zone));
       // The selection travels with the view, so the agenda keeps showing the
       // same day-of-month as the user pages.
@@ -379,6 +396,8 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
                 selectedDate={selected}
                 today={today}
                 weeks={collapsed ? 1 : 6}
+                pageSeq={pageMotion.seq}
+                pageDirection={pageMotion.direction}
                 payload={activePayload}
                 prefs={prefs}
                 calendars={calendarLookup}

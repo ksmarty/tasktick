@@ -41,6 +41,23 @@
    */
   --animate-page-in: page-in 0.34s var(--ease-ios-out) both;
   --animate-list-in: list-in 0.32s var(--ease-ios-out) both;
+  /*
+   * The calendar's period change: the incoming month grid enters from the side
+   * the gesture came from — `from-right` when the user swiped left or pressed
+   * next, `from-left` for the reverse. The grid is keyed on the paging move, so
+   * the animation replays on every page rather than only on the first render.
+   *
+   * Deliberately plain `translateX`: opacity alone reads as a re-mount, and the
+   * short offset is what makes it read as the grid having moved. It is the same
+   * recipe as `list-in`, and like every other entrance token it is neutralised
+   * by the global reduced-motion rule in the base layer — the `to` frame is the
+   * resting state, so there is nothing to unwind.
+   *
+   * This is the ONLY motion the calendar adds: selecting a day, opening a sheet
+   * and dragging an item are direct manipulation and stay immediate.
+   */
+  --animate-grid-in-from-right: grid-in-from-right 0.26s var(--ease-ios-out) both;
+  --animate-grid-in-from-left: grid-in-from-left 0.26s var(--ease-ios-out) both;
 
   @keyframes page-in {
     from {
@@ -55,6 +72,27 @@
     from {
       opacity: 0;
       transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* `transform: none` at rest, so the grid never keeps a containing block. */
+  @keyframes grid-in-from-right {
+    from {
+      opacity: 0;
+      transform: translateX(24px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes grid-in-from-left {
+    from {
+      opacity: 0;
+      transform: translateX(-24px);
     }
     to {
       opacity: 1;

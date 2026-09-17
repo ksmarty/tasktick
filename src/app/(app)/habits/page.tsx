@@ -1,53 +1,45 @@
 'use client';
 
 /**
- * Habits: check in, see the streaks, and read the year back as a heatmap.
+ * Habits: check in, see the streaks, and read the week back as a strip.
  *
  * The layout is the reference one: a compact week strip as the page header — the
  * selected day filled — then one card whose first row is the group name, and one
  * quiet row per habit (check-in control, glyph, name, right-aligned streak).
  *
- * The page owns three pieces of state — which day the cards are scoped to,
- * whether archived habits are listed, and whether the heatmap is open — because
- * everything else (streaks, completion rates, period progress) is computed
- * server-side and merely formatted here.
+ * The page owns two pieces of state — which day the cards are scoped to, and
+ * whether archived habits are listed — because everything else (streaks,
+ * completion rates, period progress) is computed server-side and merely
+ * formatted here.
  *
- * Two reads, on purpose: the card list is scoped to the current week so the
- * selected day's `entries` are present, while the heatmap always asks for the
- * trailing twelve months. An optimistic check-in patches both, so a tap updates
- * the row and the grid at the same instant.
+ * One read, on purpose: the card list is scoped to the current week so the
+ * selected day's `entries` are present. An optimistic check-in patches it, so a
+ * tap updates the row at the same instant.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useMemo, useState } from 'react';
 import { usePrimaryAction } from '@/lib/events';
-import { CalendarRange, CheckCircle2, ChevronDown, Ellipsis, Plus } from 'lucide-react';
+import { CalendarRange, CheckCircle2, Ellipsis, Plus } from 'lucide-react';
 import {
   Button,
   EmptyState,
   IconButton,
   NavBar,
   Popover,
-  Select,
   Skeleton,
   Switch,
   useToast,
 } from '@/components/ui';
-import { cn } from '@/lib/cn';
 import {
   HabitEditorSheet,
-  HabitHeatmap,
   HabitList,
   HabitWeekStrip,
-  HeatmapHabitList,
   applyCheckInOptimistically,
-  combineHabitEntries,
   habitWindowRange,
-  isHabitDueOn,
   type CheckInChange,
 } from '@/components/habits';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
-import { addDaysToDateOnly, todayIn } from '@/lib/dates';
+import { todayIn } from '@/lib/dates';
 import type { BootstrapPayload, CheckInPayload } from '@/lib/view-types';
 import type { DateOnly, Habit } from '@/lib/types';
 
@@ -67,8 +59,6 @@ export default function HabitsPage() {
   /** The day the card list is scoped to; `null` means today. */
   const [selectedDay, setSelectedDay] = useState<DateOnly | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [heatmapOpen, setHeatmapOpen] = useState(false);
-  const [scope, setScope] = useState<string>('all');
   const [editing, setEditing] = useState<Habit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -82,14 +72,6 @@ export default function HabitsPage() {
   );
   /** Id of the habit whose check-in is still in flight, so only that row dims. */
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
-
-  // Deep link from search: `/habits?habit=<id>` opens that habit's year view.
-  const requestedHabit = useSearchParams().get('habit');
-  useEffect(() => {
-    if (!requestedHabit) return;
-    setScope(requestedHabit);
-    setHeatmapOpen(true);
-  }, [requestedHabit]);
 
   // The cards only ever need the current week: the header strip selects days
   // inside it, and the streak and period values are server-side anyway.
@@ -106,18 +88,7 @@ export default function HabitsPage() {
     { enabled: Boolean(today) },
   );
 
-  const yearFrom = useMemo(() => (today ? addDaysToDateOnly(today, -364, zone) : undefined), [today, zone]);
-  const heatmapHabits = useResource<Habit[]>(
-    '/api/habits',
-    { from: yearFrom, to: today, includeArchived: archives },
-    { enabled: Boolean(today) && heatmapOpen },
-  );
-
   const list = habits.data ?? [];
-  // The heatmap must never be drawn from the window-scoped list: its entries only
-  // cover the selected window, which would leave eleven empty months on screen
-  // while the year fetch is still in flight.
-  const yearList = heatmapHabits.data ?? [];
 
   // The strip's selection, defaulting to today until the user picks a day.
   const activeDate = selectedDay ?? todayDate;
@@ -136,14 +107,13 @@ export default function HabitsPage() {
 
   const applyLocally = useCallback(
     (habitId: string, change: CheckInChange, todayDate: DateOnly) => {
-      const patch = (current: Habit[] | undefined) =>
+      habits.mutate((current) =>
         current?.map((habit) =>
           habit.id === habitId ? applyCheckInOptimistically(habit, change, todayDate) : habit,
-        );
-      habits.mutate(patch);
-      heatmapHabits.mutate(patch);
+        ),
+      );
     },
-    [habits, heatmapHabits],
+    [habits],
   );
 
   const checkIn = useCallback(
@@ -152,7 +122,7 @@ export default function HabitsPage() {
       const date = change.date;
 
       // Snapshot first: an optimistic write has to be reversible.
-      const snapshot = { list: habits.data, heatmap: heatmapHabits.data };
+      const snapshot = habits.data;
       applyLocally(habit.id, change, today);
       setCheckingIn(habit.id);
 
@@ -164,11 +134,9 @@ export default function HabitsPage() {
         });
         invalidate('/api/habits');
         void habits.refresh();
-        if (heatmapOpen) void heatmapHabits.refresh();
         if (change.count === null) toast({ title: `${habit.name} unchecked`, variant: 'info' });
       } catch (error) {
-        habits.mutate(() => snapshot.list);
-        heatmapHabits.mutate(() => snapshot.heatmap);
+        habits.mutate(() => snapshot);
         toast({
           title: `Could not save ${habit.name}`,
           description: errorMessage(error),
@@ -178,7 +146,7 @@ export default function HabitsPage() {
         setCheckingIn((current) => (current === habit.id ? null : current));
       }
     },
-    [applyLocally, habits, heatmapHabits, heatmapOpen, today, toast],
+    [applyLocally, habits, today, toast],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -201,38 +169,8 @@ export default function HabitsPage() {
   );
 
   /* ---------------------------------------------------------------------- */
-  /* the heatmap's subject                                                  */
+  /* editing                                                                */
   /* ---------------------------------------------------------------------- */
-
-  const scopeOptions = useMemo(
-    () => [
-      { value: 'all', label: 'All habits' },
-      ...yearList.map((habit) => ({ value: habit.id, label: habit.name })),
-    ],
-    [yearList],
-  );
-
-  const selectedHabit = scope === 'all' ? null : yearList.find((habit) => habit.id === scope) ?? null;
-  const combined = useMemo(() => combineHabitEntries(yearList), [yearList]);
-
-  const series = selectedHabit
-    ? {
-        key: selectedHabit.id,
-        label: selectedHabit.name,
-        color: selectedHabit.color,
-        target: selectedHabit.goalType === 'boolean' ? 1 : Math.max(1, selectedHabit.goalTarget),
-        unit: selectedHabit.goalType === 'boolean' ? null : selectedHabit.unit,
-        entries: selectedHabit.entries ?? {},
-      }
-    : {
-        key: 'all',
-        label: 'Every habit',
-        color: 'green' as const,
-        target: combined.max,
-        unit: null,
-        noun: 'habits' as const,
-        entries: combined.entries,
-      };
 
   function openEditor(habit: Habit | null) {
     setEditing(habit);
@@ -304,7 +242,7 @@ export default function HabitsPage() {
           description="A habit is something you want to keep doing — every day, a few times a week, or once a month. Add one and check in from this screen."
           action={
             <Button icon={Plus} onClick={() => openEditor(null)}>
-              Add habit
+              Add your first habit
             </Button>
           }
         />
@@ -326,87 +264,8 @@ export default function HabitsPage() {
             onEdit={openEditor}
             onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
           />
-          <div className="flex justify-center px-4 pt-1">
-            <Button variant="tinted" icon={Plus} onClick={() => openEditor(null)}>
-              Add habit
-            </Button>
-          </div>
         </>
       )}
-
-      {/*
-       * Activity is a card whose own header row carries the disclosure, the
-       * same shape the habit card uses. As a bare `Activity ⌄` heading in the
-       * flow it read as neither a section nor a setting — it sat above the
-       * archived card with a gap, so the two looked like one broken section.
-       * Attached to its own surface the label belongs to the grid it opens,
-       * and the archived control is no longer underneath it.
-       *
-       * The card is deliberately not `.grouped`: that utility clips its
-       * content, and the heatmap's day popover has to escape the card.
-       */}
-      <section className="mt-6">
-        <div className="glass-card mx-4 rounded-ios-lg">
-          <div className={cn('flex items-center justify-between gap-2 px-3', heatmapOpen && 'hairline-b')}>
-            <h2 className="min-w-0">
-              <button
-                type="button"
-                aria-expanded={heatmapOpen}
-                onClick={() => setHeatmapOpen((open) => !open)}
-                className="flex min-h-11 items-center gap-1.5 text-subhead font-semibold text-label pressable"
-              >
-                Activity
-                <ChevronDown
-                  className={cn(
-                    'size-3.5 transition-transform duration-200 ease-ios-out',
-                    heatmapOpen && 'rotate-180',
-                  )}
-                  aria-hidden
-                />
-              </button>
-            </h2>
-
-            {heatmapOpen ? (
-              <Select
-                value={scope}
-                onChange={setScope}
-                options={scopeOptions}
-                label="Habit shown in the heatmap"
-                placeholder="All habits"
-                className="w-40"
-              />
-            ) : null}
-          </div>
-
-          {heatmapOpen ? (
-            heatmapHabits.error && yearList.length === 0 ? (
-              <div className="p-3">
-                <EmptyState icon={CalendarRange} title="Could not load activity" description={heatmapHabits.error} />
-              </div>
-            ) : !heatmapHabits.data ? (
-              <Skeleton variant="rect" className="m-3 h-40" />
-            ) : (
-              <div className="p-3">
-                <HabitHeatmap
-                  series={series}
-                  today={todayDate}
-                  weekStartsOn={weekStartsOn}
-                  {...(selectedHabit
-                    ? {
-                        isScheduled: (date: DateOnly) => isHabitDueOn(selectedHabit, date),
-                        earliest: selectedHabit.startDate,
-                        onSetEntry: (date: DateOnly, count: number | null) =>
-                          void checkIn(selectedHabit, { date, count }),
-                      }
-                    : {
-                        renderDetail: (date: DateOnly) => <HeatmapHabitList habits={yearList} date={date} />,
-                      })}
-                />
-              </div>
-            )
-          ) : null}
-        </div>
-      </section>
 
       <HabitEditorSheet
         open={editorOpen}
@@ -415,7 +274,6 @@ export default function HabitsPage() {
         today={todayDate}
         onChanged={() => {
           void habits.refresh();
-          if (heatmapOpen) void heatmapHabits.refresh();
         }}
       />
     </div>

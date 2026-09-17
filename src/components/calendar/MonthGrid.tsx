@@ -49,6 +49,13 @@
  * the agenda and the day sheet cannot disagree about which days a month
  * contains. Recurrence expansion, EXDATE handling and timed-overlap columns are
  * all absent here because the API already did them.
+ *
+ * The only motion is the period change: `pageSeq` keys the day lattice, so a
+ * paging move remounts it and its entrance animation replays, entering from the
+ * side `pageDirection` names. The weekday header above it does not slide — it is
+ * chrome, not content — and nothing else here animates: selecting a day,
+ * opening the day sheet and dragging a dot are direct manipulation, and a delay
+ * on any of them reads as a dropped tap.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
@@ -82,6 +89,13 @@ export interface MonthGridProps {
   today: DateOnly;
   /** 6 for the whole month, 1 for the collapsed week strip. */
   weeks: number;
+  /**
+   * Increments on every paging move; the lattice is keyed on it so the entrance
+   * animation replays rather than playing once on first render. 0 = no motion.
+   */
+  pageSeq: number;
+  /** `1` when the period advanced (the grid enters from the right), else `-1`. */
+  pageDirection: 1 | -1;
   /** The server's response: `days` is the single source of truth for the dots. */
   payload: CalendarItemsPayload;
   prefs: CalendarPrefs;
@@ -102,6 +116,8 @@ export function MonthGrid({
   selectedDate,
   today,
   weeks,
+  pageSeq,
+  pageDirection,
   payload,
   prefs,
   calendars,
@@ -224,11 +240,21 @@ export function MonthGrid({
       )}
 
       <div
+        // Keyed on the paging move, not the period: remounting is what restarts
+        // the CSS animation, and selecting a padding day from a neighbouring
+        // month must not slide — it has no gesture direction to honour.
+        key={pageSeq}
         ref={gridRef}
         role="grid"
         aria-label={collapsed ? 'Week' : 'Month'}
         onKeyDown={onKeyDown}
-        className={cn('grid select-none', collapsed ? 'h-18 shrink-0 gap-1' : 'min-h-0 flex-1')}
+        className={cn(
+          'grid select-none',
+          // Duration, easing and the reduced-motion opt-out all come from the
+          // token in `globals.css`; only the side differs here.
+          pageSeq > 0 && (pageDirection > 0 ? 'animate-grid-in-from-right' : 'animate-grid-in-from-left'),
+          collapsed ? 'h-18 shrink-0 gap-1' : 'min-h-0 flex-1',
+        )}
         style={{
           gridTemplateColumns: `repeat(${MONTH_COLUMNS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`,

@@ -86,8 +86,6 @@ export interface TaskListSectionProps {
   section: TaskSection;
   zone: string;
   timeFormat: '12h' | '24h';
-  /** `listId -> name`, so rows in a mixed view can name their list. */
-  listNames?: ReadonlyMap<string, string>;
   /** `listId -> colour`, which sets each card's leading-edge stripe. */
   listColors?: ReadonlyMap<string, AccentColor>;
   onToggle: (task: Task) => void;
@@ -106,7 +104,6 @@ export function TaskListSection({
   section,
   zone,
   timeFormat,
-  listNames,
   listColors,
   onToggle,
   onOpen,
@@ -290,10 +287,13 @@ export function TaskListSection({
 
         {collapsed ? null : (
           <>
-            <div aria-hidden className="h-px bg-separator" />
             {/*
              * The rows carry no background of their own, so the card reads as
-             * one surface — header row first, then the tasks.
+             * one surface — header row first, then the tasks. No hairline under
+             * the header: the two are one card rather than two groups, so a rule
+             * there drew a box around the title instead of separating anything,
+             * and the header's own weight already marks where the section
+             * starts.
              */}
             <ul className={cn(entering && 'stagger')}>
               {section.tasks.map((task, index) => (
@@ -306,7 +306,6 @@ export function TaskListSection({
                   task={task}
                   zone={zone}
                   timeFormat={timeFormat}
-                  listName={listNames?.get(task.listId ?? '') ?? null}
                   onToggle={onToggle}
                   onOpen={onOpen}
                   onDelete={onDelete}

@@ -6,16 +6,22 @@
  * A list screen hides its search field while the user reads down it and brings
  * it back the moment they scroll back up — the field stops being permanent
  * chrome and becomes an answer to a gesture. This hook owns only the gesture
- * half of that: it reports whether the pane is in a "reveal" state, and the
- * caller decides what to do with it (see `TasksView`, which collapses the row to
- * zero height so a hidden field occupies no space and cannot be focused).
+ * half of that: it reports whether the field should be on screen, and the caller
+ * decides what to do with it (see `TasksView`, which collapses the row to zero
+ * height so a hidden field occupies no space and cannot be focused).
  *
- * Two rules make it behave like the platform rather than like a scroll spy:
+ * Three rules make it behave like the platform rather than like a scroll spy:
  *
- *   - the pane at its top always counts as revealed, because "scroll up" has no
- *     direction left to report once the user has arrived;
+ *   - the field starts hidden, and only an *upward* scroll brings it back;
  *   - a direction only counts once it has travelled `thresholdPx`, so the
- *     sub-pixel jitter of a momentum scroll cannot flicker the field in and out.
+ *     sub-pixel jitter of a momentum scroll cannot flicker the field in and out;
+ *   - a pane that cannot scroll is always revealed. With nothing to scroll there
+ *     is no gesture that could bring the field back, so hiding it would make
+ *     search unreachable on a short list — the field simply has to be there.
+ *
+ * The top of the pane used to count as revealed, which is what iOS does; that is
+ * also why the field sat on screen at rest. The user asked for hidden-until-scroll
+ * twice, so the top is now an ordinary position with no gesture in it.
  *
  * The listener is on the shell's own scroll pane (`#main`) rather than on
  * `window`: the document never scrolls in this shell, so a window listener would
@@ -27,11 +33,19 @@ import { useEffect, useRef, useState } from 'react';
 /** Movement, in px, before a scroll counts as a deliberate change of direction. */
 const DEFAULT_THRESHOLD_PX = 8;
 /**
- * How close to the top still counts as being at the top. A couple of pixels,
- * because a restored scroll position or a rubber-band can land on 1 or 2 rather
- * than exactly 0.
+ * Slack, in px, for the "cannot scroll" test: fractional layout can leave a pane
+ * that fits its content measuring a scrollHeight a hair above its clientHeight.
  */
-const TOP_BAND_PX = 2;
+const OVERFLOW_SLACK_PX = 1;
+/**
+ * How long "this pane cannot scroll" has to hold before it is believed.
+ *
+ * While a list is loading, its placeholder is short — believing that measurement
+ * would flash the field on screen at rest, which is the very thing hiding it is
+ * for. A short list settles within one debounce; a list that arrives long never
+ * reports short once its data is in.
+ */
+const OVERFLOW_SETTLE_MS = 200;
 
 export interface ScrollRevealOptions {
   /** Id of the scroll container. Defaults to the app shell's pane. */
@@ -41,17 +55,20 @@ export interface ScrollRevealOptions {
 }
 
 /**
- * True while the search field should be shown: at the top of the pane, or after
- * a deliberate upward scroll.
- *
- * Measured once on mount, so the field is present at rest and the convention
- * applies to the gesture rather than to a blank first paint.
+ * True while the search field should be shown: after a deliberate upward scroll,
+ * or whenever the pane has nothing to scroll.
  */
 export function useScrollReveal({
   containerId = 'main',
   thresholdPx = DEFAULT_THRESHOLD_PX,
 }: ScrollRevealOptions = {}): boolean {
   const [revealed, setRevealed] = useState(false);
+  /**
+   * Whether the pane has anything to scroll. Optimistic in the "yes" direction,
+   * so the first paint hides the field and only a settled measurement of a pane
+   * that fits its content brings it back.
+   */
+  const [scrollable, setScrollable] = useState(true);
 
   /** Previous scroll position, read and written every frame, so a ref not state. */
   const lastTop = useRef(0);
@@ -80,6 +97,7 @@ export function useScrollReveal({
 
     lastTop.current = node.scrollTop;
     let frame = 0;
+    let settle = 0;
 
     const update = (next: boolean) => {
       setRevealed((current) => {
@@ -94,10 +112,6 @@ export function useScrollReveal({
       const moved = top - lastTop.current;
       lastTop.current = top;
 
-      if (top <= TOP_BAND_PX) {
-        update(true);
-        return;
-      }
       if (performance.now() < quietUntil.current) return;
       if (Math.abs(moved) < thresholdPx) return;
       update(moved < 0);
@@ -108,25 +122,46 @@ export function useScrollReveal({
       frame = window.requestAnimationFrame(measure);
     };
 
+    /** Re-reads whether the pane has anything to scroll; see `OVERFLOW_SETTLE_MS`. */
+    const measureOverflow = () => {
+      if (node.scrollHeight - node.clientHeight > OVERFLOW_SLACK_PX) {
+        if (settle) {
+          window.clearTimeout(settle);
+          settle = 0;
+        }
+        setScrollable(true);
+        return;
+      }
+      if (settle) return;
+      settle = window.setTimeout(() => {
+        settle = 0;
+        // Re-check on settle: the content may have grown while we waited. A pane
+        // that stayed short has no gesture in it, so the field stays out.
+        setScrollable(node.scrollHeight - node.clientHeight > OVERFLOW_SLACK_PX);
+      }, OVERFLOW_SETTLE_MS);
+    };
+
     node.addEventListener('scroll', onScroll, { passive: true });
 
     /*
-     * Measure once on mount as well as on every scroll.
-     *
-     * Without this the field is hidden on load and the user is at the top of the
-     * pane, where there is no direction left to scroll — so the reveal can never
-     * fire and the field is unreachable until they scroll down and back up. That
-     * is a trap, not a convention. A first measurement applies the TOP_BAND rule
-     * above, which shows the field at rest and hides it only once the user has
-     * deliberately scrolled away from the top.
+     * Content that changes without a scroll: data arriving, a section
+     * collapsing, a filter landing. A `ResizeObserver` on the pane's content is
+     * what notices — the pane's own box does not move when its content grows —
+     * and the pane itself is observed too, because resizing the window changes
+     * what fits without changing the content.
      */
-    measure();
+    const observer = new ResizeObserver(measureOverflow);
+    observer.observe(node);
+    for (const child of Array.from(node.children)) observer.observe(child);
+    measureOverflow();
 
     return () => {
       node.removeEventListener('scroll', onScroll);
+      observer.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
+      if (settle) window.clearTimeout(settle);
     };
   }, [containerId, thresholdPx]);
 
-  return revealed;
+  return revealed || !scrollable;
 }

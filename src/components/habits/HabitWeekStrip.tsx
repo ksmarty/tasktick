@@ -14,8 +14,7 @@
  * so the week keeps its shape.
  */
 import { cn } from '@/lib/cn';
-import { heatmapDateLabel } from './heatmap';
-import { WEEKDAY_SHORT, weekOfDays } from './period';
+import { WEEKDAY_SHORT, longDateLabel, weekOfDays } from './period';
 import type { DateOnly } from '@/lib/types';
 
 export interface HabitWeekStripProps {
@@ -52,7 +51,7 @@ export function HabitWeekStrip({
             type="button"
             disabled={outOfRange}
             aria-pressed={isSelected}
-            aria-label={`${WEEKDAY_SHORT[day.weekday]}, ${heatmapDateLabel(day.date)}`}
+            aria-label={`${WEEKDAY_SHORT[day.weekday]}, ${longDateLabel(day.date)}`}
             onClick={() => onSelect(day.date)}
             className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-ios py-1 pressable"
           >

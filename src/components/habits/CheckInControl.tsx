@@ -28,8 +28,7 @@
 import { Minus, Plus } from 'lucide-react';
 import { Checkbox, IconButton } from '@/components/ui';
 import { cn } from '@/lib/cn';
-import { heatmapDateLabel } from './heatmap';
-import { habitDoneOn, habitProgressView, type CheckInChange } from './period';
+import { habitDoneOn, habitProgressView, longDateLabel, type CheckInChange } from './period';
 import type { DateOnly, Habit } from '@/lib/types';
 
 export interface CheckInControlProps {
@@ -47,7 +46,7 @@ export interface CheckInControlProps {
 export function CheckInControl({ habit, date, today, onCheckIn, pending = false, className }: CheckInControlProps) {
   const view = habitProgressView(habit, today);
   const done = habitDoneOn(habit, date, today);
-  const when = date === today ? 'today' : heatmapDateLabel(date);
+  const when = date === today ? 'today' : longDateLabel(date);
 
   if (!view.counted) {
     return (

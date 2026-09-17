@@ -65,6 +65,17 @@ export function NavBar({
   // Called unconditionally: hooks may not sit behind `largeTitle`.
   const scrollOffset = usePageScrollOffset();
   const collapsed = largeTitle && scrollOffset > COLLAPSE_AT_PX;
+  /**
+   * True once content has moved under the bar.
+   *
+   * The bar carries no background at rest. A permanently tinted strip across the
+   * top of the screen reads as a separate region stacked above the content
+   * rather than as a title sitting on it — and there is nothing behind it to
+   * justify the tint when the page has not moved. The material fades in at the
+   * exact moment it starts doing a job: keeping text legible as rows pass
+   * underneath.
+   */
+  const scrolled = scrollOffset > 1;
   const headerHeight = 'calc(env(safe-area-inset-top, 0px) + var(--nav-h))';
 
   const backControl = backHref ? (
@@ -96,7 +107,12 @@ export function NavBar({
        * stays legible as colour rather than mush.
        */}
       <header
-        className={cn('glass-chrome sticky top-0 isolate', border && 'hairline-b', className)}
+        className={cn(
+          'sticky top-0 isolate transition-colors duration-200 ease-ios',
+          scrolled ? 'glass-chrome' : 'bg-transparent',
+          border && scrolled && 'hairline-b',
+          className,
+        )}
         style={{ zIndex: Z.chrome }}
         {...rest}
       >

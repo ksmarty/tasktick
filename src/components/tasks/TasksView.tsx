@@ -95,7 +95,6 @@ export function TasksView() {
   const query = useMemo(() => taskQuery(state), [state]);
   const resource = useResource<Task[]>('/api/tasks', query);
   const tasks = useMemo(() => resource.data ?? [], [resource.data]);
-  const listNames = useMemo(() => new Map(lists.map((list) => [list.id, list.name])), [lists]);
   const listColors = useMemo(() => new Map(lists.map((list) => [list.id, list.color])), [lists]);
 
   const [searchDraft, setSearchDraft] = useState(state.q);
@@ -141,7 +140,9 @@ export function TasksView() {
    * The field is on screen while the list is being scrolled up, while it holds
    * focus (so a tap on the freshly revealed field cannot make it disappear from
    * under the finger), and whenever a query is actually applied — an active
-   * filter must never be invisible.
+   * filter must never be invisible. `useScrollReveal` also reports the field as
+   * revealed when the pane cannot scroll at all, which is the one case where
+   * hiding it would put search out of reach: a list too short to gesture on.
    */
   const searchVisible = scrollReveal || searchFocused || state.q.trim().length > 0;
 
@@ -314,7 +315,10 @@ export function TasksView() {
         }
       >
         {/*
-         * Search, revealed by a scroll-up gesture — see `useScrollReveal`.
+         * Search, revealed by a scroll-up gesture — see `useScrollReveal`. It is
+         * hidden on load and stays hidden while the user reads down the list;
+         * only scrolling back up brings it out (or a list too short to scroll,
+         * where the field is always visible).
          *
          * It sits inside the nav bar's own band rather than in the scrolling
          * content, because the gesture has to bring it into *view*: a row in the
@@ -391,7 +395,6 @@ export function TasksView() {
               section={section}
               zone={zone}
               timeFormat={timeFormat}
-              listNames={listNames}
               listColors={listColors}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
