@@ -108,7 +108,10 @@ describe('the row is denser but keeps its 44px targets', () => {
     expect(ROW).toContain('leading-tight');
     expect(ROW).toContain('gap-x-1 gap-y-0');
     expect(ROW).not.toContain('gap-x-1.5');
-    expect(ROW).toContain('gap-0 ');
+    // The title/meta pair still sits in a gapless column of its own — the due
+    // date moved out of the title's row to the button's own, so the `gap-0`
+    // lives on that content column now rather than on the button.
+    expect(ROW).toContain('flex-col items-stretch gap-0');
     // No arbitrary spacing, even after the tightening.
     expect(ROW).not.toMatch(/\bp[xytblr]?-\[\d/);
     expect(ROW).not.toMatch(/\bgap-\[\d/);

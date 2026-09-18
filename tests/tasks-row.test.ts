@@ -156,19 +156,18 @@ describe('TaskRow — Tailwind through cn(), no hand-rolled divider', () => {
     expect(ROW).toMatch(/last && 'rounded-b-xl'/);
   });
 
-  it('centres the due date on the title block with a matching line box', () => {
+  it('centres the due date on the row, with a matching line box', () => {
     // Measured before: the label's 16px box centred 2.0px above the title's
-    // 20px one, which is the "slightly too high" the row was reported for, and
-    // the row is what centres it. The label now carries the title's own
-    // line-height (20px = `text-base leading-tight`), so the two boxes are the
-    // same height and their centres coincide: measured 0.0px on a single-line
-    // row, and 0.0px against the row's own centre where the row has no meta
-    // line. The title row is `items-center` over the title's block, so a title
-    // that wraps keeps the date on the block's centre rather than on its first
-    // line.
+    // 20px one, and because it was a sibling of the title alone it sat 10px
+    // above the row's own centre on every row that also has a meta line — the
+    // "slightly too high" the row was reported for. The label now carries the
+    // title's own line-height (20px = `text-base leading-tight`) and is a child
+    // of the button beside the whole content column, centred against the row:
+    // measured 0.0px against the row on a single-line row, on a title+meta row
+    // and on a two-line title.
     const meta = source('TaskMeta.tsx');
     expect(meta).toContain('text-xs leading-5');
-    expect(ROW).toContain('flex-wrap items-center');
+    expect(ROW).toContain('shrink-0 self-center');
   });
 
   it('never invents a spacing value', () => {
@@ -324,10 +323,11 @@ describe('the converted screens', () => {
   it('closes the sheet on Save, without losing what the draft held', () => {
     // Save flushes and then dismisses: one tap, one outcome. The close path
     // still flushes as well (`handleOpenChange`), so dismissing the sheet by any
-    // route keeps the change, and `flush` returns without a request when the
-    // draft has nothing to send.
-    expect(EDITOR).toMatch(/async function save\(\) \{\s*if \(saving \|\| actions\.isSaving\) return;\s*setSaving\(true\);\s*await flush\(\);\s*setSaving\(false\);\s*onOpenChange\(false\);/);
-    expect(EDITOR).toContain('if (!current.task || !current.dirty) return;');
+    // route keeps the change; `flush` reports success with nothing to send, so
+    // an unmodified Save can still close; and the one case that does not close is
+    // a *failed* write, whose inline alert has to stay beside the draft.
+    expect(EDITOR).toMatch(/const ok = await flush\(\);\s*setSaving\(false\);\s*if \(ok\) onOpenChange\(false\);/);
+    expect(EDITOR).toContain('if (!current.task || !current.dirty) return true;');
     expect(EDITOR).toContain('if (!next) void flush();');
     // The 600ms debounce is the other half of the net and is untouched.
     expect(EDITOR).toContain('window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)');

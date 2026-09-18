@@ -365,23 +365,12 @@ export function TaskRow({
          * task is; cutting the one word that distinguishes two similar tasks
          * ("Reply to the design re…") defeats the point of the list.
          *
-         * `items-center`, not `items-start`. Aligning the date to the first
-         * line looks right on a one-line row and wrong on every other one: as
-         * soon as a tag or a recurrence glyph adds a second line, the date is left
-         * floating above the row’s optical centre. Measured before the change:
-         * 0.0px off centre on a single-line row, but -10 to -20px on a row with a
-         * meta line. Centring against the whole title block costs a little on a
-         * two-line title and is right everywhere else.
-         */}
-        {/*
-         * The content column, with the due date beside it rather than inside the
-         * title's own row.
-         *
-         * The date used to be a sibling of the title alone, so `items-center`
-         * centred it against the title and not against the row. On a row with a
-         * tag or a recurrence glyph the title is one line but the row is two, so
-         * the date sat ~10px above the row's optical centre. Putting it beside
-         * the whole column is what actually centres it.
+         * The content column and the due date are the button's two children, so
+         * the date is centred against the *row* rather than against the title.
+         * Inside the title's own row it could only ever be centred against the
+         * title: on a row whose title is one line while its meta line makes the
+         * row two, the date's own centre sat ~10px above the row's. Measured
+         * after: 0.0px against the row on both shapes.
          */}
         <span className="relative flex min-w-0 flex-1 flex-col items-stretch gap-0">
           <span className="relative flex w-full min-w-0 flex-wrap items-center gap-x-1 gap-y-0">

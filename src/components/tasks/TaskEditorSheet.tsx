@@ -15,7 +15,9 @@
  * not two. "Closing never loses a change" still holds because Save calls the same
  * `flush` the close path calls: whatever the draft holds goes out before the
  * sheet is dismissed, and the 600ms debounce remains for the case where the user
- * just walks away. Picking a value inside a sub-drawer makes the editor
+ * just walks away. A save that *fails* is the one case that leaves the sheet up,
+ * because the draft is then the only copy of the change and the inline alert has
+ * to stay beside it. Picking a value inside a sub-drawer makes the editor
  * undismissible for the duration, which keeps Escape from closing both at once.
  *
  * ## The date and time fields
@@ -299,10 +301,12 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
     return () => window.clearTimeout(timer);
   }, [saveError]);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<boolean> => {
     const current = latest.current;
     const pending = current.draft;
-    if (!current.task || !current.dirty) return;
+    // Nothing to send is a success, not a failure: a deliberate Save of an
+    // unmodified task is allowed, and it must still be able to close the sheet.
+    if (!current.task || !current.dirty) return true;
 
     const seq = editSeq.current;
     const saved = await current.actions.patch(current.task.id, pending);
@@ -313,7 +317,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
       // button. Editing again re-arms the save.
       blocked.current = true;
       setSaveError('Could not save the task.');
-      return;
+      return false;
     }
     setSaveError(null);
     current.onSaved?.();
@@ -325,6 +329,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
      * only when no later edit arrived while this save was in flight.
      */
     if (editSeq.current === seq) setDirty(false);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -358,18 +363,22 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
    * The debounce is the safety net; this is the deliberate save, so it flushes at
    * once instead of waiting out the quiet period, and then closes the sheet — one
    * tap, one outcome. It is *not* gated on the draft being modified: a save of an
-   * untouched task is a legitimate "file it away", and `flush` already returns
+   * untouched task is a legitimate "file it away", and `flush` returns success
    * without a request when there is nothing to send. It is disabled only while a
    * write is in flight, which is what keeps a second tap from sending a second
    * PATCH — and whatever the draft held has already gone out through `flush`, so
    * closing cannot lose a change.
+   *
+   * A *failed* save is the one case that does not close: the write did not land,
+   * so the draft is the only copy of what the user typed and the inline alert has
+   * to stay on screen beside it. The sheet stays up until the write succeeds.
    */
   async function save() {
     if (saving || actions.isSaving) return;
     setSaving(true);
-    await flush();
+    const ok = await flush();
     setSaving(false);
-    onOpenChange(false);
+    if (ok) onOpenChange(false);
   }
 
   function handleOpenChange(next: boolean) {
