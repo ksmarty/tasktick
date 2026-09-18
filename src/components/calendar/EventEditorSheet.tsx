@@ -17,11 +17,11 @@
  * The sheet is a shadcn `Dialog` — full-screen on a phone, a centred card from
  * `sm` up — so focus management, the scroll lock and Escape are Radix's rather
  * than a hand-rolled trap, and the hand-rolled trap the Material version would
- * have needed is absent instead of layered underneath. The phone-shaped class
- * list is `SHEET_DIALOG_CLASS` from the settings area rather than a second copy
- * of the same six overrides: it is the shared statement of "a full-height,
- * square-cornered sheet under `sm`, a centred card above it", and stating it
- * twice is exactly the drift the spacing scale exists to prevent.
+ * have needed is absent instead of layered underneath. Those two shapes are the
+ * two sets of utilities on `DialogContent` (the same pair the habits editor
+ * uses), and the content column is laid out as a flex shell — title row, a body
+ * that scrolls, a pinned footer — because that is what `DialogActions` did:
+ * the one button the form exists for must not live under the fold on a phone.
  *
  * ## The date and time fields
  *
@@ -75,7 +75,6 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { SHEET_DIALOG_CLASS } from '@/components/settings/styles';
 import { api, errorMessage } from '@/lib/api-client';
 import { accentHex, resolveCalendarColor } from '@/lib/colors';
 import {
@@ -179,25 +178,39 @@ export function EventEditorSheet({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn(SHEET_DIALOG_CLASS, 'max-h-dvh overflow-y-auto')}
+        /*
+         * The shell: full-screen with square corners on a phone, a centred card
+         * from `sm` up — the two shapes the Material dialog had. It is `p-0`
+         * (the primitive's own `p-6`/`gap-4` would otherwise beat a layout
+         * token) and `flex` rather than the primitive's `grid`, so the body can
+         * take the free space and scroll while the title row and the actions
+         * stay put: the actions are pinned, exactly as `DialogActions` was.
+         * `max-h-[90dvh]` leaves a strip of scrim visible on a tall desktop, and
+         * is a viewport measurement rather than a spacing value.
+         */
+        className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0 sm:max-w-lg"
         aria-labelledby="event-editor-title"
       >
-        <DialogHeader>
-          <DialogTitle id="event-editor-title">{isEdit ? 'Edit event' : 'New event'}</DialogTitle>
+        <DialogHeader className="shrink-0 gap-0 border-b border-border px-card py-stack">
+          <DialogTitle id="event-editor-title" className="text-lg font-semibold">
+            {isEdit ? 'Edit event' : 'New event'}
+          </DialogTitle>
         </DialogHeader>
 
         {!ready ? (
-          error ? (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : (
-            <div className="flex flex-col gap-3" aria-busy={isInitialLoading}>
-              <Skeleton className="h-12 w-full rounded-lg" />
-              <Skeleton className="h-32 w-full rounded-lg" />
-              <Skeleton className="h-24 w-full rounded-lg" />
-            </div>
-          )
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-card py-card" aria-busy={isInitialLoading}>
+            {error ? (
+              <Alert variant="destructive" role="alert">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : (
+              <>
+                <Skeleton className="h-12 w-full rounded-lg" />
+                <Skeleton className="h-32 w-full rounded-lg" />
+                <Skeleton className="h-24 w-full rounded-lg" />
+              </>
+            )}
+          </div>
         ) : (
           <EventForm
             // Re-initialised per target, so reopening the dialog on another day
@@ -419,7 +432,7 @@ function EventForm({
 
   return (
     <>
-      <div className="flex flex-col gap-card">
+      <div className="flex min-h-0 flex-1 flex-col gap-card overflow-y-auto px-card py-card">
         <Input
           aria-label="Title"
           placeholder="Title"
@@ -484,7 +497,7 @@ function EventForm({
 
           <Separator />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DateField
               id="event-start-date"
               label="Starts"
@@ -507,7 +520,7 @@ function EventForm({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DateField
               id="event-end-date"
               label="Ends"
@@ -619,7 +632,7 @@ function EventForm({
         ) : null}
       </div>
 
-      <DialogFooter>
+      <DialogFooter className="shrink-0 border-t border-border px-card pt-stack pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
         <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
           Cancel
         </Button>

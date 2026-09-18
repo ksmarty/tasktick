@@ -320,15 +320,20 @@ export function TaskRow({
         {/*
          * The title, with the due date pinned to the row's trailing edge.
          *
-         * The date is non-shrinking and the title grows into whatever is left, so
-         * the two share the line whenever the title fits beside the date, and when
-         * it does not, the *date* wraps to its own right-aligned line rather than
-         * the title ellipsising to make room for it.
+         * The title is allowed to wrap, and the date does not shrink. The
+         * previous version had `truncate` here, which sets `white-space: nowrap`
+         * — so a long title could never wrap, could never push the date down,
+         * and simply ellipsised. A task list is where you go to read what the
+         * task is; cutting the one word that distinguishes two similar tasks
+         * ("Reply to the design re…") defeats the point of the list.
+         *
+         * `items-start` keeps the date level with the first line rather than
+         * drifting to the vertical middle of a two-line title.
          */}
-        <span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="flex w-full min-w-0 flex-wrap items-start gap-x-2 gap-y-0.5">
           <span
             className={cn(
-              'min-w-0 flex-1 truncate text-base',
+              'min-w-0 flex-1 text-base',
               completed && 'text-muted-foreground line-through',
               wontDo && 'text-muted-foreground/70 line-through',
             )}

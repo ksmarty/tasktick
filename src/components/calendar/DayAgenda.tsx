@@ -216,7 +216,12 @@ export function DayAgenda({
 
                   <span
                     className={cn(
-                      'mt-0.5 block truncate text-sm text-foreground',
+                      /*
+                       * No `truncate`: an event title is the content of the
+                       * agenda, and ellipsising it hides the one word that tells
+                       * two similar entries apart. It wraps instead.
+                       */
+                      'mt-0.5 block text-sm text-foreground',
                       done && 'line-through',
                     )}
                   >
