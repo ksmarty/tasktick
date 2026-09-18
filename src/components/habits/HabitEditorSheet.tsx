@@ -7,6 +7,11 @@
  * habit" screen would duplicate every control. Archive and Delete only appear
  * when editing — they are actions on a habit that exists.
  *
+ * Opening it does **not** focus a field. The name field used to take focus on
+ * open (Radix focuses the first focusable element in the dialog), which raised
+ * the phone keyboard over a form nobody had started filling in; the dialog takes
+ * focus itself instead, and the first field is one Tab or one tap away.
+ *
  * The overlay is the shadcn `Dialog`: full-screen below `sm` (the phone case,
  * where the sheet used to snap to 60%/95%) and a centred card above it, with the
  * single save action pinned in the footer. Radix owns the focus trap, the escape
@@ -190,6 +195,8 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
+  /** The dialog's own node: what holds focus on open instead of the name field. */
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Hydrate once per opening. Keyed on the habit id rather than the object, so a
   // background revalidation of the list cannot wipe what the user is typing.
@@ -308,6 +315,24 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
           // Full-screen under `sm`, a centred card above it: the sizes the
           // Material dialog used, expressed as two sets of utilities.
           className="max-h-[90dvh] gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0 sm:max-w-lg"
+          /*
+           * No focus steal on open. Radix focuses the first focusable element in
+           * the dialog, which here is the name field — opening "Edit habit"
+           * therefore put the caret in the name and raised the phone keyboard
+           * over a form the user had not asked to type in yet.
+           *
+           * Focus goes to the dialog itself instead (`tabIndex={-1}` on the
+           * content node, so it can hold focus without a caret). It has to go
+           * *somewhere inside* the dialog: a bare `preventDefault()` leaves focus
+           * on the trigger behind the overlay, and the focus trap only arms once
+           * focus is inside it — measured, that made Tab walk the page under the
+           * dialog instead of into it. Escape and the trap are unaffected.
+           */
+          ref={contentRef}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            contentRef.current?.focus();
+          }}
         >
           <DialogHeader className="shrink-0 gap-0 border-b border-border px-card py-stack">
             <DialogTitle className="text-lg font-semibold">{editing ? 'Edit habit' : 'New habit'}</DialogTitle>

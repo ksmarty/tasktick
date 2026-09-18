@@ -77,6 +77,7 @@ import type { BootstrapPayload } from '@/lib/view-types';
 import { PageHeaderContext, type PageHeaderContent } from './PageHeader';
 import { ShellPaneContext } from './ShellPane';
 import { QuickAddFab } from './QuickAddFab';
+import { BOTTOM_BAND_CLEARANCE } from './chrome';
 
 type TabValue = 'tasks' | 'calendar' | 'habits' | 'settings';
 
@@ -152,6 +153,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [published, setPublished] = useState<PageHeaderContent | null>(null);
   /* A screen has asked to own its own scrolling — see `ShellPane`. */
   const [paneFullHeight, setPaneFullHeight] = useState(false);
+
+  /*
+   * The key that drives the route fade. Settings is one destination with a
+   * dozen sub-routes; keying on the full pathname replayed the whole-pane
+   * fade every time a section was chosen. Over the translucent, blurred tab
+   * bar that reads as the page ghosting in, which is the "blur" on settings
+   * navigation. The settings sub-routes share one key, so they switch without
+   * replaying the fade; a move between destinations still does.
+   */
+  const contentKey = pathname.startsWith('/settings') ? '/settings' : pathname;
 
   const activeTab: TabValue = pathname.startsWith('/calendar')
     ? 'calendar'
@@ -374,10 +385,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             {/*
-             * Keyed on the pathname so React remounts this wrapper on every
-             * navigation and the entrance animation replays. Without the key the
+             * Keyed so React remounts this wrapper when the destination
+             * changes and the entrance animation replays. Without the key the
              * element persists across routes and the animation runs exactly
-             * once, ever — which is the opposite of what it is for.
+             * once, ever — which is the opposite of what it is for. The key is
+             * `contentKey` (see above): the settings sub-routes share one key,
+             * so choosing a settings section swaps the page without replaying
+             * the fade over the blurred chrome.
              *
              * Opacity only, deliberately. Any transform on this wrapper makes it
              * the containing block for `position: fixed` descendants, so a
@@ -398,7 +412,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
              * screens are.
              */}
             <motion.div
-              key={pathname}
+              key={contentKey}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.34, ease: 'easeOut' }}
@@ -413,6 +427,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/*
+         * The bottom fade. The panes above scroll their content under the fixed
+         * band, and without this the last row collides with the chrome at a
+         * hard edge. The gradient runs to the page background so the content
+         * dissolves before it reaches the pill; it is `pointer-events-none` so
+         * it never eats a tap, `z-sticky` so it sits over the content but under
+         * the `z-appbar` band, and `lg:hidden` because there is no band above
+         * `lg`. Sheets and popups are `z-modal`, so they are never faded.
+         *
+         * The timed part (`animate-in fade-in`) is `tw-animate-css`, the same
+         * fade vocabulary the dialogs and popovers use; there is no persistent
+         * fade utility in that package, so the gradient is what stays.
+         */}
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-sticky h-20 animate-in bg-linear-to-t from-background to-transparent fade-in duration-200 lg:hidden"
+        />
+
+        {/*
          * The floating bottom band: bottom navigation and action button sharing
          * one row.
          *
@@ -420,13 +452,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
          * home-indicator inset is padding on the band rather than an offset on
          * each child, so the two stay on one baseline.
          *
-         * The bar is `flex-1` and capped at the width the old nav paper used, so
-         * it takes the room the action button leaves and no more; `justify-center`
-         * keeps its four tabs centred inside the pill, which matters because the
-         * GodUI bar reveals only the active tab's label and would otherwise
-         * change width on every switch.
+         * The bar now sizes to its content — no `flex-1`, no `max-w-*` — because
+         * stretching it left dead space beside the icons that moved with the
+         * active tab's label. `justify-between` anchors the pill to the left
+         * gutter and the action button to the right one, so neither edge jumps
+         * when the label changes width; `justify-center` inside the pill still
+         * centres the four tabs when the widest label is selected.
          */}
-        <div className="fixed inset-x-0 bottom-0 z-appbar flex items-center justify-center gap-2 px-gutter pb-[max(0.125rem,calc(env(safe-area-inset-bottom,0px)-1.125rem))] lg:hidden">
+        <div
+          className={cn(
+            'fixed inset-x-0 bottom-0 z-appbar flex items-center justify-between gap-2 px-gutter lg:hidden',
+            BOTTOM_BAND_CLEARANCE,
+          )}
+        >
           <TabBar
             ref={tabBarRef}
             tabs={TABS}
@@ -435,7 +473,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             role="tablist"
             aria-label="Main sections"
             onKeyDown={onTabKeyDown}
-            className="min-w-0 max-w-105 flex-1 justify-center"
+            className="min-w-0 justify-center"
           />
 
           {/*

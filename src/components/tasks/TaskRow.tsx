@@ -115,15 +115,12 @@ export interface TaskRowProps {
   onToggle: (task: Task) => void;
   /** The list's colour, drawn as the strip on the row's leading edge. */
   accent?: AccentColor | null;
-  /** Opens the editor dialog. */
+  /** Opens the task's detail sheet. */
   onOpen: (task: Task) => void;
   onDelete?: (task: Task) => void;
   onWontDo?: (task: Task) => void;
   /** Writes are unavailable (offline). */
   disabled?: boolean;
-  selectionMode?: boolean;
-  selected?: boolean;
-  onSelect?: (task: Task) => void;
   drag?: TaskRowDrag | null;
   /** Rounds the bottom corner of the last row of a card. */
   last?: boolean;
@@ -147,9 +144,6 @@ export function TaskRow({
   onDelete,
   onWontDo,
   disabled = false,
-  selectionMode = false,
-  selected = false,
-  onSelect,
   drag,
   last = false,
   first = false,
@@ -171,7 +165,7 @@ export function TaskRow({
   const reduceMotion = useReducedMotion();
   const completed = task.status === 'completed';
   const wontDo = task.status === 'wont_do';
-  const draggable = Boolean(drag?.draggable) && !selectionMode && !disabled;
+  const draggable = Boolean(drag?.draggable) && !disabled;
   // Resolved after hydration, so touch never flashes a grip it cannot use.
   const finePointer = useMediaQuery(FINE_POINTER_QUERY);
   const gripVisible = draggable && finePointer;
@@ -214,7 +208,7 @@ export function TaskRow({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (disabled || selectionMode) return;
+    if (disabled) return;
     if (revealed) {
       closeReveal();
       return;
@@ -361,11 +355,9 @@ export function TaskRow({
             closeReveal();
             return;
           }
-          if (selectionMode) onSelect?.(task);
-          else onOpen(task);
+          onOpen(task);
         }}
-        aria-pressed={selectionMode ? selected : undefined}
-        aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
+        aria-label={`Open ${task.title}`}
         className="group/row-content relative flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/*
@@ -373,20 +365,32 @@ export function TaskRow({
          * painted by it, so it reads as a region and not a slab. The button
          * keeps its own 44px box, and the children below are positioned so they
          * paint (and hit-test) over this layer.
+         *
+         * On the first row the highlight squares off its top edge
+         * (`rounded-t-none`). Rounding only the left corners would leave the
+         * shape lopsided — square top-left against round top-right and
+         * bottom-left — whereas squaring the whole top edge reads as a band
+         * that begins flush with the section's top, the grouped-list treatment.
          */}
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50"
+          className={cn(
+            'pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50',
+            first && 'rounded-t-none',
+          )}
         />
         {/*
          * The title, with the due date pinned to the row's trailing edge.
          *
-         * The title is allowed to wrap, and the date does not shrink. The
-         * previous version had `truncate` here, which sets `white-space: nowrap`
-         * — so a long title could never wrap, could never push the date down,
-         * and simply ellipsised. A task list is where you go to read what the
-         * task is; cutting the one word that distinguishes two similar tasks
-         * ("Reply to the design re…") defeats the point of the list.
+         * The title is one line, ellipsised. It briefly wrapped, on the
+         * argument that a task list is where you read what the task is and
+         * cutting the one word that distinguishes two similar tasks ("Reply to
+         * the design re…") defeats the point. That is overruled here: `truncate`
+         * is the deliberate treatment, because a stable, short row is what keeps
+         * a long list scannable, and a title that wraps makes rows different
+         * heights and drops the due date out of line. The date does not shrink;
+         * the title takes whatever width is left and ellipsises rather than
+         * pushing it away.
          *
          * The content column and the due date are the button's two children, so
          * the date is centred against the *row* rather than against the title.
@@ -396,10 +400,10 @@ export function TaskRow({
          * after: 0.0px against the row on both shapes.
          */}
         <span className="relative flex min-w-0 flex-1 flex-col items-stretch gap-0">
-          <span className="relative flex w-full min-w-0 flex-wrap items-center gap-x-1 gap-y-0">
+          <span className="relative flex w-full min-w-0 items-center gap-x-1">
             <span
               className={cn(
-                'min-w-0 flex-1 text-base leading-tight',
+                'min-w-0 flex-1 truncate text-base leading-tight',
                 completed && 'text-muted-foreground line-through',
                 wontDo && 'text-muted-foreground/70 line-through',
               )}
@@ -423,17 +427,7 @@ export function TaskRow({
         />
       </button>
 
-      {selectionMode ? (
-        <span
-          aria-hidden
-          className={cn(
-            'grid size-6 shrink-0 place-items-center rounded-md border',
-            selected ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
-          )}
-        >
-          {selected ? <CheckIcon className="text-base" /> : null}
-        </span>
-      ) : gripVisible ? (
+      {gripVisible ? (
         // The grip is the pointer drag handle: keeping the HTML5 drag here and
         // not on the whole row leaves the row free for the swipe gesture.
         <span

@@ -65,6 +65,7 @@ function source(relative: string): string {
 }
 
 const ROW = source('TaskRow.tsx');
+const EVENT_ROW = source('EventRow.tsx');
 const SECTION = source('TaskListSection.tsx');
 const QUICK_ADD = source('QuickAddBar.tsx');
 const EDITOR = source('TaskEditorSheet.tsx');
@@ -80,8 +81,7 @@ describe('TaskRow — shadcn primitives', () => {
     expect(ROW).toContain('<Checkbox');
     expect(ROW).toContain('<li');
     // The title is a real button, so the row is reachable by keyboard at all.
-    expect(ROW).toContain('aria-label={selectionMode ?');
-    expect(ROW).toContain('`Open ${task.title}`');
+    expect(ROW).toContain('aria-label={`Open ${task.title}`}');
   });
 
   it('uses a shadcn ContextMenu for the extra row actions', () => {
@@ -105,7 +105,9 @@ describe('TaskRow — shadcn primitives', () => {
   it('keeps the trailing row actions reachable by name', () => {
     expect(ROW).toContain('`Delete ${task.title}`');
     expect(ROW).toContain('`Open ${task.title}`');
-    expect(ROW).toContain("'Deselect' : 'Select'");
+    // No selection mode survives: the row has no select/deselect name left.
+    expect(ROW).not.toContain('selectionMode');
+    expect(ROW).not.toContain("'Deselect' : 'Select'");
   });
 
   it('keeps the swipe reveal mounted, and it now rides the drag', () => {
@@ -205,7 +207,9 @@ describe('TaskListSection — GodUI Accordion grouping', () => {
     expect(ACCORDION).toContain('aria-controls={panelId}');
     expect(ACCORDION).toContain('aria-labelledby={triggerId}');
     expect(SECTION).toContain('{section.title}');
-    expect(SECTION).toContain('${section.tasks.length} task${section.tasks.length === 1 ? ');
+    // The visible count is every row the section renders — tasks *and* events.
+    expect(SECTION).toContain('const itemCount = taskCount + eventCount;');
+    expect(SECTION).toContain('{itemCount}');
   });
 
   it('marks Overdue by contrast rather than hue in the header', () => {
@@ -397,8 +401,23 @@ describe('the converted screens', () => {
     expect(SECTION).toContain('sheen={0}');
     expect(SECTION).not.toContain('sheen={0.3}');
     expect(TODAY).toContain('sheen={0}');
-    // The hairline under the header is a different line, ~50px down the card.
-    expect(SECTION).toContain('border-t border-border/70');
+  });
+
+  it('removes the hairlines between rows and under the section header', () => {
+    // The user asked for both lines gone; separation is spacing now (`gap-1`
+    // between rows, the header's own `py-2.5` above them).
+    expect(SECTION).not.toContain('divide-y');
+    expect(SECTION).not.toContain('border-t border-border/70');
+    expect(SECTION).toContain('flex flex-col gap-1 text-base text-foreground');
+  });
+
+  it('squares the first row\'s highlight at the section\'s top edge', () => {
+    // The rounded top-left of the first row's press region read as a stray
+    // artefact; the whole top edge is squared rather than only the left corners.
+    expect(ROW).toContain('rounded-t-none');
+    expect(EVENT_ROW).toContain('rounded-t-none');
+    expect(ROW).toContain("first && 'rounded-t-none'");
+    expect(EVENT_ROW).toContain("first && 'rounded-t-none'");
   });
 
   it('tightens the section header\'s vertical padding', () => {
@@ -434,19 +453,13 @@ describe('the converted screens', () => {
 });
 
 describe('a11y parity with the MUI implementation', () => {
-  it('keeps the five bulk-action names on the floating toolbar', () => {
-    for (const label of [
-      'Complete selected tasks',
-      'Move selected tasks',
-      'Set the priority of the selected tasks',
-      'Add a tag to the selected tasks',
-      'Delete selected tasks',
-    ]) {
-      expect(VIEW).toContain(label);
-    }
-    // The toolbar puts each action's `label` on its button as the accessible
-    // name, which is what keeps those five strings reachable.
-    expect(read('components/godui/floating-toolbar.tsx')).toContain('aria-label={action.label}');
+  it('keeps only the reachable header actions', () => {
+    // The bulk-action bar and its five labels were reachable only through the
+    // "Select" button, which is gone; there is nothing left to name here. The
+    // header's own controls keep their accessible names (asserted above).
+    expect(VIEW).not.toContain('Complete selected tasks');
+    expect(VIEW).not.toContain('FloatingToolbar');
+    expect(VIEW).not.toContain('selectionMode');
   });
 
   it('exposes a section’s expansion as state rather than inside its name', () => {

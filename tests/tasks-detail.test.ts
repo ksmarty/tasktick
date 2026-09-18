@@ -1,0 +1,126 @@
+/**
+ * The item detail sheet, the section count, and the editor's focus contract.
+ *
+ * As with the rest of this suite, the client components cannot be rendered in
+ * node, so the structural contract is pinned from source. Each pin here stands
+ * for a behaviour that was asked for explicitly and would regress silently:
+ *
+ *  - a section header counts events as well as tasks;
+ *  - tapping a row opens the detail sheet, not the editor, and Edit opens the
+ *    editor;
+ *  - the detail sheet is the shared `ItemDetailSheet` that the calendar can
+ *    reuse rather than a per-screen copy;
+ *  - the editor does not autofocus its title on the edit path, while quick add
+ *    keeps the synchronous focus the iOS keyboard depends on.
+ */
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+function source(relative: string): string {
+  return readFileSync(new URL(`../src/components/tasks/${relative}`, import.meta.url), 'utf8');
+}
+
+const ROW = source('TaskRow.tsx');
+const EVENT_ROW = source('EventRow.tsx');
+const SECTION = source('TaskListSection.tsx');
+const VIEW = source('TasksView.tsx');
+const TODAY = source('TodayView.tsx');
+const EDITOR = source('TaskEditorSheet.tsx');
+const QUICK_ADD = source('QuickAddBar.tsx');
+const DETAIL = source('ItemDetailSheet.tsx');
+const INDEX = source('index.ts');
+
+describe('the section header counts every row', () => {
+  it('adds the events to the task count', () => {
+    expect(SECTION).toContain('const itemCount = taskCount + eventCount;');
+    expect(SECTION).toContain('{itemCount}');
+  });
+
+  it('spells the split out for a screen reader', () => {
+    expect(SECTION).toContain('${taskCount} task${taskCount === 1 ?');
+    expect(SECTION).toContain('${eventCount} event${eventCount === 1 ?');
+    expect(SECTION).toContain('{countSummary}');
+  });
+});
+
+describe('the first row squares its highlight at the section top', () => {
+  it('drops the top rounding on both row kinds', () => {
+    // Rounding only the left corners would leave the shape lopsided, so the
+    // whole top edge is squared instead.
+    expect(ROW).toContain("first && 'rounded-t-none'");
+    expect(EVENT_ROW).toContain("first && 'rounded-t-none'");
+  });
+});
+
+describe('a tap opens the detail sheet, and Edit opens the editor', () => {
+  it('gives the row an open handler that is not the editor', () => {
+    expect(ROW).toContain('onOpen(task)');
+    expect(ROW).toContain('onOpen: (task: Task) => void');
+    expect(EVENT_ROW).toContain('onOpen?.(event)');
+  });
+
+  it('routes the tap to the detail sheet on both task screens', () => {
+    expect(VIEW).toContain('onOpen={openTaskDetail}');
+    expect(VIEW).toContain('onOpenEvent={openEventDetail}');
+    expect(TODAY).toContain('onOpen={setDetail}');
+  });
+
+  it('leads from the detail sheet to the editor', () => {
+    // A task opens the in-place editor; an event navigates to the calendar that
+    // owns the event editor.
+    expect(VIEW).toContain('function editDetailItem()');
+    expect(VIEW).toContain('setEditor({ open: true, task })');
+    expect(TODAY).toContain('function editDetailTask()');
+    expect(TODAY).toContain('setEditor({ open: true, task })');
+  });
+});
+
+describe('ItemDetailSheet — the reusable overlay', () => {
+  it('is the GodUI Drawer, with an Edit action', () => {
+    expect(DETAIL).toContain("from '@/components/godui/drawer'");
+    expect(DETAIL).toContain('<Drawer');
+    expect(DETAIL).toContain('onEdit');
+    expect(DETAIL).toContain('<Pencil1Icon');
+    expect(DETAIL).toContain('Edit');
+  });
+
+  it('shows the task fields the brief asked for', () => {
+    for (const label of ['Due', 'List', 'Priority', 'Tags', 'Notes', 'Subtasks']) {
+      expect(DETAIL).toContain(label);
+    }
+    expect(DETAIL).toContain('dueLabel(task, zone, timeFormat)');
+    expect(DETAIL).toContain('priorityLabel(task.priority)');
+    expect(DETAIL).toContain('task.notes');
+    expect(DETAIL).toContain('subtasks.map');
+  });
+
+  it('shows the event fields the brief asked for', () => {
+    for (const label of ['Time', 'Calendar', 'Location']) {
+      expect(DETAIL).toContain(label);
+    }
+    expect(DETAIL).toContain('formatTime(event.startMs');
+    expect(DETAIL).toContain('calendarName');
+    expect(DETAIL).toContain('event.location');
+  });
+
+  it('is reachable for the calendar to reuse rather than copy', () => {
+    expect(INDEX).toContain("export { ItemDetailSheet, type ItemDetailSheetProps } from './ItemDetailSheet'");
+  });
+});
+
+describe('the editor does not steal focus on the edit path', () => {
+  it('cancels the deferred autofocus without removing the focus machinery', () => {
+    expect(EDITOR).toContain('onOpenAutoFocus={(event) => event.preventDefault()}');
+    // The date popover still focuses its own calendar when it opens.
+    expect(EDITOR).toContain('autoFocus');
+  });
+
+  it('leaves quick add’s same-task focus alone', () => {
+    // Quick add must keep its layout-effect focus and its cancelled Radix
+    // autofocus, in the tap's own task.
+    expect(QUICK_ADD).toContain('useLayoutEffect');
+    expect(QUICK_ADD).toContain('onOpenAutoFocus');
+    expect(QUICK_ADD).toContain('event.preventDefault();');
+    expect(QUICK_ADD).toContain('inputRef.current?.focus({ preventScroll: true })');
+  });
+});

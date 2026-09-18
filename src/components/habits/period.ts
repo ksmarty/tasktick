@@ -287,6 +287,44 @@ export function habitDoneOn(habit: Habit, date: DateOnly, today: DateOnly): bool
   return (habit.entries?.[date] ?? 0) > 0;
 }
 
+/**
+ * How many of `habits` were completed on `date`: the month's ring sections.
+ *
+ * Zero means the day carries no ring at all. One per habit, so the ring is
+ * divided into exactly as many arcs as there were completions — the count is
+ * never capped, because capping it is the same lie as a bar chart with a
+ * maximum: two habits and five would read alike.
+ */
+export function habitsCompletedOn(habits: readonly Habit[], date: DateOnly, today: DateOnly): number {
+  let completed = 0;
+  for (const habit of habits) {
+    if (habitDoneOn(habit, date, today)) completed += 1;
+  }
+  return completed;
+}
+
+/**
+ * The month's ring data: one segment count per day, for the days that have any.
+ *
+ * A day with nothing completed is **absent** rather than zero, so the caller
+ * can ask "is there a ring here?" without knowing what an empty ring means. The
+ * keys come from `days` — the server's padded window, the same list the grid
+ * paints — so the ring can never land on a day the grid does not hold.
+ */
+export function habitRingSegments(
+  habits: readonly Habit[],
+  days: readonly DateOnly[],
+  today: DateOnly,
+): Map<DateOnly, number> {
+  const segments = new Map<DateOnly, number>();
+  if (habits.length === 0) return segments;
+  for (const date of days) {
+    const completed = habitsCompletedOn(habits, date, today);
+    if (completed > 0) segments.set(date, completed);
+  }
+  return segments;
+}
+
 export function habitProgressView(habit: Habit, today: DateOnly): HabitProgressView {
   const counted = habit.goalType !== 'boolean';
   const periodic = habit.frequency === 'weekly' || habit.frequency === 'monthly';

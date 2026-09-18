@@ -16,10 +16,10 @@
  *
  * ## The title is one line
  *
- * A task title wraps — that is deliberate, and a task list is where you read
- * what the task is. An event is a point in time, not a paragraph, and its row
- * pairs the title with a trailing time, so the title truncates instead. This is
- * the *only* place the two rows diverge on typography.
+ * Both rows keep the title to one ellipsised line. The task title used to wrap,
+ * on the argument that a task list is where you read what the task is; that is
+ * overruled (see `TaskRow`), so the two rows now agree on typography rather than
+ * diverging here.
  */
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { accentHex } from '@/lib/colors';
@@ -31,7 +31,7 @@ export interface EventRowProps {
   event: CalendarItem;
   zone: string;
   timeFormat: '12h' | '24h';
-  /** Opens the event — the calendar day it starts on. */
+  /** Opens the event's detail sheet. */
   onOpen?: (event: CalendarItem) => void;
   /** Rounds the top corner of the first row of a card. */
   first?: boolean;
@@ -95,10 +95,14 @@ export function EventRow({
           aria-label={accessibleName}
           className="group/row-content relative flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {/* The same inset press region the task row uses. */}
+          {/* The same inset press region the task row uses; its top edge is
+              squared on the first row of the group (see `TaskRow`). */}
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50"
+            className={cn(
+              'pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50',
+              first && 'rounded-t-none',
+            )}
           />
           <span className="relative flex min-w-0 flex-1 items-center gap-1">
             {/* Single line, ellipsised: an event is a point in time, not prose. */}

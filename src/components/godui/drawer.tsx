@@ -16,6 +16,16 @@
  *  2. Quote style normalized to the repo's single quotes.
  *  3. `pointer-events-auto` on the portal root — see below. This is a bug fix,
  *     not a style choice.
+ *  4. The bottom safe-area clearance is imported from the shell's own chrome
+ *     module (`@/components/app/chrome`) and applied to the bottom panel when
+ *     the caller has handed the panel its own bottom padding (the pickers all
+ *     pass `pb-[max(0.25rem,env(...))]`). The sheet's content edge is a shell
+ *     measurement, not a per-caller one: with a copy of the expression in every
+ *     picker the content stopped a safe-area short of the tab bar while the
+ *     panel background reached the screen edge, leaving a card-coloured strip
+ *     the user read as the page. Reading the same constant as the band makes
+ *     the content bottom land on the band's bottom. A caller that pads its own
+ *     content instead (the day sheet) is left alone so the two cannot stack.
  *
  * The source's `z-modal` is kept as-is: the z-index tokens are defined in
  * `globals.css` (`--z-index-modal`), so the semantic class resolves. GodUI's
@@ -43,6 +53,7 @@
 import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { BOTTOM_BAND_CLEARANCE } from '@/components/app/chrome';
 import { cn } from '@/lib/utils';
 
 export type DrawerSide = 'bottom' | 'right';
@@ -117,6 +128,13 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
     const { ownerDocument, portalTarget, registerOwnerNode } =
       usePortalTarget(container);
     const isBottom = side === 'bottom';
+    /*
+     * A caller that sets the panel's bottom padding is delegating the sheet's
+     * bottom edge to the panel; one that sets its own (the day sheet pads an
+     * inner element) is not. Only the former is normalised to the shell's
+     * clearance, so the two styles cannot double up.
+     */
+    const callerPadsPanelBottom = /(?:^|\s)pb-/.test(className ?? '');
 
     React.useEffect(() => {
       if (!open || !ownerDocument) return;
@@ -185,6 +203,13 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                     'absolute flex flex-col bg-card p-5 text-card-foreground shadow-xl',
                     PANEL_BY_SIDE[side],
                     className,
+                    /*
+                     * Last, so it wins the `pb-*` conflict against the caller's
+                     * own bottom padding. The bottom sheet owns its clearance
+                     * from the bottom chrome now; the pickers' content lands on
+                     * the tab bar instead of a safe-area above it.
+                     */
+                    isBottom && callerPadsPanelBottom && BOTTOM_BAND_CLEARANCE,
                   )}
                 >
                   {isBottom ? (

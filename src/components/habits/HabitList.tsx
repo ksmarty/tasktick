@@ -1,20 +1,25 @@
 'use client';
 
 /**
- * The habit card, plus reordering.
+ * The habit cards, plus reordering.
  *
- * The card follows the task list's in-card header shape: the group name is the
- * card's first row, with the habit count and a collapse chevron on its trailing
- * edge. There is no real grouping in the habit data, so this is one "Habits"
- * card rather than invented categories.
+ * One **card per habit**: a bordered, filled surface of its own, the same
+ * `.rounded-xl border border-border bg-card` the app's other cards use, stacked
+ * with the page's own `gap-stack`. The habits list had a group card around every
+ * row — an in-card "Habits" header with a count and a collapse chevron — and that
+ * is the task page's shape, which this screen does not need: there is no real
+ * grouping in the habit data to collapse, the single group was invented for the
+ * header's sake, and a habit is a thing the user is working on all week, not a
+ * row inside someone else's list. A card per habit also gives the tap target its
+ * own edge, which the reorder's lift needs.
  *
  * ## Why the reorder is still hand-rolled
  *
  * The GodUI `reorder-list` was evaluated for this list and deliberately not
  * adopted. It drives its drag from `pointerdown` with `touch-none` on every
- * item, which is the one thing this list cannot have: the card sits inside the
- * shell's scroll pane, so a finger that lands on a row must still scroll the
- * page. Its gesture is also unconditional, whereas this list only lifts a row
+ * item, which is the one thing this list cannot have: the cards sit inside the
+ * shell's scroll pane, so a finger that lands on a card must still scroll the
+ * page. Its gesture is also unconditional, whereas this list only lifts a card
  * after a 320ms long press, and it has no keyboard path — while the grip's
  * Arrow Up / Arrow Down reorder is part of the behaviour being preserved.
  * Swapping the gesture layer would have meant rewriting exactly the parts that
@@ -25,10 +30,10 @@
  * drag-and-drop does not exist on touch. There are two ways in, and they are
  * never both on screen at once:
  *
- *   - **touch** — press and hold the row body and it lifts; keep holding and
- *     move it over a neighbour and the list reorders live. Movement before the
- *     timer fires is treated as a scroll and cancels the pick-up, so the list
- *     still scrolls normally.
+ *   - **touch** — press and hold a card and it lifts; keep holding and move it
+ *     over a neighbour and the list reorders live. Movement before the timer
+ *     fires is treated as a scroll and cancels the pick-up, so the list still
+ *     scrolls normally.
  *   - **pointer** — a grip fades in on hover (and on keyboard focus), and moves
  *     the focused habit with Arrow Up / Arrow Down.
  *
@@ -43,9 +48,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDownIcon } from '@svg-animated-icons/react/chevron-down';
-import { Button } from '@/components/ui/button';
+import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { HabitRow } from './HabitRow';
 import type { CheckInChange } from './period';
@@ -100,7 +103,6 @@ export function HabitList({
   const dragRef = useRef<{ id: string; order: string[] } | null>(null);
   /** Swallows the click that a completed drag would otherwise deliver. */
   const swallowClickRef = useRef(false);
-  const [collapsed, setCollapsed] = useState(false);
 
   /**
    * The rows lay themselves down once, when the list first appears.
@@ -302,83 +304,45 @@ export function HabitList({
         }
       }}
     >
-      <section
-        aria-label="Habits"
-        className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
-      >
-        {/* The in-card header, the same shape the task list's groups use: the
-            name, then the count and the chevron as quiet trailing marks. */}
-        <div
-          className={cn(
-            'flex min-h-12 items-center justify-between gap-2 pr-2 pl-row',
-            !collapsed && 'border-b border-border',
-          )}
-        >
-          <h2 className="min-w-0 truncate text-base font-semibold">Habits</h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setCollapsed((value) => !value)}
-            aria-expanded={!collapsed}
-            aria-label={`${collapsed ? 'Expand' : 'Collapse'} habits`}
-            className="gap-2 px-2 text-muted-foreground"
+      {/* One card per habit, stacked with the page's own gap: the cards are the
+          list, so there is no group card, no "Habits" header and nothing to
+          collapse. `role="list"` sits on the stack and the `aria-label` keeps
+          the landmark the group card used to carry, so assistive tech still
+          finds "Habits" where it always was. */}
+      <div role="list" aria-label="Habits" className="flex flex-col gap-stack">
+        {ordered.map((habit, index) => (
+          <motion.div
+            key={habit.id}
+            data-habit-id={habit.id}
+            initial={entering ? { opacity: 0, y: 6 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              duration: ROW_ENTER_DURATION,
+              ease: 'easeOut',
+              delay: entering ? Math.min(index * ROW_STAGGER_STEP, ROW_STAGGER_MAX) : 0,
+            }}
+            /* A card of its own: the same surface the rest of the app's cards
+               are, with the row's own `px-row py-2` inside it. `overflow-hidden`
+               keeps the row's focus ring inside the card's corners. */
+            className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
           >
-            <span aria-hidden className="text-xs font-medium">
-              {habits.length}
-            </span>
-            <span className="sr-only">{`${habits.length} habit${habits.length === 1 ? '' : 's'}`}</span>
-            <ChevronDownIcon
-              className={cn('size-4 transition-transform duration-200', collapsed && '-rotate-90')}
+            <HabitRow
+              habit={habit}
+              date={date}
+              today={today}
+              pending={pendingId === habit.id}
+              dragging={dragId === habit.id}
+              onRowPointerDown={(event) => armLongPress(habit, event)}
+              onCheckIn={(change) => onCheckIn(habit, change)}
+              onEdit={() => onEdit(habit)}
+              onGripPointerDown={(event) => startDrag(habit, event)}
+              onMoveBy={(delta) => moveBy(index, delta)}
+              canMoveUp={index > 0}
+              canMoveDown={index < ids.length - 1}
             />
-          </Button>
-        </div>
-
-        <AnimatePresence initial={false}>
-          {collapsed ? null : (
-            <motion.div
-              key="habit-rows"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="overflow-hidden"
-            >
-              <div role="list">
-                {ordered.map((habit, index) => (
-                  <motion.div
-                    key={habit.id}
-                    data-habit-id={habit.id}
-                    initial={entering ? { opacity: 0, y: 6 } : false}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{
-                      duration: ROW_ENTER_DURATION,
-                      ease: 'easeOut',
-                      delay: entering ? Math.min(index * ROW_STAGGER_STEP, ROW_STAGGER_MAX) : 0,
-                    }}
-                    className={cn(index > 0 && 'border-t border-border')}
-                  >
-                    <HabitRow
-                      habit={habit}
-                      date={date}
-                      today={today}
-                      pending={pendingId === habit.id}
-                      dragging={dragId === habit.id}
-                      onRowPointerDown={(event) => armLongPress(habit, event)}
-                      onCheckIn={(change) => onCheckIn(habit, change)}
-                      onEdit={() => onEdit(habit)}
-                      onGripPointerDown={(event) => startDrag(habit, event)}
-                      onMoveBy={(delta) => moveBy(index, delta)}
-                      canMoveUp={index > 0}
-                      canMoveDown={index < ids.length - 1}
-                    />
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </section>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 }

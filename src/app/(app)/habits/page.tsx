@@ -5,22 +5,21 @@
  *
  * The layout is: the calendar screen's own month grid as the pinned top —
  * opened on the week, so the screen still leads with a single week — then one
- * card whose first row is the group name, and one quiet row per habit
- * (check-in control, glyph, name, right-aligned streak). Selecting a day on the
- * grid scopes the card list to it, so the calendar and the list cannot disagree
- * about which day is being checked in.
+ * card per habit (check-in control, glyph, name, right-aligned streak). Selecting
+ * a day on the grid scopes the cards to it, so the calendar and the list cannot
+ * disagree about which day is being checked in.
  *
  * The page owns three pieces of state — the day the cards are scoped to, the
  * month the grid shows, and whether archived habits are listed — because
  * everything else (streaks, completion rates, period progress) is computed
  * server-side and merely formatted here.
  *
- * Two reads. The grid reads `/api/calendar/items` for the shown month exactly as
- * the calendar screen does (the server has already expanded recurrence and
- * bucketed the days), and the habit list reads `/api/habits` for a window that
- * carries that month's entries, so a day the grid can select always has its own
- * check-in state. An optimistic check-in patches the habit read, so a tap
- * updates the row at the same instant.
+ * One read: `/api/habits`, for a window that carries the shown month's entries,
+ * so a day the grid can select always has its own check-in state. The month grid
+ * itself reads nothing — it paints no calendar events and no dots (see
+ * `HabitMonthGrid`) — so the network cost of this screen is the list and nothing
+ * else. An optimistic check-in patches that one read, so a tap updates the row
+ * at the same instant.
  *
  * Chrome: the shell renders the single top bar from the `PageHeader` published
  * here — the title, the list-options popover and "New habit" — so this screen
@@ -358,18 +357,18 @@ export default function HabitsPage() {
           <>
             {/*
              * The pinned top: the calendar screen's own `MonthGrid`, collapsed
-             * to a week on open, with a day on which a habit was completed
-             * dotted alongside the calendar's own dots. `shrink-0`, so only the
-             * list under it scrolls.
+             * to a week on open, and carrying habit completions only — no
+             * calendar events, and no dots of any kind (see `HabitMonthGrid`).
+             * `shrink-0`, so only the list under it scrolls.
              */}
             <HabitMonthGrid
+              habits={list}
               anchor={activeMonth}
               selectedDate={activeDate}
               today={todayDate}
               zone={zone}
               weekStartsOn={weekStartsOn}
               timeFormat={timeFormat}
-              habits={list}
               onSelectDate={selectDate}
               onPage={pageMonth}
               className="shrink-0"

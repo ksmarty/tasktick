@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import { EmptyTasks } from './EmptyTasks';
 import { HeaderActionButton } from './HeaderActionButton';
+import { ItemDetailSheet } from './ItemDetailSheet';
 import { QuickAddBar } from './QuickAddBar';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
@@ -64,6 +65,8 @@ export function TodayView() {
   // The shell's action button asks the mounted view for its primary create action.
   usePrimaryAction(openQuickAdd);
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+  /** The task whose read-only detail sheet is open; its Edit opens the editor. */
+  const [detail, setDetail] = useState<Task | null>(null);
 
   /**
    * Opens quick add *inside* the gesture that asked for it — see `TasksView` for
@@ -127,6 +130,14 @@ export function TodayView() {
       (agenda) => reorderAgendaSection(agenda, section.id, orderedIds),
       () => actions.reorder(orderedIds),
     );
+  }
+
+  /** The detail sheet's Edit action: close the sheet and open the task editor. */
+  function editDetailTask() {
+    if (!detail) return;
+    const task = detail;
+    setDetail(null);
+    setEditor({ open: true, task });
   }
 
   const loading = data === undefined && !bootstrap.error;
@@ -267,7 +278,7 @@ export function TodayView() {
               zone={zone}
               timeFormat={timeFormat}
               onToggle={toggleTask}
-              onOpen={(task) => setEditor({ open: true, task })}
+              onOpen={setDetail}
               listColorFor={accentForTask}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
@@ -280,6 +291,18 @@ export function TodayView() {
       </div>
 
       <QuickAddBar open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
+      <ItemDetailSheet
+        open={detail !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetail(null);
+        }}
+        task={detail}
+        listName={detail ? (lists.find((list) => list.id === detail.listId)?.name ?? null) : null}
+        listColor={detail ? (lists.find((list) => list.id === detail.listId)?.color ?? null) : null}
+        zone={zone}
+        timeFormat={timeFormat}
+        onEdit={editDetailTask}
+      />
       <TaskEditorSheet
         open={editor.open}
         task={editor.task}

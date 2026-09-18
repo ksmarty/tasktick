@@ -21,6 +21,7 @@ export {
   type DueTone,
 } from './TaskMeta';
 export { TaskEditorSheet, type TaskEditorSheetProps } from './TaskEditorSheet';
+export { ItemDetailSheet, type ItemDetailSheetProps } from './ItemDetailSheet';
 export { QuickAddBar, type QuickAddBarProps } from './QuickAddBar';
 export { SubTaskList, type SubTaskListProps } from './SubTaskList';
 export { EmptyTasks, type EmptyTasksProps } from './EmptyTasks';

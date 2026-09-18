@@ -97,7 +97,8 @@ describe('EventRow — an event is not a task', () => {
   });
 
   it('keeps the event title to a single ellipsised line', () => {
-    // The task title wraps on purpose; only the event title truncates.
+    // Both rows now keep the title to one ellipsised line — the task title no
+    // longer wraps — so the two agree on typography.
     expect(EVENT_ROW).toContain('min-w-0 flex-1 truncate text-base leading-tight');
   });
 
@@ -112,7 +113,7 @@ describe('EventRow — an event is not a task', () => {
   });
 });
 
-describe('TaskRow — the strip is added, the wrapping title is not undone', () => {
+describe('TaskRow — the strip is added, the title is truncated', () => {
   it('paints the list colour on the row edge', () => {
     expect(ROW).toContain('absolute inset-y-0 left-0 w-1');
     expect(ROW).toContain('accentHex(accent)');
@@ -121,11 +122,12 @@ describe('TaskRow — the strip is added, the wrapping title is not undone', () 
     expect(ROW).not.toContain('border-l-4');
   });
 
-  it('still lets the task title wrap', () => {
-    expect(ROW).toContain("'min-w-0 flex-1 text-base leading-tight'");
-    // The title span itself must not carry `truncate`.
-    const titleBlock = ROW.slice(ROW.indexOf("'min-w-0 flex-1 text-base leading-tight'"), ROW.indexOf('{task.title}'));
-    expect(titleBlock).not.toContain('truncate');
+  it('truncates the task title to a single line', () => {
+    // Reverses the earlier "let titles wrap" decision: the title span carries
+    // `truncate`, and the wrapping row no longer wraps.
+    expect(ROW).toContain('min-w-0 flex-1 truncate text-base leading-tight');
+    expect(ROW).toContain('min-w-0 items-center gap-x-1');
+    expect(ROW).not.toContain('flex-wrap');
   });
 });
 
@@ -156,7 +158,7 @@ describe('TasksView — the completed toggle and the events source', () => {
   it('merges events from the one calendar read endpoint', () => {
     expect(VIEW).toContain("'/api/calendar/items'");
     expect(VIEW).toContain("item.kind === 'event'");
-    expect(VIEW).toContain('onOpenEvent={openEvent}');
+    expect(VIEW).toContain('onOpenEvent={openEventDetail}');
     expect(VIEW).toContain('listColorFor={accentForTask}');
   });
 
@@ -166,8 +168,12 @@ describe('TasksView — the completed toggle and the events source', () => {
     expect(VIEW).toContain("applyState({ window: 'all' })");
   });
 
-  it('keeps multi-select reachable after it left the header', () => {
-    expect(VIEW).toContain("aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}");
-    expect(VIEW).toContain('aria-pressed={selectionMode}');
+  it('has no bulk-selection entry point left', () => {
+    // The "Select" button was the only way into selection mode; with it gone,
+    // the mode, the checkboxes and the bulk bar are unreachable and removed.
+    expect(VIEW).not.toContain('selectionMode');
+    expect(VIEW).not.toContain('selectedIds');
+    expect(VIEW).not.toContain('FloatingToolbar');
+    expect(VIEW).not.toContain('runBulk');
   });
 });

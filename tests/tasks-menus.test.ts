@@ -106,7 +106,7 @@ describe('the row is denser but keeps its 44px targets', () => {
     expect(ROW).not.toContain('py-0.5');
     expect(ROW).toContain('justify-center');
     expect(ROW).toContain('leading-tight');
-    expect(ROW).toContain('gap-x-1 gap-y-0');
+    expect(ROW).toContain('gap-x-1');
     expect(ROW).not.toContain('gap-x-1.5');
     // The title/meta pair still sits in a gapless column of its own — the due
     // date moved out of the title's row to the button's own, so the `gap-0`

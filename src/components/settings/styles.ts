@@ -19,14 +19,22 @@
  * CalDAV account has seven fields, and a 2rem-inset floating card on a 390px
  * screen leaves a scroll box about three fields tall. Radix's `DialogContent` is
  * centred and viewport-inset by default, so the override is a viewport-sized box
- * on a phone (`h-dvh`, full width, square corners) and nothing above `sm`.
+ * on a phone (all four edges pinned, full width, square corners) and nothing
+ * above `sm`.
+ *
+ * The box is pinned with `inset-0` rather than sized with `h-dvh`. `dvh` follows
+ * the browser chrome, while the dialog is centred against the layout viewport
+ * with `top-1/2 -translate-y-1/2`; when the two differ (a mobile browser with a
+ * visible toolbar) the box is shorter than the viewport and leaves a strip of
+ * page below it — the sheet appears to stop short of the tab bar. Pinning all
+ * four edges makes the sheet reach the bottom whatever the chrome is doing.
  *
  * The classes are responsive overrides of the primitive's own utilities
  * (`max-sm:` beats the unprefixed one, which is how `w-1/2 md:w-full` has always
  * worked), so no inline style and no arbitrary-value class is involved.
  */
 export const SHEET_DIALOG_CLASS =
-  'max-sm:h-dvh max-sm:max-w-none max-sm:overflow-y-auto max-sm:rounded-none max-sm:border-0 max-sm:p-card sm:max-w-lg';
+  'max-sm:inset-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:overflow-y-auto max-sm:rounded-none max-sm:border-0 max-sm:p-card sm:max-w-lg';
 
 /**
  * The box a credential-bearing URL is shown in: invitation links and calendar

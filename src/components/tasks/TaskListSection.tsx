@@ -36,9 +36,9 @@
  * `#eeeeee` — two lines, exactly the double border that was reported. `sheen={0}`
  * removes the sheen and leaves the single `border-border` edge; it also drops the
  * pointer-tracked specular glow, which a flat, non-refracting list card has
- * nothing to say with. The hairline under the header (`border-t
- * border-border/70` on the track) is not part of that: it sits *below* the
- * header, ~50px down the card, and is what separates the header from its rows.
+ * nothing to say with. The hairline under the header used to be a second line
+ * inside the card; it is gone now, and the header and its rows are separated by
+ * spacing instead (see below).
  *
  * ## The header's vertical padding
  *
@@ -68,9 +68,10 @@
  *    rows. A negative margin rather than an override, because `tailwind-merge`
  *    cannot be relied on to resolve a token class against a vendored one.
  *  - the panel paints `text-sm text-muted-foreground`, which the row track resets
- *    with an explicit `text-base text-foreground`. The track also carries the
- *    hairline under the header and between rows, which is what gives the denser
- *    list its rhythm without a background per row.
+ *    with an explicit `text-base text-foreground`. The track used to carry the
+ *    hairline under the header and between rows; both lines are gone, and the
+ *    track's `gap-1` plus the header's own `py-2.5` supply the rhythm by spacing
+ *    alone.
  *
  * ## Reordering
  *
@@ -122,9 +123,6 @@ export interface TaskListSectionProps {
   onWontDo?: (task: Task) => void;
   /** Publishes a new manual order for this section. */
   onReorder?: (section: TaskSection, orderedIds: string[]) => void;
-  selectionMode?: boolean;
-  selectedIds?: ReadonlySet<string>;
-  onSelect?: (task: Task) => void;
   disabled?: boolean;
 }
 
@@ -139,16 +137,13 @@ export function TaskListSection({
   onDelete,
   onWontDo,
   onReorder,
-  selectionMode = false,
-  selectedIds,
-  onSelect,
   disabled = false,
 }: TaskListSectionProps) {
   const [htmlDrag, setHtmlDrag] = useState<DragState | null>(null);
   const [lift, setLift] = useState<LiftState | null>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
 
-  const reorderable = Boolean(onReorder) && section.reorderable && !selectionMode && !disabled;
+  const reorderable = Boolean(onReorder) && section.reorderable && !disabled;
 
   // While a row is lifted, the browser must not scroll the list under the
   // finger. `touchmove` is only cancelable from a non-passive listener, and only
@@ -246,6 +241,19 @@ export function TaskListSection({
   const danger = section.tone === 'danger';
   const taskCount = section.tasks.length;
   const eventCount = section.events.length;
+  /*
+   * The count is every row the section renders, not just its tasks: a group
+   * whose header said "2" while three event rows sat under it was the bug. The
+   * screen-reader line spells out the split, so "2 tasks, 1 event" is announced
+   * rather than a bare total.
+   */
+  const itemCount = taskCount + eventCount;
+  const countSummary = [
+    taskCount ? `${taskCount} task${taskCount === 1 ? '' : 's'}` : null,
+    eventCount ? `${eventCount} event${eventCount === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   return (
     /*
@@ -288,14 +296,23 @@ export function TaskListSection({
                 </span>
                 <span className="ml-auto flex shrink-0 items-center gap-2">
                   <span className="rounded-full border border-border px-2 text-xs tabular-nums text-muted-foreground">
-                    {section.tasks.length}
+                    {itemCount}
                   </span>
-                  <span className="sr-only">{`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}</span>
+                  <span className="sr-only">{countSummary}</span>
                 </span>
               </span>
             ),
             content: (
-              <ul className="-mx-5 -mb-4 flex flex-col divide-y divide-border/70 border-t border-border/70 text-base text-foreground">
+              /*
+               * No hairlines: neither the rule under the header nor the rules
+               * between rows. Separation is spacing — `gap-1` between rows, and
+               * the header trigger's own `py-2.5` above them — so a row is
+               * delimited by air rather than by a line. A two-line row fits 40px
+               * of content in its 44px box, so without the gap consecutive rows
+               * would butt together; the gap restores the rhythm the divider
+               * used to provide.
+               */
+              <ul className="-mx-5 -mb-4 flex flex-col gap-1 text-base text-foreground">
                 {section.tasks.map((task, index) => (
                   <TaskRow
                     key={task.id}
@@ -312,9 +329,6 @@ export function TaskListSection({
                     onDelete={onDelete}
                     onWontDo={onWontDo}
                     disabled={disabled}
-                    selectionMode={selectionMode}
-                    selected={selectedIds?.has(task.id) ?? false}
-                    onSelect={onSelect}
                     drag={dragPropsFor(task)}
                     first={index === 0}
                     last={eventCount === 0 && index === taskCount - 1}

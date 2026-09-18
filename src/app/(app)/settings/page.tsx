@@ -30,8 +30,9 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
       {/* No back control: Settings is a top-level destination, reached from the
-          sidebar and from the tab bar. */}
-      <PageHeader title="Settings" />
+          sidebar and from the tab bar. The header names the section the route
+          shows, not the area — every settings page names its own section. */}
+      <PageHeader title="Account" />
 
       <SettingsTabs active="account">
         {!data ? (

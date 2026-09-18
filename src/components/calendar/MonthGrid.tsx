@@ -170,6 +170,28 @@
  * dots. Both lane values are on Tailwind's own scale; the old 21px top was not,
  * which is why it had to be an inline style.
  *
+ * ## The day marker
+ *
+ * One screen paints something other than the dot: the habits month draws a
+ * completion *ring* around the number. That mark is not an item and cannot come
+ * from `payload.days`, so the grid exposes one seam instead —
+ * `renderDayMarker(date)` returns the node to paint, or `null` for none, and
+ * `dayMarkerLabel(date)` adds the mark's meaning to the day button's accessible
+ * name (the item count alone would say nothing there). Both are optional: a
+ * caller that passes neither renders exactly what it always did.
+ *
+ * The seam is the disc's own box and nothing more. The marker layer is an
+ * absolutely-positioned 36×36 box pinned to the top of the `[data-date]` cell and
+ * centred horizontally — the disc's box by construction (the day stack's `pt-0.5`
+ * cancels its own `-my-0.5`, so the disc starts at the cell's top edge) — painted
+ * *above* the disc (`z-20` over the disc's `z-10`) so a ring still reads on the
+ * selected and today fills. The layer is `pointer-events-none` and `aria-hidden`,
+ * like the dot lane: decoration must never take the day button's tap.
+ *
+ * It is threaded into **all three panels** — the live month and both neighbours —
+ * because the neighbouring months slide in during a drag; a ring that is only
+ * drawn once the panel becomes current would pop in after the swipe.
+ *
  * It never derives a date of its own: `days` is the server's padded day list for
  * the visible window, chunked into whole weeks by `buildMonthRows`, so the grid,
  * the agenda and the day sheet cannot disagree about which days a month
@@ -180,7 +202,7 @@
  * either reads as a dropped tap.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { addDaysToDateOnly, fromDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { DateOnly } from '@/lib/types';
@@ -278,6 +300,10 @@ export interface MonthGridProps {
   onPage: (delta: number) => void;
   /** Reports the month the drag is showing, so the toolbar title can follow it. */
   onPagePreview: (delta: -1 | 0 | 1) => void;
+  /** A per-day mark drawn around the day number; `null`/absent = none. */
+  renderDayMarker?: (date: DateOnly) => ReactNode;
+  /** Appended to the day button's accessible name; `null` = nothing appended. */
+  dayMarkerLabel?: (date: DateOnly) => string | null;
 }
 
 export function MonthGrid({
@@ -295,6 +321,8 @@ export function MonthGrid({
   onOpenDay,
   onPage,
   onPagePreview,
+  renderDayMarker,
+  dayMarkerLabel,
 }: MonthGridProps) {
   const dayRefs = useRef(new Map<DateOnly, HTMLButtonElement>());
   /** The live month's lattice. The day buttons register into `dayRefs` from here. */
@@ -462,6 +490,8 @@ export function MonthGrid({
               today={today}
               prefs={prefs}
               live={null}
+              renderDayMarker={renderDayMarker}
+              dayMarkerLabel={dayMarkerLabel}
             />
 
             <MonthPanel
@@ -482,6 +512,8 @@ export function MonthGrid({
                   else dayRefs.current.delete(date);
                 },
               }}
+              renderDayMarker={renderDayMarker}
+              dayMarkerLabel={dayMarkerLabel}
             />
 
             <MonthPanel
@@ -491,6 +523,8 @@ export function MonthGrid({
               today={today}
               prefs={prefs}
               live={null}
+              renderDayMarker={renderDayMarker}
+              dayMarkerLabel={dayMarkerLabel}
             />
           </div>
         </div>
@@ -542,6 +576,10 @@ interface MonthPanelProps {
   live: LivePanelProps | null;
   /** The live month's lattice, which the roving focus registers into. */
   gridRef?: React.RefObject<HTMLDivElement | null>;
+  /** A per-day mark around the number; drawn for neighbours as well as the live month. */
+  renderDayMarker?: (date: DateOnly) => ReactNode;
+  /** Appended to the live month's day button name; neighbours are not controls. */
+  dayMarkerLabel?: (date: DateOnly) => string | null;
 }
 
 /**
@@ -562,7 +600,7 @@ interface MonthPanelProps {
  * opaque and the two a page away are not — see the "Paging is a track" note. The
  * hook overwrites both per frame while a drag is in flight.
  */
-function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef }: MonthPanelProps) {
+function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, renderDayMarker, dayMarkerLabel }: MonthPanelProps) {
   const rows = useMemo(() => buildMonthRows(page.days, page.anchor), [page.days, page.anchor]);
   const isCurrent = panel === 'current';
 
@@ -586,6 +624,8 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef }: 
               const dayItems = page.payload.days[cell.date] ?? [];
               const isSelected = cell.date === selectedDate;
               const isToday = cell.date === today;
+              /* The seam: a caller-supplied mark for this day, or nothing. */
+              const marker = renderDayMarker?.(cell.date) ?? null;
 
               /*
                 A plain surface, never a boxed cell: the days are separated by
@@ -610,6 +650,7 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef }: 
                       isSelected={isSelected}
                       isToday={isToday}
                       itemCount={dayItems.length}
+                      markerLabel={dayMarkerLabel?.(cell.date) ?? null}
                       fullLabel={fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy')}
                       tabIndex={live.focusDate === cell.date ? 0 : -1}
                       registerRef={(node) => live.registerDay(cell.date, node)}
@@ -658,6 +699,30 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef }: 
                   >
                     {dayItems.length > 0 ? <DotMark /> : null}
                   </span>
+
+                  {/*
+                    The day-marker layer — see "The day marker".
+
+                    The disc's own 36×36 box: pinned to the cell's top edge and
+                    centred horizontally, which is exactly where the disc sits
+                    (the day stack's `pt-0.5` cancels its `-my-0.5`). `z-20` puts
+                    it above the disc's `z-10`, so a caller's ring is painted on
+                    the selected and today fills rather than under them, and
+                    `pointer-events-none` + `aria-hidden` keep it decoration:
+                    the day button below keeps its whole hit area and its own
+                    accessible name (which `dayMarkerLabel` feeds).
+
+                    Rendered for every panel and every non-null mark, so a
+                    neighbouring month arrives already drawn.
+                  */}
+                  {marker ? (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute top-0 left-1/2 z-20 flex size-9 -translate-x-1/2 items-center justify-center"
+                    >
+                      {marker}
+                    </span>
+                  ) : null}
                 </div>
               );
             })}
@@ -675,6 +740,8 @@ interface DayNumberProps {
   isToday: boolean;
   /** How many items the server bucketed on this day; 0 means no dots. */
   itemCount: number;
+  /** The day marker's meaning, appended to the accessible name; `null` = none. */
+  markerLabel: string | null;
   /** The full accessible date name the button announces. */
   fullLabel: string;
   tabIndex: number;
@@ -700,18 +767,27 @@ function DayNumber({
   isSelected,
   isToday,
   itemCount,
+  markerLabel,
   fullLabel,
   tabIndex,
   registerRef,
   activate,
 }: DayNumberProps) {
+  /*
+   * The name is the date, then the count the dots cannot spell out, then — on a
+   * screen whose cells carry no items at all — whatever the day marker means.
+   * Appending only when there is something to append is what keeps this byte
+   * identical for the calendar screen, which passes no `dayMarkerLabel`.
+   */
+  const itemLabel = itemCount > 0 ? `${fullLabel}, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}` : fullLabel;
+
   return (
     <button
       ref={registerRef}
       type="button"
       tabIndex={tabIndex}
       aria-current={isToday ? 'date' : undefined}
-      aria-label={itemCount > 0 ? `${fullLabel}, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}` : fullLabel}
+      aria-label={markerLabel ? `${itemLabel}, ${markerLabel}` : itemLabel}
       onClick={(event) => {
         event.stopPropagation();
         activate();

@@ -454,6 +454,16 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             // editor out from under it.
             if (picker || confirmOpen) event.preventDefault();
           }}
+          /*
+           * No autofocus on the title on the edit path. Radix would focus the
+           * first focusable control — the title textarea — so opening the editor
+           * to *read* or make one change immediately put the caret in the title
+           * and (on iOS) raised the keyboard. The quick-add sheet owns the
+           * deliberately-synchronous focus it needs for the keyboard (see
+           * `QuickAddBar`); this sheet does not, so it starts without stealing
+           * focus. Keyboard users still reach the form on the first Tab.
+           */
+          onOpenAutoFocus={(event) => event.preventDefault()}
           onInteractOutside={(event) => {
             // A picker drawer and the delete confirmation both portal to `body`,
             // so Radix reads a press inside them as "outside the editor". The

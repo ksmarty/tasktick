@@ -35,7 +35,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { ExclamationCircledIcon } from '@svg-animated-icons/react/exclamation-circled';
 import { EyeNoneIcon } from '@svg-animated-icons/react/eye-none';
@@ -43,41 +42,25 @@ import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
 import { FilterIcon } from '@svg-animated-icons/react/filter';
 import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
-import { TrashIcon } from '@svg-animated-icons/react/trash';
-import { Folder } from 'lucide-react';
-import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide, Flag, Tag } from 'lucide-react';
+import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide } from 'lucide-react';
 import { useShellPane } from '@/components/app/ShellPane';
 import { accentHex } from '@/lib/colors';
 import { todayIn, addDaysToDateOnly, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
-import { useIsDesktop, useResource } from '@/lib/store';
+import { useResource } from '@/lib/store';
 import type { CalendarItem, Task } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
-import { FloatingToolbar } from '@/components/godui/floating-toolbar';
-import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import { EmptyTasks } from './EmptyTasks';
 import { TaskFilterMenu } from './FilterMenu';
 import { HeaderActionButton } from './HeaderActionButton';
-import { ListPicker } from './ListPicker';
-import { PriorityPicker } from './PriorityPicker';
+import { ItemDetailSheet } from './ItemDetailSheet';
 import { QuickAddBar } from './QuickAddBar';
 import { TaskSortMenu } from './SortMenu';
-import { TagPicker } from './TagPicker';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
-import { ViewportDock } from './ViewportDock';
 import {
   activeFilters,
   DEFAULT_TASK_VIEW,
@@ -92,8 +75,7 @@ import {
   TASK_SORTS,
   type TaskViewState,
 } from './filters';
-import { removeByIds, reorderList, setPriorityByIds, setStatusByIds } from './optimistic';
-import type { BulkAction, BulkPayload } from './payloads';
+import { removeByIds, reorderList, setStatusByIds } from './optimistic';
 import { buildListSections, NEXT_7_DAYS_SPAN, visibleTasks, type TaskSection } from './sections';
 import { taskAccentLookup } from './row-colors';
 import { useTaskActions } from './useTaskActions';
@@ -101,13 +83,10 @@ import { useTaskActions } from './useTaskActions';
 /** Debounce for the search field, so typing does not fire a request per key. */
 const SEARCH_DEBOUNCE_MS = 250;
 
-type BulkSheet = 'move' | 'priority' | 'tag' | null;
-
 export function TasksView() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const isDesktop = useIsDesktop();
 
   // This screen owns its own scroll: the header stays put and only the list
   // moves. The shell hands the pane over as a fixed-height box; see `ShellPane`.
@@ -135,17 +114,21 @@ export function TasksView() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [bulkSheet, setBulkSheet] = useState<BulkSheet>(null);
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   /** Completed rows are hidden until the header's eye toggle asks for them. */
   const [showCompleted, setShowCompleted] = useState(false);
 
   // The shell's action button asks the mounted view for its primary create action.
   usePrimaryAction(openQuickAdd);
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [editor, setEditor] = useState<{ open: boolean; task: Task | null }>({ open: false, task: null });
+  /**
+   * The row whose detail sheet is open. A task carries its full record; an event
+   * carries the `CalendarItem` the calendar read already returned. Exactly one
+   * is set while the sheet is up.
+   */
+  const [detail, setDetail] = useState<
+    { kind: 'task'; task: Task } | { kind: 'event'; event: CalendarItem } | null
+  >(null);
 
   /**
    * Opens quick add *inside* the gesture that asked for it.
@@ -254,23 +237,16 @@ export function TasksView() {
     setShowCompleted((value) => !value);
   }
 
-  /** Opens the calendar day an event starts on. */
-  function openEvent(event: CalendarItem) {
+  /**
+   * Opens the calendar day an event starts on.
+   *
+   * This is the event's Edit action on this screen: the event editor lives on
+   * the calendar (out of this feature's scope), so "edit" navigates to the
+   * screen that owns it rather than duplicating an event editor here. The
+   * reusable detail sheet exposes an `onEdit` callback for exactly this.
+   */
+  function openEventInCalendar(event: CalendarItem) {
     router.push(`/calendar?date=${toDateOnly(event.startMs, zone)}`);
-  }
-
-  function toggleSelect(task: Task) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(task.id)) next.delete(task.id);
-      else next.add(task.id);
-      return next;
-    });
-  }
-
-  function exitSelection() {
-    setSelectionMode(false);
-    setSelectedIds(new Set());
   }
 
   /**
@@ -321,38 +297,30 @@ export function TasksView() {
     if (state.sort !== 'manual') applyState({ sort: 'manual' });
   }
 
-  async function runBulk(action: BulkAction, payload: BulkPayload = {}) {
-    const ids = [...selectedIds];
-    if (ids.length === 0) return;
-    const selection = new Set(ids);
+  /** Opens the detail sheet for a tapped row. */
+  function openTaskDetail(task: Task) {
+    setDetail({ kind: 'task', task });
+  }
 
-    if (action === 'complete') {
-      optimistic(
-        (current) => setStatusByIds(current, selection, 'completed', Date.now()),
-        () => actions.bulk(ids, action, payload),
-      );
-    } else if (action === 'delete') {
-      optimistic(
-        (current) => removeByIds(current, selection),
-        () => actions.bulk(ids, action, payload),
-      );
-    } else if (action === 'priority' && payload.priority) {
-      const priority = payload.priority;
-      optimistic(
-        (current) => setPriorityByIds(current, selection, priority),
-        () => actions.bulk(ids, action, payload),
-      );
-    } else if (action === 'move' && state.listId) {
-      // Moving out of the list being viewed: the rows no longer belong here.
-      optimistic(
-        (current) => removeByIds(current, selection),
-        () => actions.bulk(ids, action, payload),
-      );
-    } else {
-      await actions.bulk(ids, action, payload);
+  function openEventDetail(event: CalendarItem) {
+    setDetail({ kind: 'event', event });
+  }
+
+  /**
+   * The detail sheet's Edit action. A task opens the task editor in place; an
+   * event navigates to the calendar, which owns the event editor.
+   */
+  function editDetailItem() {
+    if (!detail) return;
+    if (detail.kind === 'task') {
+      const task = detail.task;
+      setDetail(null);
+      setEditor({ open: true, task });
+      return;
     }
-
-    exitSelection();
+    const event = detail.event;
+    setDetail(null);
+    openEventInCalendar(event);
   }
 
   const loading = resource.data === undefined && !resource.error;
@@ -512,29 +480,6 @@ export function TasksView() {
         />
       ) : (
         <div className="flex flex-col gap-stack px-gutter py-3">
-          {/*
-           * Multi-select keeps a home here, above the groups. Its old header
-           * toggle gave that slot to the completed eye; the row context menu is
-           * desktop-only, so this button is the entry point on every input, and
-           * it toggles the same mode the bulk bar docks over.
-           */}
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
-              aria-pressed={selectionMode}
-              onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
-            >
-              {selectionMode ? (
-                <Cross1Icon className="text-base" />
-              ) : (
-                <CheckCircledIcon className="text-base" />
-              )}
-              {selectionMode ? 'Done' : 'Select'}
-            </Button>
-          </div>
           {sections.map((section) => (
             <TaskListSection
               key={section.id}
@@ -542,75 +487,18 @@ export function TasksView() {
               zone={zone}
               timeFormat={timeFormat}
               onToggle={toggleTask}
-              onOpen={(task) => setEditor({ open: true, task })}
+              onOpen={openTaskDetail}
               listColorFor={accentForTask}
-              onOpenEvent={openEvent}
+              onOpenEvent={openEventDetail}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
               onReorder={reorderSection}
-              selectionMode={selectionMode}
-              selectedIds={selectedIds}
-              onSelect={toggleSelect}
               disabled={!actions.online}
             />
           ))}
         </div>
       )}
       </div>
-
-      {/*
-       * The bulk-action bar is the only thing left that wants the band above the
-       * tab bar: adding a task is the shell's action button opening the sheet,
-       * the same gesture as every other screen.
-       */}
-      {selectionMode ? (
-        <ViewportDock
-          className={cn(
-            'fixed inset-x-0 z-modal flex items-center justify-center gap-2 px-gutter',
-            isDesktop
-              ? 'bottom-3'
-              : 'bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)]',
-          )}
-        >
-          <span className="shrink-0 rounded-xl border border-border bg-popover/90 px-2 py-2 text-xs tabular-nums text-muted-foreground shadow-lg backdrop-blur-md">
-            {selectedIds.size} selected
-          </span>
-          <FloatingToolbar
-            actions={[
-              {
-                icon: <CheckCircledIcon className="text-base" aria-hidden />,
-                label: 'Complete selected tasks',
-                disabled: selectedIds.size === 0,
-                onClick: () => void runBulk('complete'),
-              },
-              {
-                icon: <Folder className="size-4" aria-hidden />,
-                label: 'Move selected tasks',
-                disabled: selectedIds.size === 0,
-                onClick: () => setBulkSheet('move'),
-              },
-              {
-                icon: <Flag className="size-4" aria-hidden />,
-                label: 'Set the priority of the selected tasks',
-                disabled: selectedIds.size === 0,
-                onClick: () => setBulkSheet('priority'),
-              },
-              {
-                icon: <Tag className="size-4" aria-hidden />,
-                label: 'Add a tag to the selected tasks',
-                disabled: selectedIds.size === 0,
-                onClick: () => setBulkSheet('tag'),
-              },
-              {
-                icon: <TrashIcon className="text-base" aria-hidden />,
-                label: 'Delete selected tasks',
-                disabled: selectedIds.size === 0,
-                onClick: () => setConfirmBulkDelete(true),
-              },
-            ]}
-          />
-        </ViewportDock>
-      ) : null}
 
       <TaskFilterMenu
         open={filterOpen}
@@ -627,64 +515,28 @@ export function TasksView() {
         state={state}
         onChange={applyState}
       />
-
-      <ListPicker
-        open={bulkSheet === 'move'}
-        onOpenChange={(open) => setBulkSheet(open ? 'move' : null)}
-        lists={lists}
-        value={null}
-        allowNone={false}
-        title={`Move ${selectedIds.size} tasks`}
-        onChange={(listId) => void runBulk('move', { listId })}
-      />
-
-      <PriorityPicker
-        open={bulkSheet === 'priority'}
-        onOpenChange={(open) => setBulkSheet(open ? 'priority' : null)}
-        value="none"
-        title={`Priority for ${selectedIds.size} tasks`}
-        onChange={(priority) => void runBulk('priority', { priority })}
-      />
-
-      <TagPicker
-        open={bulkSheet === 'tag'}
-        onOpenChange={(open) => setBulkSheet(open ? 'tag' : null)}
-        tags={tags}
-        value={[]}
-        title={`Add a tag to ${selectedIds.size} tasks`}
-        onCreate={actions.createTag}
-        onChange={(next) => {
-          const tagId = next[next.length - 1];
-          setBulkSheet(null);
-          if (tagId) void runBulk('addTag', { tagId });
+      <ItemDetailSheet
+        open={detail !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetail(null);
         }}
+        task={detail?.kind === 'task' ? detail.task : null}
+        event={detail?.kind === 'event' ? detail.event : null}
+        listName={
+          detail?.kind === 'task'
+            ? (lists.find((list) => list.id === detail.task.listId)?.name ?? null)
+            : null
+        }
+        listColor={
+          detail?.kind === 'task'
+            ? (lists.find((list) => list.id === detail.task.listId)?.color ?? null)
+            : null
+        }
+        calendarName={detail?.kind === 'event' ? (detail.event.calendarName ?? null) : null}
+        zone={zone}
+        timeFormat={timeFormat}
+        onEdit={editDetailItem}
       />
-
-      {/*
-       * Deleting a selection is the one irreversible bulk action, so it is the
-       * one that asks for a hold rather than a tap.
-       */}
-      <Dialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{`Delete ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}?`}</DialogTitle>
-            <DialogDescription>They will be removed from every list. This cannot be undone.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmBulkDelete(false)}>
-              Cancel
-            </Button>
-            <HoldConfirmButton
-              onConfirm={() => {
-                setConfirmBulkDelete(false);
-                void runBulk('delete');
-              }}
-            >
-              Delete
-            </HoldConfirmButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <QuickAddBar
         open={quickAddOpen}

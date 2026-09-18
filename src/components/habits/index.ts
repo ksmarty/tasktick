@@ -5,6 +5,7 @@
  * routes: the components below are the ones the habits page composes.
  */
 export { CheckInControl, type CheckInControlProps } from './CheckInControl';
+export { HabitDayRing, type HabitDayRingProps } from './HabitDayRing';
 export { HabitEditorSheet, type HabitEditorSheetProps } from './HabitEditorSheet';
 export { HabitList, type HabitListProps } from './HabitList';
 export { HabitMonthGrid, type HabitMonthGridProps } from './HabitMonthGrid';
@@ -21,6 +22,8 @@ export {
   habitDoneOn,
   habitMetaSummary,
   habitProgressView,
+  habitRingSegments,
+  habitsCompletedOn,
   habitWindowRange,
   isHabitDueOn,
   longDateLabel,
@@ -44,3 +47,13 @@ export {
   habitIconLabel,
   type HabitIconName,
 } from './icons';
+export {
+  RING_BOX_PX,
+  RING_CENTRE_PX,
+  RING_RADIUS_PX,
+  RING_STROKE_PX,
+  ringArcPath,
+  ringArcs,
+  ringPoint,
+  type RingArc,
+} from './ring';

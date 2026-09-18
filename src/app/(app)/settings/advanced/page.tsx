@@ -7,8 +7,15 @@
  * Those are now their own sections, but `/settings/advanced` must keep working:
  * the focus timer links to it ("Change in Settings"), and it is a bookmarked
  * URL. Rather than orphan it — or leave a redirect, which the served-page smoke
- * test treats as a failure — it renders the Focus section, so the pomodoro link
- * lands on the controls it promises. The navigation marks Focus as the active
- * section, and clicking Focus canonicalises the URL to `/settings/focus`.
+ * test treats as a failure — it renders the Focus controls through the shared
+ * `FocusSection`, so the pomodoro link lands on the controls it promises.
+ *
+ * Its header says "Advanced" (the name of the URL the user followed), while the
+ * section navigation marks Focus as the active section, because that is what
+ * the controls are. Clicking Focus canonicalises the URL to `/settings/focus`.
  */
-export { default } from '../focus/page';
+import { FocusSection } from '../focus/FocusSection';
+
+export default function AdvancedSettingsPage() {
+  return <FocusSection title="Advanced" />;
+}
