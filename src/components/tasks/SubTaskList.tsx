@@ -6,6 +6,14 @@
  * Renaming is a bare input committed on blur or Enter (so a half-typed name is
  * never sent), and adding is a row that becomes an input on tap — the same
  * gesture as the inline quick-add.
+ *
+ * ## The inset
+ *
+ * `pl-3`/`px-3` are the editor's own row axis (the same 12px inner padding the
+ * shadcn `Input`/`Button` use), so the subtask rows, the "Add subtask" row and
+ * the "Subtasks" heading above them all start on the same vertical line as the
+ * editor's field icons. They used to be 8px and 16px, which put the checkbox 4px
+ * left of that line and the add row 4px right of it.
  */
 import { useState } from 'react';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -65,7 +73,7 @@ export function SubTaskList({
           {subtasks.map((subtask) => {
             const completed = subtask.status === 'completed';
             return (
-              <li key={subtask.id} className="flex min-h-11 items-center gap-2 pr-1 pl-2">
+              <li key={subtask.id} className="flex min-h-11 items-center gap-2 pr-1 pl-3">
                 <Checkbox
                   checked={completed}
                   disabled={disabled}
@@ -112,7 +120,7 @@ export function SubTaskList({
       ) : null}
 
       {adding ? (
-        <div className="mt-2 flex min-h-11 items-center gap-2 px-4">
+        <div className="mt-2 flex min-h-11 items-center gap-2 px-3">
           <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground" aria-hidden>
             <PlusIcon className="size-5" />
           </span>
@@ -144,7 +152,7 @@ export function SubTaskList({
           disabled={disabled}
           onClick={() => setAdding(true)}
           className={cn(
-            'min-h-11 w-full justify-start gap-2 rounded-lg text-primary hover:text-primary',
+            'min-h-11 w-full justify-start gap-2 rounded-lg px-3 text-primary hover:text-primary',
             subtasks.length ? 'mt-2' : null,
           )}
         >

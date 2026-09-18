@@ -108,13 +108,34 @@ describe('TaskRow — shadcn primitives', () => {
     expect(ROW).toContain("'Deselect' : 'Select'");
   });
 
-  it('keeps the swipe reveal mounted but translated out of the card until it is revealed', () => {
+  it('keeps the swipe reveal mounted, and it now rides the drag', () => {
     // The revealed actions paint under the row, so an un-revealed one that is
     // only *hidden* shows through the card's rounded corners as red and green
-    // crescents. They are therefore parked a full width outside the card.
+    // crescents. They are therefore parked a full width outside the card at
+    // rest — and, since the pair is exactly `SWIPE_ACTION_WIDTH` wide,
+    // `SWIPE_ACTION_WIDTH + offsetX` is 100% when the row is closed, 0 when it
+    // is open, and the finger's own position in between. That is what puts the
+    // buttons on screen during the drag instead of after the release.
     expect(ROW).toContain('SWIPE_ACTION_WIDTH');
-    expect(ROW).toContain("revealed ? 'translateX(0)' : 'translateX(100%)'");
+    expect(ROW).toContain('`translateX(${SWIPE_ACTION_WIDTH + offsetX}px)`');
     expect(ROW).toContain('tabIndex={revealed ? 0 : -1}');
+    // The 200ms settle is disabled while the finger is down, or the pair would
+    // lag behind the row it is being revealed by.
+    expect(ROW).toMatch(/transition: swiping \? 'none' : 'transform 200ms/);
+    expect(ROW).toMatch(/transition: swiping \|\| lifted \? 'none' : 'transform 220ms/);
+  });
+
+  it('keeps the press highlight a region inside the button, not the button', () => {
+    // The button is the 44px touch target, so the highlight cannot be its own
+    // background without covering the whole row. It is an `aria-hidden` span
+    // inset inside the button, driven by the button's named group state.
+    expect(ROW).toContain('group/row-content');
+    expect(ROW).toContain('group-hover/row-content:bg-accent/30');
+    expect(ROW).toContain('group-active/row-content:bg-accent/50');
+    expect(ROW).toContain('absolute inset-x-1.5 inset-y-1');
+    // The button keeps its own 44px box, and no longer paints the accent itself.
+    expect(ROW).toContain('min-h-11');
+    expect(ROW).not.toContain('hover:bg-accent/30 focus-visible');
   });
 });
 
@@ -133,6 +154,18 @@ describe('TaskRow — Tailwind through cn(), no hand-rolled divider', () => {
     expect(ROW).toContain('last');
     expect(ROW).toMatch(/first && 'rounded-t-xl'/);
     expect(ROW).toMatch(/last && 'rounded-b-xl'/);
+  });
+
+  it('centres the due date on the title line with a matching line box', () => {
+    // Measured before: the label's 16px box centred 2.0px above the title's
+    // 20px one, which is the "slightly too high" the row was reported for. The
+    // label now carries the title's own line-height (20px =
+    // `text-base leading-tight`), so the two centres coincide.
+    const meta = source('TaskMeta.tsx');
+    expect(meta).toContain('text-xs leading-5');
+    // The row still hangs both from the top of the first line, so a two-line
+    // title does not drag the date down to the middle of the block.
+    expect(ROW).toContain('items-start');
   });
 
   it('never invents a spacing value', () => {
@@ -268,10 +301,12 @@ describe('the converted screens', () => {
 
   it('adds an explicit Save button that coexists with the debounce', () => {
     // The button is the deliberate action; the debounce and the close-flush stay
-    // as the safety net, and the draft being unmodified disables the button so it
-    // can never send an empty PATCH.
+    // as the safety net. Save is always available — an unmodified draft is a
+    // legitimate "file it away" — and it is disabled only while a write is in
+    // flight, which is what keeps a second tap from sending a second PATCH.
     expect(EDITOR).toContain('const [dirty, setDirty] = useState(false)');
-    expect(EDITOR).toContain('disabled={disabled || !task || !dirty || saving}');
+    expect(EDITOR).toContain('disabled={disabled || !task || saving || actions.isSaving}');
+    expect(EDITOR).not.toContain('!dirty || saving');
     expect(EDITOR).toContain("'Save'");
     expect(EDITOR).toContain('Saving…');
     expect(EDITOR).toContain('aria-label="Saving"');
@@ -281,6 +316,95 @@ describe('the converted screens', () => {
     // A failed save is surfaced inline through the state the editor already had.
     expect(EDITOR).toContain("setSaveError('Could not save the task.')");
     expect(EDITOR).toContain('<Alert variant="destructive" role="alert">');
+  });
+
+  it('closes the sheet on Save, without losing what the draft held', () => {
+    // Save flushes and then dismisses: one tap, one outcome. The close path
+    // still flushes as well (`handleOpenChange`), so dismissing the sheet by any
+    // route keeps the change, and `flush` returns without a request when the
+    // draft has nothing to send.
+    expect(EDITOR).toMatch(/async function save\(\) \{\s*if \(saving \|\| actions\.isSaving\) return;\s*setSaving\(true\);\s*await flush\(\);\s*setSaving\(false\);\s*onOpenChange\(false\);/);
+    expect(EDITOR).toContain('if (!current.task || !current.dirty) return;');
+    expect(EDITOR).toContain('if (!next) void flush();');
+    // The 600ms debounce is the other half of the net and is untouched.
+    expect(EDITOR).toContain('window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)');
+  });
+
+  it('gives the time field a placeholder and the date field the same type scale', () => {
+    // Measured: both are `h-9`, i.e. 36.0px in every viewport and state, and the
+    // rendered border rows are identical (y=270 and y=303 down a 1px column).
+    // What differed was the type inside — the time field's 16px/24px against the
+    // date button's 14px/20px — so the button now carries the inputs' own
+    // `text-base md:text-sm` scale.
+    expect(EDITOR).toContain('type="time"');
+    expect(EDITOR).toContain('placeholder="--:--"');
+    expect(EDITOR).toContain('justify-start text-base md:text-sm');
+  });
+
+  it('puts every row below the schedule row on the controls\' own inset', () => {
+    // Measured content insets from the editor's padding edge: the date field's
+    // own content 29.0px, the rows below 32.0px (`px-row`) — 3px of extra margin
+    // on everything under the date row. They are now `px-3`, the same inner
+    // padding the shadcn controls use (28.0px), and the subtask block follows.
+    expect(EDITOR).not.toContain('px-row py-2');
+    expect(EDITOR).not.toContain('className="px-row');
+    expect(EDITOR).toContain('rounded-md px-3 py-2 text-left text-sm');
+    expect(EDITOR).toContain('<h3 className="px-3 text-sm font-medium">Subtasks</h3>');
+    const subtasks = source('SubTaskList.tsx');
+    expect(subtasks).toContain('pr-1 pl-3');
+    expect(subtasks).toContain('gap-2 px-3');
+    expect(subtasks).toContain('rounded-lg px-3 text-primary');
+  });
+
+  it('switches the schedule row between a date and a duration', () => {
+    // The mode is a GodUI segmented control, and the duration half writes
+    // `estimateMinutes` — the field the task record already has, which the
+    // editor's own "Estimated time" stepper reads and writes too.
+    expect(EDITOR).toContain("from '@/components/godui/segmented-control'");
+    expect(EDITOR).toContain('<SegmentedControl');
+    expect(EDITOR).toContain("type ScheduleMode = 'date' | 'duration'");
+    expect(EDITOR).toContain('const DURATION_PRESETS = [');
+    expect(EDITOR).toContain('edit({ estimateMinutes: active ? null : preset.minutes })');
+    expect(EDITOR).toContain('edit({ estimateMinutes: Math.min(1440, estimateMinutes + 5) })');
+    // The chosen mode is read back off the record, so it survives a reload
+    // whenever the record distinguishes the two.
+    expect(EDITOR).toMatch(
+      /setScheduleMode\(\s*task && !task\.dueDate && \(task\.estimateMinutes \?\? 0\) > 0 \? 'duration' : 'date',\s*\);/,
+    );
+  });
+
+  it('puts Today, Tomorrow and Next week above the calendar', () => {
+    // The request read "add today and tomorrow sections"; inside the editor's
+    // date popover these are the quick picks that set the day directly. The task
+    // list already groups by urgency and Today already has its own sections, so
+    // new *list* sections would have duplicated both.
+    expect(EDITOR).toContain("{ label: 'Today', day: todayIn(zone) }");
+    expect(EDITOR).toContain("{ label: 'Tomorrow', day: addDaysToDateOnly(todayIn(zone), 1, zone) }");
+    expect(EDITOR).toContain("{ label: 'Next week', day: addDaysToDateOnly(todayIn(zone), 7, zone) }");
+    expect(EDITOR).toContain('onClick={() => pickDueDay(pick.day)}');
+    expect(EDITOR).toContain('function pickDueDay(day: DateOnly)');
+    // Above the calendar, not below it.
+    expect(EDITOR.indexOf("label: 'Today'")).toBeLessThan(EDITOR.indexOf('<Calendar\n'));
+  });
+
+  it('draws one edge on a section card, not two', () => {
+    // The glass card's static edge sheen is an inset white 1px line one pixel
+    // inside its own 1px border — the double border that was reported. Measured
+    // down the card's top edge: border #e5e5e5, sheen #f0f0f0, card #eeeeee.
+    expect(SECTION).toContain('sheen={0}');
+    expect(SECTION).not.toContain('sheen={0.3}');
+    expect(TODAY).toContain('sheen={0}');
+    // The hairline under the header is a different line, ~50px down the card.
+    expect(SECTION).toContain('border-t border-border/70');
+  });
+
+  it('tightens the section header\'s vertical padding', () => {
+    // The vendored trigger is `py-4` over an 18px title row: a 50px header
+    // against 44px rows. Measured 50px → 38px with `py-2.5`, applied to the
+    // trigger only (a negative margin on the title cannot go below the 16px
+    // chevron beside it), so the rows' horizontal axis is untouched.
+    expect(SECTION).toContain('[&_button[aria-expanded]]:py-2.5');
+    expect(SECTION).toContain('-mx-5 -mb-4');
   });
 
   it('does not let a sub-menu press dismiss the editor it was opened from', () => {

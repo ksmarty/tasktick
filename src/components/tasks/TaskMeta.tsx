@@ -104,6 +104,17 @@ export interface DueDateLabelProps {
  *
  * The tone is unchanged from when it led the meta line, so an overdue date is
  * still destructive and today's is still tinted.
+ *
+ * ## Why the label carries a line-height
+ *
+ * The row aligns the title and this label with `items-start`, so both boxes
+ * hang from the top of the first line. `text-xs` alone is a 12px font on a 16px
+ * line box, while the title is 16px on a 20px one — so the label's box centred
+ * 2px above the title's, and the date read as sitting high in the row. Measured
+ * before: label box centre 192.0px, title box centre 194.0px, label −2.0px. A
+ * `leading-5` line box (20px, exactly the title's `text-base leading-tight`)
+ * puts both centres on the same pixel. It is a line-height, not a margin: the
+ * box grows around the text and the baseline never moves.
  */
 export function DueDateLabel({ task, zone, timeFormat, className }: DueDateLabelProps) {
   const due = dueLabel(task, zone, timeFormat);
@@ -112,7 +123,9 @@ export function DueDateLabel({ task, zone, timeFormat, className }: DueDateLabel
   return (
     <span
       className={cn(
-        'shrink-0 whitespace-nowrap text-xs tabular-nums',
+        // `leading-5` matches the title's own line box, so the date is centred
+        // on the first line instead of floating 2px above it.
+        'shrink-0 text-xs leading-5 whitespace-nowrap tabular-nums',
         TONE_CLASS[due.tone],
         className,
       )}

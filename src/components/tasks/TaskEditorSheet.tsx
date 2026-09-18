@@ -8,19 +8,59 @@
  * the dialog closes, and available as an explicit **Save** button. The debounce
  * and the close-flush are the safety net — a change is never lost if the sheet is
  * dismissed — while the button is the deliberate action: it saves at once and
- * carries the saving/failure state. It is disabled while the draft is unmodified,
- * so it never fires a write with nothing to send. Picking a value inside a
- * sub-drawer makes the editor undismissible for the duration, which keeps Escape
- * from closing both at once.
+ * carries the saving/failure state. It is enabled even when the draft is
+ * unmodified (a deliberate "file it away" is a legitimate gesture) and disabled
+ * only while a write is in flight, which is what keeps a second tap from sending
+ * a second PATCH. Save then **closes** the sheet, so the button is one action and
+ * not two. "Closing never loses a change" still holds because Save calls the same
+ * `flush` the close path calls: whatever the draft holds goes out before the
+ * sheet is dismissed, and the 600ms debounce remains for the case where the user
+ * just walks away. Picking a value inside a sub-drawer makes the editor
+ * undismissible for the duration, which keeps Escape from closing both at once.
  *
  * ## The date and time fields
  *
  * The due date is a shadcn `Calendar` (react-day-picker) inside a `Popover`; the
  * floating day (`YYYY-MM-DD`, no timezone) is converted to and from the `Date`
  * the picker speaks with Luxon **at the edge only**, so a day never gets compared
- * against an instant. The due time is a native `<input type="time">` that stores
- * `HH:mm`: a native control renders in the user's own 12h/24h convention and
- * emits `HH:mm` either way, so the `timeFormat` setting has nothing to do here.
+ * against an instant. Three quick picks — Today, Tomorrow and Next week — sit
+ * above the calendar and set the day through the same `edit()` the calendar's own
+ * `onSelect` uses. (The request read "add today and tomorrow sections", and inside
+ * the editor's date popover these shortcuts are what that means: the task list
+ * already groups its own work by urgency and the Today screen already has Today
+ * and Tomorrow sections, so list sections would have been a duplicate.)
+ *
+ * The due time is a native `<input type="time">` that stores `HH:mm`: a native
+ * control renders in the user's own 12h/24h convention and emits `HH:mm` either
+ * way, so the `timeFormat` setting has nothing to do here. It carries a
+ * placeholder for the engines that honour one on a time field. Both halves of the
+ * pair are `h-9` with the same type scale — 16px on a phone, 14px from `md` up —
+ * so they read as one control.
+ *
+ * ## Specifying a date or a duration
+ *
+ * The schedule row has two modes, switched with a GodUI `SegmentedControl`. In
+ * **Date** mode it is the calendar button plus the time field; in **Duration**
+ * mode it is a row of duration quick-picks. Both write fields the task record
+ * already has: the date is `dueDate`/`dueTime`, and the duration is
+ * `estimateMinutes` — the same field the editor's own "Estimated time" stepper
+ * edits, so the two controls are always in step and nothing new is invented on
+ * the wire.
+ *
+ * The chosen mode is *derived* from the record rather than stored: the sheet opens
+ * in Duration mode exactly when the task has an estimate and no due date, which is
+ * the state the mode itself produces, so it survives a reload. A task that carries
+ * *both* a date and an estimate reopens in Date mode, because there is no field on
+ * a task (and no endpoint) that records the preference — see the report.
+ *
+ * ## One horizontal axis under the date row
+ *
+ * Every row below the schedule row is `px-3`, the same inner padding the shadcn
+ * `Input`/`Textarea`/`Button` use, so the icons and labels land on the text axis
+ * of the fields above them (measured: 29.0px from the panel's padding edge for the
+ * date field's own content, 28.0px for the rows below — the 1px is the field's own
+ * border). They used to be `px-row` (16px), which put them at 32.0px — 3px past
+ * the axis, close enough to look like a mistake rather than a choice.
  *
  * ## Why the full-screen shape keeps a close button
  *
@@ -55,10 +95,11 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
-import { humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
+import { SegmentedControl } from '@/components/godui/segmented-control';
+import { addDaysToDateOnly, humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useMediaQuery, useResource } from '@/lib/store';
-import type { Task } from '@/lib/types';
+import type { DateOnly, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { ListPicker } from './ListPicker';
@@ -76,6 +117,26 @@ const SAVE_DEBOUNCE_MS = 600;
 
 /** How long an inline save failure stays on screen. */
 const SAVE_ERROR_MS = 4000;
+
+/**
+ * The duration quick-picks in the schedule row's Duration mode, in minutes.
+ *
+ * A small set rather than a free number field: these are the four or five
+ * durations a task actually gets, they are one tap, and they round-trip as
+ * `estimateMinutes` — the field the task record already stores. Anything else is
+ * still reachable through the "Estimated time" stepper below, which edits the
+ * same value.
+ */
+const DURATION_PRESETS = [
+  { minutes: 15, label: '15m' },
+  { minutes: 30, label: '30m' },
+  { minutes: 60, label: '1h' },
+  { minutes: 120, label: '2h' },
+  { minutes: 240, label: '4h' },
+] as const;
+
+/** Which half of the schedule row is on screen: a due date, or a duration. */
+type ScheduleMode = 'date' | 'duration';
 
 type PickerId = 'repeat' | 'reminder' | 'priority' | 'list' | 'tags';
 
@@ -159,7 +220,7 @@ function EditorRow({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'flex min-h-12 w-full items-center gap-3 rounded-md px-row py-2 text-left text-sm',
+        'flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm',
         'hover:bg-accent hover:text-accent-foreground',
         'disabled:pointer-events-none disabled:opacity-50',
       )}
@@ -194,6 +255,8 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
    * `Object.keys(draft).length` would never fall back to zero.
    */
   const [dirty, setDirty] = useState(false);
+  /** The schedule row's mode: a due date, or a duration (`estimateMinutes`). */
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('date');
   const [picker, setPicker] = useState<PickerId | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** The due-date popover is controlled so picking a day closes it. */
@@ -219,6 +282,12 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
     setConfirmOpen(false);
     setDateOpen(false);
     setSaveError(null);
+    // The mode is read back off the record: a task that carries a duration and
+    // no date is exactly the state Duration mode leaves behind, so reopening the
+    // editor — after a reload, or on another day — lands in the same mode.
+    setScheduleMode(
+      task && !task.dueDate && (task.estimateMinutes ?? 0) > 0 ? 'duration' : 'date',
+    );
     blocked.current = false;
   }, [task?.id, open]);
 
@@ -274,18 +343,33 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   }
 
   /**
-   * The explicit Save action.
+   * A date-popover quick pick. It writes through `edit()` — the same path the
+   * calendar's own `onSelect` uses — so a shortcut day is saved exactly like a
+   * tapped one, and then closes the popover the way picking a day does.
+   */
+  function pickDueDay(day: DateOnly) {
+    edit({ dueDate: day, clearDue: false });
+    setDateOpen(false);
+  }
+
+  /**
+   * The explicit Save action: save, then dismiss.
    *
    * The debounce is the safety net; this is the deliberate save, so it flushes at
-   * once instead of waiting out the quiet period. It is disabled while the draft
-   * is unmodified, so it can never fire a write with nothing to send, and it owns
-   * the button's in-flight state so a slow save reads as "Saving…".
+   * once instead of waiting out the quiet period, and then closes the sheet — one
+   * tap, one outcome. It is *not* gated on the draft being modified: a save of an
+   * untouched task is a legitimate "file it away", and `flush` already returns
+   * without a request when there is nothing to send. It is disabled only while a
+   * write is in flight, which is what keeps a second tap from sending a second
+   * PATCH — and whatever the draft held has already gone out through `flush`, so
+   * closing cannot lose a change.
    */
   async function save() {
-    if (!dirty || saving) return;
+    if (saving || actions.isSaving) return;
     setSaving(true);
     await flush();
     setSaving(false);
+    onOpenChange(false);
   }
 
   function handleOpenChange(next: boolean) {
@@ -417,70 +501,153 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
             <Separator />
 
-            <div className="flex items-center gap-stack">
-              <Popover open={dateOpen} onOpenChange={setDateOpen}>
-                <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" className="min-w-0 flex-1 justify-start" disabled={disabled}>
-                    <CalendarIcon className="size-4 text-base" />
-                    <span className="truncate">{dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}</span>
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-auto p-0">
-                  <Calendar
-                    mode="single"
-                    autoFocus
-                    weekStartsOn={weekStartsOn}
-                    /* The picker opens on the task's own month, not today's. */
-                    defaultMonth={dateValue}
-                    selected={dateValue}
-                    onSelect={(day) => {
-                      if (!day) {
-                        edit({ clearDue: true, dueDate: null, dueTime: null });
-                      } else {
-                        edit({ dueDate: DateTime.fromJSDate(day, { zone }).toISODate(), clearDue: false });
-                      }
-                      setDateOpen(false);
-                    }}
-                  />
-                  {dueDate ? (
-                    <div className="flex justify-end px-3 pb-3">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          edit({ clearDue: true, dueDate: null, dueTime: null });
-                          setDateOpen(false);
-                        }}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  ) : null}
-                </PopoverContent>
-              </Popover>
+            {/*
+             * The mode switch. A GodUI segmented control because this is exactly
+             * a binary segmented choice, and it reports its state through
+             * `aria-selected` on each option. `[&>button]:flex-1` splits the
+             * control's full width evenly between the two options — the control
+             * itself is `inline-flex`, so without it the pair would bunch at its
+             * leading edge and leave the trailing half empty.
+             */}
+            <SegmentedControl
+              aria-label="Specify by"
+              size="sm"
+              className="[&>button]:flex-1"
+              options={[
+                { value: 'date', label: 'Date' },
+                { value: 'duration', label: 'Duration' },
+              ]}
+              value={scheduleMode}
+              onChange={(next) => setScheduleMode(next === 'duration' ? 'duration' : 'date')}
+            />
 
-              {/*
-               * `w-auto`: the parent is a row, and the date button is the
-               * flexible one. An `Input`'s default `w-full` is a 100% flex
-               * basis, which would win the space and collapse the button.
-               */}
-              <Input
-                type="time"
-                aria-label="Time"
-                className="w-auto"
-                value={dueTime ?? ''}
-                disabled={disabled || !dueDate}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (!value) {
-                    edit({ dueTime: null, clearDue: false });
-                    return;
-                  }
-                  edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
-                }}
-              />
-            </div>
+            {scheduleMode === 'date' ? (
+              <div className="flex items-center gap-stack">
+                <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      // `text-base md:text-sm` is the same type scale the shadcn
+                      // `Input` uses, so the date button and the time field read as
+                      // one pair (both `h-9`, both 16px on a phone).
+                      className="min-w-0 flex-1 justify-start text-base md:text-sm"
+                      disabled={disabled}
+                    >
+                      <CalendarIcon className="size-4 text-base" />
+                      <span className="truncate">{dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-0">
+                    {/*
+                     * The quick picks, above the calendar: the three days that
+                     * account for nearly every date a task gets. They write
+                     * through the same `edit()` the calendar's own `onSelect`
+                     * uses, so a picked day is saved exactly like a tapped one,
+                     * and the pick that is already set reads as selected.
+                     */}
+                    <div className="flex gap-1 border-b border-border p-2">
+                      {[
+                        { label: 'Today', day: todayIn(zone) },
+                        { label: 'Tomorrow', day: addDaysToDateOnly(todayIn(zone), 1, zone) },
+                        { label: 'Next week', day: addDaysToDateOnly(todayIn(zone), 7, zone) },
+                      ].map((pick) => (
+                        <Button
+                          key={pick.label}
+                          type="button"
+                          variant={dueDate === pick.day ? 'secondary' : 'ghost'}
+                          size="sm"
+                          aria-pressed={dueDate === pick.day}
+                          className="flex-1"
+                          onClick={() => pickDueDay(pick.day)}
+                        >
+                          {pick.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <Calendar
+                      mode="single"
+                      autoFocus
+                      weekStartsOn={weekStartsOn}
+                      /* The picker opens on the task's own month, not today's. */
+                      defaultMonth={dateValue}
+                      selected={dateValue}
+                      onSelect={(day) => {
+                        if (!day) {
+                          edit({ clearDue: true, dueDate: null, dueTime: null });
+                        } else {
+                          edit({ dueDate: DateTime.fromJSDate(day, { zone }).toISODate(), clearDue: false });
+                        }
+                        setDateOpen(false);
+                      }}
+                    />
+                    {dueDate ? (
+                      <div className="flex justify-end px-3 pb-3">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            edit({ clearDue: true, dueDate: null, dueTime: null });
+                            setDateOpen(false);
+                          }}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
+
+                {/*
+                 * `w-auto`: the parent is a row, and the date button is the
+                 * flexible one. An `Input`'s default `w-full` is a 100% flex
+                 * basis, which would win the space and collapse the button.
+                 */}
+                <Input
+                  type="time"
+                  aria-label="Time"
+                  placeholder="--:--"
+                  className="w-auto"
+                  value={dueTime ?? ''}
+                  disabled={disabled || !dueDate}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (!value) {
+                      edit({ dueTime: null, clearDue: false });
+                      return;
+                    }
+                    edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
+                  }}
+                />
+              </div>
+            ) : (
+              /*
+               * Duration mode: the quick-picks write `estimateMinutes`, the
+               * field the record already stores, and the "Estimated time"
+               * stepper below edits the same number, so the two never disagree.
+               * Tapping the selected one clears it, which is the only way to get
+               * back to "no duration" without the stepper.
+               */
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Duration">
+                {DURATION_PRESETS.map((preset) => {
+                  const active = estimateMinutes === preset.minutes;
+                  return (
+                    <Button
+                      key={preset.minutes}
+                      type="button"
+                      variant={active ? 'secondary' : 'outline'}
+                      aria-pressed={active}
+                      disabled={disabled}
+                      onClick={() => edit({ estimateMinutes: active ? null : preset.minutes })}
+                      className="flex-1"
+                    >
+                      {preset.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="flex flex-col">
               <EditorRow
@@ -524,7 +691,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 onClick={() => setPicker('tags')}
               />
 
-              <div className="flex min-h-12 items-center gap-3 px-row py-2 text-sm">
+              <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
                 <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
                   <TimerIcon />
                 </span>
@@ -559,7 +726,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 px-row py-2">
+              <div className="flex items-center gap-3 px-3 py-2">
                 <Link aria-hidden className="size-5 shrink-0 text-muted-foreground" />
                 <Input
                   aria-label="Link"
@@ -571,7 +738,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 />
               </div>
 
-              <div className="flex min-h-12 items-center gap-3 px-row py-2 text-sm">
+              <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
                 <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
                   <DrawingPinIcon />
                 </span>
@@ -592,7 +759,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
             <Separator />
 
-            <h3 className="px-row text-sm font-medium">Subtasks</h3>
+            <h3 className="px-3 text-sm font-medium">Subtasks</h3>
             <SubTaskList
               subtasks={subtasks}
               disabled={disabled}
@@ -629,15 +796,16 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             {/*
              * Save is the deliberate action and Delete is the destructive one, so
              * they share a row: Save takes the space and the default fill, Delete
-             * keeps its own label and does not shrink. Save is disabled when the
-             * draft is unmodified (`dirty`) and while its own write is in flight,
-             * so it can never send an empty PATCH or a double one.
+             * keeps its own label and does not shrink. Save is enabled even when
+             * nothing has been edited — a deliberate "file it away" — and then
+             * closes the sheet; it is disabled only while a write is in flight,
+             * so it can never send a double PATCH.
              */}
             <div className="flex items-center gap-2">
               <Button
                 type="button"
                 className="flex-1"
-                disabled={disabled || !task || !dirty || saving}
+                disabled={disabled || !task || saving || actions.isSaving}
                 aria-busy={saving || actions.isSaving || undefined}
                 onClick={() => void save()}
               >

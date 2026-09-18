@@ -11,6 +11,32 @@
  * shadcn `ContextMenu` of the extra actions; never both, so a finger drag is
  * never mistaken for a context menu.
  *
+ * ## The press highlight is a region, not the button
+ *
+ * The hover/press accent used to be painted by the content button itself, so it
+ * covered the button's whole 44px-tall, nearly-full-width box — a slab rather
+ * than a highlight. The affordance is now an `aria-hidden` span positioned
+ * inside that button (`inset-x-1.5 inset-y-1`), so it is 12px narrower and 8px
+ * shorter than before while the button keeps its `min-h-11` 44px touch target
+ * untouched. The span is driven by the button's own `group/row-content` state
+ * (`group-hover`/`group-active`), so hover on a pointer and press on a finger
+ * both still light it up.
+ *
+ * ## The swipe reveals as it goes
+ *
+ * The Complete/Delete pair used to sit parked outside the card until a release
+ * decided the swipe, so a drag moved the row over the bare card and the buttons
+ * were painted in afterwards. The pair now rides the same `offsetX` the row
+ * does — `translateX(SWIPE_ACTION_WIDTH + offsetX)` — so both move 1:1 with the
+ * finger from the first pixel past the axis lock and the buttons are on screen
+ * for the whole drag. Release snapshots the same way it always did: past half
+ * the pair's width it settles open, otherwise it snaps back, and the 200ms
+ * transition is disabled only while the finger is down.
+ *
+ * The long-press lift and the horizontal swipe still share the row without
+ * fighting: the axis lock at `GESTURE_SLOP_PX` decides once, a vertical gesture
+ * hands the row back to the scroller, and the lift keeps the pointer captured.
+ *
  * A pinned task carries a pin glyph beside its title, which is the one mark the
  * row adds to say "this one was pinned deliberately": it belongs on the name,
  * not down in the meta line where the derived facts live.
@@ -126,6 +152,11 @@ export function TaskRow({
   const [offsetX, setOffsetX] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
+  /**
+   * True while a horizontal drag is being tracked, so both the row and the
+   * action pair paint the finger's position with no transition in the way.
+   */
+  const [swiping, setSwiping] = useState(false);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const gesture = useRef({ x: 0, y: 0, active: false, axis: null as null | 'x' | 'y', timer: 0, lifted: false });
@@ -151,10 +182,7 @@ export function TaskRow({
   // A click anywhere else, or a scroll, puts the revealed actions away.
   useEffect(() => {
     if (!revealed) return;
-    const close = () => {
-      setRevealed(false);
-      setOffsetX(0);
-    };
+    const close = () => closeReveal();
     document.addEventListener('pointerdown', close, true);
     return () => document.removeEventListener('pointerdown', close, true);
   }, [revealed]);
@@ -162,6 +190,7 @@ export function TaskRow({
   function closeReveal() {
     setRevealed(false);
     setOffsetX(0);
+    setSwiping(false);
   }
 
   function cancelLongPress() {
@@ -231,6 +260,7 @@ export function TaskRow({
 
     if (state.axis === 'x') {
       const base = revealed ? -SWIPE_ACTION_WIDTH : 0;
+      setSwiping(true);
       setOffsetX(clamp(base + dx, -SWIPE_ACTION_WIDTH, 0));
     }
   }
@@ -250,6 +280,7 @@ export function TaskRow({
       const open = offsetX <= -SWIPE_ACTION_WIDTH / 2;
       setRevealed(open);
       setOffsetX(open ? -SWIPE_ACTION_WIDTH : 0);
+      setSwiping(false);
     }
 
     state.active = false;
@@ -269,7 +300,7 @@ export function TaskRow({
       onPointerCancel={onPointerUp}
       style={{
         transform: `translate(${offsetX}px, ${lifted ? (drag?.liftOffset ?? 0) : 0}px)`,
-        transition: gesture.current.axis === 'x' || lifted ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
+        transition: swiping || lifted ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
         touchAction: 'pan-y',
       }}
       className={cn(
@@ -312,8 +343,18 @@ export function TaskRow({
         }}
         aria-pressed={selectionMode ? selected : undefined}
         aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
-        className="flex min-h-11 min-w-0 flex-1 flex-col items-stretch justify-center gap-0 rounded-md px-1 text-left outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
+        className="group/row-content relative flex min-h-11 min-w-0 flex-1 flex-col items-stretch justify-center gap-0 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
+        {/*
+         * The press/hover highlight, inset inside the button rather than
+         * painted by it, so it reads as a region and not a slab. The button
+         * keeps its own 44px box, and the children below are positioned so they
+         * paint (and hit-test) over this layer.
+         */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50"
+        />
         {/*
          * The title, with the due date pinned to the row's trailing edge.
          *
@@ -327,7 +368,7 @@ export function TaskRow({
          * `items-start` keeps the date level with the first line rather than
          * drifting to the vertical middle of a two-line title.
          */}
-        <span className="flex w-full min-w-0 flex-wrap items-start gap-x-1 gap-y-0">
+        <span className="relative flex w-full min-w-0 flex-wrap items-start gap-x-1 gap-y-0">
           <span
             className={cn(
               'min-w-0 flex-1 text-base leading-tight',
@@ -345,7 +386,7 @@ export function TaskRow({
           ) : null}
           <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} className="ml-auto" />
         </span>
-        <TaskMeta task={task} />
+        <TaskMeta task={task} className="relative" />
       </button>
 
       {selectionMode ? (
@@ -399,13 +440,19 @@ export function TaskRow({
        * card's rounded corners the parent clips the row's background and the
        * buttons show through as red and green crescents. So they are translated
        * fully out of the card until the row is actually revealed.
+       *
+       * They ride the row's own `offsetX` — the pair is exactly
+       * `SWIPE_ACTION_WIDTH` wide, so `SWIPE_ACTION_WIDTH + offsetX` is 100%
+       * parked at rest, 0 when open, and the finger's position in between. That
+       * is what makes them appear *during* the drag instead of after the
+       * release, while a settled swipe still ends at exactly 0 or 100%.
        */}
       <div
         aria-hidden={!revealed}
         className="absolute inset-y-0 right-0 z-0 flex w-38"
         style={{
-          transform: revealed ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+          transform: `translateX(${SWIPE_ACTION_WIDTH + offsetX}px)`,
+          transition: swiping ? 'none' : 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
           pointerEvents: revealed ? 'auto' : 'none',
         }}
       >

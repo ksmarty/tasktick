@@ -165,10 +165,15 @@ export function TodayView() {
            * absolutely positioned inside the ring, so it reads as the ring's own
            * label rather than as a datum beside it.
            */}
+          {/*
+           * The same surface as a list section: `sheen={0}` because the glass
+           * card's edge sheen paints a second line inside its own border (see
+           * `TaskListSection`), and the border is the one edge on the card.
+           */}
           <LiquidGlassCard
             radius={16}
             strength={0}
-            sheen={0.3}
+            sheen={0}
             tint={GLASS_TINT}
             className="border-border shadow-sm"
           >

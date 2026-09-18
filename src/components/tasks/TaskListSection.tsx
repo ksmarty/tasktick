@@ -20,6 +20,31 @@
  * contrast: Overdue is the only one at full `text-foreground`, the rest sit at
  * `text-muted-foreground`.
  *
+ * ## The one edge on the card
+ *
+ * The glass card ships a 1px `border` *and* a static edge sheen — an inset
+ * `box-shadow: inset 0 1px 0 rgba(255,255,255,0.5·sheen)` — which on the light
+ * theme paints a second, lighter line one pixel inside the border. Measured down
+ * a 1px column at the card's top edge (mobile, DSF 2, pixels read back from the
+ * screenshot): page `#ffffff`, border `#e5e5e5`, sheen `#f0f0f0`, card
+ * `#eeeeee` — two lines, exactly the double border that was reported. `sheen={0}`
+ * removes the sheen and leaves the single `border-border` edge; it also drops the
+ * pointer-tracked specular glow, which a flat, non-refracting list card has
+ * nothing to say with. The hairline under the header (`border-t
+ * border-border/70` on the track) is not part of that: it sits *below* the
+ * header, ~50px down the card, and is what separates the header from its rows.
+ *
+ * ## The header's vertical padding
+ *
+ * The vendored trigger is `py-4` on top of an 18px title row, which made the
+ * header 50px tall against 44px rows — the top of every card read as empty. The
+ * padding is tightened to `py-2.5` through a descendant rule on the Accordion's
+ * own root (`[&_button[aria-expanded]]:py-2.5`), which is why the height is set
+ * here rather than on the title: a negative margin on the title can only shrink
+ * the line to the 16px chevron that is its sibling, and cannot reach the padding
+ * at all. Measured: 50px → 38px. `py-2.5` is on Tailwind's scale, and the
+ * override is vertical only, so the horizontal axis below is untouched.
+ *
  * ## The three places this file compensates for the vendored Accordion
  *
  * `components/godui/accordion.tsx` is upstream's file and is shared, so it is not
@@ -29,6 +54,9 @@
  *  - the panel owns `px-5 pb-4 pt-0`, so the row track pulls back with `-mx-5
  *    -mb-4` and every row then supplies its own `px-row`. That is what keeps the
  *    row inset coming from the layout token instead of from a vendored number.
+ *    The header's own padding is a separate, vertical override (above), so this
+ *    compensation is unchanged: the rows' left/right axis still comes from
+ *    `-mx-5` + `px-row`.
  *  - the trigger owns `px-5`, so the header's own content pulls back with `-mx-1`
  *    (1.25rem − 0.25rem = 1rem) and lands on exactly the same `px-row` axis as the
  *    rows. A negative margin rather than an override, because `tailwind-merge`
@@ -207,13 +235,15 @@ export function TaskListSection({
   return (
     /*
      * `strength={0}`: the refraction would have nothing to bend on the flat page
-     * background, so the card keeps the tint, frost, sheen and elevation without
-     * paying for the displacement filter on every section of an everyday list.
+     * background, so the card keeps the tint, frost and elevation without paying
+     * for the displacement filter on every section of an everyday list.
+     * `sheen={0}`: the edge sheen is the second line on the card's top edge (see
+     * the file doc), so the border is the only edge.
      */
     <LiquidGlassCard
       radius={16}
       strength={0}
-      sheen={0.3}
+      sheen={0}
       tint={GLASS_TINT}
       className="border-border shadow-sm"
     >
@@ -223,8 +253,9 @@ export function TaskListSection({
         // A section that starts collapsed is the one the caller marked as such —
         // "Completed" holds work the user has finished with, so it arrives closed.
         defaultValue={section.defaultCollapsed ? [] : [section.id]}
-        // Neutralise the Accordion's own surface so the glass card is the card.
-        className="rounded-none border-0 bg-transparent"
+        // Neutralise the Accordion's own surface so the glass card is the card,
+        // and tighten the header's own `py-4` (see the file doc).
+        className="rounded-none border-0 bg-transparent [&_button[aria-expanded]]:py-2.5"
         items={[
           {
             value: section.id,
