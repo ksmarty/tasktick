@@ -3,7 +3,7 @@
 /**
  * Account: the display name, the sign-in address, the password and the way out.
  *
- * All four go through the better-auth client (`@/lib/auth-client`) rather than
+ * All of them go through the better-auth client (`@/lib/auth-client`) rather than
  * the app's own API, because the session cookie is better-auth's to manage.
  * Better-auth returns `{ data, error }` instead of throwing, so every call is
  * unwrapped and turned into a toast — a silent failure here means a user who
@@ -11,12 +11,21 @@
  *
  * The email row is read-only on purpose: better-auth only accepts an email change
  * with a verification mail, and this server has no SMTP. Offering a button that
- * can never succeed would be worse than saying so.
+ * can never succeed would be worse than saying so. It is a plain `ListItem` with
+ * its text at full contrast, not a disabled control — dimming a fact made it
+ * unreadable.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound, LogOut } from 'lucide-react';
-import { Button, ListRow, TextField, useToast } from '@/components/ui';
+import Button from '@mui/material/Button';
+import InputAdornment from '@mui/material/InputAdornment';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import KeyIcon from '@mui/icons-material/Key';
+import LogoutIcon from '@mui/icons-material/Logout';
+import { useToast } from '@/components/app/Toast';
 import { authClient, signOut } from '@/lib/auth-client';
 import { useMutation } from '@/lib/store';
 import { SettingsGroup } from './SettingsGroup';
@@ -93,67 +102,87 @@ export function AccountSettings({ user }: AccountSettingsProps) {
         title="Account"
         footer={`Your sign-in address is ${user.email}. Changing it needs an email verification flow, which this server does not have configured.`}
       >
-        <div className="px-4 py-3">
-          <TextField
-            label="Name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoComplete="name"
-            maxLength={200}
-          />
-          <div className="pt-3">
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+          <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+            <TextField
+              fullWidth
+              label="Name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoComplete="name"
+              slotProps={{ htmlInput: { maxLength: 200 } }}
+            />
             <Button
-              size="sm"
-              variant="tinted"
+              size="small"
+              variant="outlined"
               loading={saveName.isPending}
               disabled={!name.trim() || name.trim() === user.name}
               onClick={() => void saveName.run()}
             >
               Save name
             </Button>
-          </div>
-        </div>
+          </Stack>
+        </ListItem>
 
-        {/* The email is the account's identity and cannot be changed here, but
-            it is not a disabled control either — dimming a fact to 40% made it
-            unreadable. */}
-        <ListRow title="Email" subtitle={user.email} />
+        <ListItem>
+          <ListItemText primary="Email" secondary={user.email} />
+        </ListItem>
 
-        <div className="hairline-t px-4 py-3">
-          <Button fullWidth variant="gray" icon={LogOut} loading={leave.isPending} onClick={() => void leave.run()}>
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+          <Button
+            fullWidth
+            variant="outlined"
+            color="inherit"
+            startIcon={<LogoutIcon aria-hidden />}
+            loading={leave.isPending}
+            onClick={() => void leave.run()}
+          >
             Sign out
           </Button>
-        </div>
+        </ListItem>
       </SettingsGroup>
 
       <SettingsGroup title="Change password" footer="At least 8 characters. Other sessions are signed out afterwards.">
-        <div className="space-y-3 px-4 py-3">
-          <TextField
-            label="Current password"
-            type="password"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-            leading={<KeyRound className="size-4" aria-hidden />}
-            maxLength={500}
-          />
-          <TextField
-            label="New password"
-            type="password"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.target.value)}
-            maxLength={200}
-          />
-          <Button
-            fullWidth
-            disabled={!canChangePassword}
-            loading={savePassword.isPending}
-            onClick={() => void savePassword.run()}
-          >
-            Change password
-          </Button>
-        </div>
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+          <Stack spacing={3}>
+            <TextField
+              fullWidth
+              label="Current password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              slotProps={{
+                htmlInput: { maxLength: 500 },
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <KeyIcon fontSize="small" aria-hidden />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <TextField
+              fullWidth
+              label="New password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              slotProps={{ htmlInput: { maxLength: 200 } }}
+            />
+            <Button
+              fullWidth
+              variant="contained"
+              disabled={!canChangePassword}
+              loading={savePassword.isPending}
+              onClick={() => void savePassword.run()}
+            >
+              Change password
+            </Button>
+          </Stack>
+        </ListItem>
       </SettingsGroup>
     </>
   );

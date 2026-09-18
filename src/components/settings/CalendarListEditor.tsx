@@ -4,33 +4,54 @@
  * The calendars this instance knows about: rename, recolour, hide, set the
  * default, delete.
  *
- * Renaming, recolouring and visibility save on submit from a sheet rather than
+ * Renaming, recolouring and visibility save on submit from a dialog rather than
  * on every keystroke, because `PATCH /api/calendars/[id]` is a real write that
  * other views re-read.
  *
  * A read-only calendar (one discovered on a CalDAV account that refuses writes)
  * says so and hides the controls that could not work, instead of offering a
  * button that silently fails.
+ *
+ * Material shape: the rows are `ListItem`s with the visibility and edit controls
+ * as trailing `IconButton`s, the editor is a `Dialog` (full-screen on a phone),
+ * and the twelve-colour palette is a `ToggleButtonGroup` of swatches.
  */
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, Eye, EyeOff, Pencil, Plus, Star, Trash2 } from 'lucide-react';
-import {
-  Button,
-  ColorPicker,
-  ConfirmDialog,
-  IconButton,
-  ListRow,
-  Sheet,
-  Skeleton,
-  Switch,
-  TextField,
-  useToast,
-} from '@/components/ui';
-import { accentVar } from '@/lib/colors';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import IconButton from '@mui/material/IconButton';
+import ListItem from '@mui/material/ListItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
+import AddIcon from '@mui/icons-material/Add';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import CheckIcon from '@mui/icons-material/Check';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import StarIcon from '@mui/icons-material/Star';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import { useToast } from '@/components/app/Toast';
+import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
+import { ACCENT_COLORS, type AccentColor, type Calendar } from '@/lib/types';
 import { SettingsGroup } from './SettingsGroup';
-import type { AccentColor, Calendar } from '@/lib/types';
+import { SWATCH_GROUP_SX, swatchSx } from './swatches';
 
 export function CalendarListEditor() {
   const { toast } = useToast();
@@ -83,60 +104,70 @@ export function CalendarListEditor() {
       <SettingsGroup
         title="Calendars"
         action={
-          <Button size="sm" variant="plain" icon={Plus} onClick={() => setCreating(true)}>
+          <Button size="small" variant="text" startIcon={<AddIcon aria-hidden />} onClick={() => setCreating(true)}>
             Add
           </Button>
         }
         footer="Visibility controls which calendars the calendar view draws. The default is where new events are created."
       >
         {calendars.isInitialLoading ? (
-          <div className="space-y-2 px-4 py-3">
-            <Skeleton variant="rect" className="h-10" />
-            <Skeleton variant="rect" className="h-10" />
-          </div>
+          <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+            <Stack spacing={1}>
+              <Skeleton variant="rounded" height={40} />
+              <Skeleton variant="rounded" height={40} />
+            </Stack>
+          </ListItem>
         ) : list.length === 0 ? (
-          <ListRow title="No calendars yet" subtitle="Add a local calendar to start planning." />
+          <ListItem>
+            <ListItemText primary="No calendars yet" secondary="Add a local calendar to start planning." />
+          </ListItem>
         ) : (
           list.map((calendar) => (
-            <ListRow
+            <ListItem
               key={calendar.id}
-              title={
-                <span className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: accentVar(calendar.color) }}
-                    aria-hidden
-                  />
-                  <span className="truncate">{calendar.name}</span>
-                  {calendar.isDefault ? <Star className="size-3.5 shrink-0 text-warning" aria-label="Default" /> : null}
-                </span>
-              }
-              subtitle={calendar.provider === 'caldav' ? 'Synced from a CalDAV account' : 'Stored on this server'}
-              trailing={
-                <span className="flex items-center gap-1">
+              secondaryAction={
+                <Stack direction="row" spacing={0.5}>
                   <IconButton
-                    icon={calendar.isVisible ? Eye : EyeOff}
-                    size="sm"
-                    variant="plain"
                     aria-label={calendar.isVisible ? `Hide ${calendar.name}` : `Show ${calendar.name}`}
                     disabled={toggleVisibility.isPending}
                     onClick={() => void toggleVisibility.run(calendar, !calendar.isVisible)}
-                  />
-                  <IconButton
-                    icon={Pencil}
-                    size="sm"
-                    variant="plain"
-                    aria-label={`Edit ${calendar.name}`}
-                    onClick={() => setEditing(calendar)}
-                  />
-                </span>
+                  >
+                    {calendar.isVisible ? <VisibilityIcon aria-hidden /> : <VisibilityOffIcon aria-hidden />}
+                  </IconButton>
+                  <IconButton aria-label={`Edit ${calendar.name}`} onClick={() => setEditing(calendar)}>
+                    <EditIcon aria-hidden />
+                  </IconButton>
+                </Stack>
               }
-            />
+            >
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                <Box
+                  aria-hidden
+                  sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: accentHex(calendar.color) }}
+                />
+              </ListItemIcon>
+              <ListItemText
+                primary={
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                    <Box
+                      component="span"
+                      sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {calendar.name}
+                    </Box>
+                    {calendar.isDefault ? (
+                      <StarIcon aria-label="Default" sx={{ fontSize: 16, flexShrink: 0, color: 'warning.main' }} />
+                    ) : null}
+                  </Box>
+                }
+                secondary={calendar.provider === 'caldav' ? 'Synced from a CalDAV account' : 'Stored on this server'}
+              />
+            </ListItem>
           ))
         )}
       </SettingsGroup>
 
-      <CalendarSheet
+      <CalendarDialog
         open={creating || editing !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -153,26 +184,35 @@ export function CalendarListEditor() {
         onSetDefault={(calendar) => void setDefault.run(calendar)}
       />
 
-      <ConfirmDialog
-        open={removeTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setRemoveTarget(null);
-        }}
-        title={`Delete ${removeTarget?.name ?? 'this calendar'}?`}
-        message="Every event in this calendar is deleted. This cannot be undone."
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => {
-          if (removeTarget) void remove.run(removeTarget);
-          setRemoveTarget(null);
-        }}
-      />
+      <Dialog open={removeTarget !== null} onClose={() => setRemoveTarget(null)}>
+        <DialogTitle>{`Delete ${removeTarget?.name ?? 'this calendar'}?`}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            Every event in this calendar is deleted. This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="text" onClick={() => setRemoveTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              if (removeTarget) void remove.run(removeTarget);
+              setRemoveTarget(null);
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
 
 /** Add or edit one calendar. */
-function CalendarSheet({
+function CalendarDialog({
   open,
   onOpenChange,
   calendar,
@@ -188,6 +228,8 @@ function CalendarSheet({
   onSetDefault: (calendar: Calendar) => void;
 }) {
   const { toast } = useToast();
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const editing = calendar !== null;
 
   const [name, setName] = useState('');
@@ -230,97 +272,137 @@ function CalendarSheet({
   );
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={editing ? 'Edit calendar' : 'New calendar'}
-      footer={
-        <Button fullWidth size="lg" loading={save.isPending} disabled={readOnly} onClick={() => void save.run()}>
+    <Dialog open={open} onClose={() => onOpenChange(false)} fullScreen={fullScreen} fullWidth maxWidth="sm">
+      <DialogTitle>{editing ? 'Edit calendar' : 'New calendar'}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={3} sx={{ pb: 2 }}>
+          <TextField
+            fullWidth
+            label="Name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            disabled={readOnly}
+            autoComplete="off"
+            slotProps={{ htmlInput: { maxLength: 200 } }}
+          />
+
+          <Box>
+            <Typography variant="caption" color="text.secondary" id="calendar-colour-label" sx={{ display: 'block', px: 1, pb: 1 }}>
+              Colour
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              value={color}
+              onChange={(_event, next: AccentColor | null) => {
+                if (next) setColor(next);
+              }}
+              aria-labelledby="calendar-colour-label"
+              sx={[SWATCH_GROUP_SX, { px: 1 }]}
+            >
+              {ACCENT_COLORS.map((option) => (
+                <ToggleButton
+                  key={option}
+                  value={option}
+                  aria-label={ACCENT_LABEL[option]}
+                  sx={swatchSx(accentHex(option))}
+                >
+                  {option === color ? <CheckIcon fontSize="small" aria-hidden /> : null}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.disabled" aria-live="polite" sx={{ display: 'block', px: 1, pt: 1 }}>
+              Preview:{' '}
+              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                <Box
+                  aria-hidden
+                  sx={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', bgcolor: accentHex(color) }}
+                />
+                {name.trim() || 'New calendar'}
+              </Box>
+            </Typography>
+          </Box>
+
+          {editing ? (
+            <>
+              <Box sx={{ borderTop: 1, borderColor: 'divider', pt: 1 }}>
+                <FormControlLabel
+                  sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
+                  labelPlacement="start"
+                  label="Visible in the calendar"
+                  control={
+                    <Switch
+                      checked={isVisible}
+                      onChange={(_event, next) => setVisible(next)}
+                      slotProps={{ input: { 'aria-label': 'Visible in the calendar' } }}
+                    />
+                  }
+                />
+              </Box>
+
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, borderTop: 1, borderColor: 'divider', pt: 1.5 }}>
+                <Typography variant="body1">Default calendar</Typography>
+                {calendar?.isDefault ? (
+                  <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'warning.main' }}>
+                    <StarIcon sx={{ fontSize: 16 }} aria-hidden />
+                    <Typography variant="caption" color="warning.main">
+                      Default
+                    </Typography>
+                  </Stack>
+                ) : (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<StarIcon aria-hidden />}
+                    disabled={readOnly || calendar === null}
+                    onClick={() => {
+                      if (calendar) {
+                        onSetDefault(calendar);
+                        onOpenChange(false);
+                      }
+                    }}
+                  >
+                    Make default
+                  </Button>
+                )}
+              </Box>
+
+              {readOnly ? (
+                <Typography variant="caption" color="text.secondary">
+                  This calendar comes from a CalDAV account that does not accept changes, so it is read-only here.
+                </Typography>
+              ) : null}
+
+              <Button
+                fullWidth
+                variant="contained"
+                color="error"
+                startIcon={<DeleteIcon aria-hidden />}
+                disabled={calendar === null}
+                onClick={() => {
+                  if (calendar) onRequestDelete(calendar);
+                }}
+              >
+                Delete calendar
+              </Button>
+            </>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+              <CalendarMonthIcon fontSize="small" aria-hidden sx={{ mt: 0.25, color: 'primary.main' }} />
+              <Typography variant="caption" color="text.secondary">
+                A local calendar is stored on your server and syncs to every device that signs in.
+              </Typography>
+            </Box>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button variant="text" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button variant="contained" loading={save.isPending} disabled={readOnly} onClick={() => void save.run()}>
           {editing ? 'Save calendar' : 'Create calendar'}
         </Button>
-      }
-    >
-      <div className="space-y-4 pb-4">
-        <TextField
-          label="Name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          maxLength={200}
-          disabled={readOnly}
-          autoComplete="off"
-        />
-
-        <div>
-          <p className="mb-2 px-1 text-footnote text-secondary">Colour</p>
-          <ColorPicker value={color} onChange={setColor} label="Calendar colour" />
-          <p className="pt-2 px-1 text-caption-1 text-tertiary" aria-live="polite">
-            Preview:{' '}
-            <span className="inline-flex items-center gap-1">
-              <span
-                className="inline-block size-2.5 rounded-full"
-                style={{ backgroundColor: accentVar(color) }}
-                aria-hidden
-              />
-              {name.trim() || 'New calendar'}
-            </span>
-          </p>
-        </div>
-
-        {editing ? (
-          <>
-            <div className="hairline-t pt-2">
-              <Switch label="Visible in the calendar" checked={isVisible} onCheckedChange={setVisible} />
-            </div>
-
-            <div className="hairline-t flex items-center justify-between gap-3 pt-2">
-              <span className="text-body text-label">Default calendar</span>
-              {calendar?.isDefault ? (
-                <span className="flex items-center gap-1 text-footnote text-warning">
-                  <Star className="size-3.5" aria-hidden /> Default
-                </span>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="tinted"
-                  icon={Star}
-                  disabled={readOnly || calendar === null}
-                  onClick={() => {
-                    if (calendar) {
-                      onSetDefault(calendar);
-                      onOpenChange(false);
-                    }
-                  }}
-                >
-                  Make default
-                </Button>
-              )}
-            </div>
-
-            {readOnly ? (
-              <p className="text-footnote text-secondary">
-                This calendar comes from a CalDAV account that does not accept changes, so it is read-only here.
-              </p>
-            ) : null}
-
-            <Button
-              fullWidth
-              variant="destructive"
-              icon={Trash2}
-              disabled={calendar === null}
-              onClick={() => {
-                if (calendar) onRequestDelete(calendar);
-              }}
-            >
-              Delete calendar
-            </Button>
-          </>
-        ) : (
-          <p className="flex items-start gap-2 text-footnote text-secondary">
-            <CalendarDays className="mt-0.5 size-4 shrink-0 text-tint" aria-hidden />
-            A local calendar is stored on your server and syncs to every device that signs in.
-          </p>
-        )}
-      </div>
-    </Sheet>
+      </DialogActions>
+    </Dialog>
   );
 }

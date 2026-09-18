@@ -86,8 +86,6 @@ const nextConfig = {
       './node_modules/@esbuild-kit/**',
       './node_modules/esbuild/**',
       './node_modules/lightningcss*/**',
-      './node_modules/@tailwindcss/**',
-      './node_modules/tailwindcss/**',
       './node_modules/@opentelemetry/**',
     ],
   },

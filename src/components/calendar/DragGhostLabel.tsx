@@ -1,5 +1,7 @@
 'use client';
 
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
 import type { DragGhost } from './use-item-drag';
 
 /**
@@ -8,17 +10,31 @@ import type { DragGhost } from './use-item-drag';
  * It shows the *snapped* landing time (not the raw pointer position), which is
  * what makes a 15-minute grid feel predictable: the user sees the value that
  * will be committed before they let go.
+ *
+ * It is a `Paper` at the top of the surface scale, positioned against the
+ * viewport so the matrix the drag applies to the lifted row never carries it
+ * along.
  */
 export function DragGhostLabel({ ghost }: { ghost: DragGhost }) {
   return (
-    <div
+    <Paper
       aria-hidden
-      className="pointer-events-none fixed z-50"
-      style={{ left: ghost.clientX, top: ghost.clientY, transform: 'translate(14px, -50%)' }}
+      elevation={4}
+      sx={{
+        pointerEvents: 'none',
+        position: 'fixed',
+        zIndex: 50,
+        left: ghost.clientX,
+        top: ghost.clientY,
+        transform: 'translate(14px, -50%)',
+        borderRadius: 1,
+        px: 1,
+        py: 0.5,
+      }}
     >
-      <span className="material tnum rounded-ios-sm px-2 py-1 text-caption-1 font-semibold text-label shadow-ios-lg">
+      <Typography variant="caption" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
         {ghost.label}
-      </span>
-    </div>
+      </Typography>
+    </Paper>
   );
 }

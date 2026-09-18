@@ -12,11 +12,19 @@
  * row applies it and closes the sheet — see `choose` below.
  */
 import type { ReactNode } from 'react';
-import { ArrowDownWideNarrow, Check, Flag } from 'lucide-react';
-import { SectionHeader, Sheet } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import Check from '@mui/icons-material/Check';
+import Drawer from '@mui/material/Drawer';
+import Flag from '@mui/icons-material/Flag';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
+import Sort from '@mui/icons-material/Sort';
+import Typography from '@mui/material/Typography';
 import { accentHex } from '@/lib/colors';
-import type { List, Tag } from '@/lib/types';
+import type { List as TaskList, Tag } from '@/lib/types';
 import { TASK_SORTS, TASK_WINDOWS, type TaskViewState } from './filters';
 import { PRIORITY_ITEMS } from './priority';
 
@@ -24,7 +32,7 @@ export interface TaskFilterSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: TaskViewState;
-  lists: readonly List[];
+  lists: readonly TaskList[];
   tags: readonly Tag[];
   onChange: (patch: Partial<TaskViewState>) => void;
 }
@@ -34,25 +42,23 @@ interface OptionRowProps {
   label: string;
   onSelect: () => void;
   leading?: ReactNode;
-  first?: boolean;
 }
 
-function OptionRow({ selected, label, onSelect, leading, first = false }: OptionRowProps) {
+/** Section heading inside the sheet; the sheet owns the spacing, not the list. */
+const HEADING_SX = { bgcolor: 'transparent', px: 2, pt: 3, pb: 0.5 } as const;
+
+function OptionRow({ selected, label, onSelect, leading }: OptionRowProps) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onSelect}
-      className={cn(
-        'flex min-h-11 w-full items-center gap-3 px-4 text-body pressable-row',
-        !first && 'hairline-t',
-      )}
-    >
-      {leading ?? <span aria-hidden className="size-5 shrink-0" />}
-      <span className={cn('min-w-0 flex-1 truncate text-left', selected ? 'text-tint' : 'text-label')}>{label}</span>
-      {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-    </button>
+    <ListItemButton role="radio" aria-checked={selected} onClick={onSelect}>
+      <ListItemIcon sx={{ minWidth: 32 }}>{leading ?? <Box component="span" aria-hidden />}</ListItemIcon>
+      <ListItemText
+        primary={label}
+        slotProps={{
+          primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
+        }}
+      />
+      {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+    </ListItemButton>
   );
 }
 
@@ -76,41 +82,68 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Filter & Sort" dismissible>
-      <div className="pb-4">
-        <SectionHeader title="Due" className="px-0 pt-2 pb-2" />
-        <div role="radiogroup" aria-label="Due window" className="grouped">
-          {TASK_WINDOWS.map((option, index) => (
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onOpenChange(false)}
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': 'Filter & Sort',
+          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          pb: 2,
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
+          Filter &amp; Sort
+        </Typography>
+
+        <ListSubheader component="div" disableSticky sx={{ ...HEADING_SX, pt: 1 }}>
+          Due
+        </ListSubheader>
+        <List role="radiogroup" aria-label="Due window" sx={{ py: 0 }}>
+          {TASK_WINDOWS.map((option) => (
             <OptionRow
               key={option.value}
-              first={index === 0}
               selected={state.window === option.value}
               label={option.label}
               onSelect={() => choose({ window: option.value })}
             />
           ))}
-        </div>
+        </List>
 
-        <SectionHeader title="Priority" className="px-0 pt-6 pb-2" />
-        <div role="radiogroup" aria-label="Priority" className="grouped">
-          {PRIORITY_ITEMS.map((item, index) => (
+        <ListSubheader component="div" disableSticky sx={HEADING_SX}>
+          Priority
+        </ListSubheader>
+        <List role="radiogroup" aria-label="Priority" sx={{ py: 0 }}>
+          {PRIORITY_ITEMS.map((item) => (
             <OptionRow
               key={item.value}
-              first={index === 0}
               selected={state.priority === item.value}
               label={item.label}
-              leading={<Flag className={cn('size-5 shrink-0', item.text)} aria-hidden />}
+              leading={<Flag sx={{ fontSize: 20, color: item.color }} aria-hidden />}
               onSelect={() => choose({ priority: state.priority === item.value ? null : item.value })}
             />
           ))}
-        </div>
+        </List>
 
         {lists.length ? (
           <>
-            <SectionHeader title="Lists" className="px-0 pt-6 pb-2" />
-            <div role="radiogroup" aria-label="List" className="grouped">
+            <ListSubheader component="div" disableSticky sx={HEADING_SX}>
+              Lists
+            </ListSubheader>
+            <List role="radiogroup" aria-label="List" sx={{ py: 0 }}>
               <OptionRow
-                first
                 selected={state.listId === null}
                 label="All lists"
                 onSelect={() => choose({ listId: null })}
@@ -121,50 +154,57 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
                   selected={state.listId === list.id}
                   label={list.name}
                   leading={
-                    <span
+                    <Box
                       aria-hidden
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: accentHex(list.color) }}
+                      sx={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        bgcolor: accentHex(list.color),
+                      }}
                     />
                   }
                   onSelect={() => choose({ listId: state.listId === list.id ? null : list.id })}
                 />
               ))}
-            </div>
+            </List>
           </>
         ) : null}
 
         {tags.length ? (
           <>
-            <SectionHeader title="Tags" className="px-0 pt-6 pb-2" />
-            <div role="radiogroup" aria-label="Tag" className="grouped">
-              {tags.map((tag, index) => (
+            <ListSubheader component="div" disableSticky sx={HEADING_SX}>
+              Tags
+            </ListSubheader>
+            <List role="radiogroup" aria-label="Tag" sx={{ py: 0 }}>
+              {tags.map((tag) => (
                 <OptionRow
                   key={tag.id}
-                  first={index === 0}
                   selected={state.tagId === tag.id}
                   label={`#${tag.name}`}
                   onSelect={() => choose({ tagId: state.tagId === tag.id ? null : tag.id })}
                 />
               ))}
-            </div>
+            </List>
           </>
         ) : null}
 
-        <SectionHeader title="Sort" className="px-0 pt-6 pb-2" />
-        <div role="radiogroup" aria-label="Sort" className="grouped">
-          {TASK_SORTS.map((option, index) => (
+        <ListSubheader component="div" disableSticky sx={HEADING_SX}>
+          Sort
+        </ListSubheader>
+        <List role="radiogroup" aria-label="Sort" sx={{ py: 0 }}>
+          {TASK_SORTS.map((option) => (
             <OptionRow
               key={option.value}
-              first={index === 0}
               selected={state.sort === option.value}
               label={option.label}
-              leading={<ArrowDownWideNarrow className="size-5 shrink-0 text-secondary" aria-hidden />}
+              leading={<Sort sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />}
               onSelect={() => choose({ sort: option.value })}
             />
           ))}
-        </div>
-      </div>
-    </Sheet>
+        </List>
+      </Box>
+    </Drawer>
   );
 }

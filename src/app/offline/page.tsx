@@ -1,5 +1,11 @@
-import Link from 'next/link';
-import { CloudOff, RefreshCw } from 'lucide-react';
+import NextLink from 'next/link';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Link from '@mui/material/Link';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import CloudOffIcon from '@mui/icons-material/CloudOff';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 export const metadata = { title: 'Offline' };
 export const dynamic = 'force-static';
@@ -10,38 +16,72 @@ export const dynamic = 'force-static';
  * Reached only when a navigation fails and neither the network nor the cached
  * app shell could answer. It is intentionally a static route with no data
  * dependencies so that it can be precached and always render — a fallback page
- * that itself needs the network is not a fallback.
+ * that itself needs the network is not a fallback. The service worker precaches
+ * this document together with the assets it references, which is what keeps the
+ * Material components below renderable with no connection.
  */
 export default function OfflinePage() {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-5 px-8 text-center">
-      <div className="flex size-16 items-center justify-center rounded-ios-2xl bg-fill-secondary text-secondary">
-        <CloudOff className="size-8" aria-hidden />
-      </div>
+    <Box
+      component="main"
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2.5,
+        minHeight: '100dvh',
+        textAlign: 'center',
+        bgcolor: 'background.default',
+        pl: 'calc(env(safe-area-inset-left, 0px) + 2rem)',
+        pr: 'calc(env(safe-area-inset-right, 0px) + 2rem)',
+        pt: 'calc(env(safe-area-inset-top, 0px) + 3rem)',
+        pb: 'calc(env(safe-area-inset-bottom, 0px) + 3rem)',
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 64,
+          height: 64,
+          borderRadius: 4,
+          bgcolor: 'action.hover',
+          color: 'text.secondary',
+        }}
+      >
+        <CloudOffIcon sx={{ fontSize: 32 }} aria-hidden />
+      </Box>
 
-      <div className="space-y-2">
-        <h1 className="text-title-2 font-semibold">You are offline</h1>
-        <p className="max-w-xs text-subhead text-secondary">
+      <Stack spacing={1}>
+        <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
+          You are offline
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
           TaskTick could not reach the server. Anything you already loaded is still available, and your changes
           will sync once you are back online.
-        </p>
-      </div>
+        </Typography>
+      </Stack>
 
       {/*
         A plain anchor, not next/link: a client-side navigation would be handled by
-        the router and could fail the same way this page was reached.
+        the router and could fail the same way this page was reached. A MUI
+        `Button` with `href` renders an `<a>` and does exactly that.
       */}
-      <a
+      <Button
         href="/today"
-        className="inline-flex min-h-11 items-center gap-2 rounded-ios bg-tint px-5 text-body font-medium text-tint-contrast pressable"
+        variant="contained"
+        size="large"
+        startIcon={<RefreshIcon aria-hidden />}
+        sx={{ textTransform: 'none' }}
       >
-        <RefreshCw className="size-4" aria-hidden />
         Try again
-      </a>
+      </Button>
 
-      <Link href="/settings" className="text-footnote text-secondary underline underline-offset-2">
+      <Link component={NextLink} href="/settings" variant="body2" color="text.secondary" underline="always">
         Go to settings
       </Link>
-    </main>
+    </Box>
   );
 }

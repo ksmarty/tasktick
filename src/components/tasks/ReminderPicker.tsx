@@ -6,9 +6,15 @@
  * Offsets are stored the way the server expects them — minutes *added* to the
  * due instant — so "5 minutes before" is `-5`.
  */
-import { Bell, Check } from 'lucide-react';
-import { Sheet } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import Check from '@mui/icons-material/Check';
+import Drawer from '@mui/material/Drawer';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import NotificationsNone from '@mui/icons-material/NotificationsNone';
+import Typography from '@mui/material/Typography';
 
 export interface ReminderOffset {
   offsetMinutes: number;
@@ -52,42 +58,66 @@ export function ReminderPicker({ open, onOpenChange, value, hasDueDate, onChange
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Reminders" dismissible>
-      <div className="pb-2">
-        <div className="grouped">
-          {REMINDER_OFFSETS.map((item, index) => {
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onOpenChange(false)}
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': 'Reminders',
+          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          pb: 2,
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
+          Reminders
+        </Typography>
+
+        <List sx={{ py: 0 }}>
+          {REMINDER_OFFSETS.map((item) => {
             const selected = value.includes(item.offsetMinutes);
             return (
-              <button
+              <ListItemButton
                 key={item.offsetMinutes}
-                type="button"
                 role="checkbox"
                 aria-checked={selected}
                 aria-disabled={!hasDueDate || undefined}
                 onClick={() => toggle(item.offsetMinutes)}
-                className={cn(
-                  'flex min-h-11 w-full items-center gap-3 px-4 text-body',
-                  index > 0 && 'hairline-t',
-                  hasDueDate ? 'pressable-row' : 'opacity-40',
-                )}
+                sx={{ opacity: hasDueDate ? 1 : 0.4 }}
               >
-                <Bell
-                  className={cn('size-5 shrink-0', selected ? 'text-tint' : 'text-secondary')}
-                  aria-hidden
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  <NotificationsNone
+                    sx={{ fontSize: 20, color: selected ? 'primary.main' : 'text.secondary' }}
+                    aria-hidden
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  slotProps={{ primary: { noWrap: true, sx: { color: 'text.primary' } } }}
                 />
-                <span className="min-w-0 flex-1 truncate text-left text-label">{item.label}</span>
-                {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-              </button>
+                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+              </ListItemButton>
             );
           })}
-        </div>
+        </List>
 
-        <p className="px-4 pt-3 text-footnote text-secondary">
+        <Typography variant="caption" sx={{ display: 'block', px: 2, pt: 1.5, color: 'text.secondary' }}>
           {hasDueDate
             ? 'Each selected offset fires a notification before the task is due.'
             : 'Add a due date first — a reminder with nothing to count back from would never fire.'}
-        </p>
-      </div>
-    </Sheet>
+        </Typography>
+      </Box>
+    </Drawer>
   );
 }

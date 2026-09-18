@@ -11,11 +11,22 @@
  * Every change saves immediately — these are single-choice rows with nothing to
  * confirm — and the preview line underneath shows the effect of both the zone and
  * the clock format together, so "12h in Tokyo" can be verified at a glance.
+ *
+ * The two pickers keep the semantics they had: the long timezone list and the
+ * two-value week start are `TextField select`, and the clock format — a genuine
+ * either/or pair — is a `ToggleButtonGroup`.
  */
-import { Select, SegmentedControl, useToast } from '@/components/ui';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import ListItem from '@mui/material/ListItem';
+import MenuItem from '@mui/material/MenuItem';
+import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
 import { formatTime, nowIn } from '@/lib/dates';
+import { useToast } from '@/components/app/Toast';
 import { SettingsGroup } from './SettingsGroup';
 import type { UserSettings } from '@/lib/types';
 
@@ -95,50 +106,70 @@ export function DateTimeSettings({ settings }: DateTimeSettingsProps) {
       title="Date and time"
       footer={`Stored once on your server, so every device agrees. Times are shown in ${settings.timezone}; it is ${preview} there now.`}
     >
-      <div className="px-4 py-3">
-        <Select
-          value={settings.timezone}
-          onChange={(value) => void persist.run({ timezone: value })}
-          options={zones.map((zone) => ({ value: zone, label: zone }))}
+      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+        <TextField
+          select
+          fullWidth
           label="Time zone"
-          sheetTitle="Time zone"
-        />
+          value={settings.timezone}
+          onChange={(event) => void persist.run({ timezone: event.target.value })}
+        >
+          {zones.map((zone) => (
+            <MenuItem key={zone} value={zone}>
+              {zone}
+            </MenuItem>
+          ))}
+        </TextField>
+
         {localZone && localZone !== settings.timezone ? (
-          <button
-            type="button"
-            className="mt-2 min-h-6 text-footnote font-semibold text-tint pressable"
+          <Button
+            variant="text"
+            size="small"
             onClick={() => void persist.run({ timezone: localZone })}
+            sx={{ mt: 0.5, px: 0.5 }}
           >
             Use this device&apos;s zone ({localZone})
-          </button>
+          </Button>
         ) : null}
-      </div>
+      </ListItem>
 
-      <div className="hairline-t px-4 py-3">
-        <Select
-          value={String(settings.weekStartsOn)}
-          onChange={(value) => void persist.run({ weekStartsOn: value === '1' ? 1 : 0 })}
-          options={[
-            { value: '1', label: 'Monday' },
-            { value: '0', label: 'Sunday' },
-          ]}
+      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+        <TextField
+          select
+          fullWidth
           label="Start of week"
-          sheetTitle="Start of week"
-        />
-      </div>
+          value={String(settings.weekStartsOn)}
+          onChange={(event) => void persist.run({ weekStartsOn: event.target.value === '1' ? 1 : 0 })}
+        >
+          <MenuItem value="1">Monday</MenuItem>
+          <MenuItem value="0">Sunday</MenuItem>
+        </TextField>
+      </ListItem>
 
-      <div className="hairline-t px-4 py-3">
-        <SegmentedControl
-          options={[
-            { value: '24h', label: '24-hour' },
-            { value: '12h', label: '12-hour' },
-          ]}
-          value={settings.timeFormat}
-          onChange={(value) => void persist.run({ timeFormat: value === '12h' ? '12h' : '24h' })}
-          label="Clock format"
-          size="sm"
-        />
-      </div>
+      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            component="span"
+            id="clock-format-label"
+            sx={{ flex: 1, minWidth: 0, typography: 'body1' }}
+          >
+            Clock format
+          </Box>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={settings.timeFormat}
+            onChange={(_event, value: '12h' | '24h' | null) => {
+              if (!value) return;
+              void persist.run({ timeFormat: value });
+            }}
+            aria-labelledby="clock-format-label"
+          >
+            <ToggleButton value="24h">24-hour</ToggleButton>
+            <ToggleButton value="12h">12-hour</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      </ListItem>
     </SettingsGroup>
   );
 }

@@ -1,7 +1,12 @@
 'use client';
 
-import { RefreshCw, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import WifiOffIcon from '@mui/icons-material/WifiOff';
 
 /**
  * Persistent offline indicator.
@@ -12,11 +17,11 @@ import { useCallback, useEffect, useState } from 'react';
  * says the app is offline and that unsent changes are still held, and its
  * "Retry" action actively re-checks the network instead of waiting for the
  * browser's `online` event, which is unreliable on captive portals.
+ *
+ * Material `Alert` for the surface — it already carries the right severity
+ * colour, icon slot and action slot, so the hand-rolled banner is gone. The
+ * detection and retry logic below is unchanged.
  */
-
-const BANNER_CLASS =
-  'fixed inset-x-3 top-[calc(var(--sat)_+_0.5rem)] z-50 flex items-center gap-3 rounded-ios-xl ' +
-  'material px-3.5 py-2.5 shadow-ios-lg animate-ios-in';
 
 type Probe = 'idle' | 'checking' | 'failed';
 
@@ -58,21 +63,49 @@ export function OfflineBanner() {
   if (!offline) return null;
 
   return (
-    <div className={BANNER_CLASS} role="status" aria-live="polite">
-      <WifiOff aria-hidden className="h-5 w-5 shrink-0 text-warning" />
-      <p className="min-w-0 flex-1 text-footnote text-label">
-        You&rsquo;re offline. Changes are kept on this device and will sync when you reconnect.
-        {probe === 'failed' && <span className="text-secondary"> Still no connection.</span>}
-      </p>
-      <button
-        type="button"
-        onClick={() => void retry()}
-        disabled={probe === 'checking'}
-        className="pressable flex shrink-0 items-center gap-1 rounded-ios bg-fill px-3 py-1.5 text-footnote font-semibold text-label disabled:opacity-60"
+    <Box
+      sx={{
+        position: 'fixed',
+        left: 12,
+        right: 12,
+        top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)',
+        zIndex: 'snackbar',
+        display: 'flex',
+      }}
+    >
+      <Alert
+        severity="warning"
+        role="status"
+        aria-live="polite"
+        icon={<WifiOffIcon aria-hidden />}
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            onClick={() => void retry()}
+            disabled={probe === 'checking'}
+            startIcon={
+              probe === 'checking' ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <RefreshIcon aria-hidden />
+              )
+            }
+            sx={{ textTransform: 'none' }}
+          >
+            Retry
+          </Button>
+        }
+        sx={{ width: '100%', alignItems: 'center', boxShadow: 4 }}
       >
-        <RefreshCw aria-hidden className={probe === 'checking' ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-        Retry
-      </button>
-    </div>
+        You&rsquo;re offline. Changes are kept on this device and will sync when you reconnect.
+        {probe === 'failed' && (
+          <Box component="span" sx={{ color: 'text.secondary' }}>
+            {' '}
+            Still no connection.
+          </Box>
+        )}
+      </Alert>
+    </Box>
   );
 }

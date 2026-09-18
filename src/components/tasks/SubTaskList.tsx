@@ -8,9 +8,17 @@
  * gesture as the inline quick-add.
  */
 import { useState } from 'react';
-import { Check, Plus, Trash } from 'lucide-react';
-import { IconButton } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Add from '@mui/icons-material/Add';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import Delete from '@mui/icons-material/Delete';
+import IconButton from '@mui/material/IconButton';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 import type { SubTask } from '@/lib/types';
 
 export interface SubTaskListProps {
@@ -46,47 +54,29 @@ export function SubTaskList({
   }
 
   return (
-    <div>
+    <Box>
       {subtasks.length ? (
-        <ul className="overflow-hidden rounded-ios-md bg-elevated">
-          {subtasks.map((subtask, index) => {
+        <List sx={{ py: 0, bgcolor: 'background.paper', borderRadius: 1.5 }}>
+          {subtasks.map((subtask) => {
             const completed = subtask.status === 'completed';
             return (
-              <li
-                key={subtask.id}
-                className={cn(
-                  'relative flex min-h-11 items-center gap-2 pr-1 pl-4',
-                  index === 0 && 'rounded-t-ios-md',
-                  index === subtasks.length - 1 && 'rounded-b-ios-md',
-                  index < subtasks.length - 1 &&
-                    'after:pointer-events-none after:absolute after:bottom-0 after:right-0 after:left-13 after:h-px after:bg-separator',
-                )}
-              >
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={completed}
-                  aria-label={completed ? `Mark ${subtask.title} incomplete` : `Complete ${subtask.title}`}
+              <ListItem key={subtask.id} sx={{ gap: 1, pr: 0.5, pl: 1 }}>
+                <Checkbox
+                  checked={completed}
                   disabled={disabled}
-                  onClick={() => onToggle(subtask)}
-                  className="-ml-2.5 flex size-11 shrink-0 items-center justify-center disabled:opacity-40"
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'flex size-6 items-center justify-center rounded-full border-[1.5px] transition-colors duration-150 ease-ios',
-                      completed ? 'border-tint bg-tint text-on-tint' : 'border-separator-opaque',
-                    )}
-                  >
-                    {completed ? <Check className="size-4 stroke-[3]" aria-hidden /> : null}
-                  </span>
-                </button>
+                  onChange={() => onToggle(subtask)}
+                  slotProps={{
+                    input: {
+                      'aria-label': completed ? `Mark ${subtask.title} incomplete` : `Complete ${subtask.title}`,
+                      'aria-checked': completed,
+                    },
+                  }}
+                />
 
-                <input
-                  type="text"
+                <TextField
+                  variant="standard"
                   defaultValue={subtask.title}
                   disabled={disabled}
-                  aria-label={`Rename ${subtask.title}`}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault();
@@ -98,36 +88,47 @@ export function SubTaskList({
                     if (next && next !== subtask.title) onRename(subtask, next);
                     else event.target.value = subtask.title;
                   }}
-                  className={cn(
-                    'min-h-11 min-w-0 flex-1 bg-transparent py-2 text-body outline-none',
-                    completed ? 'text-secondary line-through' : 'text-label',
-                    disabled && 'opacity-40',
-                  )}
+                  slotProps={{
+                    input: { disableUnderline: true },
+                    htmlInput: { 'aria-label': `Rename ${subtask.title}` },
+                  }}
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    '& input': {
+                      color: completed ? 'text.secondary' : 'text.primary',
+                      textDecoration: completed ? 'line-through' : 'none',
+                    },
+                  }}
                 />
 
                 <IconButton
                   aria-label={`Delete subtask ${subtask.title}`}
-                  icon={Trash}
-                  size="sm"
+                  color="error"
+                  size="small"
                   disabled={disabled}
                   onClick={() => onDelete(subtask)}
-                  className="text-danger"
-                />
-              </li>
+                >
+                  <Delete sx={{ fontSize: 20 }} />
+                </IconButton>
+              </ListItem>
             );
           })}
-        </ul>
+        </List>
       ) : null}
 
       {adding ? (
-        <div className="mt-1 flex min-h-11 items-center gap-2 rounded-ios-md bg-elevated px-4">
-          <Plus className="size-4 shrink-0 text-tertiary" aria-hidden />
-          <input
-            type="text"
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: 'center', mt: 1, px: 2, minHeight: 48 }}
+        >
+          <Add sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />
+          <TextField
+            variant="standard"
             autoFocus
             value={draft}
             disabled={disabled}
-            aria-label="New subtask"
             placeholder="Subtask"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -141,29 +142,35 @@ export function SubTaskList({
               }
             }}
             onBlur={() => void commitNew()}
-            className="min-h-11 min-w-0 flex-1 bg-transparent py-2 text-body text-label outline-none placeholder:text-tertiary"
+            slotProps={{
+              input: { disableUnderline: true },
+              htmlInput: { 'aria-label': 'New subtask' },
+            }}
+            sx={{ flex: 1, minWidth: 0 }}
           />
-        </div>
+        </Stack>
       ) : (
-        <button
-          type="button"
+        <Button
+          fullWidth
           disabled={disabled}
           onClick={() => setAdding(true)}
-          className={cn(
-            'flex min-h-11 w-full items-center gap-2 rounded-ios-md px-4 text-body text-tint pressable-row',
-            subtasks.length ? 'mt-1' : '',
-            disabled && 'opacity-40',
-          )}
+          startIcon={<Add sx={{ fontSize: 20 }} />}
+          sx={{
+            justifyContent: 'flex-start',
+            mt: subtasks.length ? 1 : 0,
+            px: 2,
+            minHeight: 48,
+            color: 'primary.main',
+          }}
         >
-          <Plus className="size-5 shrink-0" aria-hidden />
           Add subtask
           {subtasks.length ? (
-            <span className="tnum ml-auto text-footnote text-secondary">
+            <Typography variant="caption" sx={{ ml: 'auto', color: 'text.secondary' }}>
               {done}/{subtasks.length} done
-            </span>
+            </Typography>
           ) : null}
-        </button>
+        </Button>
       )}
-    </div>
+    </Box>
   );
 }

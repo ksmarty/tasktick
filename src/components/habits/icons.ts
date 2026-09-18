@@ -5,57 +5,59 @@
  * which keeps the database free of a React dependency and lets the set grow
  * without a migration. An unknown or missing name falls back to a target rather
  * than rendering nothing.
+ *
+ * The names are unchanged from the old set — they are the stored contract — but
+ * each one now resolves to a Material icon (`@mui/icons-material`), so the
+ * renderer is `SvgIconComponent` rather than a lucide component.
  */
-import {
-  Bike,
-  BookOpen,
-  Brain,
-  Coffee,
-  Droplets,
-  Dumbbell,
-  Flame,
-  Footprints,
-  GlassWater,
-  Heart,
-  Leaf,
-  Moon,
-  Music,
-  Pill,
-  Smile,
-  Sparkles,
-  Star,
-  Sun,
-  Target,
-  Timer,
-  Utensils,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
+import type { SvgIconComponent } from '@mui/icons-material';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import BoltIcon from '@mui/icons-material/Bolt';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import DirectionsBikeIcon from '@mui/icons-material/DirectionsBike';
+import DirectionsWalkIcon from '@mui/icons-material/DirectionsWalk';
+import EnergySavingsLeafIcon from '@mui/icons-material/EnergySavingsLeaf';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import LocalCafeIcon from '@mui/icons-material/LocalCafe';
+import LocalDrinkIcon from '@mui/icons-material/LocalDrink';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
+import MedicationIcon from '@mui/icons-material/Medication';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import MoodIcon from '@mui/icons-material/Mood';
+import MusicNoteIcon from '@mui/icons-material/MusicNote';
+import PsychologyIcon from '@mui/icons-material/Psychology';
+import RestaurantIcon from '@mui/icons-material/Restaurant';
+import StarIcon from '@mui/icons-material/Star';
+import TimerIcon from '@mui/icons-material/Timer';
+import TrackChangesIcon from '@mui/icons-material/TrackChanges';
+import WaterDropIcon from '@mui/icons-material/WaterDrop';
+import WbSunnyIcon from '@mui/icons-material/WbSunny';
 
 export const HABIT_ICONS = {
-  target: Target,
-  droplets: Droplets,
-  'glass-water': GlassWater,
-  dumbbell: Dumbbell,
-  bike: Bike,
-  footprints: Footprints,
-  heart: Heart,
-  brain: Brain,
-  pill: Pill,
-  leaf: Leaf,
-  sun: Sun,
-  moon: Moon,
-  coffee: Coffee,
-  utensils: Utensils,
-  book: BookOpen,
-  music: Music,
-  sparkles: Sparkles,
-  star: Star,
-  timer: Timer,
-  zap: Zap,
-  flame: Flame,
-  smile: Smile,
-} as const satisfies Record<string, LucideIcon>;
+  target: TrackChangesIcon,
+  droplets: WaterDropIcon,
+  'glass-water': LocalDrinkIcon,
+  dumbbell: FitnessCenterIcon,
+  bike: DirectionsBikeIcon,
+  footprints: DirectionsWalkIcon,
+  heart: FavoriteIcon,
+  brain: PsychologyIcon,
+  pill: MedicationIcon,
+  leaf: EnergySavingsLeafIcon,
+  sun: WbSunnyIcon,
+  moon: DarkModeIcon,
+  coffee: LocalCafeIcon,
+  utensils: RestaurantIcon,
+  book: MenuBookIcon,
+  music: MusicNoteIcon,
+  sparkles: AutoAwesomeIcon,
+  star: StarIcon,
+  timer: TimerIcon,
+  zap: BoltIcon,
+  flame: LocalFireDepartmentIcon,
+  smile: MoodIcon,
+} as const satisfies Record<string, SvgIconComponent>;
 
 export type HabitIconName = keyof typeof HABIT_ICONS;
 
@@ -96,7 +98,7 @@ export function habitIconLabel(name: string | null | undefined): string {
 }
 
 /** Resolves a stored icon name to a component, falling back when unknown. */
-export function habitIcon(name: string | null | undefined): LucideIcon {
+export function habitIcon(name: string | null | undefined): SvgIconComponent {
   if (name && name in HABIT_ICONS) return HABIT_ICONS[name as HabitIconName];
   return HABIT_ICONS[DEFAULT_HABIT_ICON];
 }

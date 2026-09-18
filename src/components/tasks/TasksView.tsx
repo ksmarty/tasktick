@@ -5,9 +5,19 @@
  *
  * One pass over `/api/tasks`, bucketed into Pinned / Overdue / Next 7 days /
  * Later by `buildListSections` — the user does not choose a window here, they
- * read one list. Filtering and sorting both live in the header's single menu,
- * and the search field is revealed by a scroll-up gesture rather than sitting
- * permanently under the title.
+ * read one list. Filtering and sorting both live in the header's single menu.
+ *
+ * ## Search
+ *
+ * The scroll-reveal field is gone. It was a bespoke interaction built on a
+ * hand-rolled hook (`useScrollReveal.ts`) with carefully tuned hysteresis, and
+ * Material apps put a search affordance in the app bar instead. Search now lives
+ * behind a MUI `IconButton` in the app bar: the button expands a
+ * `Collapse`-animated `TextField` directly under the toolbar, and the field stays
+ * open while a query is applied so an active filter can never be invisible. That
+ * removes the whole scroll-driven mechanism — the hysteresis, the out-of-flow
+ * positioning, and the shell's guaranteed overscroll that only existed so the
+ * gesture was always available.
  *
  * The URL is the state — `?list=`, `?tag=`, `?window=`, `?q=`, `?sort=`,
  * `?priority=` — so a filtered view can be linked, bookmarked and reloaded, and
@@ -16,29 +26,34 @@
 import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import {
-  CheckCheck,
-  CircleAlert,
-  Flag,
-  FolderInput,
-  Funnel,
-  Plus,
-  Search,
-  Tag as TagIcon,
-  Trash,
-  X,
-} from 'lucide-react';
-import {
-  Button,
-  ConfirmDialog,
-  EmptyState,
-  IconButton,
-  NavBar,
-  Skeleton,
-  TextField,
-} from '@/components/ui';
+import AppBar from '@mui/material/AppBar';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Collapse from '@mui/material/Collapse';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
+import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Toolbar from '@mui/material/Toolbar';
+import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
+import CloseIcon from '@mui/icons-material/Close';
+import DeleteIcon from '@mui/icons-material/Delete';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
+import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import FilterAltIcon from '@mui/icons-material/FilterAlt';
+import FlagIcon from '@mui/icons-material/Flag';
+import LabelIcon from '@mui/icons-material/Label';
+import SearchIcon from '@mui/icons-material/Search';
 import { accentHex } from '@/lib/colors';
-import { cn } from '@/lib/cn';
 import { todayIn } from '@/lib/dates';
 import { useIsDesktop, useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
@@ -67,7 +82,6 @@ import {
 import { removeByIds, reorderList, setPriorityByIds, setStatusByIds } from './optimistic';
 import type { BulkAction, BulkPayload } from './payloads';
 import { buildListSections, type TaskSection } from './sections';
-import { useScrollReveal } from './useScrollReveal';
 import { useTaskActions } from './useTaskActions';
 
 /** Debounce for the search field, so typing does not fire a request per key. */
@@ -99,7 +113,7 @@ export function TasksView() {
   const listColors = useMemo(() => new Map(lists.map((list) => [list.id, list.color])), [lists]);
 
   const [searchDraft, setSearchDraft] = useState(state.q);
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [bulkSheet, setBulkSheet] = useState<BulkSheet>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -115,12 +129,12 @@ export function TasksView() {
    * Opens quick add *inside* the gesture that asked for it.
    *
    * iOS only raises the keyboard when `focus()` runs in the task that handled
-   * the tap. The sheet's panel arrives through a portal and an effect, so a plain
-   * `setState` here leaves the input a couple of renders away — by which time the
-   * gesture is over and the keyboard never comes up, however focused the field
-   * looks. Flushing the open synchronously means the field is in the DOM before
-   * this handler returns, and `QuickAddInput`'s layout effect can focus it while
-   * the tap is still being processed.
+   * the tap. The dialog arrives through a portal, so a plain `setState` here
+   * leaves the input a couple of renders away — by which time the gesture is
+   * over and the keyboard never comes up, however focused the field looks.
+   * Flushing the open synchronously means the field is in the DOM before this
+   * handler returns, and the dialog's layout effect can focus it while the tap is
+   * still being processed.
    */
   function openQuickAdd() {
     flushSync(() => setQuickAddOpen(true));
@@ -135,6 +149,7 @@ export function TasksView() {
   // Keep the field in step with the URL (back button, a query typed elsewhere).
   useEffect(() => {
     setSearchDraft(state.q);
+    if (state.q.trim()) setSearchOpen(true);
   }, [state.q]);
 
   // Debounced search: the request only goes out once typing settles.
@@ -151,31 +166,8 @@ export function TasksView() {
   const activeList = state.listId ? (lists.find((list) => list.id === state.listId) ?? null) : null;
   const activeSort = TASK_SORTS.find((sort) => sort.value === state.sort) ?? TASK_SORTS[0];
 
-  const scrollReveal = useScrollReveal();
-  /*
-   * The field is on screen while the list is being scrolled up, while it holds
-   * focus (so a tap on the freshly revealed field cannot make it disappear from
-   * under the finger), and whenever a query is actually applied — an active
-   * filter must never be invisible, because there would be no other sign that
-   * the list is filtered.
-   *
-   * Being reachable on a short list is not handled here: the shell guarantees
-   * every route a small overscroll, so the reveal gesture exists whatever the
-   * content length. See `useScrollReveal` for why that lives there instead.
-   */
-  const searchVisible = scrollReveal || searchFocused || state.q.trim().length > 0;
-
-  /**
-   * An applied query makes the field permanent, so it belongs in the header's
-   * flow rather than hanging over the first row. It is always visible in that
-   * state (`searchVisible` is true whenever `state.q` is non-empty), so putting
-   * it back in flow cannot animate — and therefore cannot feed the scroll —
-   * while a query is active: it is simply pushed in when the query is applied
-   * and taken out when it is cleared. Only the wrapper's positioning changes,
-   * never its identity, so the focused field does not remount and the keyboard
-   * stays up.
-   */
-  const searchInFlow = state.q.trim().length > 0;
+  /** The search field is visible on demand, and always while a query is applied. */
+  const searchVisible = searchOpen || state.q.trim().length > 0;
 
   const sections = useMemo(
     () => buildListSections(tasks, { zone, today: todayIn(zone) }),
@@ -282,144 +274,137 @@ export function TasksView() {
   const showEmpty = !loading && !resource.error && sections.length === 0;
 
   return (
-    <div>
-      <NavBar
-        largeTitle
-        title={
-          <span className="inline-flex items-center gap-2">
+    <Box>
+      <AppBar
+        position="sticky"
+        color="default"
+        elevation={0}
+        sx={{
+          bgcolor: 'background.default',
+          backgroundImage: 'none',
+          borderBottom: 1,
+          borderColor: 'divider',
+          // The app paints under the Dynamic Island, so the bar carries the inset.
+          pt: 'env(safe-area-inset-top, 0px)',
+        }}
+      >
+        <Toolbar sx={{ gap: 0.75, minHeight: 56, px: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
             {activeList ? (
-              <span
+              <Box
                 aria-hidden
-                className="size-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: accentHex(activeList.color) }}
+                sx={{ width: 10, height: 10, flexShrink: 0, borderRadius: '50%', bgcolor: accentHex(activeList.color) }}
               />
             ) : null}
-            {title}
-          </span>
-        }
-        trailing={
-          <>
-            {/*
-             * Desktop only. The floating band — and with it the action
-             * button — is hidden at `lg`, so this is the only way to create a
-             * task from a desktop-sized window.
-             */}
-            <HeaderActionButton
-              aria-label="Add a task"
-              icon={Plus}
-              className="hidden lg:inline-flex"
-              onClick={openQuickAdd}
-            />
-            {/*
-             * The active sort, as a quiet label rather than a control of its
-             * own: it answers "what order is this list in?" without opening
-             * anything, and tapping it opens the same menu the funnel does. The
-             * hit slop is what keeps a 13px word a usable target; it is
-             * invisible and costs no layout.
-             */}
-            <button
-              type="button"
-              onClick={() => setFilterOpen(true)}
-              aria-label={`Sort: ${activeSort.label}. Change the sort`}
-              className="relative shrink-0 rounded-ios px-1 text-footnote text-secondary pressable after:absolute after:-inset-2 after:content-['']"
-            >
-              {activeSort.label}
-            </button>
-            {/*
-             * One menu for both halves of list setup: filtering and sorting.
-             * It used to be a filter button next to the search field plus a
-             * "Smart" select under it, which is two spellings of one idea.
-             */}
-            <HeaderActionButton
-              aria-label="Filter and sort tasks"
-              icon={Funnel}
-              variant={chips.length ? 'filled' : 'tinted'}
-              onClick={() => setFilterOpen(true)}
-            />
-            <HeaderActionButton
-              aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
-              icon={selectionMode ? X : CheckCheck}
-              variant={selectionMode ? 'filled' : 'tinted'}
-              onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
-            />
-          </>
-        }
-      >
+            <Typography variant="h6" component="h1" noWrap>
+              {title}
+            </Typography>
+          </Box>
+          {/*
+           * The active sort, as a quiet label rather than a control of its own:
+           * it answers "what order is this list in?" without opening anything,
+           * and tapping it opens the same menu the funnel does.
+           */}
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => setFilterOpen(true)}
+            aria-label={`Sort: ${activeSort.label}. Change the sort`}
+            sx={{ minWidth: 0, px: 0.5, flexShrink: 0, color: 'text.secondary', textTransform: 'none' }}
+          >
+            {activeSort.label}
+          </Button>
+          <HeaderActionButton
+            aria-label={searchVisible ? 'Hide search' : 'Show search'}
+            icon={SearchIcon}
+            variant={searchVisible ? 'filled' : 'tinted'}
+            onClick={() => setSearchOpen((value) => !value)}
+          />
+          {/*
+           * One menu for both halves of list setup: filtering and sorting.
+           */}
+          <HeaderActionButton
+            aria-label="Filter and sort tasks"
+            icon={FilterAltIcon}
+            variant={chips.length ? 'filled' : 'tinted'}
+            onClick={() => setFilterOpen(true)}
+          />
+          <HeaderActionButton
+            aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
+            icon={selectionMode ? CloseIcon : DoneAllIcon}
+            variant={selectionMode ? 'filled' : 'tinted'}
+            onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
+          />
+          {/*
+           * Desktop only. The floating band — and with it the action button — is
+           * hidden at `lg`, so this is the only way to create a task from a
+           * desktop-sized window.
+           */}
+          <HeaderActionButton
+            aria-label="Add a task"
+            icon={AddIcon}
+            onClick={openQuickAdd}
+            sx={{ display: { xs: 'none', lg: 'inline-flex' } }}
+          />
+        </Toolbar>
+
         {/*
-         * Search, revealed by a scroll-up gesture — see `useScrollReveal`. It is
-         * hidden on load and stays hidden while the user reads down the list;
-         * only scrolling back up brings it out.
-         *
-         * It is absolutely positioned below the sticky header (`top-full`), out
-         * of the pane's flow. That placement is the fix for the reveal's old
-         * stutter: while the field was a normal row of the header, unfolding it
-         * grew the pane's content and the browser re-anchored the scroll to keep
-         * the content still — which changed the offset under the user's finger,
-         * fed back into the gesture, and flipped the field in and out. Out of
-         * flow it hangs over the content instead, so animating it cannot change
-         * the scroll height and cannot move the scroll at all.
-         *
-         * The row is still a `grid` whose single track animates between `0fr`
-         * and `1fr`, so a hidden field collapses to nothing instead of leaving a
-         * hole, and `inert` takes it out of the tab order and off the
-         * accessibility tree: a field nobody can see must not be reachable. It
-         * is also `pointer-events-none` while hidden, so the overlay cannot
-         * swallow taps meant for the rows underneath it.
+         * Search, expanded from the app-bar button. It is in the header's own
+         * flow now, not an out-of-flow overlay: there is no scroll gesture to
+         * cooperate with, so the field simply pushes the list down while it is
+         * open. An applied query keeps it visible, because an active filter must
+         * never be invisible.
          */}
-        <div
-          data-search-reveal
-          className={cn(
-            // `top-full` puts it directly below the header when it is an
-            // overlay; `inset-x-0` gives it the full width. `glass-chrome`
-            // extends the header's own surface under it, so the field reads as
-            // part of the chrome rather than as a control floating over the
-            // list. Both halves of the motion are transitioned, over a duration
-            // long enough to read as a slide-and-fade: the track unfolding is
-            // the slide, and the opacity is what keeps the text from appearing
-            // at full strength in the first frame of it.
-            'grid transition-[grid-template-rows,opacity] duration-300 ease-ios',
-            searchInFlow ? 'relative' : 'absolute inset-x-0 top-full glass-chrome',
-            searchVisible ? 'grid-rows-[1fr]' : 'pointer-events-none grid-rows-[0fr] opacity-0',
-          )}
-          inert={!searchVisible}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div className="px-4 pt-0.5 pb-2">
-              <TextField
-                aria-label="Search tasks"
-                placeholder="Search"
-                value={searchDraft}
-                leading={<Search className="size-4" />}
-                trailing={
-                  searchDraft ? (
-                    <IconButton aria-label="Clear search" icon={X} size="sm" onClick={() => setSearchDraft('')} />
-                  ) : undefined
-                }
-                onChange={(event) => setSearchDraft(event.target.value)}
-                onFocus={() => setSearchFocused(true)}
-                onBlur={() => setSearchFocused(false)}
-              />
-            </div>
-          </div>
-        </div>
-      </NavBar>
+        <Collapse in={searchVisible} timeout={200}>
+          <Box sx={{ px: 1.5, pb: 1 }}>
+            <TextField
+              type="search"
+              size="small"
+              fullWidth
+              value={searchDraft}
+              placeholder="Search"
+              onChange={(event) => setSearchDraft(event.target.value)}
+              slotProps={{
+                htmlInput: { 'aria-label': 'Search tasks' },
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} aria-hidden />
+                    </InputAdornment>
+                  ),
+                  endAdornment: searchDraft ? (
+                    <InputAdornment position="end">
+                      <IconButton aria-label="Clear search" size="small" onClick={() => setSearchDraft('')}>
+                        <CloseIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : undefined,
+                },
+              }}
+            />
+          </Box>
+        </Collapse>
+      </AppBar>
 
       {resource.error && resource.data === undefined ? (
-        <EmptyState
-          icon={CircleAlert}
-          title="Couldn't load your tasks"
-          description={resource.error}
-          action={
-            <Button variant="tinted" onClick={refresh}>
-              Try again
-            </Button>
-          }
-        />
+        <Stack spacing={1} sx={{ alignItems: 'center', px: 4, py: 6, textAlign: 'center' }}>
+          <ErrorOutlineIcon sx={{ fontSize: 40, color: 'text.disabled' }} aria-hidden />
+          <Typography variant="subtitle1" component="h2">
+            Couldn&apos;t load your tasks
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {resource.error}
+          </Typography>
+          <Button variant="outlined" onClick={refresh} sx={{ mt: 1 }}>
+            Try again
+          </Button>
+        </Stack>
       ) : loading ? (
-        <div className="space-y-6 px-2">
-          <Skeleton variant="text" lines={3} />
-          <Skeleton variant="text" lines={3} />
-        </div>
+        <Stack spacing={1} sx={{ px: 2, py: 2 }}>
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} variant="text" height={28} />
+          ))}
+        </Stack>
       ) : showEmpty ? (
         <EmptyTasks
           title={chips.length ? 'Nothing matches' : title}
@@ -431,7 +416,7 @@ export function TasksView() {
           onAdd={openQuickAdd}
         />
       ) : (
-        <div>
+        <Box>
           {sections.map((section) => (
             <TaskListSection
               key={section.id}
@@ -450,63 +435,82 @@ export function TasksView() {
               disabled={!actions.online}
             />
           ))}
-        </div>
+        </Box>
       )}
 
       {/*
        * The bulk-action bar is the only thing left that wants the band above the
-       * tab bar: adding a task is the shell's action button opening the sheet,
+       * tab bar: adding a task is the shell's action button opening the dialog,
        * the same gesture as every other screen.
        */}
       {selectionMode ? (
-        /*
-         * Docked rather than `fixed` in place: the route wrapper's animation keeps
-         * a transform on it, and a transform makes it the containing block for a
-         * `fixed` descendant — which pinned this bar to the foot of the *content*,
-         * off screen until the list was scrolled to its end. See `ViewportDock`.
-         */
         <ViewportDock
-          className="fixed inset-x-0 px-3"
-          style={{ bottom: isDesktop ? '0.75rem' : 'var(--tabbar-total)', zIndex: 30 }}
+          sx={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            px: 1.5,
+            bottom: isDesktop ? '0.75rem' : 'calc(env(safe-area-inset-bottom, 0px) + 5rem)',
+            zIndex: 30,
+          }}
         >
-          <div className="material mx-auto flex max-w-md items-center gap-0.5 rounded-ios-xl p-1.5 shadow-ios-lg">
-            <span className="tnum shrink-0 px-2 text-footnote text-secondary">
+          <Paper
+            elevation={6}
+            sx={{
+              mx: 'auto',
+              maxWidth: 448,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 0.75,
+              borderRadius: 3,
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ px: 1, flexShrink: 0, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
+            >
               {selectedIds.size} selected
-            </span>
-            <div className="ml-auto flex items-center">
+            </Typography>
+            <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
               <IconButton
                 aria-label="Complete selected tasks"
-                icon={CheckCheck}
                 disabled={selectedIds.size === 0}
                 onClick={() => void runBulk('complete')}
-              />
+              >
+                <DoneAllIcon />
+              </IconButton>
               <IconButton
                 aria-label="Move selected tasks"
-                icon={FolderInput}
                 disabled={selectedIds.size === 0}
                 onClick={() => setBulkSheet('move')}
-              />
+              >
+                <DriveFileMoveIcon />
+              </IconButton>
               <IconButton
                 aria-label="Set the priority of the selected tasks"
-                icon={Flag}
                 disabled={selectedIds.size === 0}
                 onClick={() => setBulkSheet('priority')}
-              />
+              >
+                <FlagIcon />
+              </IconButton>
               <IconButton
                 aria-label="Add a tag to the selected tasks"
-                icon={TagIcon}
                 disabled={selectedIds.size === 0}
                 onClick={() => setBulkSheet('tag')}
-              />
+              >
+                <LabelIcon />
+              </IconButton>
               <IconButton
                 aria-label="Delete selected tasks"
-                icon={Trash}
-                className="text-danger"
+                color="error"
                 disabled={selectedIds.size === 0}
                 onClick={() => setConfirmBulkDelete(true)}
-              />
-            </div>
-          </div>
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Box>
+          </Paper>
         </ViewportDock>
       ) : null}
 
@@ -551,15 +555,26 @@ export function TasksView() {
         }}
       />
 
-      <ConfirmDialog
-        open={confirmBulkDelete}
-        onOpenChange={setConfirmBulkDelete}
-        title={`Delete ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}?`}
-        message="They will be removed from every list. This cannot be undone."
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => runBulk('delete')}
-      />
+      <Dialog open={confirmBulkDelete} onClose={() => setConfirmBulkDelete(false)}>
+        <DialogTitle>{`Delete ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}?`}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>They will be removed from every list. This cannot be undone.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disableElevation
+            onClick={() => {
+              setConfirmBulkDelete(false);
+              void runBulk('delete');
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <QuickAddBar
         open={quickAddOpen}
@@ -573,6 +588,6 @@ export function TasksView() {
         onSaved={refresh}
         onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
       />
-    </div>
+    </Box>
   );
 }

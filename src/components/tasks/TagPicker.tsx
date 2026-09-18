@@ -7,9 +7,21 @@
  * tag invented mid-edit is immediately a real tag everywhere else.
  */
 import { useState } from 'react';
-import { Check, Plus, Tag as TagIcon } from 'lucide-react';
-import { Button, IconButton, Sheet, TextField } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Add from '@mui/icons-material/Add';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Check from '@mui/icons-material/Check';
+import Drawer from '@mui/material/Drawer';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
+import Label from '@mui/icons-material/Label';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 import type { Tag } from '@/lib/types';
 
 export interface TagPickerProps {
@@ -58,43 +70,70 @@ export function TagPicker({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={title} dismissible>
-      <div className="pb-2">
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onOpenChange(false)}
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': title,
+          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          pb: 2,
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
+          {title}
+        </Typography>
+
         {tags.length ? (
-          <div className="grouped mb-4">
-            {tags.map((tag, index) => {
+          <List sx={{ py: 0, mb: 2 }}>
+            {tags.map((tag) => {
               const selected = value.includes(tag.id);
               return (
-                <button
+                <ListItemButton
                   key={tag.id}
-                  type="button"
                   role="checkbox"
                   aria-checked={selected}
                   onClick={() => toggle(tag.id)}
-                  className={cn(
-                    'flex min-h-11 w-full items-center gap-3 px-4 text-body pressable-row',
-                    index > 0 && 'hairline-t',
-                  )}
                 >
-                  <TagIcon className="size-5 shrink-0 text-secondary" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-left text-label">{tag.name}</span>
-                  {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-                </button>
+                  <ListItemIcon sx={{ minWidth: 32 }}>
+                    <Label sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={tag.name}
+                    slotProps={{
+                      primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
+                    }}
+                  />
+                  {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+                </ListItemButton>
               );
             })}
-          </div>
+          </List>
         ) : (
-          <p className="px-1 pb-4 text-footnote text-secondary">No tags yet — create the first one below.</p>
+          <Typography variant="caption" sx={{ display: 'block', px: 2, pb: 2, color: 'text.secondary' }}>
+            No tags yet — create the first one below.
+          </Typography>
         )}
 
         {onCreate ? (
-          <div className="flex items-end gap-2">
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-end', px: 2 }}>
             <TextField
               label="New tag"
               value={draft}
               placeholder="Name"
               disabled={disabled || creating}
-              leading={<TagIcon className="size-4" />}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
@@ -102,26 +141,35 @@ export function TagPicker({
                   void create();
                 }
               }}
-              className="flex-1"
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Label sx={{ fontSize: 20 }} aria-hidden />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+              sx={{ flex: 1 }}
             />
             <IconButton
               aria-label="Create tag"
-              icon={Plus}
-              variant="tinted"
-              size="md"
+              color="primary"
               loading={creating}
-              disabled={disabled || !draft.trim()}
+              disabled={disabled || creating || !draft.trim()}
               onClick={() => void create()}
-            />
-          </div>
+            >
+              <Add sx={{ fontSize: 20 }} />
+            </IconButton>
+          </Stack>
         ) : null}
 
-        <div className="pt-4">
-          <Button variant="tinted" fullWidth onClick={() => onOpenChange(false)}>
+        <Box sx={{ pt: 2, px: 2 }}>
+          <Button variant="contained" fullWidth onClick={() => onOpenChange(false)}>
             Done
           </Button>
-        </div>
-      </div>
-    </Sheet>
+        </Box>
+      </Box>
+    </Drawer>
   );
 }

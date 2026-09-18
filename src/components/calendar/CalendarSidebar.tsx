@@ -8,12 +8,22 @@
  * client never filters another calendar's events out of a payload it already
  * received, which is what keeps "what is on screen" equal to "what was asked
  * for". The colour dot is resolved with the calendar's `colorOverride`.
+ *
+ * It is not mounted by the calendar screen (the shell's sidebar and the filter
+ * chip cover the same ground), but it is part of the feature's public surface
+ * and is kept on Material like the rest of it.
  */
-import { Check, Plus } from 'lucide-react';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Check from '@mui/icons-material/Check';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import Switch from '@mui/material/Switch';
+import Typography from '@mui/material/Typography';
+import Add from '@mui/icons-material/Add';
 import { accentHex, resolveCalendarColor } from '@/lib/colors';
-import { cn } from '@/lib/cn';
 import type { Calendar } from '@/lib/types';
-import { Button, Switch } from '@/components/ui';
 import type { CalendarFilter } from './types';
 
 export interface CalendarSidebarProps {
@@ -38,55 +48,65 @@ export function CalendarSidebar({
   onCreateEvent,
 }: CalendarSidebarProps) {
   return (
-    <div className="space-y-4 py-2">
-      <div className="mx-4">
-        <h2 className="pb-2 text-footnote font-medium uppercase tracking-wide text-secondary">Calendars</h2>
-        <ul className="grouped">
+    <Box sx={{ display: 'grid', gap: 2, py: 2 }}>
+      <Box sx={{ mx: 2 }}>
+        <Typography variant="overline" component="h2" color="text.secondary" sx={{ display: 'block', pb: 0.5 }}>
+          Calendars
+        </Typography>
+        <List disablePadding>
           {calendars.map((calendar) => {
             const color = resolveCalendarColor(calendar.color, calendar.colorOverride);
             const visible = visibility[calendar.id] ?? calendar.isVisible;
             const focused = filter?.id === calendar.id;
 
             return (
-              <li key={calendar.id} className="hairline-b flex min-h-11 items-center gap-3 px-4 last:border-b-0">
-                <span
+              <ListItem
+                key={calendar.id}
+                disablePadding
+                secondaryAction={
+                  <Switch
+                    size="small"
+                    checked={visible}
+                    onChange={(input) => onToggleVisibility(calendar, input.target.checked)}
+                    slotProps={{ input: { 'aria-label': `Show ${calendar.name}` } }}
+                  />
+                }
+                sx={{ minHeight: 44 }}
+              >
+                <Box
                   aria-hidden
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: accentHex(color) }}
+                  sx={{ width: 10, height: 10, ml: 2, mr: 1.5, flexShrink: 0, borderRadius: '50%', bgcolor: accentHex(color) }}
                 />
-                <button
-                  type="button"
+                <ListItemButton
                   onClick={() => (focused ? onClearFilter() : onFocusCalendar(calendar))}
                   aria-pressed={focused}
-                  className={cn(
-                    'min-w-0 flex-1 truncate py-2 text-left text-body pressable-row',
-                    focused && 'font-semibold text-tint',
-                  )}
+                  sx={{ minWidth: 0, borderRadius: 1, pr: 7 }}
                 >
-                  {calendar.name}
-                </button>
-                {focused ? <Check className="size-4 shrink-0 text-tint" aria-hidden /> : null}
-                <Switch
-                  size="sm"
-                  checked={visible}
-                  onCheckedChange={(next) => onToggleVisibility(calendar, next)}
-                  aria-label={`Show ${calendar.name}`}
-                  className="ml-auto"
-                />
-              </li>
+                  <Typography
+                    variant="body2"
+                    noWrap
+                    sx={{ flex: 1, fontWeight: focused ? 600 : 400, color: focused ? 'primary.main' : 'text.primary' }}
+                  >
+                    {calendar.name}
+                  </Typography>
+                  {focused ? <Check aria-hidden sx={{ fontSize: 16, color: 'primary.main' }} /> : null}
+                </ListItemButton>
+              </ListItem>
             );
           })}
-        </ul>
+        </List>
         {calendars.length === 0 ? (
-          <p className="px-1 py-2 text-footnote text-tertiary">No calendars yet.</p>
+          <Typography variant="body2" color="text.disabled" sx={{ px: 0.5, py: 1 }}>
+            No calendars yet.
+          </Typography>
         ) : null}
-      </div>
+      </Box>
 
-      <div className="mx-4">
-        <Button variant="tinted" fullWidth icon={Plus} onClick={onCreateEvent}>
+      <Box sx={{ mx: 2 }}>
+        <Button variant="contained" fullWidth startIcon={<Add />} onClick={onCreateEvent}>
           New event
         </Button>
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }

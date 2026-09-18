@@ -15,20 +15,29 @@
  * One read, on purpose: the card list is scoped to the current week so the
  * selected day's `entries` are present. An optimistic check-in patches it, so a
  * tap updates the row at the same instant.
+ *
+ * Material chrome: a sticky `AppBar` carries the title and the two header
+ * actions (the list options menu and "New habit"), and the list options —
+ * including the archived switch — live in a MUI `Menu` rather than in the page
+ * flow.
  */
 import { useCallback, useMemo, useState } from 'react';
 import { usePrimaryAction } from '@/lib/events';
-import { CalendarRange, CheckCircle2, Ellipsis, Plus } from 'lucide-react';
-import {
-  Button,
-  EmptyState,
-  IconButton,
-  NavBar,
-  Popover,
-  Skeleton,
-  Switch,
-  useToast,
-} from '@/components/ui';
+import AppBar from '@mui/material/AppBar';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Toolbar from '@mui/material/Toolbar';
+import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
+import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import {
   HabitEditorSheet,
   HabitList,
@@ -37,6 +46,7 @@ import {
   habitWindowRange,
   type CheckInChange,
 } from '@/components/habits';
+import { useToast } from '@/components/app/Toast';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { todayIn } from '@/lib/dates';
@@ -61,6 +71,8 @@ export default function HabitsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  /** Anchors the list-options menu; `null` when it is closed. */
+  const [optionsAnchor, setOptionsAnchor] = useState<HTMLElement | null>(null);
 
   // The shell's action button creates a HABIT here. Left to the default it would
   // open the task quick-add, which is the wrong object on this screen entirely.
@@ -184,68 +196,116 @@ export default function HabitsPage() {
     // The shell owns the scroll pane and the tab-bar clearance; this column only
     // caps the reading width on a desktop so the cards are not stretched to
     // 1100px while the phone layout stays edge to edge.
-    <div className="mx-auto w-full max-w-2xl">
-      <NavBar
-        title="Habits"
-        largeTitle
-        trailing={
-          <>
-            {/*
-             * List options live in a toolbar menu, not in the page flow. The
-             * archived filter is a view setting on this screen — the same kind
-             * of thing iOS keeps behind an overflow button — so it must not sit
-             * below the cards as a heading attached to nothing. One tap, and
-             * the switch keeps the menu open so the list behind it updates.
-             */}
-            <Popover
-              align="end"
-              trigger={<IconButton icon={Ellipsis} variant="plain" aria-label="Habit list options" />}
-            >
-              <div className="w-60 px-2 py-1.5">
-                <Switch
-                  label="Show archived habits"
-                  checked={showArchived}
-                  onCheckedChange={setShowArchived}
-                  size="sm"
-                />
-                <p className="pt-1 text-caption-1 text-tertiary">
-                  Archived habits keep their history but are hidden from the check-in list.
-                </p>
-              </div>
-            </Popover>
-            <IconButton icon={Plus} variant="plain" aria-label="New habit" onClick={() => openEditor(null)} />
-          </>
-        }
-      />
+    <Box sx={{ mx: 'auto', width: '100%', maxWidth: 672 }}>
+      <AppBar
+        position="sticky"
+        color="default"
+        elevation={0}
+        sx={{
+          bgcolor: 'background.default',
+          backgroundImage: 'none',
+          borderBottom: 1,
+          borderColor: 'divider',
+          // The app paints under the Dynamic Island, so the bar carries the inset.
+          pt: 'env(safe-area-inset-top, 0px)',
+        }}
+      >
+        <Toolbar sx={{ gap: 0.75, minHeight: 56, px: 1.5 }}>
+          <Typography variant="h6" component="h1" noWrap sx={{ flex: 1, minWidth: 0 }}>
+            Habits
+          </Typography>
+          {/*
+           * List options live in a toolbar menu, not in the page flow. The
+           * archived filter is a view setting on this screen — the same kind
+           * of thing iOS keeps behind an overflow button — so it must not sit
+           * below the cards as a heading attached to nothing. One tap, and
+           * the switch keeps the menu open so the list behind it updates.
+           */}
+          <IconButton
+            aria-label="Habit list options"
+            aria-haspopup="menu"
+            aria-expanded={optionsAnchor ? 'true' : undefined}
+            onClick={(event) => setOptionsAnchor(event.currentTarget)}
+            sx={{ bgcolor: 'action.hover' }}
+          >
+            <MoreVertIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+          <IconButton
+            aria-label="New habit"
+            onClick={() => openEditor(null)}
+            sx={{ bgcolor: 'action.hover' }}
+          >
+            <AddIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+        </Toolbar>
+      </AppBar>
+
+      <Menu
+        anchorEl={optionsAnchor}
+        open={Boolean(optionsAnchor)}
+        onClose={() => setOptionsAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Box sx={{ width: 240, px: 2, py: 1 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showArchived}
+                onChange={(event) => setShowArchived(event.target.checked)}
+              />
+            }
+            label="Show archived habits"
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 0.5 }}>
+            Archived habits keep their history but are hidden from the check-in list.
+          </Typography>
+        </Box>
+      </Menu>
 
       {loading ? (
-        <div className="space-y-3">
+        <Stack spacing={1.5} sx={{ pt: 1 }}>
           {[0, 1, 2].map((key) => (
-            <Skeleton key={key} variant="rect" className="mx-4 h-40" />
+            <Skeleton key={key} variant="rectangular" height={160} sx={{ mx: 2, borderRadius: 2 }} />
           ))}
-        </div>
+        </Stack>
       ) : failed ? (
-        <EmptyState
-          icon={CalendarRange}
-          title="Could not load your habits"
-          description={habits.error}
-          action={
-            <Button variant="tinted" onClick={() => void habits.refresh()}>
-              Try again
-            </Button>
-          }
-        />
+        <Stack spacing={1.5} sx={{ alignItems: 'center', px: 4, py: 6, textAlign: 'center' }}>
+          <Box sx={{ color: 'text.disabled', display: 'flex' }}>
+            <CalendarMonthOutlinedIcon sx={{ fontSize: 40 }} aria-hidden />
+          </Box>
+          <Typography variant="subtitle1" component="h2">
+            Could not load your habits
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {habits.error}
+          </Typography>
+          <Button
+            variant="contained"
+            disableElevation
+            onClick={() => void habits.refresh()}
+            sx={{ mt: 1, bgcolor: 'action.hover', color: 'primary.main', '&:hover': { bgcolor: 'action.selected' } }}
+          >
+            Try again
+          </Button>
+        </Stack>
       ) : list.length === 0 ? (
-        <EmptyState
-          icon={CheckCircle2}
-          title="No habits yet"
-          description="A habit is something you want to keep doing — every day, a few times a week, or once a month. Add one and check in from this screen."
-          action={
-            <Button icon={Plus} onClick={() => openEditor(null)}>
-              Add your first habit
-            </Button>
-          }
-        />
+        <Stack spacing={1.5} sx={{ alignItems: 'center', px: 4, py: 6, textAlign: 'center' }}>
+          <Box sx={{ color: 'text.disabled', display: 'flex' }}>
+            <CheckCircleOutlinedIcon sx={{ fontSize: 40 }} aria-hidden />
+          </Box>
+          <Typography variant="subtitle1" component="h2">
+            No habits yet
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            A habit is something you want to keep doing — every day, a few times a week, or once a month. Add one and
+            check in from this screen.
+          </Typography>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => openEditor(null)} sx={{ mt: 1 }}>
+            Add your first habit
+          </Button>
+        </Stack>
       ) : (
         <>
           <HabitWeekStrip
@@ -276,6 +336,6 @@ export default function HabitsPage() {
           void habits.refresh();
         }}
       />
-    </div>
+    </Box>
   );
 }

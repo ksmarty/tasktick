@@ -6,8 +6,8 @@
  * Two shapes, chosen by the habit's goal type, in one 44px-tall box so the row
  * geometry is identical for every habit:
  *
- *   - **boolean** — one circular checkbox, exactly the iOS task circle, that
- *     toggles between `{ count: 1 }` and `{ count: null }`.
+ *   - **boolean** — one circular MUI `Checkbox`, exactly the iOS task circle,
+ *     that toggles between `{ count: 1 }` and `{ count: null }`.
  *   - **count / duration** — `[−] 3/8 [+]`: the amount the server holds for the
  *     period, with `−` and `+` sending `delta: -1` / `delta: 1` so the server
  *     increments the stored amount instead of the client guessing it.
@@ -21,15 +21,28 @@
  * server's `entries` map; a weekly/monthly habit keeps the server's period
  * total, because its period spans days and only the server can aggregate it.
  *
- * The satisfying bit is deliberately tiny: the tick pops (`animate-pop`) each
- * time the habit becomes done, which is enough feedback without a confetti
- * library or a layout-thrashing animation.
+ * The satisfying bit is deliberately tiny: the tick pops each time the habit
+ * becomes done, which is enough feedback without a confetti library or a
+ * layout-thrashing animation. Material has no `pop`; it is a state cue, so it is
+ * drawn here with Emotion's `keyframes` — remounting the wrapper on the flip
+ * replays it.
  */
-import { Minus, Plus } from 'lucide-react';
-import { Checkbox, IconButton } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import { keyframes } from '@emotion/react';
+import Box from '@mui/material/Box';
+import Checkbox from '@mui/material/Checkbox';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
 import { habitDoneOn, habitProgressView, longDateLabel, type CheckInChange } from './period';
 import type { DateOnly, Habit } from '@/lib/types';
+
+/** The tick's little pop; the whole animation is the remount on the flip. */
+const pop = keyframes`
+  0% { transform: scale(0.82); }
+  55% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+`;
 
 export interface CheckInControlProps {
   habit: Habit;
@@ -50,19 +63,34 @@ export function CheckInControl({ habit, date, today, onCheckIn, pending = false,
 
   if (!view.counted) {
     return (
-      <span className={cn('flex shrink-0 items-center', className)} data-checked={done ? 'true' : 'false'}>
+      <Box
+        component="span"
+        className={className}
+        data-checked={done ? 'true' : 'false'}
+        sx={{ display: 'flex', flexShrink: 0, alignItems: 'center' }}
+      >
         {/* Remounting on the flip replays the pop, which is the whole animation. */}
-        <span key={done ? 'checked' : 'open'} className="animate-pop inline-flex">
+        <Box
+          component="span"
+          key={done ? 'checked' : 'open'}
+          sx={{ display: 'inline-flex', animation: `${pop} 300ms ease-out` }}
+        >
           <Checkbox
             checked={done}
             disabled={pending}
-            size="md"
-            className="size-11 justify-center"
-            aria-label={done ? `Uncheck ${habit.name} for ${when}` : `Check in ${habit.name} for ${when}`}
-            onCheckedChange={(next) => onCheckIn({ date, count: next ? 1 : null })}
+            // 24px of glyph over 10px of padding is the 44px touch target.
+            sx={{ p: '10px', '& .MuiSvgIcon-root': { fontSize: 24 } }}
+            slotProps={{
+              input: {
+                'aria-label': done
+                  ? `Uncheck ${habit.name} for ${when}`
+                  : `Check in ${habit.name} for ${when}`,
+              },
+            }}
+            onChange={(event) => onCheckIn({ date, count: event.target.checked ? 1 : null })}
           />
-        </span>
-      </span>
+        </Box>
+      </Box>
     );
   }
 
@@ -74,38 +102,56 @@ export function CheckInControl({ habit, date, today, onCheckIn, pending = false,
   const unit = view.unit ? ` ${view.unit}` : '';
 
   return (
-    <span className={cn('flex shrink-0 items-center', className)} data-checked={done ? 'true' : 'false'}>
+    <Box
+      component="span"
+      className={className}
+      data-checked={done ? 'true' : 'false'}
+      sx={{ display: 'flex', flexShrink: 0, alignItems: 'center' }}
+    >
       <IconButton
-        icon={Minus}
-        size="sm"
-        variant="plain"
-        iconClassName="size-4"
+        size="small"
         // 32px of ink, a 44px target: the pseudo-element grows the hit area to
         // the HIG minimum without making the glyph look heavier.
-        className="relative before:absolute before:-inset-1.5 before:content-['']"
+        sx={{ '&::after': { position: 'absolute', inset: -6, content: '""' } }}
         disabled={!canDecrease}
         aria-label={`Remove one from ${habit.name} for ${when}`}
         onClick={() => onCheckIn({ date, delta: -1 })}
-      />
+      >
+        <RemoveIcon sx={{ fontSize: 18 }} />
+      </IconButton>
 
-      <span
+      <Typography
+        variant="body2"
         role="img"
         aria-label={`${logged} of ${view.target}${unit} for ${when}`}
-        className="tnum min-w-9 px-1 text-center text-footnote font-semibold leading-none text-label"
+        sx={{
+          minWidth: 36,
+          px: 0.5,
+          textAlign: 'center',
+          fontWeight: 600,
+          lineHeight: 1,
+          fontVariantNumeric: 'tabular-nums',
+        }}
       >
         {`${logged}/${view.target}`}
-      </span>
+      </Typography>
 
       <IconButton
-        icon={Plus}
-        size="sm"
-        variant="tinted"
-        iconClassName="size-4"
-        className="relative before:absolute before:-inset-1.5 before:content-['']"
+        size="small"
+        // The plus is the affirmative half, so it carries a tinted surface the
+        // minus does not.
+        sx={{
+          bgcolor: 'action.hover',
+          color: 'primary.main',
+          '&:hover': { bgcolor: 'action.selected' },
+          '&::after': { position: 'absolute', inset: -6, content: '""' },
+        }}
         disabled={pending}
         aria-label={`Add one to ${habit.name} for ${when}`}
         onClick={() => onCheckIn({ date, delta: 1 })}
-      />
-    </span>
+      >
+        <AddIcon sx={{ fontSize: 18 }} />
+      </IconButton>
+    </Box>
   );
 }

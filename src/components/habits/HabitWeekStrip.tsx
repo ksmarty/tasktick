@@ -7,13 +7,16 @@
  * every card and said the same seven things over and over. Here the week is the
  * page's, and picking a day scopes the card list to it.
  *
- * The tokens match the calendar's week strip so the two screens read as
- * siblings: `caption-2` weekday letters, a plain date number, and a filled
- * circle for the selection. Days outside the selectable range — after today, or
- * before the earliest habit started — are dimmed and inert rather than hidden,
- * so the week keeps its shape.
+ * The shape matches the calendar's week strip so the two screens read as
+ * siblings: caption weekday letters, a plain date number, and a filled circle
+ * for the selection. Days outside the selectable range — after today, or before
+ * the earliest habit started — are dimmed and inert rather than hidden, so the
+ * week keeps its shape. Each day is a MUI `ButtonBase`, which is what keeps the
+ * 48dp touch target and the press state Material expects.
  */
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import ButtonBase from '@mui/material/ButtonBase';
+import Typography from '@mui/material/Typography';
 import { WEEKDAY_SHORT, longDateLabel, weekOfDays } from './period';
 import type { DateOnly } from '@/lib/types';
 
@@ -39,46 +42,76 @@ export function HabitWeekStrip({
   const days = weekOfDays(today, weekStartsOn);
 
   return (
-    <div role="group" aria-label="Week" className={cn('grid grid-cols-7 gap-1 px-3 pt-1 pb-2', className)}>
+    <Box
+      role="group"
+      aria-label="Week"
+      className={className}
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+        gap: 0.5,
+        px: 1.5,
+        pt: 0.5,
+        pb: 1,
+      }}
+    >
       {days.map((day) => {
         const isSelected = day.date === selected;
         const isToday = day.date === today;
         const outOfRange = day.date > today || (earliest !== null && day.date < earliest);
 
         return (
-          <button
+          <ButtonBase
             key={day.date}
-            type="button"
             disabled={outOfRange}
             aria-pressed={isSelected}
             aria-label={`${WEEKDAY_SHORT[day.weekday]}, ${longDateLabel(day.date)}`}
             onClick={() => onSelect(day.date)}
-            className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-ios py-1 pressable"
+            sx={{
+              display: 'flex',
+              minHeight: 44,
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 0.5,
+              borderRadius: 1,
+              py: 0.5,
+            }}
           >
-            <span
+            <Typography
+              component="span"
+              variant="caption"
               aria-hidden
-              className={cn('text-caption-2 leading-none', outOfRange ? 'text-tertiary' : 'text-secondary')}
+              sx={{ lineHeight: 1, color: outOfRange ? 'text.disabled' : 'text.secondary' }}
             >
               {day.letter}
-            </span>
-            <span
+            </Typography>
+            <Box
+              component="span"
               aria-hidden
-              className={cn(
-                'tnum flex size-8 items-center justify-center rounded-full text-subhead leading-none',
-                isSelected
-                  ? 'bg-tint font-semibold text-tint-contrast'
+              sx={{
+                display: 'flex',
+                width: 32,
+                height: 32,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
+                ...(isSelected
+                  ? { bgcolor: 'primary.main', color: 'primary.contrastText', fontWeight: 600 }
                   : outOfRange
-                    ? 'text-tertiary'
+                    ? { color: 'text.disabled' }
                     : isToday
-                      ? 'font-semibold text-tint'
-                      : 'text-label',
-              )}
+                      ? { color: 'primary.main', fontWeight: 600 }
+                      : { color: 'text.primary' }),
+              }}
             >
               {day.dayOfMonth}
-            </span>
-          </button>
+            </Box>
+          </ButtonBase>
         );
       })}
-    </div>
+    </Box>
   );
 }

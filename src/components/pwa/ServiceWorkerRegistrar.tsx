@@ -1,7 +1,10 @@
 'use client';
 
-import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 /**
  * Registers `/sw.js` and surfaces the "a new build is waiting" prompt.
@@ -16,14 +19,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * Update checks are piggy-backed on `visibilitychange`, throttled, so a device
  * that sleeps for a week still notices a deploy within a minute of being opened
  * without polling the network in the background.
+ *
+ * There is no UI until a new worker is waiting; the prompt itself is a Material
+ * `Alert` in the same floating slot the old banner used. The registration and
+ * update logic below is unchanged.
  */
 
 /** Don't re-check the worker more often than this when returning to the tab. */
 const UPDATE_CHECK_INTERVAL_MS = 60_000;
-
-const BANNER_CLASS =
-  'fixed inset-x-3 bottom-[calc(var(--tabbar-total)_+_0.75rem)] z-50 flex items-center gap-3 ' +
-  'rounded-ios-xl material px-4 py-3 shadow-ios-lg animate-ios-in';
 
 export function ServiceWorkerRegistrar() {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
@@ -99,16 +102,35 @@ export function ServiceWorkerRegistrar() {
   if (!waitingWorker) return null;
 
   return (
-    <div className={BANNER_CLASS} role="status" aria-live="polite">
-      <RefreshCw aria-hidden className="h-5 w-5 shrink-0 text-tint" />
-      <p className="min-w-0 flex-1 text-subhead text-label">A new version of TaskTick is ready.</p>
-      <button
-        type="button"
-        onClick={applyUpdate}
-        className="pressable shrink-0 rounded-ios bg-tint px-3.5 py-1.5 text-subhead font-semibold text-tint-contrast"
+    <Box
+      sx={{
+        position: 'fixed',
+        left: 12,
+        right: 12,
+        // Clear of the shell's floating bottom band on a phone, and of the home
+        // indicator when running installed.
+        bottom: {
+          xs: 'calc(env(safe-area-inset-bottom, 0px) + 5.25rem)',
+          lg: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
+        },
+        zIndex: 'snackbar',
+        display: 'flex',
+      }}
+    >
+      <Alert
+        severity="info"
+        role="status"
+        aria-live="polite"
+        icon={<RefreshIcon aria-hidden />}
+        action={
+          <Button color="inherit" size="small" onClick={applyUpdate} sx={{ textTransform: 'none' }}>
+            Reload
+          </Button>
+        }
+        sx={{ width: '100%', alignItems: 'center', boxShadow: 4 }}
       >
-        Reload
-      </button>
-    </div>
+        A new version of TaskTick is ready.
+      </Alert>
+    </Box>
   );
 }

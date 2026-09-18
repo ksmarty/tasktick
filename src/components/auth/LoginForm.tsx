@@ -2,9 +2,28 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { ListChecks, Mail, Lock, ShieldCheck } from 'lucide-react';
-import { Button, ListGroup, ListRow, TextField } from '@/components/ui';
+import NextLink from 'next/link';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
+import InputAdornment from '@mui/material/InputAdornment';
+import Link from '@mui/material/Link';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import ChecklistIcon from '@mui/icons-material/Checklist';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import LockIcon from '@mui/icons-material/Lock';
+import MailIcon from '@mui/icons-material/Mail';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import { signIn, startOidcSignIn } from '@/lib/auth-client';
 
 /**
@@ -12,6 +31,11 @@ import { signIn, startOidcSignIn } from '@/lib/auth-client';
  *
  * Uses better-auth's own client rather than posting to the API by hand, so
  * CSRF, the session cookie and error shaping are all handled by the library.
+ *
+ * Presentation is Material: outlined `TextField`s with the glyph as a start
+ * adornment (the label is pinned open, `shrink`, so it never collides with the
+ * adornment), an `Alert` for the error, and a MUI `Link` wrapping `next/link`
+ * for the switch to registration.
  */
 export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oidcName: string }) {
   const router = useRouter();
@@ -41,84 +65,130 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
   }
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-3 text-center">
-        <div className="mx-auto flex size-16 items-center justify-center rounded-[19px] bg-tint text-tint-contrast shadow-ios">
-          <ListChecks className="size-9" aria-hidden />
-        </div>
-        <div className="space-y-1">
-          <h1 className="text-title-1 font-bold tracking-tight">TaskTick</h1>
-          <p className="text-subhead text-secondary">Sign in to your tasks, calendar and habits.</p>
-        </div>
-      </header>
+    <Stack spacing={3}>
+      <Stack spacing={1.5} sx={{ alignItems: 'center', textAlign: 'center' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 64,
+            height: 64,
+            borderRadius: 3,
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText',
+          }}
+        >
+          <ChecklistIcon sx={{ fontSize: 36 }} aria-hidden />
+        </Box>
+        <Box>
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
+            TaskTick
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Sign in to your tasks, calendar and habits.
+          </Typography>
+        </Box>
+      </Stack>
 
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <ListGroup>
-          <TextField
-            label="Email"
-            type="email"
-            name="email"
-            inputMode="email"
-            autoComplete="username"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            required
-            leading={<Mail className="size-5" aria-hidden />}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@example.com"
-            className="hairline-b"
-          />
-          <TextField
-            label="Password"
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            required
-            leading={<Lock className="size-5" aria-hidden />}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="••••••••"
-          />
-        </ListGroup>
+      <Stack component="form" spacing={2} onSubmit={onSubmit} noValidate>
+        <TextField
+          fullWidth
+          label="Email"
+          type="email"
+          name="email"
+          inputMode="email"
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+          slotProps={{
+            inputLabel: { shrink: true },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <MailIcon aria-hidden />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+        <TextField
+          fullWidth
+          label="Password"
+          type="password"
+          name="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="••••••••"
+          slotProps={{
+            inputLabel: { shrink: true },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <LockIcon aria-hidden />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
 
         {error ? (
-          <p role="alert" className="rounded-ios bg-danger/10 px-3 py-2 text-footnote text-danger">
+          <Alert severity="error" role="alert">
             {error}
-          </p>
+          </Alert>
         ) : null}
 
-        <Button type="submit" variant="filled" size="lg" fullWidth loading={busy} disabled={!email || !password}>
+        <Button
+          type="submit"
+          variant="contained"
+          size="large"
+          fullWidth
+          disabled={!email || !password}
+          startIcon={busy ? <CircularProgress size={18} color="inherit" /> : undefined}
+        >
           Sign in
         </Button>
-      </form>
+      </Stack>
 
       {oidcEnabled ? (
         <>
-          <div className="flex items-center gap-3 text-caption-1 text-tertiary">
-            <span className="h-px flex-1 bg-separator" />
-            or
-            <span className="h-px flex-1 bg-separator" />
-          </div>
-          <ListGroup>
-            <ListRow
-              title={oidcName}
-              subtitle="Continue with your identity provider"
-              leading={<ShieldCheck className="size-5 text-tint" aria-hidden />}
-              onClick={() => void startOidcSignIn('/tasks')}
-              showChevron
-            />
-          </ListGroup>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+            <Divider sx={{ flex: 1 }} />
+            <Typography variant="caption">or</Typography>
+            <Divider sx={{ flex: 1 }} />
+          </Stack>
+          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+            <List disablePadding>
+              <ListItem disablePadding>
+                <ListItemButton
+                  onClick={() => void startOidcSignIn('/tasks')}
+                  sx={{ gap: 1.5, py: 1.25 }}
+                >
+                  <ListItemIcon sx={{ minWidth: 0, color: 'primary.main' }}>
+                    <VerifiedUserIcon aria-hidden />
+                  </ListItemIcon>
+                  <ListItemText primary={oidcName} secondary="Continue with your identity provider" />
+                  <ChevronRightIcon sx={{ color: 'text.disabled', flexShrink: 0 }} aria-hidden />
+                </ListItemButton>
+              </ListItem>
+            </List>
+          </Paper>
         </>
       ) : null}
 
-      <p className="text-center text-footnote text-secondary">
+      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
         Need an account?{' '}
-        <Link href="/register" className="text-tint">
+        <Link component={NextLink} href="/register" underline="hover">
           Create one
         </Link>
-      </p>
-    </div>
+      </Typography>
+    </Stack>
   );
 }

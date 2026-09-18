@@ -16,10 +16,23 @@
  * Nothing is claimed that cannot be checked: the switch only reads "on" after
  * `/api/push/subscribe` has accepted the subscription, and the test button is
  * explicit about what it tests.
+ *
+ * Material shape: each toggle is a `Switch` inside a `FormControlLabel` in a
+ * `ListItem` row, so the whole row is the label and the touch target is the row.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { BellRing, Send, Smartphone } from 'lucide-react';
-import { Button, ListRow, Switch, useToast } from '@/components/ui';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import ListItem from '@mui/material/ListItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Switch from '@mui/material/Switch';
+import Typography from '@mui/material/Typography';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import SendIcon from '@mui/icons-material/Send';
+import SmartphoneIcon from '@mui/icons-material/Smartphone';
+import { useToast } from '@/components/app/Toast';
 import { IosInstallHint } from '@/components/pwa';
 import { isIos, isStandalone } from '@/components/pwa/platform';
 import { api, errorMessage } from '@/lib/api-client';
@@ -187,8 +200,12 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
             : 'Checking what this device supports…'
         }
       >
-        <div className="px-4 py-3">
-          {state === 'needs-install' ? <IosInstallHint className="pb-3" /> : null}
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+          {state === 'needs-install' ? (
+            <Box sx={{ pb: 2 }}>
+              <IosInstallHint />
+            </Box>
+          ) : null}
 
           {/*
            * A switch is rendered only when it can actually do something.
@@ -201,43 +218,52 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
            * drawn — show a status row and say why instead.
            */}
           {state === 'ready' ? (
-            <Switch
+            <FormControlLabel
+              sx={{ m: 0, display: 'flex', justifyContent: 'space-between' }}
+              labelPlacement="start"
               label="Notifications on this device"
-              checked={subscribed}
-              disabled={busy}
-              onCheckedChange={(next) => {
-                // Only ever from this tap; `checked` is server-confirmed, so the
-                // switch is not optimistically flipped.
-                if (next) void enable();
-                else void disable();
-              }}
-              aria-label="Notifications on this device"
+              control={
+                <Switch
+                  checked={subscribed}
+                  disabled={busy}
+                  onChange={(_event, next) => {
+                    // Only ever from this tap; `checked` is server-confirmed, so
+                    // the switch is not optimistically flipped.
+                    if (next) void enable();
+                    else void disable();
+                  }}
+                  slotProps={{ input: { 'aria-label': 'Notifications on this device' } }}
+                />
+              }
             />
           ) : (
-            <div className="flex items-start gap-3">
-              <BellRing className="mt-0.5 size-5 shrink-0 text-tertiary" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-body font-medium text-label">Notifications on this device</p>
-                <p className="pt-0.5 text-footnote text-secondary">
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+              <NotificationsActiveIcon aria-hidden sx={{ mt: 0.25, color: 'text.disabled' }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body1">Notifications on this device</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 0.25 }}>
                   {state ? PUSH_STATE_MESSAGE[state] : 'Checking what this device supports\u2026'}
-                </p>
-              </div>
-            </div>
+                </Typography>
+              </Box>
+            </Box>
           )}
-        </div>
+        </ListItem>
 
-        <ListRow
-          title="Registered devices"
-          subtitle="Devices that have accepted notifications"
-          leading={<Smartphone className="size-5" aria-hidden />}
-          trailing={<span className="tnum text-body font-semibold text-label">{payload.pushDevices}</span>}
-        />
+        <ListItem>
+          <ListItemIcon sx={{ minWidth: 40 }}>
+            <SmartphoneIcon aria-hidden />
+          </ListItemIcon>
+          <ListItemText primary="Registered devices" secondary="Devices that have accepted notifications" />
+          <Typography variant="body1" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+            {payload.pushDevices}
+          </Typography>
+        </ListItem>
 
-        <div className="hairline-t px-4 py-3">
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
           <Button
             fullWidth
-            variant="tinted"
-            icon={Send}
+            variant="outlined"
+            startIcon={<SendIcon aria-hidden />}
             disabled={!subscribed || state !== 'ready'}
             onClick={() => void test()}
           >
@@ -247,18 +273,18 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
               says so — repeating it here in grey on grey only looked like a
               rendering fault. */}
           {state === 'server-not-configured' ? null : (
-            <p className="pt-2 text-footnote text-secondary">
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 1 }}>
               Shows a notification through this device’s service worker. It proves the device side works; a message from
               the server would arrive the same way.
-            </p>
+            </Typography>
           )}
-        </div>
+        </ListItem>
       </SettingsGroup>
 
       <SettingsGroup title="Reminders" footer="Controls whether TaskTick sends due-task reminders at all. Push for this device is set above.">
-        <div className="px-4 py-3">
+        <ListItem>
           <ReminderSwitch enabled={reminders} onChanged={onChanged} />
-        </div>
+        </ListItem>
       </SettingsGroup>
     </>
   );
@@ -287,12 +313,18 @@ function ReminderSwitch({ enabled, onChanged }: { enabled: boolean; onChanged?: 
   }
 
   return (
-    <Switch
+    <FormControlLabel
+      sx={{ m: 0, flex: 1, justifyContent: 'space-between' }}
+      labelPlacement="start"
       label="Task reminders"
-      checked={checked}
-      disabled={busy}
-      onCheckedChange={(next) => void toggle(next)}
-      aria-label="Task reminders"
+      control={
+        <Switch
+          checked={checked}
+          disabled={busy}
+          onChange={(_event, next) => void toggle(next)}
+          slotProps={{ input: { 'aria-label': 'Task reminders' } }}
+        />
+      }
     />
   );
 }

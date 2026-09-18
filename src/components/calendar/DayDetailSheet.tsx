@@ -3,19 +3,34 @@
 /**
  * The day detail sheet: everything happening on one day.
  *
- * This is what a tap on a month cell (or its "+N more" row) opens, and it is the
- * only place a crowded day is shown in full — hence the explicit "New event"
- * action, so the sheet is also the quickest way to add something to that day.
+ * This is what a tap on a month cell opens, and it is the only place a crowded
+ * day is shown in full — hence the explicit "New event" action, so the dialog is
+ * also the quickest way to add something to that day.
+ *
+ * Material's `Dialog` replaces the hand-rolled bottom sheet, so the focus trap,
+ * the scroll lock, Escape and the backdrop tap are Material's own rather than a
+ * second implementation layered on top of them.
  */
-import { CalendarDays, Check, Plus } from 'lucide-react';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import Typography from '@mui/material/Typography';
+import { useColorScheme } from '@mui/material/styles';
+import Add from '@mui/icons-material/Add';
+import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
+import Check from '@mui/icons-material/Check';
 import { accentHex, resolveCalendarColor } from '@/lib/colors';
 import { formatTime, fromDateOnly, relativeDayLabel } from '@/lib/dates';
-import { cn } from '@/lib/cn';
 import type { CalendarItem, DateOnly } from '@/lib/types';
-import { Button, EmptyState, Sheet } from '@/components/ui';
 import type { CalendarLookup, CalendarPrefs, ItemOpenHandler } from './types';
 
-/** Default slot for the sheet's own "New event" action. */
+/** Default slot for the dialog's own "New event" action. */
 export const DEFAULT_EVENT_START_MINUTE = 9 * 60;
 
 export interface DayDetailSheetProps {
@@ -39,28 +54,47 @@ export function DayDetailSheet({
   onOpenItem,
   onCreateAt,
 }: DayDetailSheetProps) {
+  /** The resolved appearance, so an accent token maps to the right hex. */
+  const { colorScheme } = useColorScheme();
+  const dark = colorScheme === 'dark';
+  const title = fromDateOnly(date, prefs.zone).toFormat('cccc d LLLL');
+  const description = relativeDayLabel(date, prefs.zone);
+
   return (
-    <Sheet
+    <Dialog
       open={open}
-      onOpenChange={onOpenChange}
-      title={fromDateOnly(date, prefs.zone).toFormat('cccc d LLLL')}
-      description={relativeDayLabel(date, prefs.zone)}
-      snapPoints={[0.5, 0.9]}
+      onClose={() => onOpenChange(false)}
+      fullWidth
+      maxWidth="xs"
+      aria-labelledby="day-detail-title"
+      aria-describedby="day-detail-description"
     >
-      {items.length === 0 ? (
-        <EmptyState
-          icon={CalendarDays}
-          title="Nothing scheduled"
-          description="This day is clear. Add an event, or drag one here from another day."
-          action={
-            <Button variant="tinted" icon={Plus} onClick={() => onCreateAt(date, DEFAULT_EVENT_START_MINUTE)}>
-              New event
-            </Button>
-          }
-        />
-      ) : (
-        <div className="space-y-4 pb-2">
-          <ul className="grouped">
+      <DialogTitle id="day-detail-title">{title}</DialogTitle>
+      <DialogContent dividers sx={{ px: 2 }}>
+        <Typography id="day-detail-description" variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          {description}
+        </Typography>
+
+        {items.length === 0 ? (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 1,
+              px: 2,
+              py: 3,
+              textAlign: 'center',
+            }}
+          >
+            <CalendarMonthOutlined aria-hidden sx={{ fontSize: 32, color: 'text.disabled' }} />
+            <Typography variant="subtitle2">Nothing scheduled</Typography>
+            <Typography variant="body2" color="text.secondary">
+              This day is clear. Add an event, or drag one here from another day.
+            </Typography>
+          </Box>
+        ) : (
+          <List disablePadding>
             {items.map((item) => {
               const calendar = item.calendarId ? calendars.get(item.calendarId) : undefined;
               const color = resolveCalendarColor(calendar?.color ?? null, calendar?.colorOverride ?? null);
@@ -69,48 +103,57 @@ export function DayDetailSheet({
                 : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
 
               return (
-                <li key={item.key} className="hairline-b last:border-b-0">
-                  <button
-                    type="button"
+                <ListItem key={item.key} disablePadding>
+                  <ListItemButton
                     onClick={() => onOpenItem(item)}
-                    className="flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left pressable-row"
+                    sx={{ gap: 1.5, minHeight: 44, borderRadius: 1 }}
                   >
-                    <span
+                    <Box
                       aria-hidden
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: accentHex(color) }}
+                      sx={{ width: 10, height: 10, flexShrink: 0, borderRadius: '50%', bgcolor: accentHex(color, dark) }}
                     />
-                    <span className="min-w-0 flex-1">
-                      <span className={cn('block truncate text-body', item.completed && 'text-secondary line-through')}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography
+                        variant="body2"
+                        noWrap
+                        sx={{
+                          color: item.completed ? 'text.secondary' : 'text.primary',
+                          textDecoration: item.completed ? 'line-through' : 'none',
+                        }}
+                      >
                         {item.kind === 'task' ? (
-                          <span aria-hidden className="mr-1">
+                          <Box component="span" aria-hidden sx={{ mr: 0.5 }}>
                             {item.completed ? '☑' : '☐'}
-                          </span>
+                          </Box>
                         ) : null}
                         {item.title}
-                      </span>
+                      </Typography>
                       {item.location ? (
-                        <span className="mt-0.5 block truncate text-footnote text-secondary">{item.location}</span>
+                        <Typography variant="caption" noWrap component="div" color="text.secondary">
+                          {item.location}
+                        </Typography>
                       ) : null}
-                    </span>
-                    <span className="tnum shrink-0 text-footnote text-secondary">{time}</span>
-                    {item.completed ? <Check className="size-4 shrink-0 text-success" aria-hidden /> : null}
-                  </button>
-                </li>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                      {time}
+                    </Typography>
+                    {item.completed ? <Check aria-hidden sx={{ fontSize: 16, color: 'success.main' }} /> : null}
+                  </ListItemButton>
+                </ListItem>
               );
             })}
-          </ul>
-
-          <Button
-            variant="tinted"
-            fullWidth
-            icon={Plus}
-            onClick={() => onCreateAt(date, DEFAULT_EVENT_START_MINUTE)}
-          >
-            New event
-          </Button>
-        </div>
-      )}
-    </Sheet>
+          </List>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 2, py: 1.5 }}>
+        <Button
+          variant="contained"
+          startIcon={<Add />}
+          onClick={() => onCreateAt(date, DEFAULT_EVENT_START_MINUTE)}
+        >
+          New event
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

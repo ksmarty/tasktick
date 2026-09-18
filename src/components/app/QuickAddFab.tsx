@@ -10,10 +10,10 @@
  *
  * Mobile only: on a desktop there is no thumb-reach problem, the nav bar's
  * actions are already at hand, and a floating circle over a wide window just
- * covers content.
+ * covers content. The shell hides it at `lg`; see `AppShell`.
  */
-import { Plus } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import Add from '@mui/icons-material/Add';
+import Fab from '@mui/material/Fab';
 import { requestPrimaryAction } from '@/lib/events';
 
 export interface QuickAddFabProps {
@@ -24,24 +24,25 @@ export interface QuickAddFabProps {
 
 export function QuickAddFab({ label = 'Add a task', className }: QuickAddFabProps) {
   return (
-    <button
-      type="button"
+    /*
+     * A flex sibling of the bottom navigation, not an absolutely positioned
+     * overlay.
+     *
+     * "Floating" here means the band floats over the content — the button
+     * itself is laid out next to the bar so the two can never overlap and the
+     * button never needs a reserved row of its own.
+     *
+     * `requestPrimaryAction` is unchanged: the button is contextual, so it
+     * announces an intent and whichever view is mounted acts on it.
+     */
+    <Fab
+      color="primary"
       aria-label={label}
       onClick={requestPrimaryAction}
-      className={cn(
-        /*
-         * A flex sibling of the tab bar, not an absolutely positioned overlay.
-         *
-         * "Floating" here means the band floats over the content — the button
-         * itself is laid out next to the pill so the two can never overlap and
-         * the button never needs a reserved row of its own.
-         */
-        'glass flex size-13 shrink-0 items-center justify-center rounded-full',
-        'text-tint pressable',
-        className,
-      )}
+      className={className}
+      sx={{ flexShrink: 0 }}
     >
-      <Plus className="size-6" strokeWidth={2.5} aria-hidden />
-    </button>
+      <Add fontSize="medium" />
+    </Fab>
   );
 }

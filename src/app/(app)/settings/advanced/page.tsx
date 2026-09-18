@@ -6,7 +6,16 @@
  * The capability list is not decoration: it is how a self-hoster finds out
  * whether push and OIDC are wired up without reading the boot log.
  */
-import { NavBar, ListRow, Skeleton } from '@/components/ui';
+import Link from 'next/link';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { PageHeader } from '@/components/app/PageHeader';
 import { useResource } from '@/lib/store';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { FocusSettings } from '@/components/settings/FocusSettings';
@@ -17,59 +26,67 @@ export default function AdvancedSettingsPage() {
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
 
   return (
-    <div className="pb-8">
-      <NavBar title="Advanced" back backHref="/settings" backLabel="Settings" largeTitle />
+    <Box sx={{ pb: 4 }}>
+      <PageHeader
+        title="Advanced"
+        leading={
+          <IconButton component={Link} href="/settings" aria-label="Back to Settings" edge="start">
+            <ArrowBackIcon />
+          </IconButton>
+        }
+      />
 
       {!bootstrap.data ? (
-        <div className="space-y-4 px-4 pt-2">
-          <Skeleton variant="rect" className="h-40" />
-          <Skeleton variant="rect" className="h-24" />
-        </div>
+        <Stack spacing={2} sx={{ px: 2, pt: 1 }}>
+          <Skeleton variant="rounded" height={160} />
+          <Skeleton variant="rounded" height={96} />
+        </Stack>
       ) : (
         <>
           <FocusSettings settings={bootstrap.data.settings} />
           <DataExportCard />
 
           <SettingsGroup title="This instance" footer="Read-only facts about the server you are connected to.">
-            <ListRow
+            <CapabilityRow
               title="Push notifications"
               subtitle={bootstrap.data.capabilities.push ? 'Configured (VAPID keys present)' : 'Not configured'}
-              trailing={
-                <span className="flex items-center gap-1 text-footnote">
-                  <span
-                    className={
-                      bootstrap.data.capabilities.push
-                        ? 'size-2 rounded-full bg-success'
-                        : 'size-2 rounded-full bg-fill-secondary'
-                    }
-                    aria-hidden
-                  />
-                  {bootstrap.data.capabilities.push ? 'On' : 'Off'}
-                </span>
-              }
+              on={bootstrap.data.capabilities.push}
             />
-            <ListRow
+            <CapabilityRow
               title="Single sign-on"
               subtitle={bootstrap.data.capabilities.oidc ? 'OIDC provider configured' : 'Email and password only'}
-              trailing={
-                <span className="flex items-center gap-1 text-footnote">
-                  <span
-                    className={
-                      bootstrap.data.capabilities.oidc
-                        ? 'size-2 rounded-full bg-success'
-                        : 'size-2 rounded-full bg-fill-secondary'
-                    }
-                    aria-hidden
-                  />
-                  {bootstrap.data.capabilities.oidc ? 'On' : 'Off'}
-                </span>
-              }
+              on={bootstrap.data.capabilities.oidc}
             />
-            <ListRow title="Time zone" subtitle={bootstrap.data.settings.timezone} />
-            <ListRow title="Week starts on" subtitle={bootstrap.data.settings.weekStartsOn === 0 ? 'Sunday' : 'Monday'} />
+            <ListItem>
+              <ListItemText primary="Time zone" secondary={bootstrap.data.settings.timezone} />
+            </ListItem>
+            <ListItem>
+              <ListItemText
+                primary="Week starts on"
+                secondary={bootstrap.data.settings.weekStartsOn === 0 ? 'Sunday' : 'Monday'}
+              />
+            </ListItem>
           </SettingsGroup>
         </>
       )}
-    </div>
+    </Box>
+  );
+}
+
+/** A read-only fact with an on/off dot: green when configured, grey when not. */
+function CapabilityRow({ title, subtitle, on }: { title: string; subtitle: string; on: boolean }) {
+  return (
+    <ListItem>
+      <ListItemText primary={title} secondary={subtitle} />
+      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexShrink: 0 }}>
+        <Box
+          aria-hidden
+          sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: on ? 'success.main' : 'action.disabled' }}
+        />
+        <Typography variant="caption" color="text.secondary">
+          {on ? 'On' : 'Off'}
+        </Typography>
+      </Stack>
+    </ListItem>
   );
 }

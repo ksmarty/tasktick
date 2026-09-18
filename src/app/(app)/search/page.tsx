@@ -13,12 +13,30 @@
  * field is a real `searchbox`; there is no `combobox`/`listbox` pairing because
  * these results are a page, not a dropdown, and claiming otherwise would misdescribe
  * the widget.
+ *
+ * Material owns the surfaces: a MUI `TextField` with the magnifier as an input
+ * adornment, a `List` per section under a `ListSubheader`, and `ListItemButton`
+ * rows — which is also what makes the focus-follows-selection design above work,
+ * since `ListItemButton` forwards its ref to the focusable root element.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentType, KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, Search, SearchX } from 'lucide-react';
-import { EmptyState, NavBar, SectionHeader, Spinner, TextField } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import InputAdornment from '@mui/material/InputAdornment';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import SearchIcon from '@mui/icons-material/Search';
+import SearchOffIcon from '@mui/icons-material/SearchOff';
+import type { SvgIconProps } from '@mui/material/SvgIcon';
 import { useResource } from '@/lib/store';
 import { todayIn } from '@/lib/dates';
 import {
@@ -31,7 +49,6 @@ import {
   totalResults,
 } from './results';
 import type { BootstrapPayload, SearchPayload } from '@/lib/view-types';
-import type { KeyboardEvent } from 'react';
 
 /** The API ignores anything shorter than this, so neither do we. */
 const MIN_QUERY_LENGTH = 2;
@@ -75,7 +92,7 @@ export default function SearchPage() {
 
   const flat = useMemo(() => flattenResults(groups), [groups]);
   const total = totalResults(groups);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // A new result set invalidates the previous selection.
   useEffect(() => {
@@ -114,53 +131,87 @@ export default function SearchPage() {
 
   return (
     //
-    // No `min-h-dvh` and no opaque background.
+    // No `min-h-dvh` and no opaque full-height wrapper.
     //
-    // This view renders inside the shell's scroll pane, and the shell paints
-    // `app-backdrop` behind it. A full-height opaque wrapper here would cover
-    // that backdrop, so every `glass-*` surface in the view would have nothing
-    // to refract and would read as flat grey. The shell also owns tab-bar
-    // clearance, so `pb-8` was double-padding.
-    <div onKeyDown={onKeyDown}>
-      // No back control: Search is a top-level destination reached from the Tools
-      // list and the More sheet, not a child of Today. A back arrow pointing at
-      // Today would misrepresent where the user came from.
-      <NavBar title="Search" />
+    // This view renders inside the shell's scrolling `main`, and the shell owns
+    // the background and the tab-bar clearance. The header below is sticky
+    // against that pane and paints the shell's own background colour, so a row
+    // scrolling under it stays legible without a separate surface appearing at
+    // the top of the screen.
+    <Box onKeyDown={onKeyDown}>
+      {/*
+       * No back control: Search is a top-level destination reached from the Tools
+       * list and the More sheet, not a child of Today. A back arrow pointing at
+       * Today would misrepresent where the user came from.
+       */}
+      <Box
+        component="header"
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 'appBar',
+          bgcolor: 'background.default',
+          px: 2,
+          pt: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)',
+          pb: 0.5,
+        }}
+      >
+        <Typography variant="h6" component="h1">
+          Search
+        </Typography>
+      </Box>
 
-      <div className="px-4 pb-2">
+      <Box sx={{ px: 2, pb: 1 }}>
         <TextField
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Tasks, events and habits"
-          aria-label="Search everything"
           // A search screen that does not focus its field wastes the one thing
           // the user came here to do.
           autoFocus
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="search"
-          leading={<Search className="size-5" aria-hidden />}
-          trailing={search.isLoading && ready ? <Spinner size={16} label="Searching" /> : undefined}
+          fullWidth
+          slotProps={{
+            htmlInput: {
+              'aria-label': 'Search everything',
+              enterKeyHint: 'search',
+              autoComplete: 'off',
+              autoCorrect: 'off',
+              spellCheck: false,
+            },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+              endAdornment:
+                search.isLoading && ready ? (
+                  <InputAdornment position="end">
+                    <CircularProgress size={16} aria-label="Searching" />
+                  </InputAdornment>
+                ) : undefined,
+            },
+          }}
         />
-      </div>
+      </Box>
 
       {!ready ? (
-        <EmptyState
-          icon={Search}
+        <EmptyNotice
+          icon={SearchIcon}
           title="Search everything"
           description="Type at least two characters to search across your tasks, calendar events and habits."
         />
       ) : search.error ? (
-        <EmptyState icon={SearchX} title="Search failed" description={search.error} />
+        <EmptyNotice icon={SearchOffIcon} title="Search failed" description={search.error} />
       ) : search.isInitialLoading ? (
-        <div className="flex justify-center py-12">
-          <Spinner label="Searching" />
-        </div>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+          {/* `status` + a name, so the wait is announced rather than silent. */}
+          <CircularProgress role="status" aria-label="Searching" />
+        </Box>
       ) : total === 0 ? (
-        <EmptyState
-          icon={SearchX}
+        <EmptyNotice
+          icon={SearchOffIcon}
           title="No results"
           description={`Nothing matches “${debounced}”. Try a shorter word, or check another spelling.`}
         />
@@ -171,50 +222,110 @@ export default function SearchPage() {
             if (items.length === 0) return null;
 
             return (
-              <section key={section.kind} aria-label={section.label}>
-                <SectionHeader
-                  title={section.label}
-                  action={<span className="tnum text-caption-1 text-tertiary">{items.length}</span>}
-                />
-                <ul className="grouped mx-4">
+              <Box component="section" key={section.kind} aria-label={section.label}>
+                <List
+                  sx={{ py: 0 }}
+                  subheader={
+                    <ListSubheader
+                      disableSticky
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 1,
+                        px: 2,
+                        py: 0.5,
+                        lineHeight: 'normal',
+                        bgcolor: 'transparent',
+                      }}
+                    >
+                      <span>{section.label}</span>
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        {items.length}
+                      </Typography>
+                    </ListSubheader>
+                  }
+                >
                   {items.map((result) => {
                     const index = flat.findIndex((candidate) => candidate.key === result.key);
                     const isActive = index === active;
                     return (
-                      <li key={result.key}>
-                        <button
-                          type="button"
+                      <ListItem key={result.key} disablePadding>
+                        <ListItemButton
                           ref={(node) => {
                             itemRefs.current[index] = node;
                           }}
                           onClick={() => open(index)}
                           onPointerEnter={() => setActive(index)}
-                          className={cn(
-                            'flex min-h-11 w-full items-center gap-3 px-4 py-2.5 text-left pressable-row',
-                            isActive && 'bg-tint-soft',
-                          )}
+                          sx={{
+                            minHeight: 44,
+                            gap: 1.5,
+                            px: 2,
+                            py: 1,
+                            ...(isActive ? { bgcolor: 'action.selected' } : {}),
+                          }}
                         >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-body text-label">{result.title}</span>
-                            {result.subtitle ? (
-                              <span className="mt-0.5 block truncate text-footnote text-secondary">{result.subtitle}</span>
-                            ) : null}
-                          </span>
-                          <ChevronRight className="size-4 shrink-0 text-tertiary" aria-hidden />
-                        </button>
-                      </li>
+                          <ListItemText
+                            primary={result.title}
+                            secondary={result.subtitle}
+                            slotProps={{
+                              primary: { sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                              secondary: { sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                            }}
+                          />
+                          <ChevronRightIcon sx={{ flexShrink: 0, color: 'text.disabled' }} aria-hidden />
+                        </ListItemButton>
+                      </ListItem>
                     );
                   })}
-                </ul>
-              </section>
+                </List>
+              </Box>
             );
           })}
 
-          <p className="px-4 pt-4 text-caption-1 text-tertiary">
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 2 }}>
             {total} {total === 1 ? 'result' : 'results'} · use ↑ ↓ and Enter
-          </p>
+          </Typography>
         </>
       )}
-    </div>
+    </Box>
+  );
+}
+
+/** The centred "nothing here" panel: a disc, a title and one sentence. */
+function EmptyNotice({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: ComponentType<SvgIconProps>;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Stack spacing={1} sx={{ alignItems: 'center', px: 6, py: 6, textAlign: 'center' }}>
+      <Box
+        aria-hidden
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 56,
+          height: 56,
+          mb: 1,
+          borderRadius: '50%',
+          bgcolor: 'action.hover',
+          color: 'text.secondary',
+        }}
+      >
+        <Icon />
+      </Box>
+      <Typography variant="subtitle1" component="h2">
+        {title}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 288 }}>
+        {description}
+      </Typography>
+    </Stack>
   );
 }

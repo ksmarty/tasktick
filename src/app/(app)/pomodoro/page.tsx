@@ -16,11 +16,33 @@
  *     session starts, `PATCH /api/focus/[id]` with `{ completed, actualSeconds }`
  *     when it ends — whether it ran out or was skipped/reset. An abandoned
  *     session is recorded as abandoned, not silently dropped.
+ *
+ * Material owns the chrome: a sticky `AppBar`, the phase ring as a determinate
+ * `CircularProgress` with the clock `Typography` centred over it, the controls
+ * as MUI `Button`s, and the two summary rows as outlined `Paper`s. None of the
+ * timing, session or notification code below has moved.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { Check, Pause, Play, RotateCcw, SkipForward, Timer } from 'lucide-react';
-import { Button, NavBar, ProgressRing, Select, Skeleton, useToast } from '@/components/ui';
+import NextLink from 'next/link';
+import AppBar from '@mui/material/AppBar';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Link from '@mui/material/Link';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Toolbar from '@mui/material/Toolbar';
+import Typography from '@mui/material/Typography';
+import CheckIcon from '@mui/icons-material/Check';
+import PauseIcon from '@mui/icons-material/Pause';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import SkipNextIcon from '@mui/icons-material/SkipNext';
+import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined';
+import { useToast } from '@/components/app/Toast';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { formatClock, humanDuration, todayIn, toDateOnly } from '@/lib/dates';
@@ -48,6 +70,13 @@ const PHASE_LABEL: Record<FinishedPhase['phase'], string> = {
   short_break: 'Short break',
   long_break: 'Long break',
 };
+
+/** The primary action as a filled primary button; the app's "tinted" surface. */
+const TINTED_SX = {
+  bgcolor: 'action.hover',
+  color: 'primary.main',
+  '&:hover': { bgcolor: 'action.selected' },
+} as const;
 
 export default function PomodoroPage() {
   const { toast } = useToast();
@@ -247,61 +276,103 @@ export default function PomodoroPage() {
     return Math.round(seconds / 60);
   }, [focus.data, today, zone]);
 
-  const taskOptions = useMemo(
-    () => [{ value: '', label: 'No task' }, ...(tasks.data ?? []).map((task) => ({ value: task.id, label: task.title }))],
-    [tasks.data],
-  );
-
   const toLongBreak = focusUntilLongBreak(state, config);
   const loading = !settings;
 
   return (
-    <div className="pb-10">
+    <Box sx={{ pb: 5 }}>
       {/* No back control: the focus timer is a top-level destination reached
           from the tab bar's "More" sheet and the sidebar's Tools. */}
-      <NavBar title="Focus" largeTitle />
+      <AppBar
+        position="sticky"
+        color="default"
+        elevation={0}
+        sx={{
+          bgcolor: 'background.default',
+          backgroundImage: 'none',
+          borderBottom: 1,
+          borderColor: 'divider',
+          // The app paints under the Dynamic Island, so the bar carries the inset.
+          pt: 'env(safe-area-inset-top, 0px)',
+        }}
+      >
+        <Toolbar sx={{ minHeight: 56, px: 1.5 }}>
+          <Typography variant="h6" component="h1" noWrap>
+            Focus
+          </Typography>
+        </Toolbar>
+      </AppBar>
 
       {loading ? (
-        <div className="px-4">
-          <Skeleton variant="circle" className="mx-auto size-50" />
-        </div>
+        <Box sx={{ px: 2, pt: 2 }}>
+          <Skeleton variant="circular" width={200} height={200} sx={{ mx: 'auto' }} />
+        </Box>
       ) : (
         <>
-          <div className="px-4 pb-4">
-            <Select
-              value={taskId || ''}
-              onChange={setTaskId}
-              options={taskOptions}
+          <Box sx={{ px: 2, pt: 2, pb: 2 }}>
+            <TextField
+              select
+              fullWidth
               label="Task to focus on"
-              placeholder="No task"
-              sheetTitle="Focus on…"
-            />
-          </div>
+              value={taskId}
+              onChange={(event) => setTaskId(event.target.value)}
+            >
+              <MenuItem value="">No task</MenuItem>
+              {(tasks.data ?? []).map((task) => (
+                <MenuItem key={task.id} value={task.id}>
+                  {task.title}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
 
-          <div className="flex flex-col items-center px-6">
-            <p className="pb-1 text-subhead font-semibold uppercase tracking-wide text-secondary">
+          <Stack sx={{ alignItems: 'center', px: 3 }}>
+            <Typography
+              variant="subtitle1"
+              sx={{ pb: 0.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'text.secondary' }}
+            >
               {PHASE_LABEL[state.phase]}
-            </p>
-            <p className="pb-5 text-footnote text-tertiary">
+            </Typography>
+            <Typography variant="body2" color="text.disabled" sx={{ pb: 2.5 }}>
               {state.status === 'paused'
                 ? 'Paused'
                 : state.phase === 'focus'
                   ? `${toLongBreak} more ${toLongBreak === 1 ? 'session' : 'sessions'} until a long break`
                   : 'Break time'}
-            </p>
+            </Typography>
 
-            <ProgressRing
-              value={phaseProgress(state, now)}
-              size={200}
-              strokeWidth={8}
-              color={state.phase === 'focus' ? 'tint' : 'success'}
-              label={`${remaining} seconds remaining in the ${PHASE_LABEL[state.phase].toLowerCase()}`}
-            >
-              <span className="tnum absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-title-1 font-semibold text-label">{formatClock(remaining)}</span>
-                <span className="text-caption-1 text-secondary">{formatClock(state.plannedSeconds)} planned</span>
-              </span>
-            </ProgressRing>
+            <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+              <CircularProgress
+                variant="determinate"
+                value={phaseProgress(state, now) * 100}
+                size={200}
+                // 8px of stroke on a 200px ring in Material's 44-unit viewBox.
+                thickness={1.76}
+                enableTrackSlot
+                color={state.phase === 'focus' ? 'primary' : 'success'}
+                aria-label={`${remaining} seconds remaining in the ${PHASE_LABEL[state.phase].toLowerCase()}`}
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Typography
+                  variant="h4"
+                  sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {formatClock(remaining)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formatClock(state.plannedSeconds)} planned
+                </Typography>
+              </Box>
+            </Box>
 
             {/*
              * One row, three equal columns.
@@ -311,75 +382,135 @@ export default function PomodoroPage() {
              * and the group sat left of the ring's centre. Equal columns give
              * them one height, one baseline and one weight.
              */}
-            <div className="mt-7 grid w-full max-w-sm grid-cols-3 gap-2">
+            <Stack direction="row" spacing={1} sx={{ mt: 3.5, width: '100%', maxWidth: 384 }}>
               {state.status === 'running' ? (
-                <Button size="lg" variant="gray" fullWidth icon={Pause} onClick={onPause} className="px-2">
+                <Button
+                  size="large"
+                  variant="contained"
+                  color="inherit"
+                  fullWidth
+                  startIcon={<PauseIcon />}
+                  onClick={onPause}
+                  sx={{ px: 1, minWidth: 0, flex: 1 }}
+                >
                   Pause
                 </Button>
               ) : (
-                <Button size="lg" fullWidth icon={Play} onClick={onStart} className="px-2">
+                <Button
+                  size="large"
+                  variant="contained"
+                  fullWidth
+                  startIcon={<PlayArrowIcon />}
+                  onClick={onStart}
+                  sx={{ px: 1, minWidth: 0, flex: 1 }}
+                >
                   {state.status === 'paused' ? 'Resume' : 'Start'}
                 </Button>
               )}
-              <Button size="lg" variant="tinted" fullWidth icon={SkipForward} onClick={onSkip} className="px-2">
+              <Button
+                size="large"
+                fullWidth
+                startIcon={<SkipNextIcon />}
+                onClick={onSkip}
+                sx={{ px: 1, minWidth: 0, flex: 1, ...TINTED_SX }}
+              >
                 Skip
               </Button>
-              <Button size="lg" variant="gray" fullWidth icon={RotateCcw} onClick={onReset} className="px-2">
+              <Button
+                size="large"
+                variant="contained"
+                color="inherit"
+                fullWidth
+                startIcon={<RestartAltIcon />}
+                onClick={onReset}
+                sx={{ px: 1, minWidth: 0, flex: 1 }}
+              >
                 Reset
               </Button>
-            </div>
+            </Stack>
 
             {selectedTask ? (
-              <p className="mt-4 max-w-sm truncate text-subhead text-secondary">Focusing on “{selectedTask.title}”</p>
+              <Typography variant="subtitle1" color="text.secondary" noWrap sx={{ mt: 2, maxWidth: 384 }}>
+                {`Focusing on “${selectedTask.title}”`}
+              </Typography>
             ) : null}
-          </div>
+          </Stack>
 
           {offer ? (
-            <div role="status" className="grouped mx-4 mt-6 p-4">
-              <p className="text-subhead font-semibold text-label">Session complete — did you finish the task?</p>
-              <p className="mt-0.5 truncate text-footnote text-secondary">{offer.title}</p>
-              <div className="mt-3 flex gap-2">
+            <Paper role="status" variant="outlined" sx={{ mx: 2, mt: 3, p: 2 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                Session complete — did you finish the task?
+              </Typography>
+              <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.25 }}>
+                {offer.title}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center' }}>
                 <Button
-                  variant="filled"
-                  icon={Check}
+                  variant="contained"
+                  startIcon={<CheckIcon />}
                   loading={completeTask.isPending}
                   onClick={() => void completeTask.run(offer.id)}
                 >
                   Complete task
                 </Button>
-                <Button variant="plain" onClick={() => setOffer(null)}>
+                <Button onClick={() => setOffer(null)} sx={{ color: 'text.secondary' }}>
                   Not yet
                 </Button>
-              </div>
-            </div>
+              </Stack>
+            </Paper>
           ) : null}
 
-          <div className="grouped mx-4 mt-6 flex items-center justify-between px-4 py-3">
-            <span className="flex items-center gap-2 text-body text-label">
-              <Check className="size-4 text-success" aria-hidden />
-              Focus sessions today
-            </span>
-            <span className="tnum text-body font-semibold text-label">{focus.data?.completedToday ?? 0}</span>
-          </div>
-          <div className="grouped mx-4 mt-2 flex items-center justify-between px-4 py-3">
-            <span className="flex items-center gap-2 text-body text-label">
-              <Timer className="size-4 text-tint" aria-hidden />
-              Focus time today
-            </span>
-            <span className="tnum text-body font-semibold text-label">
-              {todayFocusMinutes > 0 ? humanDuration(todayFocusMinutes) : '—'}
-            </span>
-          </div>
+          <Paper
+            variant="outlined"
+            sx={{
+              mx: 2,
+              mt: 3,
+              px: 2,
+              py: 1.5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <CheckIcon sx={{ fontSize: 16, color: 'success.main' }} aria-hidden />
+              <Typography variant="body1">Focus sessions today</Typography>
+            </Stack>
+            <Typography variant="body1" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {focus.data?.completedToday ?? 0}
+            </Typography>
+          </Paper>
 
-          <p className="px-4 pt-4 text-footnote text-secondary">
+          <Paper
+            variant="outlined"
+            sx={{
+              mx: 2,
+              mt: 1,
+              px: 2,
+              py: 1.5,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <TimerOutlinedIcon sx={{ fontSize: 16, color: 'primary.main' }} aria-hidden />
+              <Typography variant="body1">Focus time today</Typography>
+            </Stack>
+            <Typography variant="body1" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {todayFocusMinutes > 0 ? humanDuration(todayFocusMinutes) : '—'}
+            </Typography>
+          </Paper>
+
+          <Typography variant="body2" color="text.secondary" sx={{ px: 2, pt: 2 }}>
             {config.focusMinutes} min focus · {config.shortBreakMinutes} min short break · {config.longBreakMinutes} min
             long break every {config.longBreakEvery} sessions.{' '}
-            <Link href="/settings/advanced" className="font-semibold text-tint pressable">
+            <Link component={NextLink} href="/settings/advanced" sx={{ fontWeight: 600 }}>
               Change in Settings
             </Link>
-          </p>
+          </Typography>
         </>
       )}
-    </div>
+    </Box>
   );
 }

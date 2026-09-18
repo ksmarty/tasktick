@@ -105,8 +105,8 @@ export {
 } from './useTaskActions';
 export {
   PRIORITY_ITEMS,
+  priorityColor,
   priorityLabel,
-  priorityTextClass,
   type PriorityItem,
 } from './priority';
 export type { BulkAction, BulkPayload, CreateTaskPayload, TaskPatch } from './payloads';

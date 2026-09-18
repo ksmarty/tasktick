@@ -18,7 +18,7 @@ import { relativeDayLabel } from '@/lib/dates';
 import { useMutation, useOnline } from '@/lib/store';
 import type { List, Tag, Task } from '@/lib/types';
 import type { CompleteTaskPayload } from '@/lib/view-types';
-import { useToast } from '@/components/ui';
+import { useToast } from '@/components/app/Toast';
 import type { BulkAction, BulkPayload, CreateTaskPayload, TaskPatch } from './payloads';
 
 export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. They will work again once you reconnect.';

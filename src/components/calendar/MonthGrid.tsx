@@ -28,7 +28,12 @@
  *
  * The two gestures the surface owns (vertical = height, horizontal = paging)
  * and the axis rule that separates them live in `./use-month-gestures`, next to
- * the numbers they settle on.
+ * the numbers they settle on. **Nothing here may change their contract**: the
+ * gesture hook measures `viewportRef` (one page wide, height written straight to
+ * the node) and writes `trackRef` (three pages wide, re-based on `-100% / 3`) and
+ * `gridRef` (the live lattice the drag geometry divides by columns/rows). Those
+ * three nodes and their nesting are load-bearing; this file only decides how the
+ * cells inside them are painted.
  *
  * ## Paging is a track, not a swap
  *
@@ -50,6 +55,15 @@
  * There is no entrance animation: the month being dragged to is already in
  * place, so arriving is a slide, never an animation played on top of one.
  *
+ * ## Material
+ *
+ * The surface is MUI's `Paper` and the chrome is `Typography` and `IconButton`;
+ * the lattice, the day disc and the dot lane stay `Box`-based, because MUI has no
+ * month calendar and `DateCalendar` is a date *picker* — it would cost the dots
+ * and the paging. Styling is `sx` only. Item colours come from the server as
+ * accent tokens and are resolved to hex through `lib/colors`, so nothing depends
+ * on the old CSS custom properties.
+ *
  * ## The header
  *
  * The weekday captions are single letters (`M T W T F S S`, rotated to the
@@ -61,13 +75,14 @@
  * ## The selected circle
  *
  * The selected day is a filled circle large enough to swallow its own event
- * dots, painted above the dot lane (`z-10`) so they cannot peek out around it;
- * the circle is `pointer-events-none`, so the dots underneath still take their
- * own taps and drags. Today, when it is not selected, is a white circle of the
- * same diameter with a hairline accent ring, so it stays visible on a white
- * card in light appearance. The number is centred in that disc by the disc's own
- * flex box — one rule for both the live month and the ones on either side — so
- * the glyph cannot sit high in the circle while the circle is being dragged.
+ * dots, painted above the dot lane (`zIndex: 10`) so they cannot peek out around
+ * it; the circle is `pointer-events-none`, so the dots underneath still take
+ * their own taps and drags. Today, when it is not selected, is a paper-coloured
+ * circle of the same diameter with a hairline primary ring, so it stays visible
+ * on a paper card in light appearance. The number is centred in that disc by the
+ * disc's own flex box — one rule for both the live month and the ones on either
+ * side — so the glyph cannot sit high in the circle while the circle is being
+ * dragged.
  *
  * It never derives a date of its own: `days` is the server's padded day list for
  * the visible window, chunked into whole weeks by `buildMonthRows`, so the grid,
@@ -80,9 +95,15 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { accentVar } from '@/lib/colors';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import { useColorScheme } from '@mui/material/styles';
+import type { Theme } from '@mui/material/styles';
+import type { SystemStyleObject } from '@mui/system';
+import { accentHex } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
-import { cn } from '@/lib/cn';
 import type { CalendarItem, DateOnly } from '@/lib/types';
 import type { CalendarItemsPayload } from '@/lib/view-types';
 import { itemColor } from './colors';
@@ -101,16 +122,60 @@ import type { CalendarInteraction, CalendarLookup, CalendarPrefs, ItemOpenHandle
  */
 const MAX_DOTS = 3;
 
+/** Diameter of the day disc, and of the tap target's min box. */
+const DISC_PX = 36;
+const TAP_MIN_PX = 40;
+/** The dot lane's top edge, measured from the row's top: just under the digits. */
+const DOT_LANE_TOP_PX = 21;
+const DOT_LANE_HEIGHT_PX = 12;
+const DOT_HIT_PX = 10;
+const DOT_PX = 6;
+
 /**
  * The day cell's vertical stack.
  *
  * The button is taller than the row it sits in: the visible row is 36px, the day
- * is a 40px tap target. `-my-0.5` pays for it, so the grid does not grow, and
- * `pt-0.5` keeps the circle off the row's top edge. Shared with the static
- * panels so a neighbouring month's numbers land on exactly the same line as the
- * current month's.
+ * is a 40px tap target. The negative margin pays for it, so the grid does not
+ * grow, and the 2px top padding keeps the circle off the row's top edge. Shared
+ * with the static panels so a neighbouring month's numbers land on exactly the
+ * same line as the current month's.
  */
-const DAY_STACK = 'flex w-full -my-0.5 min-h-10 flex-col items-center justify-start pt-0.5';
+const DAY_STACK: SystemStyleObject<Theme> = {
+  display: 'flex',
+  width: '100%',
+  my: '-2px',
+  minHeight: `${TAP_MIN_PX}px`,
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'flex-start',
+  pt: '2px',
+  border: 0,
+  bgcolor: 'transparent',
+  p: 0,
+  font: 'inherit',
+  color: 'inherit',
+  cursor: 'pointer',
+};
+
+/** The disc itself: one size for every state, so the month never re-lays-out. */
+const DISC_SX: SystemStyleObject<Theme> = {
+  position: 'relative',
+  zIndex: 10,
+  pointerEvents: 'none',
+  display: 'flex',
+  width: `${DISC_PX}px`,
+  height: `${DISC_PX}px`,
+  flexShrink: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: '50%',
+  // Colour, fill and ring only: the circle keeps its box, so the grid never
+  // re-lays-out when the selected day changes.
+  transition: (theme) =>
+    theme.transitions.create(['background-color', 'color', 'box-shadow'], {
+      duration: theme.transitions.duration.shortest,
+    }),
+};
 
 /**
  * One month of the paging track: its window, the day it is anchored on and the
@@ -184,6 +249,9 @@ export function MonthGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const [focusDate, setFocusDate] = useState(selectedDate);
   const pendingFocus = useRef(false);
+  /** The resolved appearance, so an accent token maps to the right hex. */
+  const { colorScheme } = useColorScheme();
+  const dark = colorScheme === 'dark';
 
   const rows = useMemo(() => buildMonthRows(days, anchor), [days, anchor]);
 
@@ -295,25 +363,36 @@ export function MonthGrid({
   }
 
   return (
-    <div className="flex min-h-0 flex-col touch-none" {...handlers}>
+    <Paper
+      elevation={0}
+      variant="outlined"
+      /*
+       * `touchAction: none` is the gesture contract: *touch* pans on this surface
+       * belong to the two gestures, never to the page. The height and the track's
+       * transform are written straight to the nodes by the hook.
+       */
+      sx={{ display: 'flex', minHeight: 0, flexDirection: 'column', touchAction: 'none' }}
+      {...handlers}
+    >
       {/*
         Chrome, not content: the captions never slide with the lattice, and they
         are hidden from assistive tech because every day button already carries
         its full date name. No rule — the month is separated by whitespace.
       */}
-      <div aria-hidden className="grid shrink-0 grid-cols-7">
+      <Box aria-hidden sx={{ display: 'grid', gridTemplateColumns: `repeat(${MONTH_COLUMNS}, 1fr)`, flexShrink: 0 }}>
         {headers.map((label, index) => (
-          <span
+          <Typography
             key={`${label}-${index}`}
-            className="pb-0.5 text-center text-caption-2 leading-none font-medium text-tertiary"
+            variant="caption"
+            sx={{ pb: '2px', textAlign: 'center', lineHeight: 1, color: 'text.disabled' }}
           >
             {label}
-          </span>
+          </Typography>
         ))}
-      </div>
+      </Box>
 
-      <div ref={viewportRef} className="overflow-hidden" style={{ height: viewportHeight }}>
-        <div
+      <Box ref={viewportRef} sx={{ overflow: 'hidden' }} style={{ height: viewportHeight }}>
+        <Box
           /*
            * Keyed on the paging move: a committed page remounts the track, which
            * is what drops the drag's pixel offset — the transform React renders
@@ -321,7 +400,7 @@ export function MonthGrid({
            */
           key={pageSeq}
           ref={trackRef}
-          className="flex"
+          sx={{ display: 'flex' }}
           style={{
             // Three pages wide, one page per panel; `-100% / 3` is therefore
             // exactly the offset that puts the middle month in the viewport.
@@ -337,6 +416,7 @@ export function MonthGrid({
             today={today}
             prefs={prefs}
             calendars={calendars}
+            dark={dark}
             live={null}
           />
 
@@ -347,6 +427,7 @@ export function MonthGrid({
             today={today}
             prefs={prefs}
             calendars={calendars}
+            dark={dark}
             gridRef={gridRef}
             live={{
               collapsed,
@@ -371,10 +452,11 @@ export function MonthGrid({
             today={today}
             prefs={prefs}
             calendars={calendars}
+            dark={dark}
             live={null}
           />
-        </div>
-      </div>
+        </Box>
+      </Box>
 
       {/*
         The grabber replaces the old chevron button: the grid's height is a drag
@@ -382,18 +464,17 @@ export function MonthGrid({
         without a pointer — click, Enter or Space toggles it — and `aria-expanded`
         says which way it will go.
       */}
-      <button
-        type="button"
+      <IconButton
         aria-label={collapsed ? 'Expand the month' : 'Collapse to a week'}
         aria-expanded={!collapsed}
         onClick={toggle}
-        className="flex h-5 w-full shrink-0 items-center justify-center"
+        sx={{ height: 20, width: '100%', flexShrink: 0, borderRadius: 1, p: 0 }}
       >
-        <span aria-hidden className="h-1 w-9 rounded-full bg-separator" />
-      </button>
+        <Box aria-hidden sx={{ height: 4, width: 36, borderRadius: 2, bgcolor: 'divider' }} />
+      </IconButton>
 
       {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}
-    </div>
+    </Paper>
   );
 }
 
@@ -425,6 +506,8 @@ interface MonthPanelProps {
   today: DateOnly;
   prefs: CalendarPrefs;
   calendars: CalendarLookup;
+  /** Resolved appearance, for the item accent hexes. */
+  dark: boolean;
   /** Set for the live month only; `null` makes the panel presentational. */
   live: LivePanelProps | null;
   /** The live month's lattice, which the drag geometry is measured against. */
@@ -439,26 +522,29 @@ interface MonthPanelProps {
  * only difference is that its days are not controls. `buildMonthRows` did the
  * chunking, so a panel never decides for itself which days it holds.
  */
-function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, live, gridRef }: MonthPanelProps) {
+function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, dark, live, gridRef }: MonthPanelProps) {
   const rows = useMemo(() => buildMonthRows(page.days, page.anchor), [page.days, page.anchor]);
 
   return (
-    <div
+    <Box
       ref={gridRef}
       role={live ? 'grid' : undefined}
       aria-label={live ? (live.collapsed ? 'Week' : 'Month') : undefined}
       aria-hidden={live ? undefined : true}
       data-month-panel={panel}
       onKeyDown={live?.onKeyDown}
-      className="grid w-1/3 shrink-0 select-none"
-      style={{
-        height: MONTH_EXPANDED_PX,
+      sx={{
+        display: 'grid',
+        width: 'calc(100% / 3)',
+        flexShrink: 0,
+        userSelect: 'none',
         gridTemplateColumns: `repeat(${MONTH_COLUMNS}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`,
       }}
+      style={{ height: MONTH_EXPANDED_PX }}
     >
       {rows.map((row, rowIndex) => (
-        <div key={rowIndex} role={live ? 'row' : undefined} className="contents">
+        <Box key={rowIndex} role={live ? 'row' : undefined} sx={{ display: 'contents' }}>
           {row.map((cell, columnIndex) => {
             const dayItems = page.payload.days[cell.date] ?? [];
             const isSelected = cell.date === selectedDate;
@@ -473,13 +559,13 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, live, 
               boxed cell this change exists to delete.
             */
             return (
-              <div
+              <Box
                 key={cell.date}
                 role={live ? 'gridcell' : undefined}
                 aria-selected={live ? isSelected : undefined}
                 data-date={cell.date}
                 onClick={live ? () => live.onSelectDate(cell.date) : undefined}
-                className="relative flex min-h-0 flex-col items-center"
+                sx={{ position: 'relative', display: 'flex', minHeight: 0, flexDirection: 'column', alignItems: 'center' }}
               >
                 {live ? (
                   <DayNumber
@@ -499,9 +585,9 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, live, 
                   />
                 ) : (
                   // The disc alone: same size, same states, same centring rule.
-                  <span className={DAY_STACK}>
+                  <Box sx={DAY_STACK}>
                     <DayNumberFace date={cell.date} inMonth={cell.inMonth} isSelected={isSelected} isToday={isToday} />
-                  </span>
+                  </Box>
                 )}
 
                 {/*
@@ -516,12 +602,25 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, live, 
                   circle would stop containing its own dots; any higher and the
                   dots cross the digits' baseline.
 
-                  `pointer-events-none` on the lane itself is what keeps the
+                  `pointerEvents: none` on the lane itself is what keeps the
                   day's hit box honest: only the dots are handles, so a tap
                   beside them falls through to the day button underneath
                   rather than stopping at an invisible strip.
                 */}
-                <span className="pointer-events-none absolute inset-x-0 top-[21px] flex h-3 shrink-0 items-center justify-center">
+                <Box
+                  sx={{
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: `${DOT_LANE_TOP_PX}px`,
+                    display: 'flex',
+                    height: `${DOT_LANE_HEIGHT_PX}px`,
+                    flexShrink: 0,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
                   {dayItems.slice(0, MAX_DOTS).map((item) =>
                     live ? (
                       <DayDot
@@ -529,6 +628,7 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, live, 
                         item={item}
                         prefs={prefs}
                         calendars={calendars}
+                        dark={dark}
                         drag={live.drag?.item.key === item.key ? live.drag : null}
                         onOpen={live.onOpenItem}
                         onPointerDown={(event) =>
@@ -543,18 +643,21 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, live, 
                         }
                       />
                     ) : (
-                      <span key={item.key} className="flex size-2.5 items-center justify-center">
-                        <DotMark item={item} calendars={calendars} />
-                      </span>
+                      <Box
+                        key={item.key}
+                        sx={{ display: 'flex', width: DOT_HIT_PX, height: DOT_HIT_PX, alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <DotMark item={item} calendars={calendars} dark={dark} />
+                      </Box>
                     ),
                   )}
-                </span>
-              </div>
+                </Box>
+              </Box>
             );
           })}
-        </div>
+        </Box>
       ))}
-    </div>
+    </Box>
   );
 }
 
@@ -580,8 +683,8 @@ interface DayNumberProps {
  * hears everything the day holds.
  *
  * The circle is one size for every state, so the month never re-lays-out as the
- * selection moves. It is drawn *above* the dot lane (`relative z-10`) and made
- * `pointer-events-none`, which is the pair that lets it hide the dots visually
+ * selection moves. It is drawn *above* the dot lane (`zIndex: 10`) and made
+ * `pointer-events: none`, which is the pair that lets it hide the dots visually
  * while the dots keep their own hit boxes.
  */
 function DayNumber({
@@ -596,7 +699,8 @@ function DayNumber({
   activate,
 }: DayNumberProps) {
   return (
-    <button
+    <Box
+      component="button"
       ref={registerRef}
       type="button"
       tabIndex={tabIndex}
@@ -606,10 +710,10 @@ function DayNumber({
         event.stopPropagation();
         activate();
       }}
-      className={DAY_STACK}
+      sx={DAY_STACK}
     >
       <DayNumberFace date={date} inMonth={inMonth} isSelected={isSelected} isToday={isToday} />
-    </button>
+    </Box>
   );
 }
 
@@ -623,50 +727,55 @@ interface DayNumberFaceProps {
 /**
  * The disc itself, and the only place the number is positioned.
  *
- * It is a 36px flex box and the glyph is centred in it (`items-center`), so the
- * number's box and the circle share a centre by construction. The nudge this
- * replaced — `items-start` plus `pt-[5px]` — dated from a resize of the circle
- * and left every digit sitting high in its disc; the baseline is not offset by
- * `leading-none` either, because flex centring puts the line box, and therefore
- * the glyph centred inside it, on the disc's middle.
+ * It is a 36px flex box and the glyph is centred in it, so the number's box and
+ * the circle share a centre by construction. The nudge this replaced —
+ * `justify-content: flex-start` plus a 5px top padding — dated from a resize of
+ * the circle and left every digit sitting high in its disc.
  */
 function DayNumberFace({ date, inMonth, isSelected, isToday }: DayNumberFaceProps) {
   return (
-    <span
-      className={cn(
-        /*
-         * The circle is a full row tall (36px). It has to be: it must cover
-         * the number *and* the dot cluster, and a round 34px shape at this
-         * pitch leaves the outer dot of a three-dot day outside its curve.
-         */
-        'tnum relative z-10 pointer-events-none flex size-9 shrink-0 items-center justify-center rounded-full leading-none text-footnote',
-        // Selection fades between fill, ring and tint over a fifth of a
-        // second. Colour and shadow only: the circle keeps its box, so the
-        // grid never re-lays-out when the selected day changes.
-        'transition-[background-color,color,box-shadow] duration-200 ease-ios',
+    <Box
+      sx={[
+        DISC_SX,
+        // Selection fades between fill, ring and tint over a fifth of a second.
         isSelected
-          ? 'bg-tint font-semibold text-tint-contrast'
+          ? { bgcolor: 'primary.main', color: 'primary.contrastText' }
           : isToday
-            ? // White with a hairline accent ring: a plain white circle would
-              // vanish on a white card in light appearance.
-              'bg-elevated font-semibold text-tint ring-1 ring-tint'
+            ? // Paper with a hairline accent ring: a plain paper circle would
+              // vanish on a paper card in light appearance.
+              {
+                bgcolor: 'background.paper',
+                color: 'primary.main',
+                boxShadow: (theme) => `inset 0 0 0 1px ${theme.palette.primary.main}`,
+              }
             : inMonth
-              ? 'text-label'
-              : 'text-tertiary',
-      )}
+              ? { color: 'text.primary' }
+              : { color: 'text.disabled' },
+      ]}
     >
-      {Number(date.slice(8, 10))}
-    </span>
+      <Typography
+        component="span"
+        variant="body2"
+        sx={{ lineHeight: 1, fontWeight: isSelected || isToday ? 600 : 400, fontVariantNumeric: 'tabular-nums' }}
+      >
+        {Number(date.slice(8, 10))}
+      </Typography>
+    </Box>
   );
 }
 
 /** The dot itself: one item's colour, at dot size. Shared by both panels. */
-function DotMark({ item, calendars }: { item: CalendarItem; calendars: CalendarLookup }) {
+function DotMark({ item, calendars, dark }: { item: CalendarItem; calendars: CalendarLookup; dark: boolean }) {
   return (
-    <span
+    <Box
       aria-hidden
-      className={cn('size-1.5 rounded-full', item.completed && 'opacity-60')}
-      style={{ backgroundColor: accentVar(itemColor(item, calendars)) }}
+      sx={{
+        width: DOT_PX,
+        height: DOT_PX,
+        borderRadius: '50%',
+        opacity: item.completed ? 0.6 : 1,
+        bgcolor: accentHex(itemColor(item, calendars), dark),
+      }}
     />
   );
 }
@@ -675,6 +784,7 @@ interface DayDotProps {
   item: CalendarItem;
   prefs: CalendarPrefs;
   calendars: CalendarLookup;
+  dark: boolean;
   /** Pixel offset while this dot is being dragged. */
   drag: { offsetX: number; offsetY: number } | null;
   onOpen: ItemOpenHandler;
@@ -688,7 +798,7 @@ interface DayDotProps {
  * fill is a bar. The dot's own button is what keeps the item tappable and
  * draggable, and its accessible name is what keeps it reachable by keyboard.
  */
-function DayDot({ item, prefs, calendars, drag, onOpen, onPointerDown }: DayDotProps) {
+function DayDot({ item, prefs, calendars, dark, drag, onOpen, onPointerDown }: DayDotProps) {
   const isTask = item.kind === 'task';
   const timeLabel = item.isAllDay ? 'All-day' : formatTime(item.startMs, prefs);
   const accessibleName = [timeLabel, item.title, isTask ? 'task' : 'event', item.completed ? 'completed' : null]
@@ -696,7 +806,8 @@ function DayDot({ item, prefs, calendars, drag, onOpen, onPointerDown }: DayDotP
     .join(', ');
 
   return (
-    <button
+    <Box
+      component="button"
       type="button"
       data-item-block="true"
       aria-label={accessibleName}
@@ -706,10 +817,21 @@ function DayDot({ item, prefs, calendars, drag, onOpen, onPointerDown }: DayDotP
       }}
       onPointerDown={onPointerDown}
       onContextMenu={(event) => event.preventDefault()}
-      className={cn('flex size-2.5 pointer-events-auto items-center justify-center', drag && 'relative z-40')}
+      sx={{
+        display: 'flex',
+        width: DOT_HIT_PX,
+        height: DOT_HIT_PX,
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'auto',
+        border: 0,
+        bgcolor: 'transparent',
+        p: 0,
+        ...(drag ? { position: 'relative', zIndex: 40 } : null),
+      }}
       style={drag ? { transform: `translate3d(${drag.offsetX}px, ${drag.offsetY}px, 0)` } : undefined}
     >
-      <DotMark item={item} calendars={calendars} />
-    </button>
+      <DotMark item={item} calendars={calendars} dark={dark} />
+    </Box>
   );
 }

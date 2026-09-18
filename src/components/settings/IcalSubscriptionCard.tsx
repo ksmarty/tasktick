@@ -12,13 +12,44 @@
  * revocation asks for confirmation.
  */
 import { useState } from 'react';
-import { CalendarPlus, Copy, Link2, Plus, Trash2 } from 'lucide-react';
-import { Button, ConfirmDialog, ListRow, Skeleton, Switch, TextField, useToast } from '@/components/ui';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import ListItem from '@mui/material/ListItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteIcon from '@mui/icons-material/Delete';
+import LinkIcon from '@mui/icons-material/Link';
+import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { copyText, toWebcal } from './clipboard';
 import { SettingsGroup } from './SettingsGroup';
 import type { IcalTokenPayload } from '@/lib/view-types';
+
+/** The box a subscription URL is shown in: monospace, selectable, wrapping. */
+const URL_BOX = {
+  p: 1.5,
+  borderRadius: 1,
+  bgcolor: 'action.hover',
+  fontFamily: 'monospace',
+  fontSize: 12,
+  color: 'text.secondary',
+  wordBreak: 'break-all',
+} as const;
 
 export function IcalSubscriptionCard() {
   const { toast } = useToast();
@@ -82,58 +113,85 @@ export function IcalSubscriptionCard() {
         footer="A subscription is read-only: the other app pulls from TaskTick and can never write back. Revoke a URL here if it was shared by mistake."
       >
         {tokens.isInitialLoading ? (
-          <div className="px-4 py-3">
-            <Skeleton variant="rect" className="h-10" />
-          </div>
+          <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+            <Skeleton variant="rounded" height={40} />
+          </ListItem>
         ) : list.length === 0 ? (
-          <ListRow title="No subscriptions yet" subtitle="Create one to publish a read-only feed." />
+          <ListItem>
+            <ListItemText primary="No subscriptions yet" secondary="Create one to publish a read-only feed." />
+          </ListItem>
         ) : (
           list.map((token) => (
-            <div key={token.id} className="hairline-t px-4 py-3 first:border-t-0">
-              <div className="flex items-center gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-ios bg-tint-soft text-tint">
-                  <Link2 className="size-4" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-body text-label">{token.name || 'Calendar feed'}</p>
-                  <p className="text-footnote text-secondary">
+            <ListItem key={token.id} sx={{ display: 'block', px: 2, py: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  <Box
+                    aria-hidden
+                    sx={{
+                      display: 'grid',
+                      placeItems: 'center',
+                      width: 32,
+                      height: 32,
+                      borderRadius: 1,
+                      bgcolor: 'action.hover',
+                      color: 'primary.main',
+                    }}
+                  >
+                    <LinkIcon fontSize="small" />
+                  </Box>
+                </ListItemIcon>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body1" noWrap>
+                    {token.name || 'Calendar feed'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
                     {[token.includeTasks ? 'tasks' : null, token.includeEvents ? 'events' : null].filter(Boolean).join(' and ') ||
                       'tasks'}
                     {token.lastUsedAtMs ? ' · used recently' : ' · never used yet'}
-                  </p>
-                </div>
+                  </Typography>
+                </Box>
                 <Button
-                  size="sm"
-                  variant="plain"
-                  icon={Trash2}
+                  size="small"
+                  variant="text"
+                  color="error"
+                  startIcon={<DeleteIcon aria-hidden />}
                   aria-label={`Revoke ${token.name || 'calendar feed'}`}
                   onClick={() => setRevokeTarget(token)}
                 >
                   Revoke
                 </Button>
-              </div>
+              </Box>
 
               {token.url ? (
-                <div className="pt-2">
-                  <p className="overflow-wrap-anywhere break-all rounded-ios-md bg-inset px-3 py-2 font-mono text-caption-1 text-secondary">
-                    {token.url}
-                  </p>
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <Button size="sm" variant="tinted" icon={Copy} onClick={() => void copy(token.url!, 'Subscription URL')}>
+                <Box sx={{ pt: 1.5, pl: 6.5 }}>
+                  <Box sx={URL_BOX}>{token.url}</Box>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, pt: 1.5 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ContentCopyIcon aria-hidden />}
+                      onClick={() => void copy(token.url!, 'Subscription URL')}
+                    >
                       Copy URL
                     </Button>
-                    <Button size="sm" variant="gray" icon={CalendarPlus} onClick={() => void copy(toWebcal(token.url!), 'webcal:// URL')}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="inherit"
+                      startIcon={<CalendarMonthIcon aria-hidden />}
+                      onClick={() => void copy(toWebcal(token.url!), 'webcal:// URL')}
+                    >
                       Copy for Apple Calendar
                     </Button>
-                  </div>
-                </div>
+                  </Stack>
+                </Box>
               ) : (
-                <p className="pt-2 text-footnote text-secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 1.5, pl: 6.5 }}>
                   This subscription was already used, so its link is no longer shown. Create a new one if you need the URL
                   again.
-                </p>
+                </Typography>
               )}
-            </div>
+            </ListItem>
           ))
         )}
       </SettingsGroup>
@@ -142,64 +200,114 @@ export function IcalSubscriptionCard() {
         title="New subscription"
         footer="How to add it — Apple Calendar: File ▸ New Calendar Subscription, or on iOS Settings ▸ Calendar ▸ Accounts ▸ Add Account ▸ Other ▸ Add Subscribed Calendar. Google Calendar: Other calendars ▸ From URL."
       >
-        <div className="space-y-3 px-4 py-3">
-          <TextField
-            label="Name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Phone calendar"
-            maxLength={120}
-            autoComplete="off"
-          />
-          <Switch label="Include tasks" checked={includeTasks} onCheckedChange={setIncludeTasks} />
-          <Switch label="Include calendar events" checked={includeEvents} onCheckedChange={setIncludeEvents} />
-          <Button
-            fullWidth
-            icon={Plus}
-            loading={create.isPending}
-            disabled={!includeTasks && !includeEvents}
-            onClick={() => void create.run()}
-          >
-            Create subscription
-          </Button>
-          {!includeTasks && !includeEvents ? (
-            <p className="text-footnote text-danger">Choose at least one thing to publish.</p>
-          ) : null}
-        </div>
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+          <Stack spacing={2}>
+            <TextField
+              fullWidth
+              label="Name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Phone calendar"
+              autoComplete="off"
+              slotProps={{ htmlInput: { maxLength: 120 } }}
+            />
+            <FormControlLabel
+              sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
+              labelPlacement="start"
+              label="Include tasks"
+              control={
+                <Switch
+                  checked={includeTasks}
+                  onChange={(_event, next) => setIncludeTasks(next)}
+                  slotProps={{ input: { 'aria-label': 'Include tasks' } }}
+                />
+              }
+            />
+            <FormControlLabel
+              sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
+              labelPlacement="start"
+              label="Include calendar events"
+              control={
+                <Switch
+                  checked={includeEvents}
+                  onChange={(_event, next) => setIncludeEvents(next)}
+                  slotProps={{ input: { 'aria-label': 'Include calendar events' } }}
+                />
+              }
+            />
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<AddIcon aria-hidden />}
+              loading={create.isPending}
+              disabled={!includeTasks && !includeEvents}
+              onClick={() => void create.run()}
+            >
+              Create subscription
+            </Button>
+            {!includeTasks && !includeEvents ? (
+              <Typography variant="caption" color="error.main">
+                Choose at least one thing to publish.
+              </Typography>
+            ) : null}
+          </Stack>
+        </ListItem>
       </SettingsGroup>
 
       {freshUrl ? (
-        <div className="grouped mx-4 mt-4 p-4">
-          <p className="text-subhead font-semibold text-label">Your new subscription URL</p>
-          <p className="break-all pt-1 font-mono text-caption-1 text-secondary">{freshUrl}</p>
-          <div className="flex flex-wrap gap-2 pt-3">
-            <Button size="sm" icon={Copy} onClick={() => void copy(freshUrl, 'Subscription URL')}>
+        <Paper variant="outlined" sx={{ borderRadius: 3, mx: 2, mt: 2, p: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            Your new subscription URL
+          </Typography>
+          <Box sx={{ ...URL_BOX, mt: 0.5 }}>{freshUrl}</Box>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, pt: 1.5 }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<ContentCopyIcon aria-hidden />}
+              onClick={() => void copy(freshUrl, 'Subscription URL')}
+            >
               Copy URL
             </Button>
-            <Button size="sm" variant="gray" icon={CalendarPlus} onClick={() => void copy(toWebcal(freshUrl), 'webcal:// URL')}>
+            <Button
+              size="small"
+              variant="text"
+              color="inherit"
+              startIcon={<CalendarMonthIcon aria-hidden />}
+              onClick={() => void copy(toWebcal(freshUrl), 'webcal:// URL')}
+            >
               Copy for Apple Calendar
             </Button>
-          </div>
-          <p className="pt-2 text-caption-1 text-tertiary">
+          </Stack>
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pt: 1 }}>
             Copy it now — it is shown in full only once, and anyone holding it can read your feed.
-          </p>
-        </div>
+          </Typography>
+        </Paper>
       ) : null}
 
-      <ConfirmDialog
-        open={revokeTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setRevokeTarget(null);
-        }}
-        title="Revoke this subscription?"
-        message="The URL stops working immediately. Any calendar app that uses it will stop updating."
-        confirmLabel="Revoke"
-        destructive
-        onConfirm={() => {
-          if (revokeTarget) void revoke.run(revokeTarget);
-          setRevokeTarget(null);
-        }}
-      />
+      <Dialog open={revokeTarget !== null} onClose={() => setRevokeTarget(null)}>
+        <DialogTitle>Revoke this subscription?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            The URL stops working immediately. Any calendar app that uses it will stop updating.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="text" onClick={() => setRevokeTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              if (revokeTarget) void revoke.run(revokeTarget);
+              setRevokeTarget(null);
+            }}
+          >
+            Revoke
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

@@ -6,7 +6,9 @@
  * The card follows the task list's in-card header shape: the group name is the
  * card's first row, with the habit count and a collapse chevron on its trailing
  * edge. There is no real grouping in the habit data, so this is one "Habits"
- * card rather than invented categories.
+ * card rather than invented categories. Material's surfaces do the work: a
+ * `Paper` for the card, a `List` of `HabitRow`s, and a MUI `Collapse` for the
+ * height animation.
  *
  * Reordering uses Pointer Events rather than HTML5 drag-and-drop, because
  * drag-and-drop does not exist on touch. There are two ways in, and they are
@@ -30,8 +32,15 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { keyframes } from '@emotion/react';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Collapse from '@mui/material/Collapse';
+import List from '@mui/material/List';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { HabitRow } from './HabitRow';
 import type { CheckInChange } from './period';
 import type { DateOnly, Habit } from '@/lib/types';
@@ -41,13 +50,32 @@ const LONG_PRESS_MS = 320;
 /** Movement past this before the timer fires means "scroll", not "pick up". */
 const LONG_PRESS_SLOP_PX = 8;
 /**
- * How long the rows keep their entrance animation class.
+ * How long the rows keep their entrance animation.
  *
- * The `stagger` utility's longest row is a 242ms delay plus a 320ms animation,
- * so a little over half a second covers every row; after that the class is
- * dropped and the list is inert for the rest of its life.
+ * The column's longest delay plus its animation is a little over half a second,
+ * so that covers every row; after that the animation style is dropped and the
+ * list is inert for the rest of its life.
  */
 const ROW_STAGGER_MS = 600;
+
+/** The row entrance: a short rise and fade, staggered by row index. */
+const rowEnter = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+`;
+
+/** A screen-reader-only mark, without pulling in a helper package. */
+const SR_ONLY = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+} as const;
 
 export interface HabitListProps {
   habits: Habit[];
@@ -86,12 +114,12 @@ export function HabitList({
   /**
    * The rows lay themselves down once, when the list first appears.
    *
-   * `stagger` is a plain CSS animation, so it plays whenever a row mounts — and
-   * a check-in re-renders this list (the optimistic patch, then the refetch),
-   * which must not replay the entrance. Leaving the class on would already be
-   * enough for that, but collapsing and expanding the card remounts the rows
-   * and would replay it, so the class is removed once the animation has run.
-   * "Animate in" then means "on the first mount" and nothing else.
+   * The entrance animation plays whenever a row mounts — and a check-in
+   * re-renders this list (the optimistic patch, then the refetch), which must
+   * not replay the entrance. Leaving the style on would already be enough for
+   * that, but collapsing and expanding the card remounts the rows and would
+   * replay it, so the style is removed once the animation has run. "Animate in"
+   * then means "on the first mount" and nothing else.
    */
   const [entering, setEntering] = useState(true);
   useEffect(() => {
@@ -200,7 +228,10 @@ export function HabitList({
   // which would end the drag before it moved.
   useEffect(() => {
     if (!dragId) return;
-    const pane = containerRef.current?.closest<HTMLElement>('.scroll-pane');
+    // The shell's scroll pane is the `<main>` (`AppShell` owns it); the old
+    // `.scroll-pane` hook is kept as a fallback so the lock never silently
+    // stops working if that changes again.
+    const pane = containerRef.current?.closest<HTMLElement>('main, .scroll-pane');
     if (pane) pane.style.overflowY = 'hidden';
 
     const onTouchMove = (event: TouchEvent) => {
@@ -278,33 +309,62 @@ export function HabitList({
         }
       }}
     >
-      <section aria-label="Habits" className="glass-card mx-4 overflow-hidden rounded-ios-lg">
+      <Paper component="section" aria-label="Habits" variant="outlined" sx={{ mx: 2, borderRadius: 2, overflow: 'hidden' }}>
         {/* The in-card header, the same shape the task list's groups use: the
             name, then the count and the chevron as quiet trailing marks. */}
-        <div className={cn('flex items-center justify-between gap-2 px-3', !collapsed && 'hairline-b')}>
-          <h2 className="min-w-0 truncate text-subhead font-semibold text-label">Habits</h2>
-          <button
-            type="button"
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+            pl: 1.5,
+            pr: 1,
+            minHeight: 48,
+            ...(collapsed ? null : { borderBottom: 1, borderColor: 'divider' }),
+          }}
+        >
+          <Typography variant="subtitle1" component="h2" noWrap sx={{ minWidth: 0, fontWeight: 600 }}>
+            Habits
+          </Typography>
+          <Button
+            color="inherit"
             onClick={() => setCollapsed((value) => !value)}
             aria-expanded={!collapsed}
             aria-label={`${collapsed ? 'Expand' : 'Collapse'} habits`}
-            className="-my-2 flex min-h-11 items-center gap-1.5 rounded-ios px-1 text-secondary pressable"
+            sx={{ minWidth: 0, gap: 1, px: 1, py: 0.5, color: 'text.secondary', textTransform: 'none' }}
           >
-            <span aria-hidden className="tnum text-footnote font-medium">
+            <Typography component="span" aria-hidden variant="caption" sx={{ fontWeight: 500 }}>
               {habits.length}
-            </span>
-            <span className="sr-only">{`${habits.length} habit${habits.length === 1 ? '' : 's'}`}</span>
-            <ChevronDown
-              className={cn('size-3.5 transition-transform duration-200 ease-ios-out', collapsed && '-rotate-90')}
+            </Typography>
+            <Box component="span" sx={SR_ONLY}>{`${habits.length} habit${habits.length === 1 ? '' : 's'}`}</Box>
+            <ExpandMoreIcon
               aria-hidden
+              sx={{
+                fontSize: 16,
+                transition: 'transform 200ms',
+                ...(collapsed ? { transform: 'rotate(-90deg)' } : null),
+              }}
             />
-          </button>
-        </div>
+          </Button>
+        </Stack>
 
-        {collapsed ? null : (
-          <div className={cn(entering && 'stagger')}>
+        <Collapse in={!collapsed} unmountOnExit>
+          <List disablePadding>
             {ordered.map((habit, index) => (
-              <div key={habit.id} data-habit-id={habit.id} className={cn(index > 0 && 'hairline-t')}>
+              <Box
+                key={habit.id}
+                data-habit-id={habit.id}
+                sx={{
+                  ...(index > 0 ? { borderTop: 1, borderColor: 'divider' } : null),
+                  ...(entering
+                    ? {
+                        animation: `${rowEnter} 320ms ease-out both`,
+                        animationDelay: `${Math.min(index * 40, 240)}ms`,
+                      }
+                    : null),
+                }}
+              >
                 <HabitRow
                   habit={habit}
                   date={date}
@@ -319,11 +379,11 @@ export function HabitList({
                   canMoveUp={index > 0}
                   canMoveDown={index < ids.length - 1}
                 />
-              </div>
+              </Box>
             ))}
-          </div>
-        )}
-      </section>
+          </List>
+        </Collapse>
+      </Paper>
     </div>
   );
 }

@@ -11,7 +11,8 @@
  * An empty streak renders nothing at all: a reading of "0 day" is both
  * ungrammatical and noise, and the row already has plenty to say.
  */
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import { streakPhrase, streakUnit } from './period';
 import type { HabitFrequency } from '@/lib/types';
 
@@ -35,18 +36,34 @@ export function StreakCount({ streak, frequency, longestStreak, className }: Str
   const label = best ? `Current streak ${phrase}, best ${best}` : `Current streak ${phrase}`;
 
   return (
-    <span
-      className={cn('flex shrink-0 flex-col items-end leading-none', className)}
+    <Box
+      component="span"
+      className={className}
       aria-label={label}
       title={best ? `${phrase} · best ${best}` : phrase}
+      sx={{
+        display: 'flex',
+        flexShrink: 0,
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        lineHeight: 1,
+      }}
     >
-      <span aria-hidden className="flex items-baseline gap-1">
-        <span className="tnum text-title-3 font-semibold text-label">{streak}</span>
-        <span className="text-caption-2 font-medium text-secondary">{plural}</span>
-      </span>
-      <span aria-hidden className="mt-0.5 text-caption-2 text-tertiary">
+      <Box component="span" aria-hidden sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+        <Typography
+          component="span"
+          variant="h6"
+          sx={{ fontWeight: 600, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}
+        >
+          {streak}
+        </Typography>
+        <Typography component="span" variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
+          {plural}
+        </Typography>
+      </Box>
+      <Typography component="span" aria-hidden variant="caption" color="text.disabled" sx={{ mt: 0.25 }}>
         Current Streak
-      </span>
-    </span>
+      </Typography>
+    </Box>
   );
 }

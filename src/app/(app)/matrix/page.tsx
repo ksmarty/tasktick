@@ -8,12 +8,27 @@
  * task: the importance axis edits `priority`, the urgency axis edits the due
  * date. Because an urgency change *is* a due-date change, the drop is explained
  * in a toast — a card must never silently reschedule something.
+ *
+ * Material owns the surfaces: a `Grid` of four `Paper`s, `Box`es for the rows and
+ * a MUI `IconButton` for the drag grip. The classification, the drop plan and the
+ * pointer drag are unchanged — this file is still only presentation plus wiring.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Grid2x2, GripVertical } from 'lucide-react';
-import { Badge, EmptyState, NavBar, Skeleton, useToast } from '@/components/ui';
-import { accentVar } from '@/lib/colors';
-import { cn } from '@/lib/cn';
+import type { ComponentType, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Grid from '@mui/material/Grid';
+import IconButton from '@mui/material/IconButton';
+import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import GridViewIcon from '@mui/icons-material/GridView';
+import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import type { SvgIconProps } from '@mui/material/SvgIcon';
+import { useToast } from '@/components/app/Toast';
+import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
 import { useResource } from '@/lib/store';
 import { todayIn, relativeDayLabel } from '@/lib/dates';
@@ -31,7 +46,6 @@ import {
 } from './quadrants';
 import type { BootstrapPayload } from '@/lib/view-types';
 import type { DateOnly, Task } from '@/lib/types';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 
 /** How long a touch has to rest on a row before it starts dragging it. */
 const LONG_PRESS_MS = 450;
@@ -139,86 +153,152 @@ export default function MatrixPage() {
   const loading = !today || tasks.isInitialLoading;
 
   return (
-    <div className="pb-8">
+    <Box sx={{ pb: 4 }}>
       {/*
        * No back control: the matrix is a top-level destination reached from the
        * tab bar's "More" sheet and the sidebar's Tools, not from Tasks.
        */}
-      <NavBar title="Priority matrix" largeTitle trailing={<Badge value={list.length} label={`${list.length} tasks`} />} />
+      <Box
+        component="header"
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 'appBar',
+          bgcolor: 'background.default',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 2,
+          pt: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)',
+          pb: 0.5,
+        }}
+      >
+        <Typography variant="h5" component="h1" sx={{ minWidth: 0, flex: 1, fontWeight: 500 }}>
+          Priority matrix
+        </Typography>
+        <Chip label={`${list.length} tasks`} size="small" />
+      </Box>
 
-      <p className="px-4 pb-3 text-footnote text-secondary">
+      <Typography variant="body2" color="text.secondary" sx={{ px: 2, pb: 1.5 }}>
         Urgent means due within three days or overdue; important means high or medium priority. Drag a task to
         reclassify it — on a touch screen, press and hold it first.
-      </p>
+      </Typography>
 
       {loading ? (
-        <div className="space-y-3">
+        <Stack spacing={1.5} sx={{ px: 2 }}>
           {[0, 1, 2, 3].map((key) => (
-            <Skeleton key={key} variant="rect" className="mx-4 h-28" />
+            <Skeleton key={key} variant="rounded" height={112} />
           ))}
-        </div>
+        </Stack>
       ) : tasks.error && list.length === 0 ? (
-        <EmptyState icon={Grid2x2} title="Could not load your tasks" description={tasks.error} />
+        <EmptyNotice icon={ErrorOutlineOutlinedIcon} title="Could not load your tasks" description={tasks.error} />
       ) : list.length === 0 ? (
-        <EmptyState
-          icon={Grid2x2}
+        <EmptyNotice
+          icon={GridViewIcon}
           title="Nothing to sort"
           description="Once you have open tasks they appear here, grouped by how urgent and how important they are."
         />
       ) : (
-        <div className="space-y-3">
+        <Grid container spacing={2} sx={{ px: 2 }}>
           {QUADRANTS.map((quadrant) => {
             const items = buckets[quadrant.id];
             return (
-              <section
-                key={quadrant.id}
-                data-quadrant={quadrant.id}
-                aria-labelledby={`quadrant-${quadrant.id}`}
-                className={cn(
-                  'grouped mx-4 transition-shadow',
-                  hover === quadrant.id && dragId ? 'ring-2 ring-tint' : undefined,
-                )}
-              >
-                <header className="hairline-b flex items-center gap-2 px-4 py-2.5">
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: accentVar(quadrant.color) }}
-                    aria-hidden
-                  />
-                  <h2 id={`quadrant-${quadrant.id}`} className="min-w-0 flex-1 truncate text-subhead font-semibold text-label">
-                    {quadrant.title}
-                  </h2>
-                  {/* The strategy hint is advice, the count is data: neither
-                      competes with the name of the quadrant. */}
-                  <span className="shrink-0 text-caption-1 text-tertiary">{quadrant.hint}</span>
-                  <span className="tnum shrink-0 text-caption-1 text-tertiary" aria-label={`${items.length} tasks`}>
-                    {items.length}
-                  </span>
-                </header>
+              <Grid key={quadrant.id} size={{ xs: 12, md: 6 }}>
+                <Paper
+                  component="section"
+                  variant="outlined"
+                  data-quadrant={quadrant.id}
+                  aria-labelledby={`quadrant-${quadrant.id}`}
+                  sx={{
+                    height: '100%',
+                    // The quadrant under a live drag is outlined, not filled: the
+                    // card is what is being dropped into, and a fill would hide
+                    // the rows it already holds.
+                    ...(hover === quadrant.id && dragId
+                      ? { borderColor: 'primary.main', borderWidth: 2 }
+                      : {}),
+                  }}
+                >
+                  <Box
+                    component="header"
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      px: 2,
+                      py: 1.25,
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                    }}
+                  >
+                    <Box
+                      aria-hidden
+                      sx={{
+                        width: 10,
+                        height: 10,
+                        flexShrink: 0,
+                        borderRadius: '50%',
+                        bgcolor: accentHex(quadrant.color),
+                      }}
+                    />
+                    <Typography
+                      component="h2"
+                      id={`quadrant-${quadrant.id}`}
+                      variant="subtitle1"
+                      noWrap
+                      sx={{ minWidth: 0, flex: 1, fontWeight: 600 }}
+                    >
+                      {quadrant.title}
+                    </Typography>
+                    {/* The strategy hint is advice, the count is data: neither
+                        competes with the name of the quadrant. */}
+                    <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                      {quadrant.hint}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      aria-label={`${items.length} tasks`}
+                      sx={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {items.length}
+                    </Typography>
+                  </Box>
 
-                {items.length === 0 ? (
-                  <p className="px-4 py-3 text-footnote text-tertiary">Drop a task here.</p>
-                ) : (
-                  <ul>
-                    {items.map((task) => (
-                      <li key={task.id} className="hairline-b last:border-b-0">
-                        <TaskRow
-                          task={task}
-                          zone={zone}
-                          today={todayDate}
-                          dragging={dragId === task.id}
-                          onOpen={() => setEditing(task)}
-                          onStartDrag={() => startDrag(task)}
-                          onMoveToQuadrant={(target) => void applyDrop(task, target)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+                  {items.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
+                      Drop a task here.
+                    </Typography>
+                  ) : (
+                    <Box component="ul" sx={{ m: 0, p: 0, listStyle: 'none' }}>
+                      {items.map((task) => (
+                        <Box
+                          component="li"
+                          key={task.id}
+                          sx={{
+                            borderBottom: 1,
+                            borderColor: 'divider',
+                            '&:last-of-type': { borderBottom: 0 },
+                          }}
+                        >
+                          <TaskRow
+                            task={task}
+                            zone={zone}
+                            today={todayDate}
+                            dragging={dragId === task.id}
+                            onOpen={() => setEditing(task)}
+                            onStartDrag={() => startDrag(task)}
+                            onMoveToQuadrant={(target) => void applyDrop(task, target)}
+                          />
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+                </Paper>
+              </Grid>
             );
           })}
-        </div>
+        </Grid>
       )}
 
       <MatrixTaskSheet
@@ -229,7 +309,7 @@ export default function MatrixPage() {
         zone={zone}
         onChanged={() => void tasks.refresh()}
       />
-    </div>
+    </Box>
   );
 }
 
@@ -256,8 +336,21 @@ function TaskRow({
   const longPress = useLongPressDrag(onStartDrag);
 
   return (
-    <div className={cn('group/row flex items-center gap-0.5 py-0.5 pl-2 pr-1', dragging && 'opacity-60')}>
-      <button
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.25,
+        py: 0.25,
+        pl: 1,
+        pr: 0.5,
+        ...(dragging ? { opacity: 0.6 } : {}),
+        // The grip below reveals itself for a hovering pointer.
+        '&:hover .MuiIconButton-root': { opacity: 1 },
+      }}
+    >
+      <Box
+        component="button"
         type="button"
         onClick={onOpen}
         onClickCapture={longPress.onClickCapture}
@@ -266,30 +359,49 @@ function TaskRow({
           if (dragging) event.preventDefault();
         }}
         {...longPress.handlers}
-        className="pressable-row flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-ios py-1 pl-2 pr-1 text-left"
+        sx={{
+          display: 'flex',
+          minWidth: 0,
+          minHeight: 44,
+          flex: 1,
+          alignItems: 'center',
+          gap: 0.75,
+          border: 0,
+          borderRadius: 1,
+          bgcolor: 'transparent',
+          px: 1,
+          py: 0.5,
+          color: 'inherit',
+          font: 'inherit',
+          textAlign: 'left',
+          cursor: 'pointer',
+        }}
       >
         {/*
-         * The title takes the row and the due date yields.
-         *
-         * The title's flex basis is zero, so it absorbs every free pixel and
-         * only ellipsises when the text is genuinely longer than the row; the
-         * date is capped, so a longer label can never eat the title's width.
-         *
-         * The type tokens are interpolated rather than passed to `cn`: there is
-         * no `tailwind-merge` theme here, so `text-body` and `text-footnote`
-         * look like *colours* to it and are dropped in favour of `text-danger`.
+         * The title takes the row and the due date yields: the title's basis is
+         * zero, so it absorbs every free pixel and only ellipsises when the text
+         * is genuinely longer than the row, and the date is capped so a longer
+         * label can never eat the title's width.
          */}
-        <span className={`min-w-0 flex-1 truncate text-body ${overdue ? 'text-danger' : 'text-label'}`}>
+        <Typography
+          component="span"
+          variant="body1"
+          noWrap
+          sx={{ minWidth: 0, flex: 1, color: overdue ? 'error.main' : 'text.primary' }}
+        >
           {task.title}
-        </span>
+        </Typography>
         {due ? (
-          <span
-            className={`min-w-0 max-w-24 shrink truncate text-footnote ${overdue ? 'text-danger' : 'text-secondary'}`}
+          <Typography
+            component="span"
+            variant="caption"
+            noWrap
+            sx={{ minWidth: 0, maxWidth: 96, flexShrink: 1, color: overdue ? 'error.main' : 'text.secondary' }}
           >
             {relativeDayLabel(due, zone)}
-          </span>
+          </Typography>
         ) : null}
-      </button>
+      </Box>
 
       {/*
        * One drag affordance, for pointers only.
@@ -299,9 +411,8 @@ function TaskRow({
        * long press on the row itself (see `useLongPressDrag`). It stays
        * keyboard-reachable wherever it is rendered.
        */}
-      <span className="pointer-coarse:hidden">
-        <button
-          type="button"
+      <Box sx={{ display: 'flex', '@media (pointer: coarse)': { display: 'none' } }}>
+        <IconButton
           aria-label={`Move ${task.title} to another quadrant`}
           aria-roledescription="sortable"
           onPointerDown={(event) => {
@@ -316,12 +427,60 @@ function TaskRow({
             event.preventDefault();
             onMoveToQuadrant(target);
           }}
-          className="flex size-11 shrink-0 touch-none items-center justify-center rounded-ios text-tertiary opacity-0 pressable transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+          sx={{
+            width: 44,
+            height: 44,
+            flexShrink: 0,
+            borderRadius: 1,
+            color: 'text.disabled',
+            touchAction: 'none',
+            opacity: 0,
+            transition: 'opacity 150ms',
+            '&:focus-visible': { opacity: 1 },
+          }}
         >
-          <GripVertical className="size-4" aria-hidden />
-        </button>
-      </span>
-    </div>
+          <DragIndicatorIcon sx={{ fontSize: 16 }} aria-hidden />
+        </IconButton>
+      </Box>
+    </Box>
+  );
+}
+
+/** The centred "nothing here" panel: a disc, a title and one sentence. */
+function EmptyNotice({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: ComponentType<SvgIconProps>;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Stack spacing={1} sx={{ alignItems: 'center', px: 6, py: 6, textAlign: 'center' }}>
+      <Box
+        aria-hidden
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 56,
+          height: 56,
+          mb: 1,
+          borderRadius: '50%',
+          bgcolor: 'action.hover',
+          color: 'text.secondary',
+        }}
+      >
+        <Icon />
+      </Box>
+      <Typography variant="subtitle1" component="h2">
+        {title}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 288 }}>
+        {description}
+      </Typography>
+    </Stack>
   );
 }
 

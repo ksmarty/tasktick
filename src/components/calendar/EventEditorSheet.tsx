@@ -3,7 +3,7 @@
 /**
  * The event editor.
  *
- * One sheet for create and edit, because the two differ only in where the draft
+ * One dialog for create and edit, because the two differ only in where the draft
  * comes from: a tapped slot or an existing event. The draft is deliberately
  * *floating days + wall-clock times* (`DateOnly` / `HH:mm`) until the moment it
  * is sent, so a DST boundary between the two can never quietly shift a 09:00
@@ -11,12 +11,51 @@
  *
  * Validation happens here as well as on the server: telling the user inline that
  * the end is before the start is friendlier than a 422 in a toast.
+ *
+ * ## Material
+ *
+ * The sheet is a `Dialog` — full-screen on a phone, a centred card on a desktop
+ * — so focus management, the scroll lock and Escape are Material's rather than a
+ * hand-rolled trap. The start/end fields are `@mui/x-date-pickers`'
+ * `DatePicker`/`TimePicker`, which is what the library is installed for; the
+ * hand-rolled fields are gone. They need a `LocalizationProvider` with the Luxon
+ * adapter (`luxon` is already a direct dependency, so no new package), and each
+ * picker is handed the user's zone so the value it shows is the wall-clock value
+ * the API speaks. The pickers only *display and edit* those floating values —
+ * `lib/dates` remains the one place a date and a time become an instant.
  */
 import { useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Check, Trash2 } from 'lucide-react';
-import { api, errorMessage } from '@/lib/api-client';
+import { DateTime } from 'luxon';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
+import Snackbar from '@mui/material/Snackbar';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import Check from '@mui/icons-material/Check';
+import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterLuxon } from '@mui/x-date-pickers/AdapterLuxon';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { TimePicker } from '@mui/x-date-pickers/TimePicker';
 import { accentHex, resolveCalendarColor } from '@/lib/colors';
+import { api, errorMessage } from '@/lib/api-client';
 import {
   addDaysToDateOnly,
   combineDateAndTime,
@@ -25,10 +64,8 @@ import {
   todayIn,
 } from '@/lib/dates';
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset, weekdayOfDate } from '@/lib/rrule';
-import { cn } from '@/lib/cn';
 import { invalidate, useResource } from '@/lib/store';
 import type { Calendar, CalendarEvent, DateOnly, TimeOnly } from '@/lib/types';
-import { Button, ConfirmDialog, DateField, Select, Sheet, Skeleton, Switch, TextArea, TextField, TimeField, useToast } from '@/components/ui';
 import { minuteToTime } from './geometry';
 import type { CalendarFilter, CalendarPrefs } from './types';
 
@@ -50,6 +87,11 @@ export interface EventEditorSheetProps {
   prefs: CalendarPrefs;
   /** Called after a write lands, so the screen can refetch the range. */
   onChanged: () => void;
+  /**
+   * Reports the result of a write. The screen has somewhere to show it after
+   * this dialog has closed; when it is omitted the editor shows its own message.
+   */
+  onNotice?: (notice: { message: string; severity: 'success' | 'error' }) => void;
   /** Seeds the calendar picker when the view is filtered to one calendar. */
   filter?: CalendarFilter | null;
 }
@@ -82,6 +124,25 @@ const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 1440, label: '1 day' },
 ];
 
+/**
+ * A floating `DateOnly` as a `DateTime` in the user's zone.
+ *
+ * The picker reads the calendar fields back out of it, so this is a display
+ * carrier, never a conversion to an instant: nothing here is ever compared with
+ * `Date.now()` or written to the API.
+ */
+function toDateTime(date: DateOnly, zone: string): DateTime {
+  const value = DateTime.fromISO(date, { zone });
+  return value.isValid ? value : DateTime.fromISO(date, { zone: 'utc' });
+}
+
+/** A floating `HH:mm` on an arbitrary (but valid) day, for the time picker. */
+function timeToDateTime(time: TimeOnly, zone: string): DateTime {
+  const [hour, minute] = time.split(':').map(Number);
+  const value = DateTime.fromObject({ hour, minute }, { zone });
+  return value.isValid ? value : DateTime.fromObject({ hour, minute }, { zone: 'utc' });
+}
+
 export function EventEditorSheet({
   open,
   onOpenChange,
@@ -90,6 +151,7 @@ export function EventEditorSheet({
   calendars,
   prefs,
   onChanged,
+  onNotice,
   filter = null,
 }: EventEditorSheetProps) {
   const { data: existing, error, isInitialLoading } = useResource<CalendarEvent>(
@@ -100,41 +162,52 @@ export function EventEditorSheet({
 
   const isEdit = Boolean(eventId);
   const ready = !isEdit || Boolean(existing);
+  // A phone gets the whole screen: the fields and the software keyboard need it.
+  const fullScreen = useMediaQuery((theme) => theme.breakpoints.down('sm'));
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={isEdit ? 'Edit event' : 'New event'}
-      snapPoints={[0.6, 0.95]}
-    >
-      {!ready ? (
-        error ? (
-          <p role="alert" className="py-4 text-footnote text-danger">
-            {error}
-          </p>
+    <LocalizationProvider dateAdapter={AdapterLuxon}>
+      <Dialog
+        open={open}
+        onClose={() => onOpenChange(false)}
+        fullScreen={fullScreen}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="event-editor-title"
+      >
+        <DialogTitle id="event-editor-title">{isEdit ? 'Edit event' : 'New event'}</DialogTitle>
+
+        {!ready ? (
+          <DialogContent>
+            {error ? (
+              <Typography role="alert" variant="body2" color="error">
+                {error}
+              </Typography>
+            ) : (
+              <Stack spacing={1.5} aria-busy={isInitialLoading} sx={{ py: 1 }}>
+                <Skeleton variant="rounded" height={48} />
+                <Skeleton variant="rounded" height={128} />
+                <Skeleton variant="rounded" height={96} />
+              </Stack>
+            )}
+          </DialogContent>
         ) : (
-          <div className="space-y-3 py-2" aria-busy={isInitialLoading}>
-            <Skeleton variant="rect" className="h-12" />
-            <Skeleton variant="rect" className="h-32" />
-            <Skeleton variant="rect" className="h-24" />
-          </div>
-        )
-      ) : (
-        <EventForm
-          // Re-initialised per target, so reopening the sheet on another day
-          // never inherits the previous draft.
-          key={`${eventId ?? 'new'}-${defaults.date}-${defaults.startMinute}`}
-          event={existing ?? null}
-          defaults={defaults}
-          calendars={calendars}
-          prefs={prefs}
-          filter={filter}
-          onClose={() => onOpenChange(false)}
-          onChanged={onChanged}
-        />
-      )}
-    </Sheet>
+          <EventForm
+            // Re-initialised per target, so reopening the dialog on another day
+            // never inherits the previous draft.
+            key={`${eventId ?? 'new'}-${defaults.date}-${defaults.startMinute}`}
+            event={existing ?? null}
+            defaults={defaults}
+            calendars={calendars}
+            prefs={prefs}
+            filter={filter}
+            onClose={() => onOpenChange(false)}
+            onChanged={onChanged}
+            onNotice={onNotice}
+          />
+        )}
+      </Dialog>
+    </LocalizationProvider>
   );
 }
 
@@ -199,6 +272,12 @@ function buildDraft(
   };
 }
 
+/** A transient message, the way MUI's own feedback is shown. */
+interface Notice {
+  message: string;
+  severity: 'success' | 'error';
+}
+
 function EventForm({
   event,
   defaults,
@@ -207,6 +286,7 @@ function EventForm({
   filter,
   onClose,
   onChanged,
+  onNotice,
 }: {
   event: CalendarEvent | null;
   defaults: EventDefaults;
@@ -215,13 +295,20 @@ function EventForm({
   filter: CalendarFilter | null;
   onClose: () => void;
   onChanged: () => void;
+  onNotice?: (notice: Notice) => void;
 }) {
-  const { toast } = useToast();
   const today = todayIn(prefs.zone);
   const [draft, setDraft] = useState(() => buildDraft(event, defaults, calendars, filter, prefs.zone, today));
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const calendarRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const calendarRefs = useRef(new Map<string, HTMLElement>());
+
+  /** The screen shows the message when it can outlive this dialog, else we do. */
+  const notify = (next: Notice) => {
+    if (onNotice) onNotice(next);
+    else setNotice(next);
+  };
 
   const patch = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
 
@@ -252,8 +339,8 @@ function EventForm({
   const startMs = draft.allDay ? null : combineDateAndTime(draft.startDate, draft.startTime, prefs.zone);
   const endMs = draft.allDay ? null : combineDateAndTime(draft.endDate, draft.endTime, prefs.zone);
 
-  // Inline rather than a server round trip: a 422 in a toast makes the user hunt
-  // for which of the four date/time fields was wrong.
+  // Inline rather than a server round trip: a 422 in a message makes the user
+  // hunt for which of the four date/time fields was wrong.
   const rangeError = draft.allDay
     ? draft.endDate < draft.startDate
       ? 'The end date cannot be before the start date.'
@@ -302,10 +389,10 @@ function EventForm({
       invalidate('/api/calendar/items');
       invalidate('/api/events');
       onChanged();
-      toast({ title: event ? 'Event updated' : 'Event created', variant: 'success' });
+      notify({ message: event ? 'Event updated' : 'Event created', severity: 'success' });
       onClose();
     } catch (error) {
-      toast({ title: 'Could not save the event', description: errorMessage(error), variant: 'error' });
+      notify({ message: `Could not save the event. ${errorMessage(error)}`, severity: 'error' });
     } finally {
       setSaving(false);
     }
@@ -318,216 +405,267 @@ function EventForm({
       invalidate('/api/calendar/items');
       invalidate('/api/events');
       onChanged();
-      toast({ title: 'Event deleted', variant: 'success' });
+      notify({ message: 'Event deleted', severity: 'success' });
       setConfirmDelete(false);
       onClose();
     } catch (error) {
-      toast({ title: 'Could not delete the event', description: errorMessage(error), variant: 'error' });
+      notify({ message: `Could not delete the event. ${errorMessage(error)}`, severity: 'error' });
     }
   }
 
   const repeatDescription = describeRRule(repeatRule);
 
   return (
-    <div className="space-y-4 pb-2">
-      <div className="grouped p-3">
-        <TextArea
+    <>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <TextField
           value={draft.title}
           onChange={(input) => patch({ title: input.target.value })}
           placeholder="Title"
-          rows={1}
-          autoGrow
           aria-label="Title"
+          fullWidth
         />
-      </div>
 
-      <section
-        aria-label="Calendar"
-        role="radiogroup"
-        onKeyDown={onCalendarKeyDown}
-        className="grouped divide-y divide-separator"
-      >
-        {calendars.map((calendar) => {
-          const selected = calendar.id === draft.calendarId;
-          return (
-            <button
-              key={calendar.id}
-              ref={(node) => {
-                if (node) calendarRefs.current.set(calendar.id, node);
-                else calendarRefs.current.delete(calendar.id);
-              }}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => patch({ calendarId: calendar.id })}
-              className="flex min-h-11 w-full items-center gap-3 px-4 text-left pressable-row"
-            >
-              <span
-                aria-hidden
-                className="size-3 shrink-0 rounded-full"
-                style={{ backgroundColor: accentHex(resolveCalendarColor(calendar.color, calendar.colorOverride)) }}
+        <Paper
+          component="section"
+          variant="outlined"
+          aria-label="Calendar"
+          role="radiogroup"
+          onKeyDown={onCalendarKeyDown}
+          sx={{ overflow: 'hidden' }}
+        >
+          <List disablePadding>
+            {calendars.map((calendar) => {
+              const selected = calendar.id === draft.calendarId;
+              return (
+                <ListItem key={calendar.id} disablePadding>
+                  <ListItemButton
+                    ref={(node: HTMLElement | null) => {
+                      if (node) calendarRefs.current.set(calendar.id, node);
+                      else calendarRefs.current.delete(calendar.id);
+                    }}
+                    role="radio"
+                    aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => patch({ calendarId: calendar.id })}
+                    sx={{ gap: 1.5, minHeight: 44 }}
+                  >
+                    <Box
+                      aria-hidden
+                      sx={{
+                        width: 12,
+                        height: 12,
+                        flexShrink: 0,
+                        borderRadius: '50%',
+                        bgcolor: accentHex(resolveCalendarColor(calendar.color, calendar.colorOverride)),
+                      }}
+                    />
+                    <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1, fontWeight: selected ? 600 : 400 }}>
+                      {calendar.name}
+                    </Typography>
+                    {selected ? <Check aria-hidden sx={{ fontSize: 20, color: 'primary.main' }} /> : null}
+                  </ListItemButton>
+                </ListItem>
+              );
+            })}
+          </List>
+        </Paper>
+
+        <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1 }}>
+            <Typography variant="body2" sx={{ flex: 1 }}>
+              All-day
+            </Typography>
+            <Switch
+              checked={draft.allDay}
+              onChange={(input) => patch({ allDay: input.target.checked })}
+              slotProps={{ input: { 'aria-label': 'All-day event' } }}
+            />
+          </Box>
+
+          <Stack spacing={1.5} sx={{ px: 2, pb: 2 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+              <DatePicker
+                label="Starts"
+                value={toDateTime(draft.startDate, prefs.zone)}
+                timezone={prefs.zone}
+                onChange={(value) => {
+                  if (!value) return;
+                  const date = value.toFormat('yyyy-MM-dd');
+                  // Keep the span: moving the start moves the end with it.
+                  const delta = dayDelta(draft.startDate, date);
+                  patch({ startDate: date, endDate: addDaysToDateOnly(draft.endDate, delta, prefs.zone) });
+                }}
+                slotProps={{ textField: { size: 'small', fullWidth: true } }}
               />
-              <span className={cn('min-w-0 flex-1 truncate text-body', selected ? 'font-semibold text-tint' : 'text-label')}>
-                {calendar.name}
-              </span>
-              {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-            </button>
-          );
-        })}
-      </section>
+              {!draft.allDay ? (
+                <TimePicker
+                  label="Start time"
+                  value={timeToDateTime(draft.startTime, prefs.zone)}
+                  timezone={prefs.zone}
+                  ampm={prefs.timeFormat === '12h'}
+                  minutesStep={15}
+                  onChange={(value) => {
+                    if (value) patch({ startTime: value.toFormat('HH:mm') });
+                  }}
+                  slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                />
+              ) : null}
+            </Box>
 
-      <div className="grouped divide-y divide-separator">
-        <div className="flex min-h-11 items-center gap-3 px-4 py-2.5">
-          <span className="text-body text-label">All-day</span>
-          <Switch
-            checked={draft.allDay}
-            onCheckedChange={(checked) => patch({ allDay: checked })}
-            aria-label="All-day event"
-            className="ml-auto"
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+              <DatePicker
+                label="Ends"
+                value={toDateTime(draft.endDate, prefs.zone)}
+                timezone={prefs.zone}
+                minDate={toDateTime(draft.startDate, prefs.zone)}
+                onChange={(value) => {
+                  if (value) patch({ endDate: value.toFormat('yyyy-MM-dd') });
+                }}
+                slotProps={{ textField: { size: 'small', fullWidth: true } }}
+              />
+              {!draft.allDay ? (
+                <TimePicker
+                  label="End time"
+                  value={timeToDateTime(draft.endTime, prefs.zone)}
+                  timezone={prefs.zone}
+                  ampm={prefs.timeFormat === '12h'}
+                  minutesStep={15}
+                  onChange={(value) => {
+                    if (value) patch({ endTime: value.toFormat('HH:mm') });
+                  }}
+                  slotProps={{ textField: { size: 'small', fullWidth: true } }}
+                />
+              ) : null}
+            </Box>
+
+            {rangeError ? (
+              <Typography role="alert" variant="caption" color="error">
+                {rangeError}
+              </Typography>
+            ) : null}
+          </Stack>
+        </Paper>
+
+        <Paper variant="outlined" sx={{ display: 'grid', gap: 1.5, p: 2 }}>
+          <TextField
+            label="Location"
+            value={draft.location}
+            onChange={(input) => patch({ location: input.target.value })}
+            placeholder="Add a place"
+            fullWidth
           />
-        </div>
+          <TextField
+            label="Notes"
+            value={draft.notes}
+            onChange={(input) => patch({ notes: input.target.value })}
+            placeholder="Add notes"
+            multiline
+            minRows={2}
+            slotProps={{ htmlInput: { maxLength: 50_000 } }}
+            fullWidth
+          />
+        </Paper>
 
-        <div className="space-y-3 px-4 py-3">
-          <div className="grid grid-cols-2 gap-2">
-            <DateField
-              value={draft.startDate}
-              onChange={(date) => {
-                // Keep the span: moving the start moves the end with it.
-                const delta = dayDelta(draft.startDate, date);
-                patch({ startDate: date, endDate: addDaysToDateOnly(draft.endDate, delta, prefs.zone) });
-              }}
-              weekStartsOn={prefs.weekStartsOn}
-              today={today}
-              label="Starts"
-            />
-            {!draft.allDay ? (
-              <TimeField
-                value={draft.startTime}
-                onChange={(time) => patch({ startTime: time })}
-                minuteStep={15}
-                format={prefs.timeFormat}
-                label="Start time"
-              />
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <DateField
-              value={draft.endDate}
-              onChange={(date) => patch({ endDate: date })}
-              min={draft.startDate}
-              weekStartsOn={prefs.weekStartsOn}
-              today={today}
-              label="Ends"
-            />
-            {!draft.allDay ? (
-              <TimeField
-                value={draft.endTime}
-                onChange={(time) => patch({ endTime: time })}
-                minuteStep={15}
-                format={prefs.timeFormat}
-                label="End time"
-              />
-            ) : null}
-          </div>
-
-          {rangeError ? (
-            <p role="alert" className="px-1 text-footnote text-danger">
-              {rangeError}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="grouped space-y-3 p-3">
-        <TextField
-          label="Location"
-          value={draft.location}
-          onChange={(input) => patch({ location: input.target.value })}
-          placeholder="Add a place"
-        />
-        <TextArea
-          label="Notes"
-          value={draft.notes}
-          onChange={(input) => patch({ notes: input.target.value })}
-          placeholder="Add notes"
-          rows={2}
-          maxLength={50_000}
-        />
-      </div>
-
-      <div className="grouped space-y-2 p-3">
-        <Select
-          label="Repeat"
-          value={draft.repeatId}
-          onChange={(value) => patch({ repeatId: value })}
-          options={REPEAT_PRESETS.map((preset) => ({ value: preset.id, label: preset.label }))}
-        />
-        {repeatDescription ? <p className="px-1 text-footnote text-secondary">{repeatDescription}</p> : null}
-      </div>
-
-      <div className="grouped space-y-2 p-3">
-        <h3 className="px-1 text-footnote text-secondary">Reminders</h3>
-        <div className="flex flex-wrap gap-2 px-1">
-          {REMINDER_OPTIONS.map((option) => {
-            const selected = draft.reminders.includes(option.minutes);
-            return (
-              <button
-                key={option.minutes}
-                type="button"
-                aria-pressed={selected}
-                onClick={() =>
-                  patch({
-                    reminders: selected
-                      ? draft.reminders.filter((minutes) => minutes !== option.minutes)
-                      : [...draft.reminders, option.minutes],
-                  })
-                }
-                className={cn(
-                  'flex h-9 items-center rounded-full px-3 text-subhead pressable',
-                  selected ? 'bg-tint text-tint-contrast' : 'bg-fill-tertiary text-label',
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {event ? (
-        <div className="grouped">
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            className="flex min-h-11 w-full items-center justify-center gap-2 px-4 text-body text-danger pressable-row"
+        <Paper variant="outlined" sx={{ display: 'grid', gap: 1, p: 2 }}>
+          <TextField
+            select
+            label="Repeat"
+            value={draft.repeatId}
+            onChange={(input) => patch({ repeatId: input.target.value })}
+            fullWidth
           >
-            <Trash2 className="size-5" aria-hidden />
-            Delete event
-          </button>
-        </div>
-      ) : null}
+            {REPEAT_PRESETS.map((preset) => (
+              <MenuItem key={preset.id} value={preset.id}>
+                {preset.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          {repeatDescription ? (
+            <Typography variant="caption" color="text.secondary">
+              {repeatDescription}
+            </Typography>
+          ) : null}
+        </Paper>
 
-      <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-separator bg-sheet px-4 py-3">
-        <Button variant="gray" fullWidth onClick={onClose}>
+        <Paper component="section" variant="outlined" sx={{ display: 'grid', gap: 1, p: 2 }}>
+          <Typography variant="subtitle2" component="h3">
+            Reminders
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {REMINDER_OPTIONS.map((option) => {
+              const selected = draft.reminders.includes(option.minutes);
+              return (
+                <Chip
+                  key={option.minutes}
+                  label={option.label}
+                  aria-pressed={selected}
+                  color={selected ? 'primary' : 'default'}
+                  variant={selected ? 'filled' : 'outlined'}
+                  onClick={() =>
+                    patch({
+                      reminders: selected
+                        ? draft.reminders.filter((minutes) => minutes !== option.minutes)
+                        : [...draft.reminders, option.minutes],
+                    })
+                  }
+                />
+              );
+            })}
+          </Box>
+        </Paper>
+
+        {event ? (
+          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+            <ListItemButton onClick={() => setConfirmDelete(true)} sx={{ justifyContent: 'center', gap: 1, minHeight: 44 }}>
+              <DeleteOutlined aria-hidden sx={{ fontSize: 20 }} />
+              <Typography variant="body2" color="error">
+                Delete event
+              </Typography>
+            </ListItemButton>
+          </Paper>
+        ) : null}
+      </DialogContent>
+
+      <DialogActions sx={{ px: 2, py: 1.5, gap: 1 }}>
+        <Button variant="outlined" color="inherit" onClick={onClose} sx={{ flex: 1 }}>
           Cancel
         </Button>
-        <Button fullWidth onClick={save} loading={saving} disabled={Boolean(rangeError) || !draft.calendarId}>
+        <Button
+          variant="contained"
+          onClick={save}
+          loading={saving}
+          disabled={Boolean(rangeError) || !draft.calendarId}
+          sx={{ flex: 1 }}
+        >
           {event ? 'Save' : 'Add'}
         </Button>
-      </div>
+      </DialogActions>
 
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title="Delete this event?"
-        message="This cannot be undone. Recurring events are deleted in full."
-        confirmLabel="Delete"
-        destructive
-        onConfirm={remove}
-      />
-    </div>
+      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} aria-labelledby="confirm-delete-title">
+        <DialogTitle id="confirm-delete-title">Delete this event?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>This cannot be undone. Recurring events are deleted in full.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={remove}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={Boolean(notice)}
+        autoHideDuration={5000}
+        onClose={() => setNotice(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={notice?.severity ?? 'error'} variant="filled" onClose={() => setNotice(null)}>
+          {notice?.message}
+        </Alert>
+      </Snackbar>
+    </>
   );
 }
 

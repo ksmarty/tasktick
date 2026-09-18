@@ -1,32 +1,58 @@
 'use client';
 
 /**
- * The task editor — every field a task has, in an iOS bottom sheet.
+ * The task editor — every field a task has, in a Material dialog (full-screen on
+ * a phone via `fullScreen` at the `sm` breakpoint).
  *
  * Saving is debounced (600ms after the last keystroke) and flushed immediately
- * when the sheet closes, so a user who edits and swipes away never loses a
- * change. Picking a value inside a sub-sheet makes the editor undismissible for
+ * when the dialog closes, so a user who edits and swipes away never loses a
+ * change. Picking a value inside a sub-drawer makes the editor undismissible for
  * the duration, which keeps Escape from closing both at once.
+ *
+ * The date and time fields are `@mui/x-date-pickers` (Luxon adapter, matching the
+ * `luxon` the rest of the app already uses); the pickers for repeat, reminders,
+ * priority, list and tags are the shared MUI `Drawer`s in this folder.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, Calendar, Clock, Flag, Link2, List as ListIcon, Pin, Repeat, Tag as TagIcon, Trash } from 'lucide-react';
-import {
-  Button,
-  ConfirmDialog,
-  DateField,
-  Divider,
-  ListGroup,
-  ListRow,
-  SectionHeader,
-  Sheet,
-  Stepper,
-  Switch,
-  TextArea,
-  TextField,
-  TimeField,
-} from '@/components/ui';
-import { cn } from '@/lib/cn';
-import { combineDateAndTime, formatTime, humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
+import { DateTime } from 'luxon';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Divider from '@mui/material/Divider';
+import IconButton from '@mui/material/IconButton';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Snackbar from '@mui/material/Snackbar';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
+import AddIcon from '@mui/icons-material/Add';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import DeleteIcon from '@mui/icons-material/Delete';
+import FlagIcon from '@mui/icons-material/Flag';
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
+import LabelIcon from '@mui/icons-material/Label';
+import LinkIcon from '@mui/icons-material/Link';
+import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import RemoveIcon from '@mui/icons-material/Remove';
+import RepeatIcon from '@mui/icons-material/Repeat';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import { AdapterLuxon } from '@mui/x-date-pickers/AdapterLuxon';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { TimePicker } from '@mui/x-date-pickers/TimePicker';
+import { humanDuration, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
@@ -37,19 +63,19 @@ import { ReminderPicker, describeReminders } from './ReminderPicker';
 import { RepeatPicker } from './RepeatPicker';
 import { SubTaskList } from './SubTaskList';
 import { TagPicker } from './TagPicker';
-import { priorityLabel, priorityTextClass } from './priority';
+import { priorityColor, priorityLabel } from './priority';
 import type { TaskPatch } from './payloads';
 import { useTaskActions } from './useTaskActions';
 
 /** Quiet period after the last edit before the PATCH goes out. */
 const SAVE_DEBOUNCE_MS = 600;
 
-type PickerId = 'repeat' | 'reminder' | 'priority' | 'list' | 'tags' | 'date' | 'time';
+type PickerId = 'repeat' | 'reminder' | 'priority' | 'list' | 'tags';
 
 export interface TaskEditorSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The task being edited; `null` renders an empty sheet body. */
+  /** The task being edited; `null` renders an empty dialog body. */
   task: Task | null;
   /**
    * Called after a write lands. The views use it to refresh the list the task
@@ -59,19 +85,48 @@ export interface TaskEditorSheetProps {
   onSaved?: () => void;
 }
 
+/** One tappable field row: icon, label, current value, chevron. */
+function EditorRow({
+  icon,
+  title,
+  value,
+  disabled,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <ListItemButton disabled={disabled} onClick={onClick} sx={{ minHeight: 48, gap: 1.5, px: 1 }}>
+      <ListItemIcon sx={{ minWidth: 0, color: 'text.secondary' }}>{icon}</ListItemIcon>
+      <ListItemText primary={title} slotProps={{ primary: { variant: 'body1' } }} sx={{ my: 0 }} />
+      <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '45%' }}>
+        {value}
+      </Typography>
+      <ChevronRightIcon sx={{ fontSize: 18, color: 'text.disabled' }} aria-hidden />
+    </ListItemButton>
+  );
+}
+
 export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEditorSheetProps) {
   const { data: bootstrap } = useResource<BootstrapPayload>('/api/bootstrap', undefined, { staleAfterMs: 60_000 });
   const zone = bootstrap?.settings.timezone ?? bootstrap?.user.timezone ?? 'utc';
   const timeFormat = bootstrap?.settings.timeFormat ?? '24h';
-  const weekStartsOn = bootstrap?.settings.weekStartsOn ?? 1;
   const lists = bootstrap?.lists ?? [];
   const tags = bootstrap?.tags ?? [];
 
   const actions = useTaskActions(zone);
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [draft, setDraft] = useState<TaskPatch>({});
   const [picker, setPicker] = useState<PickerId | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** A save failure is surfaced inline rather than only as a toast. */
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // The debounce and the close-flush both need the newest values without
   // re-creating themselves on every keystroke.
@@ -85,6 +140,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
     setDraft({});
     setPicker(null);
     setConfirmOpen(false);
+    setSaveError(null);
     blocked.current = false;
   }, [task?.id, open]);
 
@@ -102,6 +158,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
       blocked.current = true;
       return;
     }
+    setSaveError(null);
     current.onSaved?.();
     // Only clear the draft when no further edit arrived while this one was in
     // flight; otherwise those later edits would be wiped from the form.
@@ -156,7 +213,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const priority = draft.priority ?? task?.priority ?? 'none';
   const listId = draft.listId !== undefined ? draft.listId : (task?.listId ?? null);
   const tagIds = draft.tagIds ?? task?.tagIds ?? [];
-  const estimateMinutes = draft.estimateMinutes !== undefined ? draft.estimateMinutes : (task?.estimateMinutes ?? 0);
+  const estimateMinutes = (draft.estimateMinutes !== undefined ? draft.estimateMinutes : task?.estimateMinutes) ?? 0;
   const isPinned = draft.isPinned ?? task?.isPinned ?? false;
   const subtasks = task?.subtasks ?? [];
 
@@ -166,40 +223,37 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
   const disabled = !actions.online;
 
+  const dateValue = dueDate ? DateTime.fromISO(dueDate, { zone }) : null;
+  const timeValue = dueTime
+    ? DateTime.fromISO(`${dueDate ?? todayIn(zone)}T${dueTime}`, { zone })
+    : null;
+
   return (
-    <>
-      <Sheet
+    <LocalizationProvider dateAdapter={AdapterLuxon}>
+      <Dialog
         open={open}
-        onOpenChange={handleOpenChange}
-        title="Task"
-        dismissible={!picker && !confirmOpen}
-        footer={
-          <div className="space-y-2">
-            {disabled ? <p className="text-footnote text-secondary">{actions.offlineNotice}</p> : null}
-            {actions.isSaving ? <p className="text-footnote text-secondary">Saving…</p> : null}
-            <Button
-              variant="destructive"
-              fullWidth
-              icon={Trash}
-              disabled={disabled || !task}
-              onClick={() => setConfirmOpen(true)}
-            >
-              Delete task
-            </Button>
-          </div>
-        }
+        onClose={(_event, reason) => {
+          // A sub-picker is open: Escape and the backdrop must not close the
+          // editor out from under it.
+          if (picker || confirmOpen) return;
+          handleOpenChange(false);
+        }}
+        fullScreen={fullScreen}
+        fullWidth
+        maxWidth="sm"
       >
-        <div className="pb-2">
-          <ListGroup inset={false} className="mt-1">
-            <div className="px-1">
-              <TextArea
-                rows={1}
-                autoGrow
-                aria-label="Title"
+        <DialogTitle>Task</DialogTitle>
+        <DialogContent dividers sx={{ pb: 2 }}>
+          <List disablePadding>
+            <Box sx={{ px: 1, pt: 1 }}>
+              <TextField
+                variant="standard"
+                fullWidth
+                multiline
+                maxRows={3}
                 placeholder="Title"
                 value={title}
                 disabled={disabled}
-                inputClassName="text-headline font-semibold"
                 onChange={(event) => edit({ title: event.target.value })}
                 onKeyDown={(event) => {
                   // A title is one line; Enter files it away instead of adding a newline.
@@ -208,131 +262,161 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                     event.currentTarget.blur();
                   }
                 }}
+                slotProps={{
+                  htmlInput: { 'aria-label': 'Title', style: { fontSize: '1.25rem', fontWeight: 600 } },
+                }}
               />
-            </div>
-            <Divider />
-            <div className="px-1">
-              <TextArea
-                rows={2}
-                aria-label="Notes"
+            </Box>
+            <Divider sx={{ my: 1 }} />
+            <Box sx={{ px: 1 }}>
+              <TextField
+                variant="standard"
+                fullWidth
+                multiline
+                minRows={2}
+                maxRows={8}
                 placeholder="Notes"
                 value={notes}
                 disabled={disabled}
                 onChange={(event) => edit({ notes: event.target.value })}
+                slotProps={{ htmlInput: { 'aria-label': 'Notes' } }}
               />
-            </div>
-          </ListGroup>
+            </Box>
+          </List>
 
-          <ListGroup inset={false} className="mt-4">
-            <ListRow
-              title="Due date"
-              leading={<Calendar className="size-5" aria-hidden />}
-              trailing={dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}
+          <Divider sx={{ my: 2 }} />
+
+          <Stack spacing={1.5}>
+            <DatePicker
+              label="Due date"
+              value={dateValue}
               disabled={disabled}
-              showChevron
-              onClick={() => setPicker('date')}
+              onChange={(value) => {
+                if (!value) {
+                  edit({ clearDue: true, dueDate: null, dueTime: null });
+                  return;
+                }
+                edit({ dueDate: value.toISODate(), clearDue: false });
+              }}
+              slotProps={{
+                textField: { fullWidth: true, size: 'small' },
+                field: { clearable: true },
+              }}
             />
-            <ListRow
-              title="Time"
-              leading={<Clock className="size-5" aria-hidden />}
-              trailing={
-                dueTime
-                  ? formatTime(
-                      combineDateAndTime(dueDate ?? todayIn(zone), dueTime, zone),
-                      { zone, timeFormat, weekStartsOn },
-                    )
-                  : 'No time'
-              }
-              disabled={disabled}
-              showChevron
-              onClick={() => setPicker('time')}
+            <TimePicker
+              label="Time"
+              value={timeValue}
+              ampm={timeFormat === '12h'}
+              disabled={disabled || !dueDate}
+              onChange={(value) => {
+                if (!value) {
+                  edit({ dueTime: null, clearDue: false });
+                  return;
+                }
+                edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value.toFormat('HH:mm'), clearDue: false });
+              }}
+              slotProps={{
+                textField: { fullWidth: true, size: 'small' },
+                field: { clearable: true },
+              }}
             />
-            <ListRow
+          </Stack>
+
+          <List disablePadding sx={{ mt: 2 }}>
+            <EditorRow
+              icon={<RepeatIcon sx={{ fontSize: 20 }} aria-hidden />}
               title="Repeat"
-              leading={<Repeat className="size-5" aria-hidden />}
-              trailing={describeRRule(recurrenceRule) ?? 'Never'}
+              value={describeRRule(recurrenceRule) ?? 'Never'}
               disabled={disabled}
-              showChevron
               onClick={() => setPicker('repeat')}
             />
-            <ListRow
+            <EditorRow
+              icon={<NotificationsNoneIcon sx={{ fontSize: 20 }} aria-hidden />}
               title="Reminder"
-              leading={<Bell className="size-5" aria-hidden />}
-              trailing={describeReminders(reminderOffsets)}
+              value={describeReminders(reminderOffsets)}
               disabled={disabled}
-              showChevron
               onClick={() => setPicker('reminder')}
             />
-            <ListRow
+            <EditorRow
+              icon={<FlagIcon sx={{ fontSize: 20, color: priorityColor(priority) }} aria-hidden />}
               title="Priority"
-              leading={<Flag className={cn('size-5', priorityTextClass(priority))} aria-hidden />}
-              trailing={
-                <span className={cn('text-subhead', priority === 'none' ? 'text-secondary' : priorityTextClass(priority))}>
-                  {priorityLabel(priority)}
-                </span>
-              }
+              value={priorityLabel(priority)}
               disabled={disabled}
-              showChevron
               onClick={() => setPicker('priority')}
             />
-          </ListGroup>
+          </List>
 
-          <ListGroup inset={false} className="mt-4">
-            <ListRow
+          <Divider sx={{ my: 2 }} />
+
+          <List disablePadding>
+            <EditorRow
+              icon={<FormatListBulletedIcon sx={{ fontSize: 20 }} aria-hidden />}
               title="List"
-              leading={<ListIcon className="size-5" aria-hidden />}
-              trailing={activeList?.name ?? 'No list'}
+              value={activeList?.name ?? 'No list'}
               disabled={disabled}
-              showChevron
               onClick={() => setPicker('list')}
             />
-            <ListRow
+            <EditorRow
+              icon={<LabelIcon sx={{ fontSize: 20 }} aria-hidden />}
               title="Tags"
-              leading={<TagIcon className="size-5" aria-hidden />}
-              trailing={
-                selectedTags.length ? (
-                  <span className="max-w-40 truncate">{selectedTags.map((tag) => `#${tag.name}`).join(' ')}</span>
-                ) : (
-                  'None'
-                )
-              }
+              value={selectedTags.length ? selectedTags.map((tag) => `#${tag.name}`).join(' ') : 'None'}
               disabled={disabled}
-              showChevron
               onClick={() => setPicker('tags')}
             />
-            <ListRow
-              title="Estimated time"
-              trailing={
-                <Stepper
-                  size="sm"
-                  min={0}
-                  max={1440}
-                  step={5}
-                  value={estimateMinutes ?? 0}
-                  label="Estimated time"
-                  disabled={disabled}
-                  onChange={(value) => edit({ estimateMinutes: value === 0 ? null : value })}
-                  formatValue={(value) => (value === 0 ? 'None' : humanDuration(value))}
-                />
+            <ListItem
+              disablePadding
+              secondaryAction={
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                  <IconButton
+                    aria-label="Decrease estimated time"
+                    disabled={disabled || estimateMinutes === 0}
+                    onClick={() => {
+                      const next = Math.max(0, estimateMinutes - 5);
+                      edit({ estimateMinutes: next === 0 ? null : next });
+                    }}
+                  >
+                    <RemoveIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                  <Typography variant="body2" sx={{ minWidth: 48, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                    {estimateMinutes === 0 ? 'None' : humanDuration(estimateMinutes)}
+                  </Typography>
+                  <IconButton
+                    aria-label="Increase estimated time"
+                    disabled={disabled || estimateMinutes >= 1440}
+                    onClick={() => edit({ estimateMinutes: Math.min(1440, estimateMinutes + 5) })}
+                  >
+                    <AddIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Stack>
               }
-            />
-            <div className="px-4 py-2">
+            >
+              <ListItemIcon sx={{ minWidth: 0, mr: 1.5, color: 'text.secondary' }}>
+                <ScheduleIcon sx={{ fontSize: 20 }} aria-hidden />
+              </ListItemIcon>
+              <ListItemText primary="Estimated time" slotProps={{ primary: { variant: 'body1' } }} sx={{ my: 0 }} />
+            </ListItem>
+
+            <Box sx={{ px: 1, py: 1 }}>
               <TextField
-                aria-label="Link"
+                variant="standard"
+                fullWidth
                 placeholder="https://…"
-                inputMode="url"
                 value={url}
                 disabled={disabled}
-                leading={<Link2 className="size-4" />}
                 onChange={(event) => edit({ url: event.target.value })}
+                slotProps={{
+                  htmlInput: { 'aria-label': 'Link', inputMode: 'url' },
+                  input: {
+                    startAdornment: <LinkIcon sx={{ fontSize: 18, color: 'text.secondary', mr: 1 }} aria-hidden />,
+                  },
+                }}
               />
-            </div>
-            <ListRow
-              title="Pin to top"
-              leading={<Pin className="size-5" aria-hidden />}
-              trailing={
+            </Box>
+
+            <ListItem
+              disablePadding
+              secondaryAction={
                 <Switch
-                  size="sm"
                   checked={isPinned}
                   disabled={disabled}
                   /*
@@ -340,14 +424,23 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                    * `aria-checked` — a name that flips between "Pin…" and
                    * "Unpin…" would be announced as a different control.
                    */
-                  aria-label="Pin to top"
-                  onCheckedChange={(checked) => edit({ isPinned: checked })}
+                  slotProps={{ input: { 'aria-label': 'Pin to top' } }}
+                  onChange={(event) => edit({ isPinned: event.target.checked })}
                 />
               }
-            />
-          </ListGroup>
+            >
+              <ListItemIcon sx={{ minWidth: 0, mr: 1.5, color: 'text.secondary' }}>
+                <PushPinIcon sx={{ fontSize: 20 }} aria-hidden />
+              </ListItemIcon>
+              <ListItemText primary="Pin to top" slotProps={{ primary: { variant: 'body1' } }} sx={{ my: 0 }} />
+            </ListItem>
+          </List>
 
-          <SectionHeader title="Subtasks" className="px-0 pt-6 pb-2" />
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="subtitle2" sx={{ px: 1, pb: 1 }}>
+            Subtasks
+          </Typography>
           <SubTaskList
             subtasks={subtasks}
             disabled={disabled}
@@ -372,57 +465,42 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
               if (created) onSaved?.();
             }}
           />
-        </div>
-      </Sheet>
+        </DialogContent>
 
-      <Sheet
-        open={picker === 'date'}
-        onOpenChange={(next) => setPicker(next ? 'date' : null)}
-        title="Due date"
-        dismissible
-      >
-        <div className="pb-2">
-          <DateField
-            value={dueDate}
-            weekStartsOn={weekStartsOn}
-            disabled={disabled}
-            clearable
-            onChange={(date) => {
-              edit({ dueDate: date, clearDue: false });
-              setPicker(null);
-            }}
-            onClear={() => {
-              edit({ clearDue: true, dueDate: null, dueTime: null });
-              setPicker(null);
-            }}
-          />
-        </div>
-      </Sheet>
-
-      <Sheet
-        open={picker === 'time'}
-        onOpenChange={(next) => setPicker(next ? 'time' : null)}
-        title="Time"
-        dismissible
-      >
-        <div className="pb-2">
-          <TimeField
-            value={dueTime}
-            format={timeFormat}
-            minuteStep={5}
-            disabled={disabled}
-            clearable
-            onChange={(time) => {
-              edit({ dueDate: dueDate ?? todayIn(zone), dueTime: time, clearDue: false });
-              setPicker(null);
-            }}
-            onClear={() => {
-              edit({ dueTime: null, clearDue: false });
-              setPicker(null);
-            }}
-          />
-        </div>
-      </Sheet>
+        <DialogActions
+          sx={{
+            flexDirection: 'column',
+            alignItems: 'stretch',
+            gap: 1,
+            px: 2,
+            pt: 1.5,
+            pb: 'max(1rem, env(safe-area-inset-bottom, 0px))',
+          }}
+        >
+          {disabled ? (
+            <Typography variant="caption" color="text.secondary">
+              {actions.offlineNotice}
+            </Typography>
+          ) : null}
+          {actions.isSaving ? (
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+              <CircularProgress size={14} aria-label="Saving" />
+              <Typography variant="caption">Saving…</Typography>
+            </Stack>
+          ) : null}
+          <Button
+            variant="contained"
+            color="error"
+            disableElevation
+            fullWidth
+            startIcon={<DeleteIcon />}
+            disabled={disabled || !task}
+            onClick={() => setConfirmOpen(true)}
+          >
+            Delete task
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <RepeatPicker
         open={picker === 'repeat'}
@@ -466,22 +544,42 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
         onCreate={actions.createTag}
       />
 
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Delete this task?"
-        message={`“${title}” will be removed from every list. This cannot be undone.`}
-        confirmLabel="Delete"
-        destructive
-        onConfirm={async () => {
-          if (!task) return;
-          const deleted = await actions.remove(task.id);
-          if (!deleted) throw new Error('delete failed');
-          setDraft({});
-          onSaved?.();
-          onOpenChange(false);
-        }}
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <DialogTitle>Delete this task?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            {`“${title}” will be removed from every list. This cannot be undone.`}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disableElevation
+            onClick={async () => {
+              if (!task) return;
+              const deleted = await actions.remove(task.id);
+              if (!deleted) {
+                setSaveError('Could not delete the task.');
+                return;
+              }
+              setDraft({});
+              onSaved?.();
+              onOpenChange(false);
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={saveError !== null}
+        autoHideDuration={4000}
+        onClose={() => setSaveError(null)}
+        message={saveError}
       />
-    </>
+    </LocalizationProvider>
   );
 }

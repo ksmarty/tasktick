@@ -5,8 +5,16 @@
  * read-only feeds other apps can subscribe to.
  */
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
-import { Button, NavBar, Skeleton } from '@/components/ui';
+import Link from 'next/link';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { PageHeader } from '@/components/app/PageHeader';
 import { useResource } from '@/lib/store';
 import { CalDavAccountRow } from '@/components/settings/CalDavAccountRow';
 import { CalDavAccountSheet } from '@/components/settings/CalDavAccountSheet';
@@ -29,35 +37,42 @@ export default function CalendarSettingsPage() {
   }
 
   return (
-    <div className="pb-8">
-      <NavBar title="Calendars" back backHref="/settings" backLabel="Settings" largeTitle />
+    <Box sx={{ pb: 4 }}>
+      <PageHeader
+        title="Calendars"
+        leading={
+          <IconButton component={Link} href="/settings" aria-label="Back to Settings" edge="start">
+            <ArrowBackIcon aria-hidden />
+          </IconButton>
+        }
+      />
 
       {accounts.isInitialLoading ? (
-        <div className="px-4 pt-2">
-          <Skeleton variant="rect" className="h-32" />
-        </div>
+        <Stack sx={{ px: 2, pt: 1 }}>
+          <Skeleton variant="rounded" height={128} />
+        </Stack>
       ) : (
         <SettingsGroup
           title="CalDAV accounts"
           action={
-            <Button size="sm" variant="plain" icon={Plus} onClick={() => openSheet(null)}>
+            <Button size="small" variant="text" startIcon={<AddIcon aria-hidden />} onClick={() => openSheet(null)}>
               Add
             </Button>
           }
           footer="TaskTick keeps both sides in step. Run Discover once after adding an account so its calendars appear below."
         >
           {list.length === 0 ? (
-            <div className="px-4 py-4">
-              <p className="text-body text-label">No accounts connected</p>
-              <p className="pt-1 text-footnote text-secondary">
+            <Box sx={{ px: 2, py: 2 }}>
+              <Typography variant="body1">No accounts connected</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 0.5 }}>
                 Connect iCloud, Fastmail, Nextcloud or any other CalDAV server to sync your calendars both ways.
-              </p>
-              <div className="pt-3">
-                <Button variant="tinted" icon={Plus} onClick={() => openSheet(null)}>
+              </Typography>
+              <Box sx={{ pt: 1.5 }}>
+                <Button variant="outlined" startIcon={<AddIcon aria-hidden />} onClick={() => openSheet(null)}>
                   Add a CalDAV account
                 </Button>
-              </div>
-            </div>
+              </Box>
+            </Box>
           ) : (
             list.map((account) => (
               <CalDavAccountRow
@@ -80,6 +95,6 @@ export default function CalendarSettingsPage() {
         account={editing}
         onSaved={() => void accounts.refresh()}
       />
-    </div>
+    </Box>
   );
 }

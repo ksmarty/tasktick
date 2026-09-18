@@ -4,16 +4,22 @@
  * List picker: the user's projects, plus "No list" for tasks that belong only to
  * the inbox.
  */
-import { Check, Inbox } from 'lucide-react';
-import { Sheet } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import Check from '@mui/icons-material/Check';
+import Drawer from '@mui/material/Drawer';
+import Inbox from '@mui/icons-material/Inbox';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Typography from '@mui/material/Typography';
 import { accentHex } from '@/lib/colors';
-import type { List } from '@/lib/types';
+import type { List as TaskList } from '@/lib/types';
 
 export interface ListPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  lists: readonly List[];
+  lists: readonly TaskList[];
   value: string | null;
   onChange: (listId: string | null) => void;
   /** Offers a "No list" row. Off for the bulk "Move to" action. */
@@ -36,59 +42,96 @@ export function ListPicker({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={title} dismissible>
-      <div className="pb-2">
-        <div role="radiogroup" aria-label={title} className="grouped">
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onOpenChange(false)}
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': title,
+          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          pb: 2,
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
+          {title}
+        </Typography>
+
+        <List role="radiogroup" aria-label={title} sx={{ py: 0 }}>
           {allowNone ? (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={value === null}
-              onClick={() => choose(null)}
-              className="flex min-h-11 w-full items-center gap-3 px-4 text-body pressable-row"
-            >
-              <Inbox className="size-5 shrink-0 text-secondary" aria-hidden />
-              <span className="min-w-0 flex-1 truncate text-left text-label">No list</span>
-              {value === null ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-            </button>
+            <ListItemButton role="radio" aria-checked={value === null} onClick={() => choose(null)}>
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                <Inbox sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />
+              </ListItemIcon>
+              <ListItemText
+                primary="No list"
+                slotProps={{
+                  primary: {
+                    noWrap: true,
+                    sx: { color: value === null ? 'primary.main' : 'text.primary' },
+                  },
+                }}
+              />
+              {value === null ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+            </ListItemButton>
           ) : null}
 
-          {lists.map((list, index) => {
+          {lists.map((list) => {
             const selected = list.id === value;
             return (
-              <button
+              <ListItemButton
                 key={list.id}
-                type="button"
                 role="radio"
                 aria-checked={selected}
                 onClick={() => choose(list.id)}
-                className={cn(
-                  'flex min-h-11 w-full items-center gap-3 px-4 text-body pressable-row',
-                  (index > 0 || allowNone) && 'hairline-t',
-                )}
               >
-                {list.emoji ? (
-                  <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
-                    {list.emoji}
-                  </span>
-                ) : (
-                  <span
-                    aria-hidden
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: accentHex(list.color) }}
-                  />
-                )}
-                <span className="min-w-0 flex-1 truncate text-left text-label">{list.name}</span>
-                {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-              </button>
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  {list.emoji ? (
+                    <Box component="span" aria-hidden sx={{ display: 'flex', alignItems: 'center' }}>
+                      {list.emoji}
+                    </Box>
+                  ) : (
+                    <Box
+                      aria-hidden
+                      sx={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        bgcolor: accentHex(list.color),
+                      }}
+                    />
+                  )}
+                </ListItemIcon>
+                <ListItemText
+                  primary={list.name}
+                  slotProps={{
+                    primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
+                  }}
+                />
+                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+              </ListItemButton>
             );
           })}
-        </div>
+        </List>
 
         {lists.length === 0 ? (
-          <p className="px-4 pt-3 text-footnote text-secondary">You have no lists yet.</p>
+          <Typography variant="caption" sx={{ display: 'block', px: 2, pt: 1.5, color: 'text.secondary' }}>
+            You have no lists yet.
+          </Typography>
         ) : null}
-      </div>
-    </Sheet>
+      </Box>
+    </Drawer>
   );
 }

@@ -1,7 +1,14 @@
 'use client';
 
-import { Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import CloseIcon from '@mui/icons-material/Close';
+import InstallMobileIcon from '@mui/icons-material/InstallMobile';
 import { IosInstallHint } from './IosInstallHint';
 import { INSTALL_DISMISS_STORAGE_KEY, isIosSafari, isStandalone } from './platform';
 
@@ -17,6 +24,9 @@ import { INSTALL_DISMISS_STORAGE_KEY, isIosSafari, isStandalone } from './platfo
  * Dismissal is permanent and stored under a versioned key — an install banner
  * that comes back after being closed is the fastest way to make an app feel
  * like spam.
+ *
+ * The surface is a Material `Alert` in the floating slot the hand-rolled banner
+ * used; the detection, dismissal and prompt logic is unchanged.
  */
 
 /** `beforeinstallprompt` is still not in the DOM lib types. */
@@ -25,10 +35,6 @@ interface BeforeInstallPromptEvent extends Event {
   readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
   prompt(): Promise<void>;
 }
-
-const BANNER_CLASS =
-  'fixed inset-x-3 bottom-[calc(var(--tabbar-total)_+_0.75rem)] z-40 flex items-start gap-3 ' +
-  'rounded-ios-xl material p-3 shadow-ios-lg animate-ios-in';
 
 export function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -95,37 +101,62 @@ export function InstallPrompt() {
   if (!iosSafari && !deferredPrompt) return null;
 
   return (
-    <div className={BANNER_CLASS} role="complementary" aria-label="Install TaskTick">
-      {iosSafari ? (
-        <IosInstallHint className="min-w-0 flex-1" />
-      ) : (
-        <>
-          <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-ios bg-tint-soft text-tint">
-            <Plus aria-hidden className="h-5 w-5" />
-          </span>
-          <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-subhead font-semibold text-label">Install TaskTick</p>
-            <p className="text-footnote text-secondary">
-              Add it to your home screen for full-screen use and offline access.
-            </p>
-            <button
-              type="button"
-              onClick={() => void install()}
-              className="pressable mt-1.5 rounded-ios bg-tint px-3.5 py-1.5 text-subhead font-semibold text-tint-contrast"
+    <Box
+      role="complementary"
+      aria-label="Install TaskTick"
+      sx={{
+        position: 'fixed',
+        left: 12,
+        right: 12,
+        bottom: {
+          xs: 'calc(env(safe-area-inset-bottom, 0px) + 5.25rem)',
+          lg: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
+        },
+        // Below the offline and update prompts, which are more urgent.
+        zIndex: 'appBar',
+        display: 'flex',
+      }}
+    >
+      <Alert
+        severity="info"
+        icon={iosSafari ? false : <InstallMobileIcon aria-hidden />}
+        action={
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            {!iosSafari ? (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => void install()}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                Install
+              </Button>
+            ) : null}
+            <IconButton
+              aria-label="Dismiss install prompt"
+              size="small"
+              color="inherit"
+              onClick={dismiss}
             >
-              Install
-            </button>
-          </div>
-        </>
-      )}
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss install prompt"
-        className="pressable -mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full text-tertiary"
+              <CloseIcon fontSize="small" aria-hidden />
+            </IconButton>
+          </Stack>
+        }
+        sx={{ width: '100%', alignItems: 'flex-start', boxShadow: 4 }}
       >
-        <X aria-hidden className="h-4.5 w-4.5" />
-      </button>
-    </div>
+        {iosSafari ? (
+          <IosInstallHint sx={{ minWidth: 0 }} />
+        ) : (
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              Install TaskTick
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Add it to your home screen for full-screen use and offline access.
+            </Typography>
+          </Box>
+        )}
+      </Alert>
+    </Box>
   );
 }

@@ -15,8 +15,25 @@
  * pages rots quickly.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Cloud, KeyRound, Mail, Server, User } from 'lucide-react';
-import { Button, Select, Sheet, TextField, useToast } from '@/components/ui';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import InputAdornment from '@mui/material/InputAdornment';
+import MenuItem from '@mui/material/MenuItem';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
+import CloudIcon from '@mui/icons-material/Cloud';
+import DnsIcon from '@mui/icons-material/Dns';
+import KeyIcon from '@mui/icons-material/Key';
+import MailIcon from '@mui/icons-material/Mail';
+import PersonIcon from '@mui/icons-material/Person';
+import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
 import { CALDAV_HELP, caldavErrorMessage, isIcloudServer } from './caldav';
@@ -47,6 +64,8 @@ export interface CalDavAccountSheetProps {
 
 export function CalDavAccountSheet({ open, onOpenChange, account = null, onSaved }: CalDavAccountSheetProps) {
   const { toast } = useToast();
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const editing = Boolean(account);
 
   const [name, setName] = useState('');
@@ -122,92 +141,143 @@ export function CalDavAccountSheet({ open, onOpenChange, account = null, onSaved
   const icloud = isIcloudServer(serverUrl);
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={editing ? 'Edit calendar account' : 'Add calendar account'}
-      snapPoints={[0.7, 0.95]}
-      footer={
-        <Button fullWidth size="lg" loading={save.isPending} onClick={() => void save.run()}>
+    <Dialog open={open} onClose={() => onOpenChange(false)} fullScreen={fullScreen} fullWidth maxWidth="sm">
+      <DialogTitle>{editing ? 'Edit calendar account' : 'Add calendar account'}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={3} sx={{ pb: 2 }}>
+          <TextField
+            fullWidth
+            label="Name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="iCloud"
+            autoComplete="off"
+            slotProps={{
+              htmlInput: { maxLength: 200 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <CloudIcon fontSize="small" aria-hidden />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          <TextField
+            fullWidth
+            label="Server URL"
+            value={serverUrl}
+            onChange={(event) => setServerUrl(event.target.value)}
+            placeholder="https://caldav.icloud.com"
+            helperText={CALDAV_HELP.server}
+            autoComplete="url"
+            slotProps={{
+              htmlInput: { inputMode: 'url', maxLength: 500 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <DnsIcon fontSize="small" aria-hidden />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          <TextField
+            fullWidth
+            label="Username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="you@example.com"
+            helperText={icloud ? 'Your Apple Account email address.' : undefined}
+            autoComplete="username"
+            slotProps={{
+              htmlInput: { maxLength: 320 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PersonIcon fontSize="small" aria-hidden />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          <TextField
+            fullWidth
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={editing ? 'Leave blank to keep the current password' : 'App-specific password'}
+            helperText={error ?? CALDAV_HELP.password}
+            error={Boolean(error)}
+            autoComplete="new-password"
+            slotProps={{
+              htmlInput: { maxLength: 500 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <KeyIcon fontSize="small" aria-hidden />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          {icloud ? (
+            <Box sx={{ borderRadius: 2, bgcolor: 'action.hover', px: 1.5, py: 1.25 }}>
+              <Typography variant="caption">{CALDAV_HELP.icloud}</Typography>
+            </Box>
+          ) : null}
+
+          <TextField
+            select
+            fullWidth
+            label="Sync every"
+            value={String(syncIntervalMinutes)}
+            onChange={(event) => setSyncIntervalMinutes(Number.parseInt(event.target.value, 10) || 30)}
+          >
+            {INTERVAL_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <TextField
+            select
+            fullWidth
+            label="Direction"
+            value={direction}
+            onChange={(event) => setDirection(event.target.value as SyncDirection)}
+            helperText={`Two-way keeps both sides in step. Read only never writes back to ${icloud ? 'iCloud' : 'the server'}.`}
+          >
+            {DIRECTION_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
+            <MailIcon sx={{ fontSize: 14, mt: 0.25, flexShrink: 0, color: 'text.disabled' }} aria-hidden />
+            <Typography variant="caption" color="text.disabled">
+              TaskTick talks to the server directly. If your provider emails you about a new sign-in, that message is
+              expected.
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button variant="text" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button variant="contained" loading={save.isPending} onClick={() => void save.run()}>
           {editing ? 'Save account' : 'Add account'}
         </Button>
-      }
-    >
-      <div className="space-y-4 pb-4">
-        <TextField
-          label="Name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="iCloud"
-          leading={<Cloud className="size-4" aria-hidden />}
-          maxLength={200}
-          autoComplete="off"
-        />
-        <TextField
-          label="Server URL"
-          value={serverUrl}
-          onChange={(event) => setServerUrl(event.target.value)}
-          placeholder="https://caldav.icloud.com"
-          leading={<Server className="size-4" aria-hidden />}
-          hint={CALDAV_HELP.server}
-          inputMode="url"
-          autoComplete="url"
-          maxLength={500}
-        />
-        <TextField
-          label="Username"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          placeholder="you@example.com"
-          leading={<User className="size-4" aria-hidden />}
-          hint={icloud ? 'Your Apple Account email address.' : undefined}
-          autoComplete="username"
-          maxLength={320}
-        />
-        <TextField
-          label="Password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder={editing ? 'Leave blank to keep the current password' : 'App-specific password'}
-          leading={<KeyRound className="size-4" aria-hidden />}
-          hint={CALDAV_HELP.password}
-          autoComplete="new-password"
-          maxLength={500}
-          error={error}
-        />
-        {icloud ? (
-          <p className="rounded-ios-md bg-tint-soft px-3 py-2.5 text-footnote text-label">{CALDAV_HELP.icloud}</p>
-        ) : null}
-
-        <div>
-          <p className="mb-1.5 px-1 text-footnote text-secondary">Sync every</p>
-          <Select
-            value={String(syncIntervalMinutes)}
-            onChange={(value) => setSyncIntervalMinutes(Number.parseInt(value, 10) || 30)}
-            options={INTERVAL_OPTIONS}
-            label="Sync interval"
-          />
-        </div>
-
-        <div>
-          <p className="mb-1.5 px-1 text-footnote text-secondary">Direction</p>
-          <Select
-            value={direction}
-            onChange={(value) => setDirection(value as SyncDirection)}
-            options={DIRECTION_OPTIONS}
-            label="Sync direction"
-          />
-          <p className="px-1 pt-1.5 text-caption-1 text-tertiary">
-            Two-way keeps both sides in step. Read only never writes back to {icloud ? 'iCloud' : 'the server'}.
-          </p>
-        </div>
-
-        <p className="flex items-start gap-1.5 px-1 text-caption-1 text-tertiary">
-          <Mail className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          TaskTick talks to the server directly. If your provider emails you about a new sign-in, that message is expected.
-        </p>
-      </div>
-    </Sheet>
+      </DialogActions>
+    </Dialog>
   );
 }

@@ -3,9 +3,15 @@
 /**
  * Priority picker: the four flags, in the colours the row and the bulk bar use.
  */
-import { Check, Flag } from 'lucide-react';
-import { Sheet } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Check from '@mui/icons-material/Check';
+import Drawer from '@mui/material/Drawer';
+import Flag from '@mui/icons-material/Flag';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import type { Priority } from '@/lib/types';
 import { PRIORITY_ITEMS } from './priority';
 
@@ -20,33 +26,60 @@ export interface PriorityPickerProps {
 
 export function PriorityPicker({ open, onOpenChange, value, onChange, title = 'Priority' }: PriorityPickerProps) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={title} dismissible>
-      <div role="radiogroup" aria-label="Priority" className="grouped pb-0">
-        {PRIORITY_ITEMS.map((item, index) => {
-          const selected = item.value === value;
-          return (
-            <button
-              key={item.value}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => {
-                onChange(item.value);
-                onOpenChange(false);
-              }}
-              className={cn(
-                'flex min-h-11 w-full items-center gap-3 px-4 text-body pressable-row',
-                index > 0 && 'hairline-t',
-              )}
-            >
-              <Flag className={cn('size-5 shrink-0', item.text)} aria-hidden />
-              <span className="min-w-0 flex-1 truncate text-left text-label">{item.label}</span>
-              {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-            </button>
-          );
-        })}
-      </div>
-      <div className="h-4" />
-    </Sheet>
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onOpenChange(false)}
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': title,
+          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          pb: 2,
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
+          {title}
+        </Typography>
+
+        <List role="radiogroup" aria-label="Priority" sx={{ py: 0 }}>
+          {PRIORITY_ITEMS.map((item) => {
+            const selected = item.value === value;
+            return (
+              <ListItemButton
+                key={item.value}
+                role="radio"
+                aria-checked={selected}
+                onClick={() => {
+                  onChange(item.value);
+                  onOpenChange(false);
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  <Flag sx={{ fontSize: 20, color: item.color }} aria-hidden />
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  slotProps={{
+                    primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
+                  }}
+                />
+                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+              </ListItemButton>
+            );
+          })}
+        </List>
+      </Box>
+    </Drawer>
   );
 }

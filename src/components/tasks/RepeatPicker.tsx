@@ -4,9 +4,15 @@
  * Repeat picker, built from `REPEAT_PRESETS` so the rule this writes is the same
  * rule `@/lib/rrule` can describe back to the user.
  */
-import { Check, Repeat } from 'lucide-react';
-import { Sheet } from '@/components/ui';
-import { cn } from '@/lib/cn';
+import Check from '@mui/icons-material/Check';
+import Drawer from '@mui/material/Drawer';
+import Repeat from '@mui/icons-material/Repeat';
+import Box from '@mui/material/Box';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Typography from '@mui/material/Typography';
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset } from '@/lib/rrule';
 
 export interface RepeatPickerProps {
@@ -33,38 +39,66 @@ export function RepeatPicker({ open, onOpenChange, value, dueDay, onChange }: Re
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Repeat" dismissible>
-      <div className="pb-2">
-        <div role="radiogroup" aria-label="Repeat" className="grouped">
-          {REPEAT_PRESETS.map((preset, index) => {
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onOpenChange(false)}
+      slotProps={{
+        paper: {
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': 'Repeat',
+          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          pb: 2,
+          maxHeight: '90dvh',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
+          Repeat
+        </Typography>
+
+        <List role="radiogroup" aria-label="Repeat" sx={{ py: 0 }}>
+          {REPEAT_PRESETS.map((preset) => {
             const selected = preset.id === current;
             return (
-              <button
+              <ListItemButton
                 key={preset.id}
-                type="button"
                 role="radio"
                 aria-checked={selected}
                 onClick={() => choose(preset.id)}
-                className={cn(
-                  'flex min-h-11 w-full items-center gap-3 px-4 text-body pressable-row',
-                  index > 0 && 'hairline-t',
-                )}
               >
-                <Repeat
-                  className={cn('size-5 shrink-0', selected ? 'text-tint' : 'text-secondary')}
-                  aria-hidden
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  <Repeat
+                    sx={{ fontSize: 20, color: selected ? 'primary.main' : 'text.secondary' }}
+                    aria-hidden
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  primary={preset.label}
+                  slotProps={{
+                    primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
+                  }}
                 />
-                <span className="min-w-0 flex-1 truncate text-left text-label">{preset.label}</span>
-                {selected ? <Check className="size-5 shrink-0 text-tint" aria-hidden /> : null}
-              </button>
+                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
+              </ListItemButton>
             );
           })}
-        </div>
+        </List>
 
         {description ? (
-          <p className="px-4 pt-3 text-footnote text-secondary">Currently: {description}.</p>
+          <Typography variant="caption" sx={{ display: 'block', px: 2, pt: 1.5, color: 'text.secondary' }}>
+            Currently: {description}.
+          </Typography>
         ) : null}
-      </div>
-    </Sheet>
+      </Box>
+    </Drawer>
   );
 }

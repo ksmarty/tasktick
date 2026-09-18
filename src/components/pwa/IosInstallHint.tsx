@@ -1,8 +1,11 @@
 'use client';
 
-import { Share } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { cn } from '@/lib/cn';
+import Box from '@mui/material/Box';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import type { SxProps, Theme } from '@mui/material/styles';
+import ShareIcon from '@mui/icons-material/Share';
 import { isIosSafari, isStandalone } from './platform';
 
 /**
@@ -12,8 +15,11 @@ import { isIosSafari, isStandalone } from './platform';
  * — so the only thing a page can do is point at Safari's own Share sheet. This
  * renders `null` everywhere except a non-installed iOS Safari, which is also
  * exactly the case where Web Push is unavailable on iOS.
+ *
+ * `className` is still forwarded for the settings screen that composes it with
+ * its own layout; new callers should pass `sx` instead.
  */
-export function IosInstallHint({ className }: { className?: string }) {
+export function IosInstallHint({ className, sx }: { className?: string; sx?: SxProps<Theme> }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -28,22 +34,44 @@ export function IosInstallHint({ className }: { className?: string }) {
   if (!visible) return null;
 
   return (
-    <div className={cn('flex items-start gap-3', className)}>
-      <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-ios bg-tint-soft text-tint">
-        <Share aria-hidden className="h-5 w-5" />
-      </span>
-      <div className="min-w-0 space-y-1">
-        <p className="text-subhead font-semibold text-label">Install TaskTick</p>
-        <p className="text-footnote text-secondary">
+    <Stack
+      className={className}
+      direction="row"
+      spacing={1.5}
+      sx={[{ alignItems: 'flex-start' }, ...(Array.isArray(sx) ? sx : [sx])]}
+    >
+      <Box
+        sx={{
+          display: 'grid',
+          placeItems: 'center',
+          width: 36,
+          height: 36,
+          flexShrink: 0,
+          mt: 0.25,
+          borderRadius: 2,
+          bgcolor: 'action.hover',
+          color: 'primary.main',
+        }}
+      >
+        <ShareIcon aria-hidden />
+      </Box>
+      <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          Install TaskTick
+        </Typography>
+        <Typography variant="body2" component="p" color="text.secondary">
           Tap the{' '}
-          <Share aria-hidden className="inline-block h-4 w-4 -translate-y-px align-middle" />{' '}
-          Share button in Safari&rsquo;s toolbar, then choose{' '}
-          <span className="font-semibold text-label">Add to Home Screen</span>.
-        </p>
-        <p className="text-caption-1 text-tertiary">
+          <ShareIcon aria-hidden sx={{ fontSize: 16, verticalAlign: 'text-bottom' }} /> Share button in
+          Safari&rsquo;s toolbar, then choose{' '}
+          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>
+            Add to Home Screen
+          </Box>
+          .
+        </Typography>
+        <Typography variant="caption" color="text.disabled">
           Notifications on iPhone and iPad only work after TaskTick is on your Home Screen (iOS 16.4 or later).
-        </p>
-      </div>
-    </div>
+        </Typography>
+      </Stack>
+    </Stack>
   );
 }

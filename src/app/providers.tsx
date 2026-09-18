@@ -3,18 +3,22 @@
 /**
  * Client providers for the whole app.
  *
- * Kept deliberately thin. The theme is applied by resolving cookies on the
- * server and mirrored to localStorage here so the preference survives a logout
- * and the next cold start still knows the appearance.
+ * Kept deliberately thin. The appearance is owned by MUI now: `useColorScheme`
+ * resolves the preference, writes the palette class onto `<html>`, and persists
+ * it, so there is no hand-rolled matchMedia listener or class toggle left here.
+ * What remains app-specific is the `theme-color` meta (the OS paints the status
+ * bar and Dynamic Island from it) and the accent preference.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useColorScheme } from '@mui/material/styles';
 import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
-import { ToastProvider } from '@/components/ui';
+import { ToastProvider } from '@/components/app/Toast';
 import { THEME_COLOR } from '@/lib/theme-colors';
 import type { AccentColor } from '@/lib/types';
 
 type ThemePreference = 'light' | 'dark' | 'system';
+
 interface AppearanceContextValue {
   theme: ThemePreference;
   accent: AccentColor;
@@ -25,11 +29,6 @@ interface AppearanceContextValue {
 }
 
 const AppearanceContext = createContext<AppearanceContextValue | null>(null);
-
-function systemPrefersDark(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
 
 function writeCookie(name: string, value: string) {
   // A year, path-wide, SameSite=Lax: this is a display preference, not a secret,
@@ -46,71 +45,59 @@ export function Providers({
   initialTheme?: string;
   initialAccent?: string;
 }) {
-  const [theme, setThemeState] = useState<ThemePreference>(
-    initialTheme === 'light' || initialTheme === 'dark' ? initialTheme : 'system',
-  );
+  const { mode, setMode, colorScheme } = useColorScheme();
   const [accent, setAccentState] = useState<AccentColor>(initialAccent as AccentColor);
-  const [systemDark, setSystemDark] = useState(false);
+
+  const theme: ThemePreference =
+    mode === 'light' || mode === 'dark' ? mode : 'system';
+
+  /*
+   * `colorScheme` is the *resolved* appearance — MUI has already folded the
+   * system preference in — which is what the OS-drawn band needs. The server
+   * emits a single `theme-color` (see `generateViewport`) because iOS ignores
+   * `media` on that tag and a light/dark pair collapses to whichever comes last,
+   * which painted the status bar black over a light app. A single tag means the
+   * client maintains it, and this is the effect that knows the real value.
+   */
+  const resolvedTheme: 'light' | 'dark' = colorScheme === 'dark' ? 'dark' : 'light';
 
   useEffect(() => {
-    setSystemDark(systemPrefersDark());
-
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
-    const listener = (event: MediaQueryListEvent) => setSystemDark(event.matches);
-    mql.addEventListener('change', listener);
-
-    // Reflect whatever the pre-paint inline script already decided, so the React
-    // state and the DOM cannot disagree about the current appearance.
-    try {
-      const storedTheme = localStorage.getItem('tasktick-theme');
-      if (storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system') setThemeState(storedTheme);
-      const storedAccent = localStorage.getItem('tasktick-accent');
-      if (storedAccent) setAccentState(storedAccent as AccentColor);
-    } catch {
-      /* localStorage is unavailable in private mode; the cookie still works. */
-    }
-
-    return () => mql.removeEventListener('change', listener);
-  }, []);
-
-  const resolvedTheme: 'light' | 'dark' = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
-
-    /*
-     * Keep the OS-drawn band in step with the appearance.
-     *
-     * The server emits a single `theme-color` (see `generateViewport`), because
-     * iOS ignores `media` on that tag and a light/dark pair collapses to whichever
-     * one comes last — which painted the status bar and Dynamic Island black over
-     * a light app. A single tag means the client has to maintain it, and this is
-     * the effect that already knows the resolved appearance.
-     */
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (meta) meta.content = THEME_COLOR[resolvedTheme];
   }, [resolvedTheme]);
 
+  // Mirrored into a cookie so the next request can render the right theme-color
+  // and colour scheme server-side, before any script runs.
   useEffect(() => {
-    document.documentElement.setAttribute('data-accent', accent);
-  }, [accent]);
+    writeCookie('tasktick-theme', theme);
+  }, [theme]);
 
-  const setTheme = useCallback((next: ThemePreference) => {
-    setThemeState(next);
+  useEffect(() => {
+    // The cookie is the SSR source of truth; localStorage is the client one. They
+    // can disagree if the cookie was cleared, so the client wins on mount.
     try {
-      localStorage.setItem('tasktick-theme', next);
+      const stored = localStorage.getItem('tasktick-accent');
+      if (stored) setAccentState(stored as AccentColor);
     } catch {
-      /* ignore */
+      /* localStorage is unavailable in private mode; the cookie still works. */
     }
-    writeCookie('tasktick-theme', next);
   }, []);
+
+  const setTheme = useCallback(
+    (next: ThemePreference) => {
+      // MUI persists the preference itself; the cookie is only for SSR.
+      setMode(next);
+      writeCookie('tasktick-theme', next);
+    },
+    [setMode],
+  );
 
   const setAccent = useCallback((next: AccentColor) => {
     setAccentState(next);
     try {
       localStorage.setItem('tasktick-accent', next);
     } catch {
-      /* ignore */
+      /* localStorage is unavailable in private mode; the cookie still works. */
     }
     writeCookie('tasktick-accent', next);
   }, []);

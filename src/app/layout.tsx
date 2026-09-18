@@ -2,6 +2,17 @@ import type { Metadata, Viewport } from 'next';
 import { THEME_COLOR } from '@/lib/theme-colors';
 import { cookies } from 'next/headers';
 import './globals.css';
+// Roboto, bundled rather than fetched: the build needs no network and the
+// installed PWA keeps its type offline. Latin only — the app ships in English.
+import '@fontsource/roboto/latin-300.css';
+import '@fontsource/roboto/latin-400.css';
+import '@fontsource/roboto/latin-500.css';
+import '@fontsource/roboto/latin-700.css';
+import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter';
+import InitColorSchemeScript from '@mui/material/InitColorSchemeScript';
+import CssBaseline from '@mui/material/CssBaseline';
+import { ThemeProvider } from '@mui/material/styles';
+import theme from '@/theme';
 import { Providers } from './providers';
 import { ACCENT_COLORS } from '@/lib/types';
 
@@ -96,12 +107,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const accent = accentCookie && (ACCENT_COLORS as readonly string[]).includes(accentCookie) ? accentCookie : 'blue';
 
   return (
-    <html
-      lang="en"
-      data-accent={accent}
-      className={themeCookie === 'dark' ? 'dark' : undefined}
-      suppressHydrationWarning
-    >
+    <html lang="en" data-accent={accent} suppressHydrationWarning>
       <head>
         {SPLASH_SCREENS.map((screen) => (
           <link
@@ -111,27 +117,30 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             media={screen.media}
           />
         ))}
-        {/*
-          Resolves the appearance before first paint so a dark-mode user never
-          sees a white flash. Kept tiny and synchronous, and it must tolerate
-          localStorage being unavailable (Safari private mode).
-        */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{
-var s=localStorage.getItem('tasktick-theme')||${JSON.stringify(themeCookie)};
-var d=s==='dark'||(s!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
-document.documentElement.classList.toggle('dark',d);
-var a=localStorage.getItem('tasktick-accent')||${JSON.stringify(accent)};
-document.documentElement.setAttribute('data-accent',a);
-}catch(e){}})();`,
-          }}
-        />
       </head>
-      <body className="bg-bg text-label antialiased">
-        <Providers initialTheme={themeCookie} initialAccent={accent}>
-          {children}
-        </Providers>
+      <body>
+        {/*
+         * Applies the colour scheme before first paint. MUI writes the palette
+         * as CSS custom properties and this swaps the class on `<html>`, so a
+         * dark-mode user never sees a white flash — the job the hand-rolled
+         * inline script used to do, now owned by MUI.
+         */}
+        <InitColorSchemeScript attribute="class" defaultMode={themeCookie === 'dark' ? 'dark' : themeCookie === 'light' ? 'light' : 'system'} />
+
+        {/*
+         * Collects the styles MUI generates on the server and puts them in the
+         * head. Next streams the HTML in chunks, and without this the Emotion
+         * styles land in the body and flash on the first paint.
+         */}
+        <AppRouterCacheProvider options={{ key: 'mui' }}>
+          <ThemeProvider theme={theme} defaultMode={themeCookie === 'dark' ? 'dark' : themeCookie === 'light' ? 'light' : 'system'}>
+            {/* Material's baseline: normalises the document and drives `color-scheme`. */}
+            <CssBaseline enableColorScheme />
+            <Providers initialTheme={themeCookie} initialAccent={accent}>
+              {children}
+            </Providers>
+          </ThemeProvider>
+        </AppRouterCacheProvider>
       </body>
     </html>
   );

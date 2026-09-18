@@ -3,11 +3,15 @@
 /**
  * One collapsible group of task rows, with drag reordering.
  *
- * The section header is the card's *first row*: one card per section, starting
+ * The section header is the card's first row: one card per section, starting
  * with `Pinned  4  ⌄` and followed by the rows, rather than a caption floating
  * above a separate card. Each card also paints a stripe down its leading edge in
- * the colour of the list most of its rows belong to, which is what makes a long
- * scroll scannable — see `edgeColorFor`.
+ * the colour of the list most of its rows belong to — Material has no equivalent
+ * of the iOS grouped-list edge, so it is drawn explicitly with `borderLeft`,
+ * which is what makes a long scroll scannable (see `edgeColorFor`).
+ *
+ * The header is a MUI `ListSubheader`; the rows live in a MUI `Collapse`, which
+ * owns the height animation, so no hand-rolled grid-rows transition is needed.
  *
  * Reordering is deliberately browser-native on a desktop pointer (HTML5
  * drag-and-drop, with a real drop indicator) and pointer-driven on touch (press
@@ -19,14 +23,17 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { SectionHeader } from '@/components/ui';
-import { cn } from '@/lib/cn';
-import { accentVar } from '@/lib/colors';
+import Box from '@mui/material/Box';
+import Collapse from '@mui/material/Collapse';
+import List from '@mui/material/List';
+import ListSubheader from '@mui/material/ListSubheader';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { accentHex } from '@/lib/colors';
 import type { AccentColor, Task } from '@/lib/types';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
@@ -38,27 +45,26 @@ interface DragState {
   edge: 'before' | 'after';
 }
 
-/**
- * How long the entrance stagger is allowed to run.
- *
- * The utility's longest delay is 242ms plus a 320ms animation, so 600ms clears
- * the whole envelope. After it has played, the class is dropped — see
- * `entering` below.
- */
-const STAGGER_MS = 600;
-
-/**
- * The collapse/expand transition, in ms.
- *
- * In step with the `duration-300` on the rows' track below — the rows have to
- * stay mounted for at least this long to be seen shrinking.
- */
+/** The collapse/expand transition, in ms. */
 const COLLAPSE_MS = 300;
 
 interface LiftState extends DragState {
   startY: number;
   offset: number;
 }
+
+/** A screen-reader-only mark, without pulling in a helper package. */
+const SR_ONLY = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+} as const;
 
 /**
  * The stripe colour for a section card.
@@ -67,10 +73,10 @@ interface LiftState extends DragState {
  * danger colour. Every other section paints the list colour most of its rows
  * share: a section that mixes lists still has to show one stripe, and the most
  * common list is the one the section reads as. No known list colour falls back
- * to the tint, which is the same fallback `card-edge` itself uses.
+ * to the theme primary.
  */
 function edgeColorFor(section: TaskSection, listColors?: ReadonlyMap<string, AccentColor>): string {
-  if (section.tone === 'danger') return 'var(--danger)';
+  if (section.tone === 'danger') return 'error.main';
 
   const counts = new Map<AccentColor, number>();
   for (const task of section.tasks) {
@@ -87,7 +93,7 @@ function edgeColorFor(section: TaskSection, listColors?: ReadonlyMap<string, Acc
     }
   }
 
-  return winner ? accentVar(winner) : 'var(--tint)';
+  return winner ? accentHex(winner) : 'primary.main';
 }
 
 export interface TaskListSectionProps {
@@ -124,56 +130,9 @@ export function TaskListSection({
   disabled = false,
 }: TaskListSectionProps) {
   const [collapsed, setCollapsed] = useState(section.defaultCollapsed);
-  /** Whether the row list is in the DOM — kept through the closing transition. */
-  const [rowsMounted, setRowsMounted] = useState(!section.defaultCollapsed);
-  /** Whether the track is open. One render behind `collapsed` on the way in. */
-  const [rowsOpen, setRowsOpen] = useState(!section.defaultCollapsed);
   const [htmlDrag, setHtmlDrag] = useState<DragState | null>(null);
   const [lift, setLift] = useState<LiftState | null>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
-
-  /*
-   * `stagger` is an entrance, not a decoration. React reuses the row elements
-   * across a re-render (they are keyed by task id), so a plain class would not
-   * restart — but a *new* element would animate, and a checkbox tick or a cache
-   * revalidation can insert one. Dropping the class once the entrance has played
-   * makes that impossible: only the very first paint of a mounted section
-   * staggers, and collapsing/expanding it later stays still.
-   */
-  const [entering, setEntering] = useState(true);
-  useEffect(() => {
-    if (!entering) return;
-    const timer = window.setTimeout(() => setEntering(false), STAGGER_MS);
-    return () => window.clearTimeout(timer);
-  }, [entering]);
-
-  /*
-   * The collapse/expand transition, driven by a track that opens from `0fr` to
-   * `1fr` rather than by a measured pixel height. Two things have to happen in the
-   * right order for it to read as motion:
-   *
-   *   - opening, the rows come back *first*, while the track is still shut, and the
-   *     track is opened on the next frame — a track with nothing in it has nothing
-   *     to grow into, so the two in one commit is a jump, not a transition;
-   *   - closing, the rows stay mounted for the length of the transition, because
-   *     they are what is being seen to shrink. They are dropped afterwards, so a
-   *     collapsed section — the completed one can hold hundreds of rows — costs
-   *     the DOM nothing at rest.
-   *
-   * Nothing here is keyed to a re-render: the transition runs when `rowsOpen`
-   * actually changes, which only a toggle does. `prefers-reduced-motion` is
-   * handled globally, in `globals.css`.
-   */
-  useEffect(() => {
-    if (!collapsed) {
-      setRowsMounted(true);
-      const frame = window.requestAnimationFrame(() => setRowsOpen(true));
-      return () => window.cancelAnimationFrame(frame);
-    }
-    setRowsOpen(false);
-    const timer = window.setTimeout(() => setRowsMounted(false), COLLAPSE_MS);
-    return () => window.clearTimeout(timer);
-  }, [collapsed]);
 
   const reorderable = Boolean(onReorder) && section.reorderable && !selectionMode && !disabled;
 
@@ -270,115 +229,117 @@ export function TaskListSection({
     };
   }
 
-  const header = (
-    <SectionHeader
-      // The section header is the card's first row, 44px like any other row, so
-      // the title, the count and the chevron sit on the row's own baseline
-      // rather than in a caption block above the card.
-      className="h-11 items-center px-3 pt-0 pb-0"
-      // The section title is the loudest thing on the line: a real label-sized
-      // 15px title, with the count and the chevron as quiet secondary marks.
-      // A filled badge and a 16px chevron used to outweigh the word itself.
-      title={
-        <span
-          className={cn(
-            'text-subhead font-semibold',
-            section.tone === 'danger' ? 'text-danger' : 'text-label',
-          )}
-        >
-          {section.title}
-        </span>
-      }
-      action={
-        <button
-          type="button"
-          onClick={() => setCollapsed((value) => !value)}
-          aria-expanded={!collapsed}
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section.title}`}
-          className="flex h-11 items-center gap-1.5 rounded-ios px-1 text-secondary pressable"
-        >
-          <span aria-hidden className="tnum text-footnote font-medium">
-            {section.tasks.length}
-          </span>
-          <span className="sr-only">
-            {`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}
-          </span>
-          <ChevronDown
-            className={cn(
-              'size-3.5 transition-transform duration-200 ease-ios-out',
-              collapsed && '-rotate-90',
-            )}
-            aria-hidden
-          />
-        </button>
-      }
-    />
-  );
+  const danger = section.tone === 'danger';
 
   return (
-    <div className="mx-2 pt-3 first:pt-1">
+    <Box sx={{ mx: 2, pt: 1.5, '&:first-of-type': { pt: 0.5 } }}>
       {/*
-       * One card per section. `card-edge` is the glass surface plus the 3px
-       * stripe down the leading edge and the `overflow-hidden` that keeps a
-       * revealed swipe action inside the rounded corners.
+       * One card per section. The 3px stripe is the deliberate iOS-style edge —
+       * `overflow: hidden` keeps a revealed swipe action inside the rounded
+       * corners.
        */}
-      <div className="card-edge" style={{ '--edge-color': edgeColorFor(section, listColors) } as CSSProperties}>
-        {header}
-
-        {/*
-         * The rows live in a one-track grid whose track animates between `0fr` and
-         * `1fr`: a collapsed section then takes no space at all, without anyone
-         * measuring pixels in JS. `inert` while it is shut keeps rows a user cannot
-         * see out of the tab order and off the accessibility tree — they are still
-         * in the DOM for the length of the closing transition, and reachable by
-         * neither pointer nor keyboard once it has finished.
-         */}
-        <div
-          className={cn(
-            'grid transition-[grid-template-rows,opacity] duration-300 ease-ios-out',
-            rowsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr] opacity-0',
-          )}
-          inert={!rowsOpen}
-        >
-          <div className="min-h-0 overflow-hidden">
-            {rowsMounted ? (
-              /*
-               * The rows carry no background of their own, so the card reads as
-               * one surface — header row first, then the tasks. No hairline under
-               * the header: the two are one card rather than two groups, so a rule
-               * there drew a box around the title instead of separating anything,
-               * and the header's own weight already marks where the section
-               * starts.
-               */
-              <ul className={cn(entering && 'stagger')}>
-                {section.tasks.map((task, index) => (
-                  <TaskRow
-                    key={task.id}
-                    ref={(node) => {
-                      if (node) rowRefs.current.set(task.id, node);
-                      else rowRefs.current.delete(task.id);
+      <Paper
+        variant="outlined"
+        sx={{
+          borderRadius: 2,
+          overflow: 'hidden',
+          borderLeft: '3px solid',
+          borderLeftColor: edgeColorFor(section, listColors),
+        }}
+      >
+        <List
+          component="div"
+          disablePadding
+          subheader={
+            <ListSubheader
+              component="div"
+              disableSticky
+              sx={{ p: 0, bgcolor: 'transparent', lineHeight: 'normal' }}
+            >
+              <Box
+                component="button"
+                type="button"
+                onClick={() => setCollapsed((value) => !value)}
+                aria-expanded={!collapsed}
+                aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section.title}`}
+                sx={{
+                  display: 'flex',
+                  width: '100%',
+                  minHeight: 44,
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1.5,
+                  border: 0,
+                  bgcolor: 'transparent',
+                  cursor: 'pointer',
+                  font: 'inherit',
+                  color: 'inherit',
+                  textAlign: 'left',
+                }}
+              >
+                {/* The section title is the loudest thing on the line. */}
+                <Typography
+                  component="span"
+                  variant="subtitle2"
+                  sx={{ fontWeight: 600, color: danger ? 'error.main' : 'text.primary' }}
+                >
+                  {section.title}
+                </Typography>
+                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
+                  <Typography component="span" variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
+                    {section.tasks.length}
+                  </Typography>
+                  <Box component="span" sx={SR_ONLY}>
+                    {`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}
+                  </Box>
+                  <ExpandMoreIcon
+                    aria-hidden
+                    sx={{
+                      fontSize: 14,
+                      transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+                      transform: collapsed ? 'rotate(-90deg)' : 'none',
                     }}
-                    task={task}
-                    zone={zone}
-                    timeFormat={timeFormat}
-                    onToggle={onToggle}
-                    onOpen={onOpen}
-                    onDelete={onDelete}
-                    onWontDo={onWontDo}
-                    disabled={disabled}
-                    selectionMode={selectionMode}
-                    selected={selectedIds?.has(task.id) ?? false}
-                    onSelect={onSelect}
-                    drag={dragPropsFor(task)}
-                    first={index === 0}
-                    last={index === section.tasks.length - 1}
                   />
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
+                </Box>
+              </Box>
+            </ListSubheader>
+          }
+        >
+          {/*
+           * The rows live in a MUI `Collapse`, which owns the height animation.
+           * `unmountOnExit` keeps a collapsed section — the completed one can hold
+           * hundreds of rows — out of the DOM at rest, exactly as the old
+           * grid-rows track did.
+           */}
+          <Collapse in={!collapsed} timeout={COLLAPSE_MS} mountOnEnter unmountOnExit>
+            <List disablePadding>
+              {section.tasks.map((task, index) => (
+                <TaskRow
+                  key={task.id}
+                  ref={(node) => {
+                    if (node) rowRefs.current.set(task.id, node);
+                    else rowRefs.current.delete(task.id);
+                  }}
+                  task={task}
+                  zone={zone}
+                  timeFormat={timeFormat}
+                  onToggle={onToggle}
+                  onOpen={onOpen}
+                  onDelete={onDelete}
+                  onWontDo={onWontDo}
+                  disabled={disabled}
+                  selectionMode={selectionMode}
+                  selected={selectedIds?.has(task.id) ?? false}
+                  onSelect={onSelect}
+                  drag={dragPropsFor(task)}
+                  first={index === 0}
+                  last={index === section.tasks.length - 1}
+                />
+              ))}
+            </List>
+          </Collapse>
+        </List>
+      </Paper>
+    </Box>
   );
 }

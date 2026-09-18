@@ -8,11 +8,25 @@
  * "focus +" five times sends one PATCH with the final value instead of five
  * racing ones, and the timer itself re-reads these values the next time it is
  * idle.
+ *
+ * Material has no numeric stepper, so the control is two `IconButton`s around an
+ * `<output>`. The accessible names and the `aria-live` announcement are the ones
+ * the old `Stepper` exposed: a `group` named by its label, `Decrease`/`Increase`
+ * buttons, and a polite live region for the value.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Switch, Stepper, useToast } from '@/components/ui';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Typography from '@mui/material/Typography';
+import AddIcon from '@mui/icons-material/Add';
+import RemoveIcon from '@mui/icons-material/Remove';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate } from '@/lib/store';
+import { useToast } from '@/components/app/Toast';
 import { SettingsGroup } from './SettingsGroup';
 import type { UserSettings } from '@/lib/types';
 
@@ -69,61 +83,144 @@ export function FocusSettings({ settings }: FocusSettingsProps) {
       title="Focus defaults"
       footer={`The timer starts each phase at these lengths and offers a long break after every ${draft.pomodoroLongBreakEvery} completed focus sessions.`}
     >
-      <div className="flex min-h-11 items-center justify-between gap-3 px-4 py-2">
-        <span className="text-body text-label">Focus</span>
-        <Stepper
-          label="Focus minutes"
-          value={draft.pomodoroFocus}
-          min={1}
-          max={180}
-          onChange={(value) => queue({ pomodoroFocus: value })}
-          formatValue={(value) => `${value} min`}
-        />
-      </div>
+      <NumberRow
+        label="Focus"
+        stepperLabel="Focus minutes"
+        value={draft.pomodoroFocus}
+        min={1}
+        max={180}
+        formatValue={(value) => `${value} min`}
+        onChange={(value) => queue({ pomodoroFocus: value })}
+      />
+      <NumberRow
+        label="Short break"
+        stepperLabel="Short break minutes"
+        value={draft.pomodoroShortBreak}
+        min={1}
+        max={60}
+        formatValue={(value) => `${value} min`}
+        onChange={(value) => queue({ pomodoroShortBreak: value })}
+      />
+      <NumberRow
+        label="Long break"
+        stepperLabel="Long break minutes"
+        value={draft.pomodoroLongBreak}
+        min={1}
+        max={120}
+        formatValue={(value) => `${value} min`}
+        onChange={(value) => queue({ pomodoroLongBreak: value })}
+      />
+      <NumberRow
+        label="Long break every"
+        stepperLabel="Sessions before a long break"
+        value={draft.pomodoroLongBreakEvery}
+        min={1}
+        max={12}
+        formatValue={(value) => `${value}×`}
+        onChange={(value) => queue({ pomodoroLongBreakEvery: value })}
+      />
 
-      <div className="hairline-t flex min-h-11 items-center justify-between gap-3 px-4 py-2">
-        <span className="text-body text-label">Short break</span>
-        <Stepper
-          label="Short break minutes"
-          value={draft.pomodoroShortBreak}
-          min={1}
-          max={60}
-          onChange={(value) => queue({ pomodoroShortBreak: value })}
-          formatValue={(value) => `${value} min`}
-        />
-      </div>
-
-      <div className="hairline-t flex min-h-11 items-center justify-between gap-3 px-4 py-2">
-        <span className="text-body text-label">Long break</span>
-        <Stepper
-          label="Long break minutes"
-          value={draft.pomodoroLongBreak}
-          min={1}
-          max={120}
-          onChange={(value) => queue({ pomodoroLongBreak: value })}
-          formatValue={(value) => `${value} min`}
-        />
-      </div>
-
-      <div className="hairline-t flex min-h-11 items-center justify-between gap-3 px-4 py-2">
-        <span className="text-body text-label">Long break every</span>
-        <Stepper
-          label="Sessions before a long break"
-          value={draft.pomodoroLongBreakEvery}
-          min={1}
-          max={12}
-          onChange={(value) => queue({ pomodoroLongBreakEvery: value })}
-          formatValue={(value) => `${value}×`}
-        />
-      </div>
-
-      <div className="hairline-t px-4 py-2">
-        <Switch
+      <ListItem>
+        <FormControlLabel
+          sx={{ m: 0, flex: 1, justifyContent: 'space-between' }}
+          labelPlacement="start"
           label="Start breaks automatically"
-          checked={draft.pomodoroAutoStartBreaks}
-          onCheckedChange={(value) => queue({ pomodoroAutoStartBreaks: value })}
+          control={
+            <Switch
+              checked={draft.pomodoroAutoStartBreaks}
+              onChange={(_event, checked) => queue({ pomodoroAutoStartBreaks: checked })}
+              slotProps={{ input: { 'aria-label': 'Start breaks automatically' } }}
+            />
+          }
         />
-      </div>
+      </ListItem>
     </SettingsGroup>
+  );
+}
+
+/** One `label … − value +` row. */
+function NumberRow({
+  label,
+  stepperLabel,
+  value,
+  min,
+  max,
+  formatValue,
+  onChange,
+}: {
+  label: string;
+  stepperLabel: string;
+  value: number;
+  min: number;
+  max: number;
+  formatValue: (value: number) => string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <ListItem>
+      <ListItemText primary={label} />
+      <NumberStepper
+        label={stepperLabel}
+        value={value}
+        min={min}
+        max={max}
+        formatValue={formatValue}
+        onChange={onChange}
+      />
+    </ListItem>
+  );
+}
+
+/**
+ * `− value +`, as an ARIA group.
+ *
+ * Each button disables and dims itself at its own bound, so the user can see
+ * which direction is still available.
+ */
+function NumberStepper({
+  label,
+  value,
+  min,
+  max,
+  formatValue,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  formatValue: (value: number) => string;
+  onChange: (value: number) => void;
+}) {
+  const canDecrease = value > min;
+  const canIncrease = value < max;
+
+  return (
+    <Box role="group" aria-label={label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+      <IconButton
+        aria-label={`Decrease ${label}`}
+        disabled={!canDecrease}
+        onClick={() => onChange(Math.max(min, value - 1))}
+      >
+        <RemoveIcon fontSize="small" aria-hidden />
+      </IconButton>
+
+      <Typography
+        component="output"
+        aria-live="polite"
+        variant="body1"
+        sx={{ minWidth: 56, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
+      >
+        {formatValue(value)}
+      </Typography>
+
+      <IconButton
+        aria-label={`Increase ${label}`}
+        disabled={!canIncrease}
+        onClick={() => onChange(Math.min(max, value + 1))}
+      >
+        <AddIcon fontSize="small" aria-hidden />
+      </IconButton>
+    </Box>
   );
 }

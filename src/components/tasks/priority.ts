@@ -2,40 +2,41 @@
  * Priority presentation, in one place so the row, the bulk bar and the picker
  * cannot disagree about which colour means "high".
  *
- * Colours are Tailwind token classes, never hex values: `text-danger` for high
- * (red), `text-warning` for medium (orange), the user's accent for low, and the
- * tertiary label for none — the same mapping iOS Reminders uses for flags.
+ * The colours are MUI palette paths, never hex values and never Tailwind
+ * classes: `error.main` for high, `warning.main` for medium, `primary.main` for
+ * low and the disabled text colour for none — the same mapping iOS Reminders
+ * uses for flags. `sx={{ color: priorityColor(priority) }}` resolves the path
+ * against the active colour scheme, so light and dark are both correct for free.
  */
 import type { Priority } from '@/lib/types';
 
 export interface PriorityItem {
   value: Priority;
   label: string;
-  /** Text/icon colour. */
-  text: string;
-  /** Filled background for the selected state of a swatch. */
-  selected: string;
+  /** Palette path usable directly as an `sx` colour, e.g. `'error.main'`. */
+  color: string;
 }
 
 export const PRIORITY_ITEMS: readonly PriorityItem[] = [
-  { value: 'none', label: 'None', text: 'text-tertiary', selected: 'bg-fill text-label' },
-  { value: 'low', label: 'Low', text: 'text-tint', selected: 'bg-tint-soft text-tint' },
-  { value: 'medium', label: 'Medium', text: 'text-warning', selected: 'bg-warning/15 text-warning' },
-  { value: 'high', label: 'High', text: 'text-danger', selected: 'bg-danger/15 text-danger' },
+  { value: 'none', label: 'None', color: 'text.disabled' },
+  { value: 'low', label: 'Low', color: 'primary.main' },
+  { value: 'medium', label: 'Medium', color: 'warning.main' },
+  { value: 'high', label: 'High', color: 'error.main' },
 ];
 
 const LABELS: Record<Priority, string> = { none: 'None', low: 'Low', medium: 'Medium', high: 'High' };
-const TEXT: Record<Priority, string> = {
-  none: 'text-tertiary',
-  low: 'text-tint',
-  medium: 'text-warning',
-  high: 'text-danger',
+const COLORS: Record<Priority, string> = {
+  none: 'text.disabled',
+  low: 'primary.main',
+  medium: 'warning.main',
+  high: 'error.main',
 };
 
 export function priorityLabel(priority: Priority): string {
   return LABELS[priority] ?? 'None';
 }
 
-export function priorityTextClass(priority: Priority): string {
-  return TEXT[priority] ?? TEXT.none;
+/** Palette path for a priority's flag and text. */
+export function priorityColor(priority: Priority): string {
+  return COLORS[priority] ?? COLORS.none;
 }

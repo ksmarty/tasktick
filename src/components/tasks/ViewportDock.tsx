@@ -16,24 +16,26 @@
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import Box from '@mui/material/Box';
+import type { SxProps, Theme } from '@mui/material/styles';
 
 export interface ViewportDockProps {
-  /** Positioning classes — `fixed`, the insets and the z-index belong here. */
-  className?: string;
+  /** Positioning: `position: fixed`, the insets and the z-index belong here. */
+  sx?: SxProps<Theme>;
   style?: CSSProperties;
   children: ReactNode;
 }
 
-export function ViewportDock({ className, style, children }: ViewportDockProps) {
+export function ViewportDock({ sx, style, children }: ViewportDockProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
   if (!mounted) return null;
   return createPortal(
-    <div className={className} style={style}>
+    <Box sx={sx} style={style}>
       {children}
-    </div>,
+    </Box>,
     document.body,
   );
 }

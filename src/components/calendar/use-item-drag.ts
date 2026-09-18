@@ -96,7 +96,7 @@ interface DragSession {
  */
 export function useItemDrag(config: ItemDragConfig): {
   ghost: DragGhost | null;
-  begin: (item: CalendarItem, event: ReactPointerEvent<HTMLButtonElement>, init: DragInit) => void;
+  begin: (item: CalendarItem, event: ReactPointerEvent<HTMLElement>, init: DragInit) => void;
 } {
   const [ghost, setGhost] = useState<DragGhost | null>(null);
   const configRef = useRef(config);
@@ -139,7 +139,7 @@ export function useItemDrag(config: ItemDragConfig): {
   useEffect(() => () => finish(false), [finish]);
 
   const begin = useCallback(
-    (item: CalendarItem, event: ReactPointerEvent<HTMLButtonElement>, init: DragInit) => {
+    (item: CalendarItem, event: ReactPointerEvent<HTMLElement>, init: DragInit) => {
       const { interaction } = configRef.current;
       if (item.readonly || sessionRef.current) return;
       if (event.pointerType === 'mouse' && event.button !== 0) return;

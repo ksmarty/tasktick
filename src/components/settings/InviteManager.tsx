@@ -8,10 +8,28 @@
  * create response is rendered as its own card with a copy button and a plain
  * warning that it will not be shown again. Listing existing invites shows only
  * whether each one is still usable.
+ *
+ * The expiry choices were a row of buttons changing weight on selection; they are
+ * a genuine either/or, so they are a `ToggleButtonGroup` now.
  */
 import { useState } from 'react';
-import { Copy, Mail, UserPlus } from 'lucide-react';
-import { Button, ListRow, Skeleton, Switch, TextField, useToast } from '@/components/ui';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import ListItem from '@mui/material/ListItem';
+import ListItemText from '@mui/material/ListItemText';
+import Paper from '@mui/material/Paper';
+import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Typography from '@mui/material/Typography';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import MailIcon from '@mui/icons-material/Mail';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { relativeTimeAgo } from '@/lib/dates';
@@ -78,62 +96,104 @@ export function InviteManager() {
         title="Invite someone"
         footer="Creating a new invitation for the same address cancels the previous one, so only the newest link works."
       >
-        <div className="space-y-3 px-4 py-3">
-          <TextField
-            label="Email address"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            leading={<Mail className="size-4" aria-hidden />}
-            placeholder="friend@example.com"
-            maxLength={320}
-          />
-          <Switch label="Make them an administrator" checked={isAdmin} onCheckedChange={setIsAdmin} />
-          <div>
-            <p className="mb-1.5 px-1 text-footnote text-secondary">Link expires in</p>
-            <div className="flex gap-2">
-              {EXPIRY_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  size="sm"
-                  variant={expiresInDays === option.value ? 'filled' : 'gray'}
-                  onClick={() => setExpiresInDays(option.value)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <Button fullWidth icon={UserPlus} loading={create.isPending} disabled={!email.trim()} onClick={() => void create.run()}>
-            Create invitation
-          </Button>
-        </div>
+        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+          <Stack spacing={3}>
+            <TextField
+              fullWidth
+              label="Email address"
+              type="email"
+              autoComplete="email"
+              placeholder="friend@example.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              slotProps={{
+                htmlInput: { inputMode: 'email', maxLength: 320 },
+                input: {
+                  startAdornment: <MailIcon fontSize="small" aria-hidden sx={{ mr: 1, color: 'text.secondary' }} />,
+                },
+              }}
+            />
+
+            <FormControlLabel
+              sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
+              labelPlacement="start"
+              label="Make them an administrator"
+              control={
+                <Switch
+                  checked={isAdmin}
+                  onChange={(_event, checked) => setIsAdmin(checked)}
+                  slotProps={{ input: { 'aria-label': 'Make them an administrator' } }}
+                />
+              }
+            />
+
+            <Box>
+              <Typography variant="caption" color="text.secondary" id="invite-expiry-label" sx={{ display: 'block', px: 1, pb: 0.5 }}>
+                Link expires in
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={expiresInDays}
+                onChange={(_event, value: string | null) => {
+                  if (value) setExpiresInDays(value);
+                }}
+                aria-labelledby="invite-expiry-label"
+              >
+                {EXPIRY_OPTIONS.map((option) => (
+                  <ToggleButton key={option.value} value={option.value}>
+                    {option.label}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </Box>
+
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<PersonAddIcon aria-hidden />}
+              loading={create.isPending}
+              disabled={!email.trim()}
+              onClick={() => void create.run()}
+            >
+              Create invitation
+            </Button>
+          </Stack>
+        </ListItem>
       </SettingsGroup>
 
       {freshUrl ? (
-        <div className="grouped mx-4 mt-4 p-4">
-          <p className="text-subhead font-semibold text-label">Invitation link</p>
-          <p className="break-all pt-1 font-mono text-caption-1 text-secondary">{freshUrl}</p>
-          <div className="pt-3">
-            <Button size="sm" icon={Copy} onClick={() => void copy(freshUrl)}>
+        <Paper variant="outlined" sx={{ borderRadius: 3, mx: 2, mt: 2, p: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            Invitation link
+          </Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ pt: 0.5, fontFamily: 'monospace', wordBreak: 'break-all' }}
+          >
+            {freshUrl}
+          </Typography>
+          <Box sx={{ pt: 1.5 }}>
+            <Button size="small" variant="contained" startIcon={<ContentCopyIcon aria-hidden />} onClick={() => void copy(freshUrl)}>
               Copy link
             </Button>
-          </div>
-          <p className="pt-2 text-caption-1 text-tertiary">
+          </Box>
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pt: 1 }}>
             Send this to them yourself — this server has no mail delivery, and the link is shown in full only once.
-          </p>
-        </div>
+          </Typography>
+        </Paper>
       ) : null}
 
       <SettingsGroup title="Invitations" footer="Accepted invitations are spent and cannot be reused.">
         {invites.isInitialLoading ? (
-          <div className="px-4 py-3">
-            <Skeleton variant="rect" className="h-10" />
-          </div>
+          <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+            <Skeleton variant="rounded" height={40} />
+          </ListItem>
         ) : list.length === 0 ? (
-          <ListRow title="No invitations yet" subtitle="Invite someone above to get a link." />
+          <ListItem>
+            <ListItemText primary="No invitations yet" secondary="Invite someone above to get a link." />
+          </ListItem>
         ) : (
           list.map((invite) => {
             const expired = invite.expiresAtMs < Date.now();
@@ -143,18 +203,22 @@ export function InviteManager() {
                 ? `expired ${relativeTimeAgo(invite.expiresAtMs)}`
                 : `expires in ${Math.max(1, Math.round((invite.expiresAtMs - Date.now()) / 86_400_000))} days`;
             return (
-              <ListRow
+              <ListItem
                 key={invite.id}
-                title={invite.email}
-                subtitle={`${invite.isAdmin ? 'Administrator · ' : ''}${status}`}
-                trailing={
+                secondaryAction={
                   invite.url && !expired && !invite.acceptedAtMs ? (
-                    <Button size="sm" variant="plain" icon={Copy} onClick={() => void copy(invite.url!)}>
+                    <Button size="small" variant="text" startIcon={<ContentCopyIcon aria-hidden />} onClick={() => void copy(invite.url!)}>
                       Copy
                     </Button>
                   ) : undefined
                 }
-              />
+              >
+                <ListItemText
+                  primary={invite.email}
+                  secondary={`${invite.isAdmin ? 'Administrator · ' : ''}${status}`}
+                  slotProps={{ primary: { noWrap: true }, secondary: { noWrap: true } }}
+                />
+              </ListItem>
             );
           })
         )}
