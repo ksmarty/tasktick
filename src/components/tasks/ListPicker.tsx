@@ -3,11 +3,15 @@
 /**
  * List picker: the user's projects, plus "No list" for tasks that belong only to
  * the inbox.
+ *
+ * The overlay is the GodUI `Drawer` — the same bottom sheet, and the same
+ * swipe-down-to-dismiss, as the filter/sort menus and the other pickers. Its
+ * panel is content-height, so the picker is only as tall as its rows.
  */
 import type { ReactNode } from 'react';
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { Inbox } from 'lucide-react';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Drawer } from '@/components/godui/drawer';
 import { accentHex } from '@/lib/colors';
 import type { List as TaskList } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -70,51 +74,46 @@ export function ListPicker({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        aria-label={title}
-        aria-modal={true}
-        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
-      >
-        <SheetTitle className="sr-only">{title}</SheetTitle>
-
-        <h2 className="pb-2 text-lg font-semibold text-foreground">{title}</h2>
-
-        <div role="radiogroup" aria-label={title}>
-          {allowNone ? (
-            <OptionRow
-              selected={value === null}
-              label="No list"
-              leading={<Inbox className="size-5 text-muted-foreground" aria-hidden />}
-              onSelect={() => choose(null)}
-            />
-          ) : null}
-
-          {lists.map((list) => (
-            <OptionRow
-              key={list.id}
-              selected={list.id === value}
-              label={list.name}
-              leading={
-                list.emoji ? (
-                  <span className="flex size-5 items-center justify-center text-base">{list.emoji}</span>
-                ) : (
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: accentHex(list.color) }}
-                  />
-                )
-              }
-              onSelect={() => choose(list.id)}
-            />
-          ))}
-        </div>
-
-        {lists.length === 0 ? (
-          <p className="pt-3 text-xs text-muted-foreground">You have no lists yet.</p>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      side="bottom"
+      title={title}
+      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+    >
+      <div role="radiogroup" aria-label={title}>
+        {allowNone ? (
+          <OptionRow
+            selected={value === null}
+            label="No list"
+            leading={<Inbox className="size-5 text-muted-foreground" aria-hidden />}
+            onSelect={() => choose(null)}
+          />
         ) : null}
-      </SheetContent>
-    </Sheet>
+
+        {lists.map((list) => (
+          <OptionRow
+            key={list.id}
+            selected={list.id === value}
+            label={list.name}
+            leading={
+              list.emoji ? (
+                <span className="flex size-5 items-center justify-center text-base">{list.emoji}</span>
+              ) : (
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: accentHex(list.color) }}
+                />
+              )
+            }
+            onSelect={() => choose(list.id)}
+          />
+        ))}
+      </div>
+
+      {lists.length === 0 ? (
+        <p className="pt-3 text-xs text-muted-foreground">You have no lists yet.</p>
+      ) : null}
+    </Drawer>
   );
 }

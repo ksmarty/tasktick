@@ -21,6 +21,19 @@
  * unchanged by the GodUI migration and other code depends on it: nothing here
  * may stop publishing, and nothing may start rendering a second visible title.
  *
+ * ## The label is a control
+ *
+ * The published title is now `MonthPicker` rather than a bare string: the month
+ * name is a button that opens a year/month picker. `PageHeader` publishes a
+ * node, not a string, so this is the same mechanism with a different child — the
+ * shell still renders exactly one title, still inside the same `h1`, and the
+ * heading's accessible name is still the month name.
+ *
+ * The picker element is memoised on its primitive inputs rather than rebuilt on
+ * every render. `PageHeader` republishes whenever the node's identity changes,
+ * and a fresh element on every render of the screen would make the shell re-render
+ * with it — through every gesture sample the month grid reports.
+ *
  * Because that label changes without a navigation, the selected day is announced
  * through an `aria-live` region. That announcement is published *with* the title,
  * into the shell's bar, rather than dropped somewhere in the screen's own tree:
@@ -29,18 +42,38 @@
  * the shell remounts on every navigation. Tailwind's `sr-only` is the
  * visually-hidden recipe, so no hand-rolled clip is carried any more.
  */
+import { useMemo } from 'react';
 import { PageHeader } from '@/components/app/PageHeader';
+import { MonthPicker } from './MonthPicker';
 
 export interface CalendarToolbarProps {
   /** The visible month alone, e.g. "September". */
   label: string;
   /** The selected day in full, e.g. "Wednesday 16 September 2025". */
   selectedLabel: string;
+  /** The visible month's year, e.g. 2026. Shown only inside the picker. */
+  year: number;
+  /** The visible month, zero-based (0 = January). */
+  month: number;
+  /** The user's zone, so the picker formats its twelve names like the label. */
+  zone: string;
+  /** Commits a month chosen in the picker; the screen turns it into a page move. */
+  onSelectMonth: (year: number, month: number) => void;
 }
 
-export function CalendarToolbar({ label, selectedLabel }: CalendarToolbarProps) {
+export function CalendarToolbar({ label, selectedLabel, year, month, zone, onSelectMonth }: CalendarToolbarProps) {
+  /*
+   * Stable across unrelated re-renders: the four primitives are the whole input,
+   * and `onSelectMonth` is a `useCallback` in the screen. Without this the
+   * `PageHeader` publish effect would fire on every render of the calendar.
+   */
+  const title = useMemo(
+    () => <MonthPicker label={label} year={year} month={month} zone={zone} onSelect={onSelectMonth} />,
+    [label, year, month, zone, onSelectMonth],
+  );
+
   return (
-    <PageHeader title={label}>
+    <PageHeader title={title}>
       <span aria-live="polite" className="sr-only">
         {selectedLabel}
       </span>

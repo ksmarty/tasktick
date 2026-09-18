@@ -219,10 +219,12 @@ export function HabitList({
   // which would end the drag before it moved.
   useEffect(() => {
     if (!dragId) return;
-    // The shell's scroll pane is the `<main>` (`AppShell` owns it); the old
-    // `.scroll-pane` hook is kept as a fallback so the lock never silently
-    // stops working if that changes again.
-    const pane = containerRef.current?.closest<HTMLElement>('main, .scroll-pane');
+    // The habits screen declares `useShellPane({ fullHeight: true })`, so the
+    // shell's `<main>` is `overflow-hidden` and the page owns its own
+    // `data-habit-scroll` pane around this list. `closest` returns the nearest
+    // match, so that pane wins; `main`/`.scroll-pane` stay as fallbacks for the
+    // shell-default layout and for a standalone render.
+    const pane = containerRef.current?.closest<HTMLElement>('[data-habit-scroll], main, .scroll-pane');
     if (pane) pane.style.overflowY = 'hidden';
 
     const onTouchMove = (event: TouchEvent) => {

@@ -6,6 +6,8 @@
  * the barrel.
  */
 export { SettingsGroup, SettingsRow, SETTINGS_ROW_CLASS, type SettingsGroupProps, type SettingsRowProps } from './SettingsGroup';
+export { SettingsTabs, type SettingsTab, type SettingsTabsProps } from './SettingsTabs';
+export { SectionLink, type SectionLinkProps } from './SectionLink';
 export { AccountSettings, type AccountSettingsProps } from './AccountSettings';
 export { AppearanceSettings } from './AppearanceSettings';
 export { DateTimeSettings, listTimeZones, type DateTimeSettingsProps } from './DateTimeSettings';

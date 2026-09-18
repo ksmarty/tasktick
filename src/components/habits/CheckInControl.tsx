@@ -3,14 +3,15 @@
 /**
  * The check-in control that leads a habit row.
  *
- * Two shapes, chosen by the habit's goal type, in one 44px-tall box so the row
- * geometry is identical for every habit:
+ * Two shapes, chosen by the habit's goal type, drawn at the same 32px scale so
+ * the row geometry is identical for every habit:
  *
  *   - **boolean** — one shadcn `Checkbox`, styled back to the iOS task circle,
  *     that toggles between `{ count: 1 }` and `{ count: null }`. It is still a
  *     real checkbox: `role="checkbox"`, `aria-checked` and Space/Enter come from
- *     Radix, and the 44px target is the control itself rather than a padded
- *     wrapper.
+ *     Radix. The circle is 32px of ink; the 44px touch target is grown by the
+ *     `after:` pseudo-element rather than by the box, exactly as the stepper's
+ *     two buttons do it, so the two shapes read at the same weight.
  *   - **count / duration** — `[−] 3/8 [+]`: the amount the server holds for the
  *     period, with `−` and `+` sending `delta: -1` / `delta: 1` so the server
  *     increments the stored amount instead of the client guessing it.
@@ -79,9 +80,12 @@ export function CheckInControl({ habit, date, today, onCheckIn, pending = false,
                 ? `Uncheck ${habit.name} for ${when}`
                 : `Check in ${habit.name} for ${when}`
             }
-            // 20px of glyph inside a 44px circle: the same 24-over-10 the
-            // Material control had, expressed on the Tailwind scale.
-            className="size-11 rounded-full border-2 [&_svg]:size-5"
+            // 16px of glyph inside a 32px circle. This is the app's
+            // most-tapped control, so the pseudo-element grows the hit area to
+            // the 44px HIG minimum without inflating the circle itself. The
+            // stepper's two buttons use the same `after:-inset-1.5` (32 + 6 + 6
+            // = 44px) so both shapes share one target size.
+            className="relative size-8 rounded-full border-2 after:absolute after:-inset-1.5 after:content-[''] [&_svg]:size-4"
             onCheckedChange={(checked) => onCheckIn({ date, count: checked === true ? 1 : null })}
           />
         </motion.span>

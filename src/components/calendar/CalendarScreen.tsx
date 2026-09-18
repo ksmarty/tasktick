@@ -24,6 +24,12 @@
  *
  * ## Layout
  *
+ * This screen owns its own scrolling (`useShellPane({ fullHeight: true })`): the
+ * shell's pane is pinned to the viewport and does not scroll, so the grid cannot
+ * be carried off the top of the screen while the user reads the agenda. Only the
+ * agenda scrolls — the `section[aria-label="Day agenda"]` is the one
+ * `overflow-y-auto` on this screen, with the month above it `shrink-0`.
+ *
  * The grid is sized by its own content — six 36px rows — not by a share of the
  * viewport: a viewport share stretched every row on a phone (~62px of mostly
  * empty cell) and pushed the agenda down. The agenda takes the rest, and on a
@@ -31,12 +37,17 @@
  * (`lg:w-96`). The layout is a plain CSS breakpoint rather than a media-query
  * hook, so there is one source of truth for the two shapes.
  *
- * On a phone the grid is inset by the page gutter (`mx-gutter` on the month
- * card) because the shell deliberately does not apply one — it cannot know which
- * screens are full-bleed — and the agenda's list carries its own. Both come from
- * the same token, so the grid's numbers and the agenda's cards share one left
- * edge. On `lg` the gutter moves out to this container instead, and the card
- * drops its own (`lg:mx-0`).
+ * The horizontal inset is `px-2`, not `px-gutter`: the grid and the agenda are
+ * the two things this screen is for, and the old 1rem page gutter plus the
+ * card's own 1rem inset pushed the numbers a long way from the edges. Both the
+ * month surface and the agenda list carry the same `px-2`, so they still share
+ * one left edge. The month grid owns its own gutter because the clip it measures
+ * for "one page" must carry no padding of its own — see `MonthGrid`.
+ *
+ * Because the shell's pane no longer scrolls in this mode, the pane's own
+ * bottom reservation for the tab band is gone with it; the agenda's list
+ * restates that reservation (`pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)]`)
+ * so the last row can always be scrolled clear of the fixed bottom band.
  *
  * ## Overlays and feedback
  *
@@ -52,6 +63,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
+import { useShellPane } from '@/components/app/ShellPane';
 import { useToast } from '@/components/app/Toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { accentHex } from '@/lib/colors';
@@ -100,6 +112,10 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const router = useRouter();
   const pathname = usePathname();
   const { toast } = useToast();
+
+  // The shell's pane must not scroll: the grid is pinned and the agenda scrolls
+  // on its own, so the month cannot travel off the top of the screen.
+  useShellPane({ fullHeight: true });
 
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const settings = bootstrap.data?.settings;
@@ -289,6 +305,26 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     [selected, zone, selectDate],
   );
 
+  /**
+   * Commits a year/month chosen in the picker.
+   *
+   * The only arithmetic is "how many whole months away is that", and the move
+   * itself goes through `page`, so the picker jumps exactly like a swipe: the
+   * track is keyed on the paging move and re-bases, the title follows, and the
+   * selection keeps its day-of-month. Nothing here derives a date.
+   */
+  const selectMonth = useCallback(
+    (year: number, month: number) => {
+      const shown = fromDateOnly(activeDate, zone);
+      const delta = (year - shown.year) * 12 + (month - (shown.month - 1));
+      if (delta !== 0) page(delta);
+    },
+    [activeDate, zone, page],
+  );
+
+  /** The month the label and the picker are talking about. */
+  const shownMonth = useMemo(() => fromDateOnly(activeDate, zone), [activeDate, zone]);
+
   // Mirror the state into the URL so a reload, a bookmark or the back gesture
   // lands on the same day.
   useEffect(() => {
@@ -426,10 +462,14 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         <CalendarToolbar
           label={monthLabel}
           selectedLabel={fromDateOnly(selected, prefs.zone).toFormat('cccc d LLLL yyyy')}
+          year={shownMonth.year}
+          month={shownMonth.month - 1}
+          zone={zone}
+          onSelectMonth={selectMonth}
         />
 
         {filterCalendar && filterHex ? (
-          <div className="flex shrink-0 items-center px-gutter pb-2 lg:px-card">
+          <div className="flex shrink-0 items-center px-2 pb-2">
             {/*
               The active calendar filter. One button whose accessible name says
               what it does — a chip with a delete cross was two controls for one
@@ -465,7 +505,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
           >
             {!payload ? (
               resource.error ? (
-                <p role="alert" className="px-gutter py-8 text-center text-sm text-destructive">
+                <p role="alert" className="px-2 py-8 text-center text-sm text-destructive">
                   {resource.error}
                 </p>
               ) : (
@@ -494,10 +534,16 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
             )}
           </section>
 
+          {/*
+            The one scroller on this screen. The month above is `shrink-0`, so
+            the grid stays where it is while this column scrolls — and
+            `touch-pan-y` is what keeps the agenda's own horizontal day-swipe
+            (handled on this same section) from being read as a browser pan.
+          */}
           <section
             aria-label="Day agenda"
             {...agendaSwipe}
-            className="flex min-h-0 flex-1 flex-col lg:w-96 lg:flex-none"
+            className="flex min-h-0 flex-1 flex-col touch-pan-y overflow-y-auto overscroll-contain lg:w-96 lg:flex-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             <DayAgenda
               items={selectedItems}
@@ -650,7 +696,7 @@ function defaultsFor(item: CalendarItem, prefs: CalendarPrefs): EventDefaults {
 /** The first-load placeholder: shapes only, never a fake calendar. */
 function CalendarSkeleton() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1 p-card" aria-busy>
+    <div className="flex min-h-0 flex-1 flex-col gap-1 px-2 pt-card pb-card" aria-busy>
       <div className="grid grid-cols-7 gap-0.5">
         {Array.from({ length: 42 }, (_, index) => (
           <Skeleton key={index} className="h-10 rounded-lg" />

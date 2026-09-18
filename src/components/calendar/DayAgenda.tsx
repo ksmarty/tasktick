@@ -36,13 +36,23 @@
  * Dragging a row horizontally moves the item by whole days. It goes through the
  * same `useItemDrag` hook as before, so the lift threshold, the click-swallow
  * and the Escape-to-cancel behaviour are identical everywhere in the calendar.
- * The drag measures `listRef`, so that ref stays on the scrolling `<ul>` node.
+ * The drag measures `listRef`, so that ref stays on the `<ul>` node.
  *
- * The pane adds no bottom padding of its own. The shell's `main` already
- * reserves the tab band, and the floating action button shares that one row with
- * the tab bar instead of floating above it — so reserving the button's band
- * again inside this pane was double padding, which is what left a dead gap under
- * the last row.
+ * ## Who scrolls
+ *
+ * The list is no longer a scroller itself: the `section[aria-label="Day
+ * agenda"]` that wraps it carries the screen's single `overflow-y-auto`, which
+ * is what keeps the month grid above fixed while the agenda below moves. The
+ * list still carries `touch-pan-y`, because touch-action is read from the
+ * element a touch starts on and its ancestors, and the horizontal day-swipe
+ * (handled on that same section) needs the pointer series to survive.
+ *
+ * The bottom reservation for the fixed tab band lives here too: in full-height
+ * mode the shell's `main` no longer reserves it, so the list states it once —
+ * `pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)]`, the same expression the
+ * shell's own pane used — and the last row can always be scrolled clear of the
+ * band on a phone. On `lg` the band is hidden, so the reservation drops to a
+ * plain `pb-2`.
  *
  * There is no "New event" affordance here at all: creating an event is the
  * shell's action button (which the calendar screen answers through
@@ -127,22 +137,24 @@ export function DayAgenda({
   });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col">
       <ul
         ref={listRef}
         /*
-         * `touch-pan-y` belongs on the scroller, not on the section around it:
-         * touch-action is resolved up to the nearest scrolling element, so a
-         * value on an ancestor of this `ul` is ignored. Without it the browser
-         * claims a horizontal touch as a pan and cancels the pointer series,
-         * which killed the day-swipe; with it, vertical scrolls still pass
-         * through to the list and the horizontal drag stays ours.
+         * `touch-pan-y` belongs on the list the touch starts on, and the actual
+         * scrolling belongs to the section around it: `overflow-y-auto` here as
+         * well would be a second scroller, and the top one would never move —
+         * the agenda is the only region that scrolls on this screen.
          *
-         * The scrollbar is hidden because the list is a thin column on a phone
-         * and a persistent bar in it reads as a layout defect, not as a
-         * scrollbar.
+         * Without `pan-y` the browser claims a horizontal touch as a pan and
+         * cancels the pointer series, which killed the day-swipe; with it,
+         * vertical scrolls still pass through to the section and the horizontal
+         * drag stays ours.
+         *
+         * The scrollbar is hidden on the section, which is the element that
+         * scrolls — see `CalendarScreen`.
          */
-        className="flex min-h-0 flex-1 flex-col gap-stack touch-pan-y overflow-y-auto overscroll-contain px-gutter pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex flex-col gap-stack touch-pan-y px-2 pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-2"
       >
         {items.map((item) => {
           const color = itemColor(item, calendars);
@@ -246,7 +258,7 @@ export function DayAgenda({
         })}
 
         {items.length === 0 ? (
-          <li className="flex flex-col items-center gap-2 px-gutter py-8 text-center">
+          <li className="flex flex-col items-center gap-2 py-8 text-center">
             <CalendarIcon aria-hidden className="size-8 text-3xl text-muted-foreground" disableHover />
             <p className="text-sm font-semibold text-foreground">Nothing scheduled</p>
             <p className="text-sm text-muted-foreground">

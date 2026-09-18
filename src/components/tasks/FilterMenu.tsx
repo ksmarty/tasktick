@@ -1,27 +1,45 @@
 'use client';
 
 /**
- * The one menu behind the list screen's header button: filtering and sorting.
+ * The filter menu: what is in the list.
  *
- * They are two halves of the same question — "what is in this list, and in what
- * order" — so they share a sheet rather than a filter button plus a separate
- * sort select that the user had to find on its own.
+ * It used to share a sheet with the sort, on the theory that "what is in this
+ * list, and in what order" are two halves of one question. The user disagrees —
+ * a filter and an order are reached at different moments, and one full-height
+ * sheet forced the same scroll for both. So there are now two menus behind two
+ * header buttons; this is the filter half (see `SortMenu.tsx` for the sort).
+ *
+ * ## The overlay
+ *
+ * The panel is the GodUI `Drawer`, the app's bottom-sheet primitive (see
+ * `components/godui/drawer.tsx` and the component mapping in
+ * `GODUI-CONVENTIONS.md`). Unlike the shadcn `Sheet` it does not park a
+ * full-height column on screen: the drawer panel is content-height, so a short
+ * menu is a short rectangle, and it brings its own swipe-down-to-dismiss
+ * (rubber-band drag, flick, scrim, scroll lock and Escape) rather than a
+ * hand-rolled gesture. `p-0` neutralises the vendored panel's `p-5` so every
+ * inset below comes from a layout token.
+ *
+ * ## One choice, then out of the way
  *
  * Each filter dimension is a single-choice list, so the URL state can only ever
- * hold one of each, and the active sort is a single-choice list too. Picking any
- * row applies it and closes the sheet — see `choose` below.
+ * hold one of each. Picking any row applies it and closes the menu — see
+ * `choose` — because there is nothing left to do once it has been picked, and
+ * leaving the menu up made the user dismiss a thing they had already finished
+ * with. The patch goes in first, so the list behind is already updated when the
+ * menu slides away.
  */
 import type { ReactNode } from 'react';
 import { CheckIcon } from '@svg-animated-icons/react/check';
-import { ArrowUpDown, Flag } from 'lucide-react';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Flag } from 'lucide-react';
+import { Drawer } from '@/components/godui/drawer';
 import { accentHex } from '@/lib/colors';
 import type { List as TaskList, Tag } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { TASK_SORTS, TASK_WINDOWS, type TaskViewState } from './filters';
+import { TASK_WINDOWS, type TaskViewState } from './filters';
 import { PRIORITY_ITEMS } from './priority';
 
-export interface TaskFilterSheetProps {
+export interface TaskFilterMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: TaskViewState;
@@ -37,11 +55,11 @@ interface OptionRowProps {
   leading?: ReactNode;
 }
 
-/** Section heading inside the sheet; the sheet owns the spacing, not the list. */
+/** Section heading inside the menu; the menu owns the spacing, not the list. */
 const HEADING_CLASS = 'pb-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase';
-/** The first heading follows the sheet title, so it needs less air above it. */
-const FIRST_HEADING_CLASS = cn('pt-2', HEADING_CLASS);
-const LATER_HEADING_CLASS = cn('pt-4', HEADING_CLASS);
+/** The first heading follows the title, so it needs less air above it. */
+const FIRST_HEADING_CLASS = 'pt-1';
+const LATER_HEADING_CLASS = 'pt-4';
 
 function OptionRow({ selected, label, onSelect, leading }: OptionRowProps) {
   return (
@@ -68,38 +86,23 @@ function OptionRow({ selected, label, onSelect, leading }: OptionRowProps) {
   );
 }
 
-export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChange }: TaskFilterSheetProps) {
-  /**
-   * Applies a choice, then gets out of the way.
-   *
-   * Every row here is a single choice that takes effect behind the sheet, so
-   * there is nothing left to do once it has been picked — leaving the sheet up
-   * made the user dismiss a menu they had already finished with. The patch goes
-   * in first, so the list behind is already updated when the sheet slides away.
-   *
-   * Sort closes too. It is the same kind of row as the filters — one choice out
-   * of a fixed set — and a user comparing two orders is served better by one
-   * consistent rule than by a special case they have to learn: pick, look, and
-   * reopen in one tap if it was not the one.
-   */
+export function TaskFilterMenu({ open, onOpenChange, state, lists, tags, onChange }: TaskFilterMenuProps) {
+  /** Applies a choice, then gets out of the way. */
   function choose(patch: Partial<TaskViewState>) {
     onChange(patch);
     onOpenChange(false);
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        aria-label="Filter & Sort"
-        aria-modal={true}
-        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
-      >
-        <SheetTitle className="sr-only">Filter &amp; Sort</SheetTitle>
-
-        <h2 className="pb-2 text-lg font-semibold text-foreground">Filter &amp; Sort</h2>
-
-        <h3 className={FIRST_HEADING_CLASS}>Due</h3>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      side="bottom"
+      title="Filter"
+      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+    >
+      <div className="flex flex-col">
+        <h3 className={cn(FIRST_HEADING_CLASS, HEADING_CLASS)}>Due</h3>
         <div role="radiogroup" aria-label="Due window">
           {TASK_WINDOWS.map((option) => (
             <OptionRow
@@ -111,7 +114,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
           ))}
         </div>
 
-        <h3 className={LATER_HEADING_CLASS}>Priority</h3>
+        <h3 className={cn(LATER_HEADING_CLASS, HEADING_CLASS)}>Priority</h3>
         <div role="radiogroup" aria-label="Priority">
           {PRIORITY_ITEMS.map((item) => (
             <OptionRow
@@ -126,7 +129,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
 
         {lists.length ? (
           <>
-            <h3 className={LATER_HEADING_CLASS}>Lists</h3>
+            <h3 className={cn(LATER_HEADING_CLASS, HEADING_CLASS)}>Lists</h3>
             <div role="radiogroup" aria-label="List">
               <OptionRow
                 selected={state.listId === null}
@@ -153,7 +156,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
 
         {tags.length ? (
           <>
-            <h3 className={LATER_HEADING_CLASS}>Tags</h3>
+            <h3 className={cn(LATER_HEADING_CLASS, HEADING_CLASS)}>Tags</h3>
             <div role="radiogroup" aria-label="Tag">
               {tags.map((tag) => (
                 <OptionRow
@@ -166,20 +169,7 @@ export function TaskFilterSheet({ open, onOpenChange, state, lists, tags, onChan
             </div>
           </>
         ) : null}
-
-        <h3 className={LATER_HEADING_CLASS}>Sort</h3>
-        <div role="radiogroup" aria-label="Sort">
-          {TASK_SORTS.map((option) => (
-            <OptionRow
-              key={option.value}
-              selected={state.sort === option.value}
-              label={option.label}
-              leading={<ArrowUpDown className="size-5 text-muted-foreground" aria-hidden />}
-              onSelect={() => choose({ sort: option.value })}
-            />
-          ))}
-        </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+    </Drawer>
   );
 }

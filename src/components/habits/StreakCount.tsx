@@ -1,24 +1,24 @@
 'use client';
 
 /**
- * The right-aligned streak: the number in the habit's own period unit, with a
- * tiny "Current Streak" caption under it.
+ * The right-aligned streak: the bare number in the habit's own period unit.
  *
  * The number itself always comes from the server (`habit.streak`) — this
  * component only formats it, so it can never disagree with the value the habit
  * list was sorted and summarised by.
  *
- * An empty streak renders nothing at all: a reading of "0 day" is both
- * ungrammatical and noise, and the row already has plenty to say.
+ * An empty streak renders nothing at all: a reading of "0" is noise, and the row
+ * already has plenty to say.
  *
- * The glyph is `lightning-bolt` rather than a flame: `local-fire-department` has
- * no animated counterpart, and a bolt is the app's existing "streak/priority"
- * mark. It is decorative — the accessible name on the wrapper already spells the
- * streak out in words.
+ * The visible figure is just the number — the bolt and the unit word are both
+ * gone, so a five-day streak reads as `5`. That means the accessible name is the
+ * only thing that still says what the number means: the wrapper keeps its
+ * `Current streak 5 days, best 12` label and title, spelled out with
+ * `streakPhrase`, because once the unit is off the screen a screen reader
+ * would otherwise hear a context-free number.
  */
-import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
 import { cn } from '@/lib/utils';
-import { streakPhrase, streakUnit } from './period';
+import { streakPhrase } from './period';
 import type { HabitFrequency } from '@/lib/types';
 
 export interface StreakCountProps {
@@ -33,8 +33,6 @@ export interface StreakCountProps {
 export function StreakCount({ streak, frequency, longestStreak, className }: StreakCountProps) {
   if (streak <= 0) return null;
 
-  const unit = streakUnit(frequency);
-  const plural = streak === 1 ? unit : `${unit}s`;
   const phrase = streakPhrase(streak, frequency);
   const best =
     typeof longestStreak === 'number' && longestStreak > streak ? streakPhrase(longestStreak, frequency) : null;
@@ -46,10 +44,8 @@ export function StreakCount({ streak, frequency, longestStreak, className }: Str
       title={best ? `${phrase} · best ${best}` : phrase}
       className={cn('flex shrink-0 flex-col items-end leading-none', className)}
     >
-      <span aria-hidden className="flex items-baseline gap-1">
-        <LightningBoltIcon className="size-4 text-muted-foreground" />
-        <span className="text-lg font-semibold leading-none tabular-nums">{streak}</span>
-        <span className="text-xs font-medium text-muted-foreground">{plural}</span>
+      <span aria-hidden className="text-sm font-semibold leading-none tabular-nums">
+        {streak}
       </span>
       <span aria-hidden className="mt-0.5 text-xs text-muted-foreground/70">
         Current Streak

@@ -33,6 +33,7 @@ import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
 import { DotsHorizontalIcon } from '@svg-animated-icons/react/dots-horizontal';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { PageHeader } from '@/components/app/PageHeader';
+import { useShellPane } from '@/components/app/ShellPane';
 import { Confetti, type ConfettiHandle } from '@/components/godui/confetti';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -76,6 +77,12 @@ function checkInCompletes(habit: Habit, change: CheckInChange, today: DateOnly):
 export default function HabitsPage() {
   const { toast } = useToast();
   const confettiRef = useRef<ConfettiHandle>(null);
+
+  // The week strip is the pinned top of this screen and only the habit list
+  // below it moves, so the shell hands the pane's scrolling to the page: `<main>`
+  // becomes a fixed-height, non-scrolling box and the list owns the scroll. See
+  // `ShellPane`.
+  useShellPane({ fullHeight: true });
 
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const settings = bootstrap.data?.settings;
@@ -268,10 +275,14 @@ export default function HabitsPage() {
         }
       />
 
-      {/* The shell owns the scroll pane and the tab-bar clearance; this column
-          only caps the reading width on a desktop so the cards are not stretched
-          to 1100px while the phone layout stays edge to edge. */}
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-stack px-gutter pb-stack">
+      {/* This column caps the reading width on a desktop so the cards are not
+          stretched to 1100px while the phone layout stays edge to edge.
+
+          With `useShellPane({ fullHeight: true })` above, the shell hands the
+          scrolling to this screen: the column fills the fixed-height pane
+          (`min-h-0 flex-1`), the week strip is the pinned top (`shrink-0`) and
+          only the list under it scrolls. */}
+      <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col gap-stack px-gutter pb-stack">
         {loading ? (
           <>
             <Skeleton className="h-16 rounded-xl" />
@@ -307,16 +318,27 @@ export default function HabitsPage() {
               weekStartsOn={weekStartsOn}
               earliest={earliestStart}
               onSelect={setSelectedDay}
+              className="shrink-0"
             />
-            <HabitList
-              habits={list}
-              date={activeDate}
-              today={todayDate}
-              pendingId={checkingIn}
-              onCheckIn={(habit, change) => void checkIn(habit, change)}
-              onEdit={openEditor}
-              onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
-            />
+            {/* The scroller. `data-habit-scroll` is also the anchor
+                `HabitList`'s drag lock looks up to freeze the pane under the
+                finger; the bottom padding is the mobile tab-bar clearance the
+                shell used to carry on `<main>`, restated here because the
+                screen owns its own scroll now. */}
+            <div
+              data-habit-scroll
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0"
+            >
+              <HabitList
+                habits={list}
+                date={activeDate}
+                today={todayDate}
+                pendingId={checkingIn}
+                onCheckIn={(habit, change) => void checkIn(habit, change)}
+                onEdit={openEditor}
+                onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
+              />
+            </div>
           </>
         )}
       </div>

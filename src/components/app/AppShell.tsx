@@ -75,6 +75,7 @@ import { useResource } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { PageHeaderContext, type PageHeaderContent } from './PageHeader';
+import { ShellPaneContext } from './ShellPane';
 import { QuickAddFab } from './QuickAddFab';
 
 type TabValue = 'tasks' | 'calendar' | 'habits' | 'settings';
@@ -149,6 +150,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   /** Header content published by the mounted screen, if any. */
   const [published, setPublished] = useState<PageHeaderContent | null>(null);
+  /* A screen has asked to own its own scrolling — see `ShellPane`. */
+  const [paneFullHeight, setPaneFullHeight] = useState(false);
 
   const activeTab: TabValue = pathname.startsWith('/calendar')
     ? 'calendar'
@@ -210,6 +213,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <PageHeaderContext.Provider value={setPublished}>
+      <ShellPaneContext.Provider value={setPaneFullHeight}>
       <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* -------------------------------------------------------------- */}
         {/* Sidebar — desktop only, CSS-driven so desktop never flashes mobile */}
@@ -360,7 +364,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <main
             id="main"
-            className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0"
+            className={cn(
+              'relative min-h-0 flex-1',
+              paneFullHeight
+                ? // The screen scrolls its own list; the pane must not scroll too,
+                  // or the grid it is keeping in place travels with the page.
+                  'overflow-hidden'
+                : 'overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0',
+            )}
           >
             {/*
              * Keyed on the pathname so React remounts this wrapper on every
@@ -391,7 +402,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.34, ease: 'easeOut' }}
-              className="flex min-h-[calc(100%_+_3rem)] flex-col gap-stack"
+              className={cn(
+                'flex flex-col gap-stack',
+                paneFullHeight ? 'h-full' : 'min-h-[calc(100%_+_3rem)]',
+              )}
             >
               {children}
             </motion.div>
@@ -441,6 +455,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         </div>
       </div>
+      </ShellPaneContext.Provider>
     </PageHeaderContext.Provider>
   );
 }

@@ -315,7 +315,7 @@ export function TaskRow({
         }}
         aria-pressed={selectionMode ? selected : undefined}
         aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
-        className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 rounded-md px-1 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-h-11 min-w-0 flex-1 flex-col items-stretch gap-0 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/*
          * The title, with the due date pinned to the row's trailing edge.
@@ -330,7 +330,7 @@ export function TaskRow({
          * `items-start` keeps the date level with the first line rather than
          * drifting to the vertical middle of a two-line title.
          */}
-        <span className="flex w-full min-w-0 flex-wrap items-start gap-x-2 gap-y-0.5">
+        <span className="flex w-full min-w-0 flex-wrap items-start gap-x-1.5 gap-y-0">
           <span
             className={cn(
               'min-w-0 flex-1 text-base',

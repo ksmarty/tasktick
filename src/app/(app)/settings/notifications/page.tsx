@@ -14,40 +14,43 @@ import { useResource } from '@/lib/store';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
 import { BackToSettings } from '@/components/settings/BackToSettings';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
+import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { SettingsPayload } from '@/lib/view-types';
 
 export default function NotificationSettingsPage() {
   const settings = useResource<SettingsPayload>('/api/settings');
 
   return (
-    <div className="flex flex-col gap-stack px-gutter pb-6">
+    <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
       <PageHeader title="Notifications" leading={<BackToSettings />} />
 
-      {!settings.data ? (
-        <>
-          <Skeleton className="h-40 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </>
-      ) : (
-        <>
-          <NotificationSettings payload={settings.data} onChanged={() => void settings.refresh()} />
-          <SettingsGroup
-            title="What gets sent"
-            footer="Reminders are scheduled from each task's own due date and time. Notifications never include your task notes."
-          >
-            <SettingsRow>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm">Task reminders</span>
-                <span className="block pt-0.5 text-xs text-muted-foreground">
-                  {settings.data.settings.notificationsEnabled
-                    ? 'On: due tasks and reminders are pushed to your registered devices.'
-                    : 'Off: nothing is pushed, but reminders still appear in the app.'}
+      <SettingsTabs active="notifications">
+        {!settings.data ? (
+          <>
+            <Skeleton className="h-40 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </>
+        ) : (
+          <>
+            <NotificationSettings payload={settings.data} onChanged={() => void settings.refresh()} />
+            <SettingsGroup
+              title="What gets sent"
+              footer="Reminders are scheduled from each task's own due date and time. Notifications never include your task notes."
+            >
+              <SettingsRow>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm">Task reminders</span>
+                  <span className="block pt-0.5 text-xs text-muted-foreground">
+                    {settings.data.settings.notificationsEnabled
+                      ? 'On: due tasks and reminders are pushed to your registered devices.'
+                      : 'Off: nothing is pushed, but reminders still appear in the app.'}
+                  </span>
                 </span>
-              </span>
-            </SettingsRow>
-          </SettingsGroup>
-        </>
-      )}
+              </SettingsRow>
+            </SettingsGroup>
+          </>
+        )}
+      </SettingsTabs>
     </div>
   );
 }

@@ -33,24 +33,25 @@
  * the numbers they settle on. The hook is untouched by this migration and
  * **nothing here may change its contract**:
  *
- *   · `{...handlers}` must stay on the outermost surface (the `Card`), because
- *     that is the node the pointer is captured on and the node `onClickCapture`
- *     eats the post-drag click from.
+ *   · `{...handlers}` must stay on the outermost surface, because that is the
+ *     node the pointer is captured on and the node `onClickCapture` eats the
+ *     post-drag click from.
  *   · `viewportRef` must stay on the clip. It is measured with
  *     `getBoundingClientRect()` for "one page", and the height the hook writes
  *     to it is compared against `MONTH_EXPANDED_PX` / `MONTH_COLLAPSED_PX`, so
  *     **the clip carries no padding of any kind**: padding would make the border
  *     box wider and taller than the page and the strip the hook believes in, and
- *     the drag would drift by half a gesture. The layout inset therefore lives
- *     on a wrapper *around* the clip (`px-card`), never on the clip.
+ *     the drag would drift by half a gesture. The layout inset therefore lives on
+ *     the surface's own `px-2` (and, before it, on a wrapper *around* the clip),
+ *     never on the clip itself.
  *   · `trackRef` must stay on the 300%-wide track whose settled transform is
  *     `-100% / 3` and whose only other transform source is the hook's own
  *     `paint()`. The React-rendered `style` here is the settled base the hook
  *     re-bases to; it must keep writing the same value or the two will disagree.
  *   · `gridRef` must stay on the live panel, because the drag geometry divides
  *     that element's rect by columns and rows. A panel therefore also carries no
- *     padding — the padding that insets the numbers lives on the card, one level
- *     above the clip.
+ *     padding — the padding that insets the numbers lives on the surface, one
+ *     level above the clip.
  *
  * Those four nodes and their nesting are load-bearing; this file only decides
  * how the cells inside them are painted.
@@ -77,15 +78,17 @@
  *
  * ## The surface
  *
- * The surface is a shadcn `Card` with its own padding neutralised (`p-0 gap-0`:
- * a named token utility loses to the component's `py-6`, and `tailwind-merge`
- * cannot resolve a token class against a numeric one, so the padding is applied
- * by the inner wrappers instead). The lattice, the day disc and the dot lane are
- * plain elements with Tailwind utilities — shadcn has no month calendar and
- * react-day-picker is a date *picker*, which would cost both the dots and the
- * paging. Item colours come from the server as accent tokens and are resolved to
- * hex through `lib/colors`, so nothing depends on a CSS custom property per
- * accent.
+ * The surface is a plain element on the page's own background: no card fill, no
+ * border and no rounding, because the month is not a separate panel — a tinted,
+ * outlined box around the grid read as a distinct surface against the page, and
+ * the days are already separated by whitespace and a dimmed number alone. What
+ * is left is a bare `flex flex-col` whose only jobs are to hold the two
+ * gestures' nodes in the right nesting and to carry the screen's horizontal
+ * inset (`px-2`). The lattice, the day disc and the dot lane are plain elements
+ * with Tailwind utilities — shadcn has no month calendar and react-day-picker is
+ * a date *picker*, which would cost both the dots and the paging. Item colours
+ * come from the server as accent tokens and are resolved to hex through
+ * `lib/colors`, so nothing depends on a CSS custom property per accent.
  *
  * ## The header
  *
@@ -130,7 +133,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useAppearance } from '@/app/providers';
-import { Card } from '@/components/ui/card';
 import { accentHex } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
@@ -367,18 +369,20 @@ export function MonthGrid({
   }
 
   return (
-    <Card
+    <div
       /*
        * `touch-none` is the gesture contract: *touch* pans on this surface belong
        * to the two gestures, never to the page. The height and the track's
        * transform are written straight to the nodes by the hook.
        *
-       * The card is the surface, so it is also the node the pointer handlers and
-       * the capturing click handler are spread onto. It carries no padding of its
-       * own — see the header comment: every inset is on an inner wrapper, because
-       * padding on the clip would move the page width the gesture measures.
+       * This is the surface, so it is also the node the pointer handlers and the
+       * capturing click handler are spread onto. It carries the screen's
+       * horizontal inset (`px-2`) and nothing else — no fill, no border and no
+       * rounding, so the grid sits on the page's own background — while the clip
+       * inside it stays padding-free: padding on the clip would move the page
+       * width the gesture measures.
        */
-      className="mx-gutter flex min-h-0 shrink-0 touch-none flex-col gap-0 overflow-hidden rounded-xl p-0 shadow-none lg:mx-0"
+      className="flex min-h-0 shrink-0 touch-none flex-col overflow-hidden px-2"
       {...handlers}
     >
       {/*
@@ -386,7 +390,7 @@ export function MonthGrid({
         are hidden from assistive tech because every day button already carries
         its full date name. No rule — the month is separated by whitespace.
       */}
-      <div aria-hidden className="grid shrink-0 grid-cols-7 px-card pt-card pb-0.5">
+      <div aria-hidden className="grid shrink-0 grid-cols-7 pt-card pb-0.5">
         {headers.map((label, index) => (
           <span key={`${label}-${index}`} className="text-center text-xs leading-none text-muted-foreground/60">
             {label}
@@ -395,11 +399,11 @@ export function MonthGrid({
       </div>
 
       {/*
-        The horizontal inset lives here, on a wrapper *around* the clip. The clip
-        itself must stay padding-free: it is what the hook measures for one page
-        and what it writes the strip's pixel height to.
+        The clip must stay padding-free: it is what the hook measures for one
+        page and what it writes the strip's pixel height to. Its horizontal
+        inset comes from the surface above it.
       */}
-      <div className="px-card">
+      <div>
         <div ref={viewportRef} className="overflow-hidden" style={{ height: viewportHeight }}>
           <div
             /*
@@ -485,7 +489,7 @@ export function MonthGrid({
       </button>
 
       {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}
-    </Card>
+    </div>
   );
 }
 

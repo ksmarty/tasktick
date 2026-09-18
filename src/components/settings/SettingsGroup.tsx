@@ -48,10 +48,26 @@ export interface SettingsGroupProps {
 
 export function SettingsGroup({ title, action, footer, hideTitle = false, children }: SettingsGroupProps) {
   return (
-    <section className="flex flex-col">
-      <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
+    /*
+     * A group is `title / card / footnote`, and the gap between those three is
+     * the same `gap-stack` token the space *between* groups uses. That is the
+     * whole point: a screen is one column of these, so the vertical rhythm is
+     * stated in one place instead of by a different `mb-*` on every card. The
+     * page (or tab panel) supplies `gap-stack` between siblings; this supplies
+     * it within the group, so a group never touches its own footnote and the
+     * card never depends on the caller remembering to add margin.
+     */
+    <section className="flex flex-col gap-stack">
+      <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-xs">
         {hideTitle ? null : (
-          <div className="flex items-center gap-2 px-row pt-3 pb-1">
+          /*
+           * The caption is its own band, closed by a hairline: it is what makes
+           * two stacked cards read as two sections rather than one continuous
+           * block, and it lines the caption up with the rows below it because
+           * both use `px-row`. The `min-h-11` keeps the band a comfortable row
+           * height whether or not there is an action button in it.
+           */
+          <div className="flex min-h-11 items-center gap-2 border-b border-border px-row py-2">
             <h2 className="min-w-0 flex-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
               {title}
             </h2>
@@ -64,7 +80,7 @@ export function SettingsGroup({ title, action, footer, hideTitle = false, childr
         <div className="divide-y divide-border">{children}</div>
       </div>
 
-      {footer ? <p className="px-row pt-2 text-xs leading-relaxed text-muted-foreground">{footer}</p> : null}
+      {footer ? <p className="px-row text-xs leading-relaxed text-muted-foreground">{footer}</p> : null}
     </section>
   );
 }

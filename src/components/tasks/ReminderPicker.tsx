@@ -5,10 +5,13 @@
  *
  * Offsets are stored the way the server expects them — minutes *added* to the
  * due instant — so "5 minutes before" is `-5`.
+ *
+ * The overlay is the GodUI `Drawer`, matching the other pickers: content-height
+ * panel, swipe-down to dismiss.
  */
 import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CheckIcon } from '@svg-animated-icons/react/check';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Drawer } from '@/components/godui/drawer';
 import { cn } from '@/lib/utils';
 
 export interface ReminderOffset {
@@ -53,56 +56,51 @@ export function ReminderPicker({ open, onOpenChange, value, hasDueDate, onChange
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        aria-label="Reminders"
-        aria-modal={true}
-        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
-      >
-        <SheetTitle className="sr-only">Reminders</SheetTitle>
-
-        <h2 className="pb-2 text-lg font-semibold text-foreground">Reminders</h2>
-
-        <div>
-          {REMINDER_OFFSETS.map((item) => {
-            const selected = value.includes(item.offsetMinutes);
-            return (
-              <button
-                key={item.offsetMinutes}
-                type="button"
-                role="checkbox"
-                aria-checked={selected}
-                aria-disabled={!hasDueDate || undefined}
-                onClick={() => toggle(item.offsetMinutes)}
-                className={cn(
-                  'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
-                  selected ? 'text-primary' : 'text-foreground',
-                  hasDueDate ? null : 'opacity-40',
-                )}
-              >
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      side="bottom"
+      title="Reminders"
+      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+    >
+      <div>
+        {REMINDER_OFFSETS.map((item) => {
+          const selected = value.includes(item.offsetMinutes);
+          return (
+            <button
+              key={item.offsetMinutes}
+              type="button"
+              role="checkbox"
+              aria-checked={selected}
+              aria-disabled={!hasDueDate || undefined}
+              onClick={() => toggle(item.offsetMinutes)}
+              className={cn(
+                'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
+                selected ? 'text-primary' : 'text-foreground',
+                hasDueDate ? null : 'opacity-40',
+              )}
+            >
+              <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                <BellIcon
+                  className={cn('size-5', selected ? 'text-primary' : 'text-muted-foreground')}
+                />
+              </span>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {selected ? (
                 <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
-                  <BellIcon
-                    className={cn('size-5', selected ? 'text-primary' : 'text-muted-foreground')}
-                  />
+                  <CheckIcon className="size-5" />
                 </span>
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {selected ? (
-                  <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
-                    <CheckIcon className="size-5" />
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
 
-        <p className="pt-3 text-xs text-muted-foreground">
-          {hasDueDate
-            ? 'Each selected offset fires a notification before the task is due.'
-            : 'Add a due date first — a reminder with nothing to count back from would never fire.'}
-        </p>
-      </SheetContent>
-    </Sheet>
+      <p className="pt-3 text-xs text-muted-foreground">
+        {hasDueDate
+          ? 'Each selected offset fires a notification before the task is due.'
+          : 'Add a due date first — a reminder with nothing to count back from would never fire.'}
+      </p>
+    </Drawer>
   );
 }

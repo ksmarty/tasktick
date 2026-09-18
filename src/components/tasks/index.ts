@@ -35,7 +35,8 @@ export {
 } from './ReminderPicker';
 export { TagPicker, type TagPickerProps } from './TagPicker';
 export { ListPicker, type ListPickerProps } from './ListPicker';
-export { TaskFilterSheet, type TaskFilterSheetProps } from './FilterMenu';
+export { TaskFilterMenu, type TaskFilterMenuProps } from './FilterMenu';
+export { TaskSortMenu, type TaskSortMenuProps } from './SortMenu';
 
 /* ---------------------------------- views -------------------------------- */
 export { TodayView } from './TodayView';

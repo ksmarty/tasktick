@@ -5,7 +5,9 @@
  *
  * One pass over `/api/tasks`, bucketed into Pinned / Overdue / Next 7 days /
  * Later by `buildListSections` — the user does not choose a window here, they
- * read one list. Filtering and sorting both live in the header's single sheet.
+ * read one list. Filtering and sorting each live in their own compact header
+ * menu (see `FilterMenu.tsx` and `SortMenu.tsx`), and both are GodUI `Drawer`s so
+ * a swipe down puts them away.
  *
  * ## Search
  *
@@ -62,11 +64,12 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { EmptyTasks } from './EmptyTasks';
-import { TaskFilterSheet } from './FilterMenu';
+import { TaskFilterMenu } from './FilterMenu';
 import { HeaderActionButton } from './HeaderActionButton';
 import { ListPicker } from './ListPicker';
 import { PriorityPicker } from './PriorityPicker';
 import { QuickAddBar } from './QuickAddBar';
+import { TaskSortMenu } from './SortMenu';
 import { TagPicker } from './TagPicker';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
@@ -117,6 +120,7 @@ export function TasksView() {
   const [searchDraft, setSearchDraft] = useState(state.q);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [bulkSheet, setBulkSheet] = useState<BulkSheet>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -292,13 +296,13 @@ export function TasksView() {
           {/*
            * The active sort, as a quiet label rather than a control of its own:
            * it answers "what order is this list in?" without opening anything,
-           * and tapping it opens the same sheet the funnel does.
+           * and tapping it opens the sort menu.
            */}
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => setFilterOpen(true)}
+            onClick={() => setSortOpen(true)}
             aria-label={`Sort: ${activeSort.label}. Change the sort`}
             className="shrink-0 px-1.5 text-xs font-normal text-muted-foreground"
           >
@@ -311,10 +315,10 @@ export function TasksView() {
             onClick={() => setSearchOpen((value) => !value)}
           />
           {/*
-           * One sheet for both halves of list setup: filtering and sorting.
+           * The filter menu: its own drawer, separate from the sort above.
            */}
           <HeaderActionButton
-            aria-label="Filter and sort tasks"
+            aria-label="Filter tasks"
             icon={FilterIcon}
             variant={chips.length ? 'filled' : 'tinted'}
             onClick={() => setFilterOpen(true)}
@@ -489,12 +493,19 @@ export function TasksView() {
         </ViewportDock>
       ) : null}
 
-      <TaskFilterSheet
+      <TaskFilterMenu
         open={filterOpen}
         onOpenChange={setFilterOpen}
         state={state}
         lists={lists}
         tags={tags}
+        onChange={applyState}
+      />
+
+      <TaskSortMenu
+        open={sortOpen}
+        onOpenChange={setSortOpen}
+        state={state}
         onChange={applyState}
       />
 
