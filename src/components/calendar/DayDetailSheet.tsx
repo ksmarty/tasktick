@@ -108,7 +108,14 @@ export function DayDetailSheet({
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span
                         className={cn(
-                          'block truncate text-sm',
+                          /*
+                           * No `truncate`: as in the agenda, the title is the
+                           * content of the row and ellipsising it hides the one
+                           * word that tells two similar entries apart. The time
+                           * column is `shrink-0`, so a two-line title grows the
+                           * row rather than reflowing the time.
+                           */
+                          'block text-sm',
                           item.completed ? 'text-muted-foreground line-through' : 'text-foreground',
                         )}
                       >

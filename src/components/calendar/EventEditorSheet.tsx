@@ -141,8 +141,16 @@ const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 1440, label: '1 day' },
 ];
 
-/** The bordered surface a group of fields sits in. */
-const FIELD_GROUP_CLASS = 'flex flex-col gap-stack rounded-xl border border-border p-card';
+/**
+ * The bordered surface a group of fields sits in.
+ *
+ * `shrink-0` on every one of them is load-bearing: the body below is a flex
+ * column inside a scroll container, and a flex item whose content is taller than
+ * the space left shrinks to fit instead of scrolling — `overflow-hidden` on a
+ * group even drops its automatic minimum size to zero, so the first groups
+ * collapsed to their own border and their rows were clipped away.
+ */
+const FIELD_GROUP_CLASS = 'flex shrink-0 flex-col gap-stack rounded-xl border border-border p-card';
 
 /**
  * A floating `DateOnly` as a `DateTime` in the user's zone.
@@ -198,16 +206,19 @@ export function EventEditorSheet({
         </DialogHeader>
 
         {!ready ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-card py-card" aria-busy={isInitialLoading}>
+          <div
+            className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-card py-card"
+            aria-busy={isInitialLoading}
+          >
             {error ? (
               <Alert variant="destructive" role="alert">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : (
               <>
-                <Skeleton className="h-12 w-full rounded-lg" />
-                <Skeleton className="h-32 w-full rounded-lg" />
-                <Skeleton className="h-24 w-full rounded-lg" />
+                <Skeleton className="h-12 w-full shrink-0 rounded-lg" />
+                <Skeleton className="h-32 w-full shrink-0 rounded-lg" />
+                <Skeleton className="h-24 w-full shrink-0 rounded-lg" />
               </>
             )}
           </div>
@@ -432,13 +443,18 @@ function EventForm({
 
   return (
     <>
+      {/*
+        The scrolling body. Every direct child carries `shrink-0` (see
+        `FIELD_GROUP_CLASS`): a flex column that scrolls must not squash the rows
+        that do not fit, which is what the default `flex-shrink: 1` would do.
+      */}
       <div className="flex min-h-0 flex-1 flex-col gap-card overflow-y-auto px-card py-card">
         <Input
           aria-label="Title"
           placeholder="Title"
           value={draft.title}
           onChange={(input) => patch({ title: input.target.value })}
-          className="text-base"
+          className="shrink-0 text-base"
         />
 
         {/*
@@ -450,7 +466,7 @@ function EventForm({
           aria-label="Calendar"
           role="radiogroup"
           onKeyDown={onCalendarKeyDown}
-          className="overflow-hidden rounded-xl border border-border"
+          className="shrink-0 overflow-hidden rounded-xl border border-border"
         >
           {calendars.map((calendar) => {
             const selected = calendar.id === draft.calendarId;
@@ -565,7 +581,7 @@ function EventForm({
           />
         </section>
 
-        <section aria-label="Repeat" className="flex flex-col gap-2 rounded-xl border border-border p-card">
+        <section aria-label="Repeat" className={FIELD_GROUP_CLASS}>
           <Label htmlFor="event-repeat">
             <LoopIcon aria-hidden className="size-4 text-base" />
             Repeat
@@ -585,7 +601,7 @@ function EventForm({
           {repeatDescription ? <p className="text-xs text-muted-foreground">{repeatDescription}</p> : null}
         </section>
 
-        <section aria-label="Reminders" className="flex flex-col gap-2 rounded-xl border border-border p-card">
+        <section aria-label="Reminders" className={FIELD_GROUP_CLASS}>
           <h3 className="text-sm font-medium text-foreground">Reminders</h3>
           {/*
             Toggle buttons rather than chips with a delete cross: `aria-pressed`
@@ -619,7 +635,7 @@ function EventForm({
         </section>
 
         {event ? (
-          <div className="overflow-hidden rounded-xl border border-border">
+          <div className="shrink-0 overflow-hidden rounded-xl border border-border">
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
