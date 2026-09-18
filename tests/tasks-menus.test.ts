@@ -101,9 +101,14 @@ describe('the menus and pickers are the same Drawer control', () => {
 
 describe('the row is denser but keeps its 44px targets', () => {
   it('tightens the visual rhythm with scale utilities only', () => {
-    expect(ROW).toContain('py-0.5');
+    // The 2px vertical padding is gone, the title leads tight so the title/meta
+    // group fits the 44px target, and the title↔due-date gap drops a step.
+    expect(ROW).not.toContain('py-0.5');
+    expect(ROW).toContain('justify-center');
+    expect(ROW).toContain('leading-tight');
+    expect(ROW).toContain('gap-x-1 gap-y-0');
+    expect(ROW).not.toContain('gap-x-1.5');
     expect(ROW).toContain('gap-0 ');
-    expect(ROW).toContain('gap-x-1.5');
     // No arbitrary spacing, even after the tightening.
     expect(ROW).not.toMatch(/\bp[xytblr]?-\[\d/);
     expect(ROW).not.toMatch(/\bgap-\[\d/);

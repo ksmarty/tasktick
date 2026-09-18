@@ -26,6 +26,7 @@ import { usePrimaryAction } from '@/lib/events';
 import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
+import { useShellPane } from '@/components/app/ShellPane';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
@@ -49,6 +50,10 @@ export function TodayView() {
   const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
 
+  // This screen owns its own scroll: the header stays put while the list moves.
+  // The shell hands the pane over as a fixed-height box; see `ShellPane`.
+  useShellPane({ fullHeight: true });
+
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // The shell's action button asks the mounted view for its primary create action.
@@ -67,10 +72,6 @@ export function TodayView() {
   const sections = useMemo(() => buildTodaySections(data?.agenda), [data?.agenda]);
   const remaining = countRemaining(sections);
   const progress = todayProgress(data?.agenda);
-  const listColors = useMemo(
-    () => new Map((data?.lists ?? []).map((list) => [list.id, list.color])),
-    [data?.lists],
-  );
 
   /** Publishes a new agenda without mutating the resource's own object. */
   function mutateAgenda(update: (agenda: AgendaBuckets) => AgendaBuckets) {
@@ -127,8 +128,8 @@ export function TodayView() {
   const ratio = progress.total === 0 ? 0 : Math.round(progress.value * 100);
 
   return (
-    <div className="flex flex-col">
-      <header className="sticky top-0 z-appbar border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="z-appbar shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
         <div className="flex min-h-14 items-center gap-2 px-gutter">
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">Today</h1>
           <HeaderActionButton
@@ -150,6 +151,12 @@ export function TodayView() {
         </div>
       </header>
 
+      {/*
+       * The list owns the scroll now, not the shell's pane. It restates the
+       * mobile tab-bar clearance the pane used to carry, or the last row sits
+       * under the band; at `lg` the band is gone, so the padding is too.
+       */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0">
       {data ? (
         <div className="px-gutter pt-2 pb-1">
           {/*
@@ -249,7 +256,6 @@ export function TodayView() {
               section={section}
               zone={zone}
               timeFormat={timeFormat}
-              listColors={listColors}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
               onDelete={deleteTask}
@@ -260,6 +266,7 @@ export function TodayView() {
           ))}
         </div>
       )}
+      </div>
 
       <QuickAddBar open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
       <TaskEditorSheet

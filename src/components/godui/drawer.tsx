@@ -14,11 +14,27 @@
  *     correct Tailwind conflict resolution (and can override the panel's own
  *     padding/background).
  *  2. Quote style normalized to the repo's single quotes.
+ *  3. `pointer-events-auto` on the portal root — see below. This is a bug fix,
+ *     not a style choice.
  *
  * The source's `z-modal` is kept as-is: the z-index tokens are defined in
  * `globals.css` (`--z-index-modal`), so the semantic class resolves. GodUI's
  * published theme does not ship those tokens, which is why they had to be added
  * rather than assumed.
+ *
+ * ## Why `pointer-events-auto` is load-bearing
+ *
+ * A drawer is often opened from inside a Radix `Dialog` — every picker in the
+ * task editor is. Radix locks the page behind a dialog with `react-remove-scroll`,
+ * which sets `pointer-events: none` on `body` so the content underneath cannot be
+ * interacted with.
+ *
+ * This drawer portals to `body` and is not a Radix primitive, so it inherits that
+ * lock. The result is an overlay you can see but cannot touch: it renders on top,
+ * every tap falls through to the dialog content underneath, and the menu looks
+ * broken rather than disabled. Re-enabling pointer events on the portal root
+ * undoes the inherited lock for this subtree only, which is exactly the intent —
+ * the thing on top is the thing you should be able to press.
  *
  * No `@godui/godui-theme` import exists in the published source — the registry
  * dependency is a stylesheet merge, not a code import — so there was nothing to
@@ -136,7 +152,7 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
       ? createPortal(
           <AnimatePresence>
             {open ? (
-              <div className="fixed inset-0 z-modal">
+              <div className="pointer-events-auto fixed inset-0 z-modal">
                 <motion.div
                   aria-hidden
                   initial={{ opacity: 0 }}

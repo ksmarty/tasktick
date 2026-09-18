@@ -21,7 +21,7 @@
  * |---|---|---|
  * | a row is a list row with a checkbox and a name | `ListItem`/`ListItemText` | `<li>` + shadcn `Checkbox` + a `<button>` named `Open …` |
  * | row actions | MUI long-press `Menu` | shadcn `ContextMenu` |
- * | the coloured leading edge carries meaning | `borderLeft: 3px solid` | an 8px list-colour dot in the section header |
+ * | a list's colour is not repeated per section | `borderLeft: 3px solid` → an 8px header dot | removed; the header reads by contrast |
  * | section collapse + expanded state | MUI `ListSubheader` + `Collapse` | GodUI `Accordion` (asserted in the vendored file, where it now lives) |
  * | quick-add focus in the tap's own task | MUI Dialog + `transitionDuration={0}` | shadcn Dialog + `useLayoutEffect` + `duration-0`/`animate-none` |
  *
@@ -178,13 +178,15 @@ describe('TaskListSection — GodUI Accordion grouping', () => {
     expect(SECTION).toContain("'text-foreground' : 'text-muted-foreground'");
   });
 
-  it('keeps the list/priority signal as one header dot, not a coloured stripe', () => {
-    // The full-height 4px coloured edge is gone; the same information survives
-    // as a single dot in the section header, so the palette stays achromatic.
+  it('has removed the coloured header dot and its dead helpers', () => {
+    // The full-height 4px edge became an 8px dot; the dot is gone now too. The
+    // header separates its sections by contrast, not by a list colour, so no
+    // per-section colour is computed at all.
     expect(SECTION).not.toContain('border-l-4');
     expect(SECTION).not.toContain('--edge-color');
-    expect(SECTION).toContain('rounded-full');
-    expect(SECTION).toContain('edgeColorFor(section, listColors)');
+    expect(SECTION).not.toContain('edgeColorFor');
+    expect(SECTION).not.toContain('listColors');
+    expect(SECTION).not.toContain('backgroundColor');
   });
 
   it('keeps the row inset coming from the layout token', () => {
@@ -193,6 +195,21 @@ describe('TaskListSection — GodUI Accordion grouping', () => {
     // number. If this compensation is ever removed the rows silently double-pad.
     expect(SECTION).toContain('-mx-5 -mb-4');
     expect(SECTION).toContain('text-base text-foreground');
+  });
+});
+
+describe('the task screens own their own scroll', () => {
+  it('declares the full-height pane and pins the header above a scroller', () => {
+    for (const view of [VIEW, TODAY]) {
+      // The shell hands the pane over as a fixed-height box, so the header can
+      // be `shrink-0` and only the list beneath it moves.
+      expect(view).toContain("from '@/components/app/ShellPane'");
+      expect(view).toContain('useShellPane({ fullHeight: true })');
+      expect(view).toContain('flex min-h-0 flex-1 flex-col');
+      expect(view).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain');
+      // The list restates the mobile tab-bar clearance the shell's pane carried.
+      expect(view).toContain('pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0');
+    }
   });
 });
 
@@ -247,6 +264,32 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain("from '@/components/ui/calendar'");
     expect(EDITOR).toContain("from '@/components/godui/hold-confirm-button'");
     expect(EDITOR).not.toContain('@mui');
+  });
+
+  it('adds an explicit Save button that coexists with the debounce', () => {
+    // The button is the deliberate action; the debounce and the close-flush stay
+    // as the safety net, and the draft being unmodified disables the button so it
+    // can never send an empty PATCH.
+    expect(EDITOR).toContain('const [dirty, setDirty] = useState(false)');
+    expect(EDITOR).toContain('disabled={disabled || !task || !dirty || saving}');
+    expect(EDITOR).toContain("'Save'");
+    expect(EDITOR).toContain('Saving…');
+    expect(EDITOR).toContain('aria-label="Saving"');
+    // The saved draft is kept, not cleared, so the form does not fall back to
+    // the stale `task` prop and visibly revert the value the user just saved.
+    expect(EDITOR).toContain('if (editSeq.current === seq) setDirty(false);');
+    // A failed save is surfaced inline through the state the editor already had.
+    expect(EDITOR).toContain("setSaveError('Could not save the task.')");
+    expect(EDITOR).toContain('<Alert variant="destructive" role="alert">');
+  });
+
+  it('does not let a sub-menu press dismiss the editor it was opened from', () => {
+    // The pickers portal to `body`, and Radix defers the pointer-down-outside
+    // decision until after the click — by which time `picker` is null. The guard
+    // therefore also tests the press target, so the editor survives the pick.
+    expect(EDITOR).toContain('event.detail.originalEvent.target');
+    expect(EDITOR).toContain('[data-slot="drawer"]');
+    expect(EDITOR).toContain('if (picker || confirmOpen || inSubMenu) event.preventDefault();');
   });
 
   it('reveals the search results with the vendored reveal', () => {

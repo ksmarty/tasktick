@@ -4,10 +4,14 @@
  * The task editor — every field a task has, in a shadcn dialog (full-screen on a
  * phone, a centred panel from `sm` up).
  *
- * Saving is debounced (600ms after the last keystroke) and flushed immediately
- * when the dialog closes, so a user who edits and swipes away never loses a
- * change. Picking a value inside a sub-drawer makes the editor undismissible for
- * the duration, which keeps Escape from closing both at once.
+ * Saving is debounced (600ms after the last keystroke), flushed immediately when
+ * the dialog closes, and available as an explicit **Save** button. The debounce
+ * and the close-flush are the safety net — a change is never lost if the sheet is
+ * dismissed — while the button is the deliberate action: it saves at once and
+ * carries the saving/failure state. It is disabled while the draft is unmodified,
+ * so it never fires a write with nothing to send. Picking a value inside a
+ * sub-drawer makes the editor undismissible for the duration, which keeps Escape
+ * from closing both at once.
  *
  * ## The date and time fields
  *
@@ -182,23 +186,35 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const fullScreen = useMediaQuery('(max-width: 639px)');
 
   const [draft, setDraft] = useState<TaskPatch>({});
+  /**
+   * Whether the draft holds an edit the server has not acknowledged yet.
+   *
+   * Kept as its own flag rather than derived from `draft`: the draft is not
+   * cleared on a successful save (see `flush`), so it stays the form's values and
+   * `Object.keys(draft).length` would never fall back to zero.
+   */
+  const [dirty, setDirty] = useState(false);
   const [picker, setPicker] = useState<PickerId | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** The due-date popover is controlled so picking a day closes it. */
   const [dateOpen, setDateOpen] = useState(false);
   /** A save failure is surfaced inline rather than only as a toast. */
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** The explicit Save button's own in-flight flag. */
+  const [saving, setSaving] = useState(false);
 
   // The debounce and the close-flush both need the newest values without
   // re-creating themselves on every keystroke.
-  const latest = useRef({ draft, task, actions, onSaved });
-  latest.current = { draft, task, actions, onSaved };
+  const latest = useRef({ draft, dirty, task, actions, onSaved });
+  latest.current = { draft, dirty, task, actions, onSaved };
   const editSeq = useRef(0);
   /** Set when a save failed, so the debounce does not hammer the server. */
   const blocked = useRef(false);
 
   useEffect(() => {
     setDraft({});
+    setDirty(false);
+    setSaving(false);
     setPicker(null);
     setConfirmOpen(false);
     setDateOpen(false);
@@ -217,36 +233,59 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const flush = useCallback(async () => {
     const current = latest.current;
     const pending = current.draft;
-    if (!current.task || Object.keys(pending).length === 0) return;
+    if (!current.task || !current.dirty) return;
 
     const seq = editSeq.current;
     const saved = await current.actions.patch(current.task.id, pending);
 
     if (!saved) {
-      // Nothing the user typed is dropped — the draft stays and the error was
-      // already surfaced as a toast. Editing again re-arms the save.
+      // Nothing the user typed is dropped — the draft stays, the toast has
+      // already fired, and the same failure is surfaced inline beside the
+      // button. Editing again re-arms the save.
       blocked.current = true;
+      setSaveError('Could not save the task.');
       return;
     }
     setSaveError(null);
     current.onSaved?.();
-    // Only clear the draft when no further edit arrived while this one was in
-    // flight; otherwise those later edits would be wiped from the form.
-    if (editSeq.current === seq) setDraft({});
+    /*
+     * The draft is the form's values now, so it is deliberately *not* cleared.
+     * Clearing it dropped the form back to the `task` prop captured when the
+     * editor opened — which the list refetch does not replace — so a field the
+     * user had just saved visibly reverted. Only the dirty flag is reset, and
+     * only when no later edit arrived while this save was in flight.
+     */
+    if (editSeq.current === seq) setDirty(false);
   }, []);
 
   useEffect(() => {
     if (!open || !task) return;
-    if (Object.keys(draft).length === 0 || blocked.current) return;
+    if (!dirty || blocked.current) return;
     if (!actions.online) return;
     const timer = window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [draft, open, task, actions.online, flush]);
+  }, [draft, dirty, open, task, actions.online, flush]);
 
   function edit(patch: TaskPatch) {
     editSeq.current += 1;
     blocked.current = false;
+    setDirty(true);
     setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  /**
+   * The explicit Save action.
+   *
+   * The debounce is the safety net; this is the deliberate save, so it flushes at
+   * once instead of waiting out the quiet period. It is disabled while the draft
+   * is unmodified, so it can never fire a write with nothing to send, and it owns
+   * the button's in-flight state so a slow save reads as "Saving…".
+   */
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    await flush();
+    setSaving(false);
   }
 
   function handleOpenChange(next: boolean) {
@@ -323,7 +362,19 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             if (picker || confirmOpen) event.preventDefault();
           }}
           onInteractOutside={(event) => {
-            if (picker || confirmOpen) event.preventDefault();
+            // A picker drawer and the delete confirmation both portal to `body`,
+            // so Radix reads a press inside them as "outside the editor". The
+            // `picker`/`confirmOpen` state alone is not enough: Radix defers the
+            // pointer-down decision until after the click, by which time the
+            // sub-menu's own handler has already cleared that state — and the
+            // editor would dismiss under the value the user just picked. The
+            // press's target is still the sub-menu, so test the DOM.
+            const target = event.detail.originalEvent.target;
+            const inSubMenu =
+              target instanceof Element &&
+              (target.closest('[role="dialog"]') !== null ||
+                document.querySelector('[data-slot="drawer"]')?.parentElement?.contains(target) === true);
+            if (picker || confirmOpen || inSubMenu) event.preventDefault();
           }}
         >
           <div
@@ -570,27 +621,45 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
           <div className="flex shrink-0 flex-col gap-stack border-t px-gutter pt-stack pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
             {disabled ? <p className="text-xs text-muted-foreground">{actions.offlineNotice}</p> : null}
-            {actions.isSaving ? (
-              <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                <LoaderCircle aria-label="Saving" className="size-4 animate-spin" />
-                Saving…
-              </p>
-            ) : null}
             {saveError !== null ? (
               <Alert variant="destructive" role="alert">
                 <AlertDescription>{saveError}</AlertDescription>
               </Alert>
             ) : null}
-            <Button
-              type="button"
-              variant="destructive"
-              className="w-full"
-              disabled={disabled || !task}
-              onClick={() => setConfirmOpen(true)}
-            >
-              <TrashIcon className="size-4 text-base" />
-              Delete task
-            </Button>
+            {/*
+             * Save is the deliberate action and Delete is the destructive one, so
+             * they share a row: Save takes the space and the default fill, Delete
+             * keeps its own label and does not shrink. Save is disabled when the
+             * draft is unmodified (`dirty`) and while its own write is in flight,
+             * so it can never send an empty PATCH or a double one.
+             */}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={disabled || !task || !dirty || saving}
+                aria-busy={saving || actions.isSaving || undefined}
+                onClick={() => void save()}
+              >
+                {saving || actions.isSaving ? (
+                  <>
+                    <LoaderCircle aria-label="Saving" className="size-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  'Save'
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={disabled || !task}
+                onClick={() => setConfirmOpen(true)}
+              >
+                <TrashIcon className="size-4 text-base" />
+                Delete task
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

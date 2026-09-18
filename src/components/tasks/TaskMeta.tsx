@@ -140,7 +140,7 @@ export function TaskMeta({ task, className }: TaskMetaProps) {
   return (
     <span
       className={cn(
-        'flex h-5 w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-muted-foreground',
+        'flex h-5 w-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground',
         className,
       )}
     >

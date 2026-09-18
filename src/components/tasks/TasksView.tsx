@@ -43,6 +43,7 @@ import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { Folder } from 'lucide-react';
 import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide, Flag, Tag } from 'lucide-react';
+import { useShellPane } from '@/components/app/ShellPane';
 import { accentHex } from '@/lib/colors';
 import { todayIn } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
@@ -104,6 +105,10 @@ export function TasksView() {
   const searchParams = useSearchParams();
   const isDesktop = useIsDesktop();
 
+  // This screen owns its own scroll: the header stays put and only the list
+  // moves. The shell hands the pane over as a fixed-height box; see `ShellPane`.
+  useShellPane({ fullHeight: true });
+
   const state = useMemo(() => parseTaskView(searchParams.toString()), [searchParams]);
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const data = bootstrap.data;
@@ -119,7 +124,6 @@ export function TasksView() {
   const query = useMemo(() => taskQuery(state), [state]);
   const resource = useResource<Task[]>('/api/tasks', query);
   const tasks = useMemo(() => resource.data ?? [], [resource.data]);
-  const listColors = useMemo(() => new Map(lists.map((list) => [list.id, list.color])), [lists]);
 
   const [searchDraft, setSearchDraft] = useState(state.q);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -297,8 +301,8 @@ export function TasksView() {
   const showEmpty = !loading && !resource.error && sections.length === 0;
 
   return (
-    <div className="flex flex-col">
-      <header className="sticky top-0 z-appbar border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="z-appbar shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
         <div className="flex min-h-14 items-center gap-2 px-gutter">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {activeList ? (
@@ -411,6 +415,12 @@ export function TasksView() {
         </AnimatePresence>
       </header>
 
+      {/*
+       * The list is the scroller now, not the shell's pane. It restates the
+       * mobile tab-bar clearance the pane used to carry, or the last row sits
+       * under the band; at `lg` the band is gone, so the padding is too.
+       */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0">
       {resource.error && resource.data === undefined ? (
         <div className="flex flex-col items-center gap-3 px-gutter py-6 text-center">
           <ExclamationCircledIcon className="text-4xl text-muted-foreground" aria-hidden />
@@ -444,7 +454,6 @@ export function TasksView() {
               section={section}
               zone={zone}
               timeFormat={timeFormat}
-              listColors={listColors}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
               onDelete={deleteTask}
@@ -458,6 +467,7 @@ export function TasksView() {
           ))}
         </div>
       )}
+      </div>
 
       {/*
        * The bulk-action bar is the only thing left that wants the band above the

@@ -9,18 +9,16 @@
  * surface). That keeps the spring height animation and rotating chevron the
  * Accordion already owns, and lets the card be the thing that reads as GodUI.
  *
- * ## The colour: one dot, not a stripe
+ * ## The colour: gone from the section header
  *
- * The card used to paint a 4px full-height stripe down its leading edge in the
- * colour of the list most of its rows belong to. Celestial Sapphire is
- * achromatic, and a red / green / purple stripe per section was the loudest
- * colour on the screen — but the colour is *data* (which list), so dropping it
- * outright would lose information. It survives as a single 8px dot in the
- * section header: the same signal, a fraction of the coloured area, on a card
- * that is otherwise pure contrast. Overdue keeps the theme's destructive dot,
- * which is the one urgency the palette lets colour carry; its label is also the
- * only one at full `text-foreground` contrast, so the meaning does not depend on
- * hue alone.
+ * The card once painted a 4px stripe down its leading edge, then a single 8px dot
+ * in the section header, both in the colour of the list most of its rows belong
+ * to. The dot is gone now too. Celestial Sapphire is achromatic, and a list's
+ * colour is already carried where it is actionable — the list's own row, the
+ * pickers, the sidebar — so repeating it above every section was colour spent on
+ * a datum the user is not acting on. The header still separates its sections by
+ * contrast: Overdue is the only one at full `text-foreground`, the rest sit at
+ * `text-muted-foreground`.
  *
  * ## The three places this file compensates for the vendored Accordion
  *
@@ -57,8 +55,7 @@ import {
 } from 'react';
 import { Accordion } from '@/components/godui/accordion';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
-import { accentHex } from '@/lib/colors';
-import type { AccentColor, Task } from '@/lib/types';
+import type { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
@@ -76,42 +73,10 @@ interface LiftState extends DragState {
   offset: number;
 }
 
-/**
- * The stripe colour for a section card.
- *
- * Overdue is about urgency rather than about a list, so it always paints the
- * theme's destructive colour. Every other section paints the list colour most of
- * its rows share: a section that mixes lists still has to show one stripe, and the
- * most common list is the one the section reads as. No known list colour falls
- * back to the theme primary.
- */
-function edgeColorFor(section: TaskSection, listColors?: ReadonlyMap<string, AccentColor>): string {
-  if (section.tone === 'danger') return 'var(--destructive)';
-
-  const counts = new Map<AccentColor, number>();
-  for (const task of section.tasks) {
-    const color = task.listId ? listColors?.get(task.listId) : undefined;
-    if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
-  }
-
-  let winner: AccentColor | undefined;
-  let winnerCount = 0;
-  for (const [color, count] of counts) {
-    if (count > winnerCount) {
-      winner = color;
-      winnerCount = count;
-    }
-  }
-
-  return winner ? accentHex(winner) : 'var(--primary)';
-}
-
 export interface TaskListSectionProps {
   section: TaskSection;
   zone: string;
   timeFormat: '12h' | '24h';
-  /** `listId -> colour`, which sets each card's leading-edge stripe. */
-  listColors?: ReadonlyMap<string, AccentColor>;
   onToggle: (task: Task) => void;
   onOpen: (task: Task) => void;
   onDelete?: (task: Task) => void;
@@ -128,7 +93,6 @@ export function TaskListSection({
   section,
   zone,
   timeFormat,
-  listColors,
   onToggle,
   onOpen,
   onDelete,
@@ -266,15 +230,6 @@ export function TaskListSection({
             value: section.id,
             title: (
               <span className="-mx-1 flex min-w-0 flex-1 items-center gap-2">
-                {/*
-                 * The list's colour, reduced to a single dot. The dot is the
-                 * section's leading edge now; see the file comment.
-                 */}
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: edgeColorFor(section, listColors) }}
-                />
                 <span
                   className={cn(
                     'truncate text-xs font-semibold tracking-wider uppercase',
