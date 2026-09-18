@@ -13,11 +13,9 @@
  * A `flex flex-col gap-stack` column inset by `px-gutter`, like every other
  * settings section.
  */
-import { PageHeader } from '@/components/app/PageHeader';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
-import { BackToSettings } from '@/components/settings/BackToSettings';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
@@ -28,8 +26,6 @@ export default function DataSettingsPage() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <PageHeader title="Data" leading={<BackToSettings />} />
-
       <SettingsTabs active="data">
         <DataExportCard />
 

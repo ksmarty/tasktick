@@ -31,7 +31,7 @@
  * section cards is stated once, by the page, rather than repeated as a margin on
  * every card (which is how the drift this migration exists to stop accumulated).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -44,8 +44,12 @@ import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass'
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide } from 'lucide-react';
 import { useShellPane } from '@/components/app/ShellPane';
+import { useToast } from '@/components/app/Toast';
+import { useAppearance } from '@/app/providers';
+import { EventEditorSheet, type EventDefaults } from '@/components/calendar/EventEditorSheet';
+import type { CalendarLookup } from '@/components/calendar/types';
 import { accentHex } from '@/lib/colors';
-import { todayIn, addDaysToDateOnly, fromDateOnly, toDateOnly } from '@/lib/dates';
+import { todayIn, addDaysToDateOnly, fromDateOnly, timeIn, toDateOnly } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
 import { useResource } from '@/lib/store';
 import type { CalendarItem, Task } from '@/lib/types';
@@ -57,6 +61,7 @@ import { EmptyTasks } from './EmptyTasks';
 import { TaskFilterMenu } from './FilterMenu';
 import { HeaderActionButton } from './HeaderActionButton';
 import { ItemDetailSheet } from './ItemDetailSheet';
+import { ListManagerDialog } from './ListManagerDialog';
 import { QuickAddBar } from './QuickAddBar';
 import { TaskSortMenu } from './SortMenu';
 import { TaskEditorSheet } from './TaskEditorSheet';
@@ -72,6 +77,7 @@ import {
   taskQuery,
   taskViewTitle,
   updateTaskView,
+  visibleEvents,
   TASK_SORTS,
   type TaskViewState,
 } from './filters';
@@ -82,6 +88,24 @@ import { useTaskActions } from './useTaskActions';
 
 /** Debounce for the search field, so typing does not fire a request per key. */
 const SEARCH_DEBOUNCE_MS = 250;
+
+/** Minutes since midnight for an `HH:mm` wall-clock time. */
+function minuteOfTime(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+}
+
+/** Prefill for the event editor when an event row's Edit is tapped here. */
+function eventEditorDefaults(event: CalendarItem, zone: string): EventDefaults {
+  const startMinute = event.isAllDay ? 9 * 60 : minuteOfTime(timeIn(event.startMs, zone));
+  const spanMinutes = Math.max(30, Math.round((event.endMs - event.startMs) / 60_000));
+  return {
+    date: toDateOnly(event.startMs, zone),
+    startMinute,
+    endMinute: Math.min(24 * 60, startMinute + spanMinutes),
+    calendarId: event.calendarId,
+  };
+}
 
 export function TasksView() {
   const router = useRouter();
@@ -98,11 +122,21 @@ export function TasksView() {
 
   const zone = data?.settings.timezone ?? data?.user.timezone ?? 'utc';
   const timeFormat = data?.settings.timeFormat ?? '24h';
+  const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
+  const { toast } = useToast();
+  /** The resolved appearance, so an accent token maps to the right hex. */
+  const dark = useAppearance().resolvedTheme === 'dark';
 
   const lists = useMemo(() => data?.lists ?? [], [data?.lists]);
   // Resolves each row's list colour once, for the per-row colour strip.
   const accentForTask = useMemo(() => taskAccentLookup(lists), [lists]);
+  // The calendars, so an event's strip can resolve the calendar's own colour —
+  // a custom `#rrggbb` override included (see `itemHex`).
+  const calendarLookup = useMemo<CalendarLookup>(
+    () => new Map((data?.calendars ?? []).map((calendar) => [calendar.id, calendar])),
+    [data?.calendars],
+  );
   const tags = useMemo(() => data?.tags ?? [], [data?.tags]);
   const lookups = useMemo(() => ({ lists, tags }), [lists, tags]);
 
@@ -112,11 +146,25 @@ export function TasksView() {
 
   const [searchDraft, setSearchDraft] = useState(state.q);
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  /** Set when the search button opens the field, so the focus is not on load. */
+  const focusSearchRef = useRef(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   /** Completed rows are hidden until the header's eye toggle asks for them. */
   const [showCompleted, setShowCompleted] = useState(false);
+  /** The event editor, opened by the detail sheet's Edit action. */
+  const [eventEditor, setEventEditor] = useState<{
+    open: boolean;
+    eventId: string | null;
+    defaults: EventDefaults;
+  } | null>(null);
+  /** The list manager, opened by the sidebar's `?new=list` route. */
+  const [listManager, setListManager] = useState<{ open: boolean; creating: boolean }>({
+    open: false,
+    creating: false,
+  });
 
   // The shell's action button asks the mounted view for its primary create action.
   usePrimaryAction(openQuickAdd);
@@ -166,6 +214,21 @@ export function TasksView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDraft, state.q]);
 
+  /*
+   * The sidebar's "New list" button routes to `/tasks?new=list`, but nothing ever
+   * read the parameter — the button looked live and did nothing. Open the list
+   * manager straight into its create form and strip the parameter, so a refresh
+   * or a back-navigation does not reopen it.
+   */
+  useEffect(() => {
+    if (searchParams.get('new') !== 'list') return;
+    setListManager({ open: true, creating: true });
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('new');
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [searchParams, pathname, router]);
+
   const chips = useMemo(() => activeFilters(state, lookups), [state, lookups]);
   const title = taskViewTitle(state, lookups);
   const activeList = state.listId ? (lists.find((list) => list.id === state.listId) ?? null) : null;
@@ -179,6 +242,17 @@ export function TasksView() {
 
   /** The search field is visible on demand, and always while a query is applied. */
   const searchVisible = searchOpen || state.q.trim().length > 0;
+
+  /*
+   * The search button opens the field and puts the caret in it, so the tap is
+   * one action. Only the button sets the flag — a query restored from the URL
+   * opens the field without stealing focus on load.
+   */
+  useEffect(() => {
+    if (!focusSearchRef.current || !searchVisible) return;
+    focusSearchRef.current = false;
+    searchRef.current?.focus();
+  }, [searchVisible]);
 
   // The API takes no direction parameter, so `desc` is applied to the fetched
   // page here; see `sortTasks`. Non-directional sorts keep the server's order.
@@ -208,6 +282,17 @@ export function TasksView() {
   );
 
   /*
+   * Events obey the filters that can apply to them and are excluded by the ones
+   * that cannot; see `visibleEvents`. Without this they ignored every task
+   * filter — a search, a list, a tag or a priority left them all on screen, and
+   * even a Completed or Overdue window still drew them.
+   */
+  const filteredEvents = useMemo(
+    () => visibleEvents(events, state, { zone, today }),
+    [events, state, zone, today],
+  );
+
+  /*
    * Completed work is hidden by default. The explicit Completed filter is the
    * exception: it asks for closed rows and nothing else, so forcing them hidden
    * there would leave an empty screen.
@@ -219,8 +304,8 @@ export function TasksView() {
   );
 
   const sections = useMemo(
-    () => buildListSections(visibleRows, { zone, today }, events),
-    [visibleRows, zone, today, events],
+    () => buildListSections(visibleRows, { zone, today }, filteredEvents),
+    [visibleRows, zone, today, filteredEvents],
   );
 
   /**
@@ -238,18 +323,6 @@ export function TasksView() {
   }
 
   /**
-   * Opens the calendar day an event starts on.
-   *
-   * This is the event's Edit action on this screen: the event editor lives on
-   * the calendar (out of this feature's scope), so "edit" navigates to the
-   * screen that owns it rather than duplicating an event editor here. The
-   * reusable detail sheet exposes an `onEdit` callback for exactly this.
-   */
-  function openEventInCalendar(event: CalendarItem) {
-    router.push(`/calendar?date=${toDateOnly(event.startMs, zone)}`);
-  }
-
-  /**
    * Runs a write on top of an optimistic list change, restoring the previous list
    * when the write fails, so a row never looks saved when it is not.
    */
@@ -264,15 +337,40 @@ export function TasksView() {
     });
   }
 
+  /**
+   * Ticks a task off, or un-ticks it when it is already done.
+   *
+   * Completing (not un-completing) raises an Undo toast. Undo calls the same
+   * completion endpoint with `?undo=1`, which the server reverses cleanly for a
+   * one-off task: `uncompleteTask` restores the status and drops the completion
+   * it recorded. A *recurring* task is the exception — completing it rolls the
+   * series forward rather than finishing it, and the server's undo leaves that
+   * advanced due date in place — so no Undo is offered there and the existing
+   * "Moved to <date>" toast is the feedback instead.
+   */
   function toggleTask(task: Task) {
     const undo = task.status === 'completed';
     optimistic(
       (current) => setStatusByIds(current, new Set([task.id]), undo ? 'todo' : 'completed', Date.now()),
       () => actions.complete(task, undo),
     );
+
+    if (undo || task.recurrenceRule) return;
+    toast({
+      title: 'Task completed',
+      description: task.title,
+      duration: 5000,
+      action: { label: 'Undo', onClick: () => toggleTask({ ...task, status: 'completed' }) },
+    });
   }
 
   const refresh = () => void resource.refresh();
+
+  /** Refreshes both reads an event write can affect on this screen. */
+  const refreshAfterEventWrite = () => {
+    void resource.refresh();
+    void calendarItems.refresh();
+  };
 
   function deleteTask(task: Task) {
     optimistic(
@@ -308,7 +406,8 @@ export function TasksView() {
 
   /**
    * The detail sheet's Edit action. A task opens the task editor in place; an
-   * event navigates to the calendar, which owns the event editor.
+   * event opens the event editor, which is the editor the calendar screen uses,
+   * mounted here so the action edits the event instead of navigating away.
    */
   function editDetailItem() {
     if (!detail) return;
@@ -320,7 +419,11 @@ export function TasksView() {
     }
     const event = detail.event;
     setDetail(null);
-    openEventInCalendar(event);
+    setEventEditor({
+      open: true,
+      eventId: event.id,
+      defaults: eventEditorDefaults(event, zone),
+    });
   }
 
   const loading = resource.data === undefined && !resource.error;
@@ -362,7 +465,13 @@ export function TasksView() {
             aria-label={searchVisible ? 'Hide search' : 'Show search'}
             icon={MagnifyingGlassIcon}
             variant={searchVisible ? 'filled' : 'tinted'}
-            onClick={() => setSearchOpen((value) => !value)}
+            onClick={() =>
+              setSearchOpen((value) => {
+                // Arm the focus only when the field is being opened.
+                if (!value) focusSearchRef.current = true;
+                return !value;
+              })
+            }
           />
           {/*
            * The filter menu: its own drawer, separate from the sort above.
@@ -421,6 +530,7 @@ export function TasksView() {
                     aria-hidden
                   />
                   <Input
+                    ref={searchRef}
                     type="search"
                     value={searchDraft}
                     placeholder="Search"
@@ -489,6 +599,8 @@ export function TasksView() {
               onToggle={toggleTask}
               onOpen={openTaskDetail}
               listColorFor={accentForTask}
+              calendars={calendarLookup}
+              dark={dark}
               onOpenEvent={openEventDetail}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
@@ -543,6 +655,34 @@ export function TasksView() {
         onOpenChange={setQuickAddOpen}
         listId={state.listId}
         onCreated={refresh}
+      />
+      {/*
+       * The event editor, the same one the calendar screen uses. Its Edit action
+       * on the detail sheet opens it here rather than navigating to the calendar,
+       * so the event is edited in place.
+       */}
+      <EventEditorSheet
+        open={Boolean(eventEditor?.open)}
+        onOpenChange={(open) => {
+          if (!open) setEventEditor(null);
+        }}
+        eventId={eventEditor?.eventId ?? null}
+        defaults={
+          eventEditor?.defaults ?? {
+            date: today,
+            startMinute: 9 * 60,
+            endMinute: 10 * 60,
+            calendarId: calendarLookup.values().next().value?.id ?? null,
+          }
+        }
+        calendars={data?.calendars ?? []}
+        prefs={{ zone, weekStartsOn, timeFormat }}
+        onChanged={refreshAfterEventWrite}
+      />
+      <ListManagerDialog
+        open={listManager.open}
+        onOpenChange={(open) => setListManager((current) => ({ ...current, open }))}
+        startInForm={listManager.creating}
       />
       <TaskEditorSheet
         open={editor.open}

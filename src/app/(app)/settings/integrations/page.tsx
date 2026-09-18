@@ -14,11 +14,9 @@
  */
 import { useState } from 'react';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
-import { PageHeader } from '@/components/app/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
-import { BackToSettings } from '@/components/settings/BackToSettings';
 import { CalDavAccountRow } from '@/components/settings/CalDavAccountRow';
 import { CalDavAccountSheet } from '@/components/settings/CalDavAccountSheet';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
@@ -40,8 +38,6 @@ export default function IntegrationsSettingsPage() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <PageHeader title="Integrations" leading={<BackToSettings />} />
-
       <SettingsTabs active="integrations">
         {accounts.isInitialLoading ? (
           <Skeleton className="h-32 w-full" />

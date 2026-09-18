@@ -17,6 +17,35 @@
  * - Below `lg`, the same list wraps onto as many rows as it needs at 390px with
  *   no horizontal scrollbar, so every section is visible.
  *
+ * ## Three labelled groups, not nine equal rows
+ *
+ * Nine identically-styled rows with one gap between each read as an undifferentiated
+ * list: the spacing carried no meaning, so it just looked like gaps. The sections
+ * are therefore grouped by what they are about — **Personal** (who you are and how
+ * the app looks), **Scheduling** (what the app reads and writes in the outside
+ * world), **Advanced** (tuning, your data, the instance) — the gap inside a group
+ * is tight, the gap between groups is wider, and a caption says what each group
+ * is. Related things now sit together and the rhythm is deliberate rather than
+ * accidental.
+ *
+ * The heading is `role="presentation"`, like the group wrapper it sits in: ARIA's
+ * `tablist` only expects `tab` children, and presenting the wrappers away leaves
+ * the tabs as the list's direct children in the accessibility tree while the
+ * captions stay readable text.
+ *
+ * ## Prefetching the sections
+ *
+ * `TabsTrigger` is a button and this nav navigates with `router.push`, so unlike a
+ * `Link` it never asked the router to fetch its target ahead of time. The shell
+ * only warms the four tab roots (`AppShell`), which left all nine sections cold:
+ * the first tap on Appearance, Calendars or Admin was a full server round trip,
+ * and because there is no `loading.tsx` anywhere under `(app)` the browser kept
+ * painting the previous section while it waited — the "slight delay". Warming the
+ * nine routes here, once the nav is on screen, is what removes it; see the report
+ * in the file history if the numbers are ever wanted again.
+ *
+ * ## The rest of the contract is unchanged
+ *
  * The list stays on the shadcn `Tabs` primitive (Radix), so `role="tablist"`,
  * `role="tab"`, `aria-selected`, the roving `tabindex` and the arrow-key handler
  * are unchanged. Radix drives left/right for its horizontal orientation; an extra
@@ -28,6 +57,7 @@
  * accounts can use is worse than one the rest never see, which is the rule the
  * old Advanced page followed for its admin link.
  */
+import { useEffect, useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
@@ -41,7 +71,6 @@ import { TimerIcon } from '@svg-animated-icons/react/timer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useResource } from '@/lib/store';
 import type { BootstrapPayload } from '@/lib/view-types';
-import type { KeyboardEvent, ReactNode } from 'react';
 
 export type SettingsTab =
   | 'account'
@@ -75,17 +104,46 @@ interface SettingsSection {
   adminOnly?: boolean;
 }
 
-/** Every section, in the order the list shows them. */
-const SECTIONS: SettingsSection[] = [
-  { value: 'account', label: 'Account', icon: <PersonIcon /> },
-  { value: 'appearance', label: 'Appearance', icon: <ColorWheelIcon /> },
-  { value: 'date-time', label: 'Date & time', icon: <ClockIcon /> },
-  { value: 'notifications', label: 'Notifications', icon: <BellIcon /> },
-  { value: 'calendars', label: 'Calendars', icon: <CalendarIcon /> },
-  { value: 'integrations', label: 'Integrations', icon: <ReloadIcon /> },
-  { value: 'focus', label: 'Focus', icon: <TimerIcon /> },
-  { value: 'data', label: 'Data', icon: <DownloadIcon /> },
-  { value: 'admin', label: 'Admin', icon: <LockClosedIcon />, adminOnly: true },
+interface SettingsSectionGroup {
+  /** Caption above the group, e.g. `Personal`. */
+  label: string;
+  sections: SettingsSection[];
+}
+
+/**
+ * The sections, grouped, in the order the list shows them.
+ *
+ * The split is by subject, not by size: everything about you and how the app is
+ * set up personally, then everything that connects the app to calendars and
+ * notifications elsewhere, then the settings that change how the app behaves or
+ * hand you your data. Each group is three sections, which is also what keeps the
+ * mobile layout one tidy row of pills per group.
+ */
+const SECTION_GROUPS: SettingsSectionGroup[] = [
+  {
+    label: 'Personal',
+    sections: [
+      { value: 'account', label: 'Account', icon: <PersonIcon /> },
+      { value: 'appearance', label: 'Appearance', icon: <ColorWheelIcon /> },
+      { value: 'date-time', label: 'Date & time', icon: <ClockIcon /> },
+    ],
+  },
+  {
+    label: 'Scheduling',
+    sections: [
+      { value: 'calendars', label: 'Calendars', icon: <CalendarIcon /> },
+      { value: 'integrations', label: 'Integrations', icon: <ReloadIcon /> },
+      { value: 'notifications', label: 'Notifications', icon: <BellIcon /> },
+    ],
+  },
+  {
+    label: 'Advanced',
+    sections: [
+      { value: 'focus', label: 'Focus', icon: <TimerIcon /> },
+      { value: 'data', label: 'Data', icon: <DownloadIcon /> },
+      { value: 'admin', label: 'Admin', icon: <LockClosedIcon />, adminOnly: true },
+    ],
+  },
 ];
 
 export interface SettingsTabsProps {
@@ -99,12 +157,42 @@ export function SettingsTabs({ active, children }: SettingsTabsProps) {
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const isAdmin = bootstrap.data?.user.isAdmin ?? false;
 
-  const sections = SECTIONS.filter((section) => !section.adminOnly || isAdmin);
+  /* Administrators keep every group; everyone else loses only Admin, which never
+   * empties a group — but a future admin-only group would be dropped, not left
+   * as a bare caption. */
+  const groups = useMemo(
+    () =>
+      SECTION_GROUPS.map((group) => ({
+        label: group.label,
+        sections: group.sections.filter((section) => !section.adminOnly || isAdmin),
+      })).filter((group) => group.sections.length > 0),
+    [isAdmin],
+  );
+
+  /**
+   * Warm the section routes.
+   *
+   * `router.prefetch` issues a *full* prefetch in this build, which the client
+   * router cache then reuses for the next navigation (and for five minutes after,
+   * per the full-prefetch window) — so the tap swaps the panel from the prefetched
+   * payload instead of waiting on a server render. Every section is warmed: the
+   * list is nine small routes and the user is one tap from any of them. `prefetch`
+   * is cache-aware, so the remount that each section change causes re-asks for
+   * routes that are already warm and costs nothing.
+   *
+   * Registered as an effect rather than during render so the first paint of the
+   * settings area is never held up by it.
+   */
+  useEffect(() => {
+    for (const section of Object.values(TAB_HREF)) router.prefetch(section);
+  }, [router]);
 
   /**
    * Up/down move between the sections when the list is a column. Radix's own
    * handler already covers left/right for the horizontal orientation, so this
-   * only adds the pair a vertical list needs.
+   * only adds the pair a vertical list needs. The groups are presentational, so
+   * the query walks straight across their boundaries — the order is the DOM
+   * order of the tabs themselves.
    */
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -136,34 +224,54 @@ export function SettingsTabs({ active, children }: SettingsTabsProps) {
         <div className="lg:w-56 lg:shrink-0">
           {/*
            * `h-auto` (and its variant-qualified twin) undoes the primitive's
-           * fixed `h-9`, which would clip the list once it wraps.
+           * fixed `h-9`, which would clip the list once it groups and wraps.
+           * The list itself is a column of groups at every width; only the pills
+           * inside a group wrap on a phone.
            */}
           <TabsList
             aria-label="Settings sections"
-            className="h-auto w-full flex-wrap justify-start gap-1 group-data-[orientation=horizontal]/tabs:h-auto lg:w-full lg:flex-col lg:items-stretch"
+            className="h-auto w-full flex-col items-stretch gap-3 group-data-[orientation=horizontal]/tabs:h-auto lg:w-full"
           >
-            {sections.map((section) => (
-              <TabsTrigger
-                key={section.value}
-                value={section.value}
-                className="flex-none gap-2 lg:w-full lg:justify-start"
-                /*
-                 * Radix only calls `onValueChange` when the value actually
-                 * changes, so a section that is already selected but lives at a
-                 * different URL (e.g. the legacy `/settings/advanced`) would do
-                 * nothing on click. Pushing from the trigger turns it back into a
-                 * working link; on a normal switch the router receives the same
-                 * URL twice, which is a no-op.
-                 */
-                onClick={() => {
-                  if (section.value === active) router.push(TAB_HREF[section.value]);
-                }}
+            {groups.map((group) => (
+              <div
+                key={group.label}
+                role="presentation"
+                className="flex min-w-0 flex-col gap-1"
               >
-                <span aria-hidden className="shrink-0 text-muted-foreground [&_svg]:size-4">
-                  {section.icon}
-                </span>
-                {section.label}
-              </TabsTrigger>
+                <p
+                  role="presentation"
+                  className="px-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+                >
+                  {group.label}
+                </p>
+
+                {/* A row of pills on a phone; a full-width column from `lg`. */}
+                <div role="presentation" className="flex flex-wrap gap-1 lg:flex-col lg:items-stretch">
+                  {group.sections.map((section) => (
+                    <TabsTrigger
+                      key={section.value}
+                      value={section.value}
+                      className="flex-none gap-2 lg:w-full lg:justify-start"
+                      /*
+                       * Radix only calls `onValueChange` when the value actually
+                       * changes, so a section that is already selected but lives at a
+                       * different URL (e.g. the legacy `/settings/advanced`) would do
+                       * nothing on click. Pushing from the trigger turns it back into a
+                       * working link; on a normal switch the router receives the same
+                       * URL twice, which is a no-op.
+                       */
+                      onClick={() => {
+                        if (section.value === active) router.push(TAB_HREF[section.value]);
+                      }}
+                    >
+                      <span aria-hidden className="shrink-0 text-muted-foreground [&_svg]:size-4">
+                        {section.icon}
+                      </span>
+                      {section.label}
+                    </TabsTrigger>
+                  ))}
+                </div>
+              </div>
             ))}
           </TabsList>
         </div>

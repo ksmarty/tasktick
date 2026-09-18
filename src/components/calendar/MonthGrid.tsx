@@ -148,8 +148,9 @@
  *
  * ## The dots
  *
- * One dot, and only ever one, painted in the theme's muted foreground rather
- * than in the item's colour. The lane answers one question — "is anything
+ * One dot, and only ever one, painted in the theme's muted foreground at a
+ * deliberately low prominence — 4px and half opacity — rather than in the item's
+ * colour. The lane answers one question — "is anything
  * happening that day?" — and a cluster of up to three accent-coloured circles
  * answered a different one badly: it was the most saturated thing on a
  * monochrome surface, and it read as a bar chart, which is what the dots
@@ -164,7 +165,7 @@
  * reintroduce it.) Items are opened from the agenda or the day sheet.
  *
  * The lane sits `top-6` (24px) from the row's top: the day number's 14px line
- * box ends 25px down, so the 6px dot (centred at 30px) leaves visible whitespace
+ * box ends 25px down, so the 4px dot (centred at 30px) leaves visible whitespace
  * under the digits instead of touching them, and its bottom edge stays inside
  * the 36px selected disc — which is drawn above the lane and swallows its own
  * dots. Both lane values are on Tailwind's own scale; the old 21px top was not,
@@ -218,7 +219,7 @@ const DAYS_PER_WEEK = 7;
 const DISC_PX = 36;
 const TAP_MIN_PX = 40;
 /** Diameter of the painted dot. */
-const DOT_PX = 6;
+const DOT_PX = 4;
 
 /**
  * The day cell's vertical stack.
@@ -686,12 +687,12 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, re
                     selects the day, exactly as a tap on the number does.
 
                     `top-6` (24px) is the breathing room under the digits: the
-                    day number's 14px line box ends 25px down, so the 6px dot —
-                    centred in the 12px lane, i.e. 27px to 33px — leaves a clear
-                    gap under the glyphs instead of touching them. It still sits
-                    inside the 36px selected disc, which is painted above the
-                    lane and swallows its own dots. On Tailwind's own scale, so
-                    neither value needs an inline style.
+                    day number's 14px line box ends 25px down, so the 4px dot —
+                    centred in the 12px lane — leaves a clear gap under the glyphs
+                    instead of touching them. It still sits inside the 36px
+                    selected disc, which is painted above the lane and swallows
+                    its own dots. On Tailwind's own scale, so neither value needs
+                    an inline style.
                   */}
                   <span
                     aria-hidden
@@ -854,10 +855,19 @@ function DayNumberFace({ date, inMonth, isSelected, isToday }: DayNumberFaceProp
  * grey: the token is what keeps it legible in both appearances (a mid grey on
  * white, a lighter one on near-black) without carrying a colour of its own.
  *
+ * It is a *quiet* indicator, so it is deliberately low-prominence: 4px (`size-1`)
+ * and the muted foreground at half opacity (`/50`), down from 6px at `/70`. The
+ * lane answers "is anything happening that day?" in the user's peripheral
+ * vision; at the old size and weight it read as a headline and drew the eye
+ * away from the day number and the selection, which are the controls. The tone
+ * still sits on the same token, so it tracks both appearances with the rest of
+ * the muted foreground — nothing here introduces a colour of its own, and this
+ * is the one line to change if the intent was read backwards.
+ *
  * `aria-hidden` and `pointer-events-none`: decoration, so it is invisible to a
  * screen reader and untouchable to a finger — the day cell underneath keeps its
  * whole hit area. The day button's accessible name carries the item count.
  */
 function DotMark() {
-  return <span aria-hidden className="pointer-events-none size-1.5 rounded-full bg-muted-foreground/70" />;
+  return <span aria-hidden className="pointer-events-none size-1 rounded-full bg-muted-foreground/50" />;
 }

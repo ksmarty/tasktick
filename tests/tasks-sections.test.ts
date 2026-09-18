@@ -92,7 +92,7 @@ describe('buildTodaySections', () => {
     expect(sections.find((s) => s.id === 'today')?.tone).toBe('default');
   });
 
-  it('puts completed work last, collapsed, and never reorderable', () => {
+  it('puts completed work last, expanded, and never reorderable', () => {
     const sections = buildTodaySections(
       agenda({ today: [task('t1')], completedToday: [task('c1', { status: 'completed' })] }),
     );
@@ -100,7 +100,8 @@ describe('buildTodaySections', () => {
     const completed = sections[sections.length - 1];
     expect(completed.id).toBe('completed');
     expect(completed.title).toBe('Completed today');
-    expect(completed.defaultCollapsed).toBe(true);
+    // Expanded: the toggle reveals the group and its work must be visible at once.
+    expect(completed.defaultCollapsed).toBe(false);
     expect(completed.reorderable).toBe(false);
   });
 
@@ -254,7 +255,7 @@ describe('buildListSections', () => {
     expect(sections[0].tasks.map((t) => t.id)).toEqual(['b', 'a']);
   });
 
-  it('keeps closed work last, collapsed and un-reorderable', () => {
+  it('keeps closed work last, expanded and un-reorderable', () => {
     const sections = buildListSections(
       [
         task('a', { dueDate: '2025-05-12' }),
@@ -266,7 +267,7 @@ describe('buildListSections', () => {
 
     expect(sections.map((s) => s.title)).toEqual(['Today', 'Completed']);
     const completed = sections[sections.length - 1];
-    expect(completed.defaultCollapsed).toBe(true);
+    expect(completed.defaultCollapsed).toBe(false);
     expect(completed.reorderable).toBe(false);
     expect(completed.events).toEqual([]);
     expect(completed.tasks.map((t) => t.id)).toEqual(['c', 'd']);

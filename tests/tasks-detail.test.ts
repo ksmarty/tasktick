@@ -66,10 +66,13 @@ describe('a tap opens the detail sheet, and Edit opens the editor', () => {
   });
 
   it('leads from the detail sheet to the editor', () => {
-    // A task opens the in-place editor; an event navigates to the calendar that
-    // owns the event editor.
+    // A task opens the in-place task editor; an event opens the event editor, the
+    // same one the calendar screen mounts, so Edit edits rather than navigates.
     expect(VIEW).toContain('function editDetailItem()');
     expect(VIEW).toContain('setEditor({ open: true, task })');
+    expect(VIEW).toContain('<EventEditorSheet');
+    expect(VIEW).toContain('setEventEditor({');
+    expect(VIEW).toContain('eventEditorDefaults(event, zone)');
     expect(TODAY).toContain('function editDetailTask()');
     expect(TODAY).toContain('setEditor({ open: true, task })');
   });
@@ -95,16 +98,33 @@ describe('ItemDetailSheet — the reusable overlay', () => {
   });
 
   it('shows the event fields the brief asked for', () => {
-    for (const label of ['Time', 'Calendar', 'Location']) {
+    // The date joined the time so an event on another day is not just a clock
+    // reading: 09:00 next month and 09:00 today read the same without it.
+    for (const label of ['Date', 'Time', 'Calendar', 'Location']) {
       expect(DETAIL).toContain(label);
     }
     expect(DETAIL).toContain('formatTime(event.startMs');
+    expect(DETAIL).toContain('relativeDayLabel(toDateOnly(event.startMs, zone), zone)');
     expect(DETAIL).toContain('calendarName');
     expect(DETAIL).toContain('event.location');
   });
 
   it('is reachable for the calendar to reuse rather than copy', () => {
     expect(INDEX).toContain("export { ItemDetailSheet, type ItemDetailSheetProps } from './ItemDetailSheet'");
+  });
+});
+
+describe('completing a task offers an Undo', () => {
+  it('raises an Undo toast for a one-off task on both task screens', () => {
+    for (const view of [VIEW, TODAY]) {
+      expect(view).toContain("title: 'Task completed'");
+      expect(view).toContain("action: { label: 'Undo'");
+      // Undo runs the completion endpoint in reverse on the same task.
+      expect(view).toContain("toggleTask({ ...task, status: 'completed' })");
+      // A recurring task rolls forward rather than completing, so it gets no
+      // Undo — the server cannot cleanly restore its advanced due date.
+      expect(view).toContain('if (undo || task.recurrenceRule) return;');
+    }
   });
 });
 

@@ -70,8 +70,8 @@
  *  - the panel paints `text-sm text-muted-foreground`, which the row track resets
  *    with an explicit `text-base text-foreground`. The track used to carry the
  *    hairline under the header and between rows; both lines are gone, and the
- *    track's `gap-1` plus the header's own `py-2.5` supply the rhythm by spacing
- *    alone.
+ *    track's own 44px rows plus the header's own `py-2.5` supply the rhythm by
+ *    spacing alone.
  *
  * ## Reordering
  *
@@ -90,6 +90,7 @@ import {
 } from 'react';
 import { Accordion } from '@/components/godui/accordion';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
+import type { CalendarLookup } from '@/components/calendar/types';
 import type { CalendarItem, AccentColor, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
@@ -117,6 +118,10 @@ export interface TaskListSectionProps {
   onOpen: (task: Task) => void;
   /** Resolves a task's list colour for its row strip. */
   listColorFor?: (task: Task) => AccentColor | null;
+  /** The calendars, so an event strip resolves the calendar's own colour. */
+  calendars?: CalendarLookup;
+  /** Whether the resolved appearance is dark, for the accent hex lookup. */
+  dark?: boolean;
   /** Opens an event row. */
   onOpenEvent?: (event: CalendarItem) => void;
   onDelete?: (task: Task) => void;
@@ -133,6 +138,8 @@ export function TaskListSection({
   onToggle,
   onOpen,
   listColorFor,
+  calendars,
+  dark = false,
   onOpenEvent,
   onDelete,
   onWontDo,
@@ -264,7 +271,7 @@ export function TaskListSection({
      * the file doc), so the border is the only edge.
      */
     <LiquidGlassCard
-      radius={16}
+      radius={10}
       strength={0}
       sheen={0}
       tint={GLASS_TINT}
@@ -305,14 +312,15 @@ export function TaskListSection({
             content: (
               /*
                * No hairlines: neither the rule under the header nor the rules
-               * between rows. Separation is spacing — `gap-1` between rows, and
-               * the header trigger's own `py-2.5` above them — so a row is
-               * delimited by air rather than by a line. A two-line row fits 40px
-               * of content in its 44px box, so without the gap consecutive rows
-               * would butt together; the gap restores the rhythm the divider
-               * used to provide.
+               * between rows. Separation is spacing — the header trigger's own
+               * `py-2.5` above the rows — so a row is delimited by air rather
+               * than by a line. There is deliberately no vertical gap between
+               * rows: a gap is exactly where the per-row colour strips used to
+               * break, and a continuous strip down the section is the point. The
+               * rows' own 44px boxes and the inset press region supply the
+               * rhythm instead.
                */
-              <ul className="-mx-5 -mb-4 flex flex-col gap-1 text-base text-foreground">
+              <ul className="-mx-5 -mb-4 flex flex-col text-base text-foreground">
                 {section.tasks.map((task, index) => (
                   <TaskRow
                     key={task.id}
@@ -341,6 +349,8 @@ export function TaskListSection({
                     zone={zone}
                     timeFormat={timeFormat}
                     onOpen={onOpenEvent}
+                    calendars={calendars}
+                    dark={dark}
                     first={taskCount === 0 && index === 0}
                     last={index === eventCount - 1}
                   />

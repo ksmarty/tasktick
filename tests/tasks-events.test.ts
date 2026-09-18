@@ -103,8 +103,11 @@ describe('EventRow — an event is not a task', () => {
   });
 
   it('carries the per-row colour strip in the calendar colour', () => {
+    // The calendar's own colour, resolved through `itemHex` so a custom
+    // `#rrggbb` `colorOverride` survives rather than being narrowed to a token.
     expect(EVENT_ROW).toContain('absolute inset-y-0 left-0 w-1');
-    expect(EVENT_ROW).toContain('accentHex(event.color)');
+    expect(EVENT_ROW).toContain('itemHex(event, calendars');
+    expect(EVENT_ROW).toContain("from '@/components/calendar/colors'");
   });
 
   it('names the row for a screen reader with the time and the kind', () => {

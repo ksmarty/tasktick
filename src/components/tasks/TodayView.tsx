@@ -27,6 +27,7 @@ import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { useShellPane } from '@/components/app/ShellPane';
+import { useToast } from '@/components/app/Toast';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
@@ -51,6 +52,7 @@ export function TodayView() {
   const timeFormat = data?.settings.timeFormat ?? '24h';
   const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
+  const { toast } = useToast();
 
   // Resolves each row's list colour once, for the per-row colour strip.
   const lists = useMemo(() => data?.lists ?? [], [data?.lists]);
@@ -101,12 +103,28 @@ export function TodayView() {
     });
   }
 
+  /**
+   * Ticks a task off, or un-ticks it, with an Undo toast on completion.
+   *
+   * Undo reverses cleanly only for a one-off task — the server's
+   * `uncompleteTask` restores the status and drops the completion record — so a
+   * recurring task (whose completion rolls the series forward instead) gets the
+   * existing "Moved to" feedback and no Undo.
+   */
   function toggleTask(task: Task) {
     const undo = task.status === 'completed';
     optimistic(
       (agenda) => setAgendaStatus(agenda, task.id, undo ? 'todo' : 'completed', Date.now()),
       () => actions.complete(task, undo),
     );
+
+    if (undo || task.recurrenceRule) return;
+    toast({
+      title: 'Task completed',
+      description: task.title,
+      duration: 5000,
+      action: { label: 'Undo', onClick: () => toggleTask({ ...task, status: 'completed' }) },
+    });
   }
 
   const refresh = () => void bootstrap.refresh();

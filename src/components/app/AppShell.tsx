@@ -477,20 +477,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
 
           {/*
-           * The button is contextual, so its name has to be too. It sits on the
-           * calendar and opens the event editor; announcing that as "Add a task"
-           * is simply wrong, and now that the agenda's own create button is gone
-           * this is the only create affordance on a phone.
+           * The button is contextual, so both its name and whether it belongs
+           * on the screen are.
+           *
+           * It dispatches `requestPrimaryAction`, which whichever screen is
+           * mounted handles. Tasks and Calendar both subscribe, so there it keeps
+           * its place and its per-screen name. Settings subscribes to nothing, so
+           * on that tab the button was dead; Habits already carries its own "New
+           * habit" control in the header, so there it was a duplicate. It is
+           * therefore not rendered on those two tabs at all, and the band falls
+           * back to the tab bar alone.
            */}
-          <QuickAddFab
-            label={
-              activeTab === 'calendar'
-                ? 'New event'
-                : activeTab === 'habits'
-                  ? 'New habit'
-                  : 'Add a task'
-            }
-          />
+          {activeTab === 'tasks' ? (
+            <QuickAddFab label="Add a task" />
+          ) : activeTab === 'calendar' ? (
+            <QuickAddFab label="New event" />
+          ) : null}
         </div>
       </div>
       </ShellPaneContext.Provider>

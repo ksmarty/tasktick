@@ -21,7 +21,7 @@ import {
   type FormatPrefs,
 } from '@/lib/dates';
 import { weekdayOfDate } from '@/lib/rrule';
-import type { DateOnly, Habit, HabitFrequency } from '@/lib/types';
+import type { AccentColor, DateOnly, Habit, HabitFrequency } from '@/lib/types';
 
 const ZONE = 'utc';
 
@@ -310,6 +310,10 @@ export function habitsCompletedOn(habits: readonly Habit[], date: DateOnly, toda
  * can ask "is there a ring here?" without knowing what an empty ring means. The
  * keys come from `days` — the server's padded window, the same list the grid
  * paints — so the ring can never land on a day the grid does not hold.
+ *
+ * Kept as the count-only view of the same rule `habitRingColours` answers in
+ * full, for the callers that only need "how many" (and for the tests that pin
+ * the counting). The ring itself wants the colours.
  */
 export function habitRingSegments(
   habits: readonly Habit[],
@@ -323,6 +327,43 @@ export function habitRingSegments(
     if (completed > 0) segments.set(date, completed);
   }
   return segments;
+}
+
+/**
+ * The month's ring data, in colour: the habits completed on each day, in order.
+ *
+ * The ring encodes **which** habits were kept, not just how many — one arc per
+ * completed habit, and each arc takes that habit's own stored accent. So this
+ * returns the habits themselves rather than a count: the list order is the arc
+ * order, which is what makes a ring of three read as three identifiable
+ * segments instead of one circle that is merely divided.
+ *
+ * The order is the habit list's own order — the same order the check-in list
+ * below the month uses — so the same day reads the same way in both places.
+ *
+ * A day with nothing completed is **absent** rather than an empty array, exactly
+ * as `habitRingSegments` leaves it: "is there a ring here?" stays one lookup, and
+ * the grid's marker seam is handed the shared empty list only because the ring
+ * element has to stay mounted to animate its last arc away (see
+ * `HabitMonthGrid`). The keys come from `days` — the server's padded window, the
+ * same list the grid paints — so a ring can never land on a day the grid does
+ * not hold.
+ */
+export function habitRingColours(
+  habits: readonly Habit[],
+  days: readonly DateOnly[],
+  today: DateOnly,
+): Map<DateOnly, AccentColor[]> {
+  const colours = new Map<DateOnly, AccentColor[]>();
+  if (habits.length === 0) return colours;
+  for (const date of days) {
+    const done: AccentColor[] = [];
+    for (const habit of habits) {
+      if (habitDoneOn(habit, date, today)) done.push(habit.color);
+    }
+    if (done.length > 0) colours.set(date, done);
+  }
+  return colours;
 }
 
 export function habitProgressView(habit: Habit, today: DateOnly): HabitProgressView {

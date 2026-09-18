@@ -54,7 +54,9 @@ export const TODAY_SECTIONS: readonly TodaySectionSpec[] = [
   { id: 'next7days', bucket: 'thisWeek', title: 'Next 7 days', tone: 'default', defaultCollapsed: false },
   { id: 'later', bucket: 'later', title: 'Later', tone: 'default', defaultCollapsed: false },
   { id: 'noDate', bucket: 'noDate', title: 'No date', tone: 'default', defaultCollapsed: false },
-  { id: 'completed', bucket: 'completedToday', title: 'Completed today', tone: 'default', defaultCollapsed: true },
+  // Completed work arrives expanded: ticking a task must show where it went, not
+  // hide it behind a second tap (`defaultCollapsed` is only read on first mount).
+  { id: 'completed', bucket: 'completedToday', title: 'Completed today', tone: 'default', defaultCollapsed: false },
 ];
 
 /** Today section id → the agenda bucket it renders. */
@@ -191,8 +193,9 @@ export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectio
  * dropped: the caller asks the calendar for today onward, and an event that has
  * already happened is not an outstanding item.
  *
- * Closed rows are kept reachable in a collapsed trailing section: ticking a task
- * off must never make it vanish with no way back.
+ * Closed rows are kept reachable in a trailing section that arrives expanded:
+ * ticking a task off must never make it vanish with no way back, and hiding the
+ * group behind a collapse made the completed toggle look like it did nothing.
  */
 export function buildListSections(
   tasks: readonly Task[],
@@ -259,7 +262,9 @@ export function buildListSections(
       tasks: closed,
       events: [],
       tone: 'default',
-      defaultCollapsed: true,
+      // Expanded, not collapsed: the completed toggle reveals this group and the
+      // work must be visible the moment it is asked for.
+      defaultCollapsed: false,
       reorderable: false,
     });
   }

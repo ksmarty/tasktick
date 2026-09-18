@@ -44,7 +44,7 @@ import { Folder, MapPin } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
-import { formatTime } from '@/lib/dates';
+import { formatTime, relativeDayLabel, toDateOnly } from '@/lib/dates';
 import type { AccentColor, CalendarItem, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { priorityColor, priorityLabel } from './priority';
@@ -212,6 +212,14 @@ function EventDetails({
   zone: string;
   timeFormat: '12h' | '24h';
 }) {
+  /*
+   * The date as well as the time. The sheet used to show the clock range alone,
+   * or "All day", which made an event on another day unreadable: 09:00 on a
+   * Tuesday and 09:00 next month both read "09:00". The day is a relative label
+   * ("Today", "Tomorrow", a weekday, otherwise an absolute date), the same
+   * treatment the task due label gets.
+   */
+  const date = relativeDayLabel(toDateOnly(event.startMs, zone), zone);
   const time = event.isAllDay
     ? 'All day'
     : `${formatTime(event.startMs, { zone, timeFormat, weekStartsOn: 0 })} – ${formatTime(event.endMs, {
@@ -222,6 +230,10 @@ function EventDetails({
 
   return (
     <>
+      <Field icon={<CalendarIcon className="text-base" disableHover />} label="Date">
+        {date}
+      </Field>
+
       <Field icon={<ClockIcon />} label="Time">
         <span className="tabular-nums">{time}</span>
       </Field>

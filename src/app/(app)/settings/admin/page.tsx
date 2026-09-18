@@ -11,11 +11,9 @@
  * the same column with a centred block in it rather than a second layout.
  */
 import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
-import { PageHeader } from '@/components/app/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { AdminUserTable } from '@/components/settings/AdminUserTable';
-import { BackToSettings } from '@/components/settings/BackToSettings';
 import { InviteManager } from '@/components/settings/InviteManager';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { BootstrapPayload } from '@/lib/view-types';
@@ -26,8 +24,6 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <PageHeader title="Admin" leading={<BackToSettings />} />
-
       <SettingsTabs active="admin">
         {!user ? (
           <>

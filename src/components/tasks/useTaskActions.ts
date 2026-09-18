@@ -16,10 +16,10 @@ import { useCallback } from 'react';
 import { ApiClientError, api, errorMessage } from '@/lib/api-client';
 import { relativeDayLabel } from '@/lib/dates';
 import { useMutation, useOnline } from '@/lib/store';
-import type { List, Tag, Task } from '@/lib/types';
+import type { AccentColor, List, Tag, Task } from '@/lib/types';
 import type { CompleteTaskPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
-import type { BulkAction, BulkPayload, CreateTaskPayload, TaskPatch } from './payloads';
+import type { BulkAction, BulkPayload, CreateTaskPayload, ListPatch, TaskPatch } from './payloads';
 
 export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. They will work again once you reconnect.';
 
@@ -35,7 +35,7 @@ export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. 
  * `/api/bootstrap` carries the sidebar counts and the Today agenda, so it goes
  * with every write for the same reason.
  */
-const INVALIDATES = ['/api/tasks', '/api/bootstrap', '/api/calendar/items'];
+const INVALIDATES = ['/api/tasks', '/api/bootstrap', '/api/calendar/items', '/api/lists'];
 
 /** Maps a thrown value onto something worth showing a human. */
 function writeFailure(error: unknown, what: string): Error {
@@ -54,7 +54,11 @@ export interface TaskActions {
   complete(task: TaskRef, undo?: boolean): Promise<CompleteTaskPayload | undefined>;
   create(input: CreateTaskPayload): Promise<Task | undefined>;
   /** Creates a list from a quick-add `@Name`, then the caller retries. */
-  createList(name: string): Promise<List | undefined>;
+  createList(name: string, color?: AccentColor): Promise<List | undefined>;
+  /** Renames, recolours or describes a list. */
+  updateList(id: string, input: ListPatch): Promise<List | undefined>;
+  /** Deletes a list; its tasks move to the Inbox on the server. */
+  removeList(id: string): Promise<boolean>;
   /** Creates a tag from the tag picker's inline field. */
   createTag(name: string): Promise<Tag | undefined>;
   patch(id: string, input: TaskPatch): Promise<Task | undefined>;
@@ -130,14 +134,41 @@ export function useTaskActions(zone: string): TaskActions {
   );
 
   const listMutation = useMutation(
-    async (name: string) => {
+    async (name: string, color?: AccentColor) => {
       try {
-        return await api.post<List>('/api/lists', { name });
+        return await api.post<List>('/api/lists', color ? { name, color } : { name });
       } catch (error) {
         throw writeFailure(error, 'Could not create the list');
       }
     },
     { invalidates: INVALIDATES, onError: fail },
+  );
+
+  const listPatchMutation = useMutation(
+    async (id: string, input: ListPatch) => {
+      try {
+        return await api.patch<List>(`/api/lists/${id}`, input);
+      } catch (error) {
+        throw writeFailure(error, 'Could not save the list');
+      }
+    },
+    { invalidates: INVALIDATES, onError: fail },
+  );
+
+  const listRemoveMutation = useMutation(
+    async (id: string) => {
+      try {
+        return await api.delete<{ deleted: boolean }>(`/api/lists/${id}`);
+      } catch (error) {
+        throw writeFailure(error, 'Could not delete the list');
+      }
+    },
+    {
+      invalidates: INVALIDATES,
+      onSuccess: () =>
+        toast({ title: 'List deleted', description: 'Its tasks moved to the Inbox.', variant: 'info' }),
+      onError: fail,
+    },
   );
 
   const tagMutation = useMutation(
@@ -222,11 +253,28 @@ export function useTaskActions(zone: string): TaskActions {
   );
 
   const createList = useCallback(
-    async (name: string) => {
+    async (name: string, color?: AccentColor) => {
       if (refuseWhenOffline()) return undefined;
-      return listMutation.run(name);
+      return listMutation.run(name, color);
     },
     [listMutation, refuseWhenOffline],
+  );
+
+  const updateList = useCallback(
+    async (id: string, input: ListPatch) => {
+      if (refuseWhenOffline()) return undefined;
+      return listPatchMutation.run(id, input);
+    },
+    [listPatchMutation, refuseWhenOffline],
+  );
+
+  const removeList = useCallback(
+    async (id: string) => {
+      if (refuseWhenOffline()) return false;
+      const result = await listRemoveMutation.run(id);
+      return result !== undefined;
+    },
+    [listRemoveMutation, refuseWhenOffline],
   );
 
   const createTag = useCallback(
@@ -281,6 +329,8 @@ export function useTaskActions(zone: string): TaskActions {
       completeMutation.isPending ||
       createMutation.isPending ||
       listMutation.isPending ||
+      listPatchMutation.isPending ||
+      listRemoveMutation.isPending ||
       tagMutation.isPending ||
       patchMutation.isPending ||
       removeMutation.isPending ||
@@ -289,6 +339,8 @@ export function useTaskActions(zone: string): TaskActions {
     complete,
     create,
     createList,
+    updateList,
+    removeList,
     createTag,
     patch,
     remove,

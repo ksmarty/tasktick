@@ -39,21 +39,16 @@
  * pair are `h-9` with the same type scale — 16px on a phone, 14px from `md` up —
  * so they read as one control.
  *
- * ## Specifying a date or a duration
+ * ## Specifying a date, a start and an end
  *
- * The schedule row has two modes, switched with a GodUI `SegmentedControl`. In
- * **Date** mode it is the calendar button plus the time field; in **Duration**
- * mode it is a row of duration quick-picks. Both write fields the task record
- * already has: the date is `dueDate`/`dueTime`, and the duration is
- * `estimateMinutes` — the same field the editor's own "Estimated time" stepper
- * edits, so the two controls are always in step and nothing new is invented on
- * the wire.
- *
- * The chosen mode is *derived* from the record rather than stored: the sheet opens
- * in Duration mode exactly when the task has an estimate and no due date, which is
- * the state the mode itself produces, so it survives a reload. A task that carries
- * *both* a date and an estimate reopens in Date mode, because there is no field on
- * a task (and no endpoint) that records the preference — see the report.
+ * The schedule row is a date, a start time and an end time. Duration is derived
+ * from the range (`estimateMinutes` = end − start) rather than picked from a
+ * preset list, so a task is scheduled the way an event is. The record has no
+ * end-time column, so only the start (`dueDate`/`dueTime`) and the derived
+ * `estimateMinutes` are written — the same field the editor's own "Estimated
+ * time" stepper edits, so the two controls are always in step and nothing new is
+ * invented on the wire. The end field is enabled once a start exists; a task with
+ * an estimate but no date keeps that estimate and shows a blank range.
  *
  * ## One horizontal axis under the date row
  *
@@ -97,7 +92,6 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
-import { SegmentedControl } from '@/components/godui/segmented-control';
 import { addDaysToDateOnly, humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useMediaQuery, useResource } from '@/lib/store';
@@ -105,6 +99,7 @@ import type { DateOnly, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { ListPicker } from './ListPicker';
+import { ListManagerDialog } from './ListManagerDialog';
 import { PriorityPicker } from './PriorityPicker';
 import { ReminderPicker, describeReminders } from './ReminderPicker';
 import { RepeatPicker } from './RepeatPicker';
@@ -121,24 +116,28 @@ const SAVE_DEBOUNCE_MS = 600;
 const SAVE_ERROR_MS = 4000;
 
 /**
- * The duration quick-picks in the schedule row's Duration mode, in minutes.
+ * Minutes from `start` to `end`, both `HH:mm`.
  *
- * A small set rather than a free number field: these are the four or five
- * durations a task actually gets, they are one tap, and they round-trip as
- * `estimateMinutes` — the field the task record already stores. Anything else is
- * still reachable through the "Estimated time" stepper below, which edits the
- * same value.
+ * The end may be earlier than the start (an evening block that crosses
+ * midnight), in which case the span wraps; a zero-length range is the absence of
+ * a duration, not a zero one.
  */
-const DURATION_PRESETS = [
-  { minutes: 15, label: '15m' },
-  { minutes: 30, label: '30m' },
-  { minutes: 60, label: '1h' },
-  { minutes: 120, label: '2h' },
-  { minutes: 240, label: '4h' },
-] as const;
+function minutesBetweenTimes(start: string, end: string): number {
+  const toMinutes = (time: string) => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return (hours || 0) * 60 + (minutes || 0);
+  };
+  return (toMinutes(end) - toMinutes(start) + 24 * 60) % (24 * 60);
+}
 
-/** Which half of the schedule row is on screen: a due date, or a duration. */
-type ScheduleMode = 'date' | 'duration';
+/** `HH:mm` that many minutes after `start`, wrapping at midnight. */
+function addMinutesToTime(start: string, minutes: number): string {
+  const [hours, mins] = start.split(':').map(Number);
+  const total = ((hours || 0) * 60 + (mins || 0) + minutes) % (24 * 60);
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
+  const mm = String(total % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 type PickerId = 'repeat' | 'reminder' | 'priority' | 'list' | 'tags';
 
@@ -257,9 +256,9 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
    * `Object.keys(draft).length` would never fall back to zero.
    */
   const [dirty, setDirty] = useState(false);
-  /** The schedule row's mode: a due date, or a duration (`estimateMinutes`). */
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('date');
   const [picker, setPicker] = useState<PickerId | null>(null);
+  /** The list manager, hosted here so it outlives the ListPicker drawer. */
+  const [manageLists, setManageLists] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** The due-date popover is controlled so picking a day closes it. */
   const [dateOpen, setDateOpen] = useState(false);
@@ -284,12 +283,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
     setConfirmOpen(false);
     setDateOpen(false);
     setSaveError(null);
-    // The mode is read back off the record: a task that carries a duration and
-    // no date is exactly the state Duration mode leaves behind, so reopening the
-    // editor — after a reload, or on another day — lands in the same mode.
-    setScheduleMode(
-      task && !task.dueDate && (task.estimateMinutes ?? 0) > 0 ? 'duration' : 'date',
-    );
+    setManageLists(false);
     blocked.current = false;
   }, [task?.id, open]);
 
@@ -428,6 +422,9 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const listId = draft.listId !== undefined ? draft.listId : (task?.listId ?? null);
   const tagIds = draft.tagIds ?? task?.tagIds ?? [];
   const estimateMinutes = (draft.estimateMinutes !== undefined ? draft.estimateMinutes : task?.estimateMinutes) ?? 0;
+  // The end is derived, never stored: `dueTime + estimateMinutes`. An empty
+  // start or a zero duration leaves the field blank rather than inventing one.
+  const endTime = dueTime && estimateMinutes > 0 ? addMinutesToTime(dueTime, estimateMinutes) : '';
   const isPinned = draft.isPinned ?? task?.isPinned ?? false;
   const subtasks = task?.subtasks ?? [];
 
@@ -450,9 +447,9 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
               : 'sm:max-w-lg',
           )}
           onEscapeKeyDown={(event) => {
-            // A sub-picker is open: Escape and the backdrop must not close the
-            // editor out from under it.
-            if (picker || confirmOpen) event.preventDefault();
+            // A sub-picker or the list manager is open: Escape and the backdrop
+            // must not close the editor out from under it.
+            if (picker || confirmOpen || manageLists) event.preventDefault();
           }}
           /*
            * No autofocus on the title on the edit path. Radix would focus the
@@ -521,27 +518,21 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             <Separator />
 
             {/*
-             * The mode switch. A GodUI segmented control because this is exactly
-             * a binary segmented choice, and it reports its state through
-             * `aria-selected` on each option. `[&>button]:flex-1` splits the
-             * control's full width evenly between the two options — the control
-             * itself is `inline-flex`, so without it the pair would bunch at its
-             * leading edge and leave the trailing half empty.
+             * The schedule row: a date, then a start and an end time.
+             *
+             * Duration is no longer a fixed preset list — it is derived from the
+             * range the user picks, exactly as it is on an event. The task record
+             * has no end-time field (see the report), so the end is never stored:
+             * the start goes to `dueDate`/`dueTime` and the derived span goes to
+             * `estimateMinutes`, the field the "Estimated time" stepper below
+             * reads and writes too, so the two controls cannot disagree.
+             *
+             * The end field is available only once there is a start; an end with
+             * no beginning is not a range. Both time fields are native
+             * `input[type=time]`, so they render in the user's own 12h/24h
+             * convention and emit `HH:mm` either way.
              */}
-            <SegmentedControl
-              aria-label="Specify by"
-              size="sm"
-              className="[&>button]:flex-1"
-              options={[
-                { value: 'date', label: 'Date' },
-                { value: 'duration', label: 'Duration' },
-              ]}
-              value={scheduleMode}
-              onChange={(next) => setScheduleMode(next === 'duration' ? 'duration' : 'date')}
-            />
-
-            {scheduleMode === 'date' ? (
-              <div className="flex items-center gap-stack">
+            <div className="flex items-center gap-stack">
                 <Popover open={dateOpen} onOpenChange={setDateOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -619,14 +610,16 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 </Popover>
 
                 {/*
-                 * `w-auto`: the parent is a row, and the date button is the
-                 * flexible one. An `Input`'s default `w-full` is a 100% flex
-                 * basis, which would win the space and collapse the button.
+                 * The start time, and — once there is one — the end. Both are
+                 * `h-9` from the shadcn `Input`, the same height as the date
+                 * button beside them, and each carries a placeholder that names
+                 * it. The end has no editable draft of its own: it is recomputed
+                 * from the start and the derived `estimateMinutes`.
                  */}
                 <Input
                   type="time"
-                  aria-label="Time"
-                  placeholder="--:--"
+                  aria-label="Start time"
+                  placeholder="Start"
                   className="w-auto"
                   value={dueTime ?? ''}
                   disabled={disabled || !dueDate}
@@ -639,34 +632,25 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                     edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
                   }}
                 />
+
+                <Input
+                  type="time"
+                  aria-label="End time"
+                  placeholder="End"
+                  className="w-auto"
+                  value={endTime}
+                  disabled={disabled || !dueDate || !dueTime}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (!value || !dueTime) {
+                      edit({ estimateMinutes: null });
+                      return;
+                    }
+                    const diff = minutesBetweenTimes(dueTime, value);
+                    edit({ estimateMinutes: diff > 0 ? diff : null });
+                  }}
+                />
               </div>
-            ) : (
-              /*
-               * Duration mode: the quick-picks write `estimateMinutes`, the
-               * field the record already stores, and the "Estimated time"
-               * stepper below edits the same number, so the two never disagree.
-               * Tapping the selected one clears it, which is the only way to get
-               * back to "no duration" without the stepper.
-               */
-              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Duration">
-                {DURATION_PRESETS.map((preset) => {
-                  const active = estimateMinutes === preset.minutes;
-                  return (
-                    <Button
-                      key={preset.minutes}
-                      type="button"
-                      variant={active ? 'secondary' : 'outline'}
-                      aria-pressed={active}
-                      disabled={disabled}
-                      onClick={() => edit({ estimateMinutes: active ? null : preset.minutes })}
-                      className="flex-1"
-                    >
-                      {preset.label}
-                    </Button>
-                  );
-                })}
-              </div>
-            )}
 
             <div className="flex flex-col">
               <EditorRow
@@ -882,6 +866,11 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
         lists={lists}
         value={listId}
         onChange={(next) => edit({ listId: next })}
+        onManage={() => setManageLists(true)}
+      />
+      <ListManagerDialog
+        open={manageLists}
+        onOpenChange={setManageLists}
       />
       <TagPicker
         open={picker === 'tags'}

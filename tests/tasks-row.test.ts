@@ -150,12 +150,17 @@ describe('TaskRow — Tailwind through cn(), no hand-rolled divider', () => {
     expect(ROW).not.toContain('styled(');
   });
 
-  it('still rounds the first and last row of a card', () => {
-    // `first`/`last` survived the divider removal because they round the corner.
+  it('rounds only the last row, which is the row on the card\'s corner', () => {
+    // The first row sits under the header, mid-card, so its strip must stay
+    // square; only the last row follows the card's bottom corner. `rounded-b-lg`
+    // is the theme's `--radius` (10px), which is the section card's own radius,
+    // so the strip meets the card exactly.
     expect(ROW).toContain('first');
     expect(ROW).toContain('last');
-    expect(ROW).toMatch(/first && 'rounded-t-xl'/);
-    expect(ROW).toMatch(/last && 'rounded-b-xl'/);
+    expect(ROW).toMatch(/last && 'rounded-b-lg'/);
+    expect(ROW).not.toContain("first && 'rounded-t-xl'");
+    expect(EVENT_ROW).toMatch(/last && 'rounded-b-lg'/);
+    expect(EVENT_ROW).not.toContain("first && 'rounded-t-xl'");
   });
 
   it('centres the due date on the row, with a matching line box', () => {
@@ -337,14 +342,16 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)');
   });
 
-  it('gives the time field a placeholder and the date field the same type scale', () => {
-    // Measured: both are `h-9`, i.e. 36.0px in every viewport and state, and the
-    // rendered border rows are identical (y=270 and y=303 down a 1px column).
-    // What differed was the type inside — the time field's 16px/24px against the
-    // date button's 14px/20px — so the button now carries the inputs' own
-    // `text-base md:text-sm` scale.
+  it('gives the time fields a placeholder and the date field the same type scale', () => {
+    // The start and end time inputs and the date button are all `h-9`, i.e.
+    // 36.0px, so the three read as one row. Each time field carries a placeholder
+    // that names which half of the range it is; the date button keeps the
+    // inputs' own `text-base md:text-sm` scale.
     expect(EDITOR).toContain('type="time"');
-    expect(EDITOR).toContain('placeholder="--:--"');
+    expect(EDITOR).toContain('aria-label="Start time"');
+    expect(EDITOR).toContain('placeholder="Start"');
+    expect(EDITOR).toContain('aria-label="End time"');
+    expect(EDITOR).toContain('placeholder="End"');
     expect(EDITOR).toContain('justify-start text-base md:text-sm');
   });
 
@@ -363,21 +370,31 @@ describe('the converted screens', () => {
     expect(subtasks).toContain('rounded-lg px-3 text-primary');
   });
 
-  it('switches the schedule row between a date and a duration', () => {
-    // The mode is a GodUI segmented control, and the duration half writes
-    // `estimateMinutes` — the field the task record already has, which the
-    // editor's own "Estimated time" stepper reads and writes too.
-    expect(EDITOR).toContain("from '@/components/godui/segmented-control'");
-    expect(EDITOR).toContain('<SegmentedControl');
-    expect(EDITOR).toContain("type ScheduleMode = 'date' | 'duration'");
-    expect(EDITOR).toContain('const DURATION_PRESETS = [');
-    expect(EDITOR).toContain('edit({ estimateMinutes: active ? null : preset.minutes })');
+  it('builds the schedule row from a date, a start and an end, deriving the duration', () => {
+    // Duration is no longer a preset list: the end time is the control, the same
+    // native time field the start uses, and the span is written to
+    // `estimateMinutes` — the field the record already has and the stepper below
+    // already edits. The record has no end-time column, so the end is derived
+    // from `dueTime + estimateMinutes` (`addMinutesToTime`) and never stored.
+    expect(EDITOR).toContain('aria-label="Start time"');
+    expect(EDITOR).toContain('aria-label="End time"');
+    expect(EDITOR).toContain('minutesBetweenTimes');
+    expect(EDITOR).toContain('addMinutesToTime');
+    expect(EDITOR).toContain('edit({ estimateMinutes: diff > 0 ? diff : null })');
+    expect(EDITOR).not.toContain('DURATION_PRESETS');
+    expect(EDITOR).not.toContain('SegmentedControl');
+    // The stepper still writes the same field, so the two controls agree.
     expect(EDITOR).toContain('edit({ estimateMinutes: Math.min(1440, estimateMinutes + 5) })');
-    // The chosen mode is read back off the record, so it survives a reload
-    // whenever the record distinguishes the two.
-    expect(EDITOR).toMatch(
-      /setScheduleMode\(\s*task && !task\.dueDate && \(task\.estimateMinutes \?\? 0\) > 0 \? 'duration' : 'date',\s*\);/,
-    );
+  });
+
+  it('opens the list manager from the list picker', () => {
+    // Lists are managed where they are already visible: the picker inside the
+    // editor, plus the sidebar's `?new=list` route handled by `TasksView`.
+    expect(EDITOR).toContain('<ListManagerDialog');
+    expect(EDITOR).toContain('onManage={() => setManageLists(true)}');
+    const picker = source('ListPicker.tsx');
+    expect(picker).toContain('onManage');
+    expect(picker).toContain('Manage lists');
   });
 
   it('puts Today, Tomorrow and Next week above the calendar', () => {
@@ -403,12 +420,31 @@ describe('the converted screens', () => {
     expect(TODAY).toContain('sheen={0}');
   });
 
+  it('manages task lists through the API the server already exposes', () => {
+    // The server has had POST/PATCH/DELETE `/api/lists` all along; the manager
+    // paints them and refreshes the bootstrap resource so the new list appears
+    // without a reload. `?new=list` — the sidebar's "New list" route — opens it
+    // in create mode and is stripped from the URL.
+    const manager = source('ListManagerDialog.tsx');
+    expect(manager).toContain('actions.createList(trimmed, color)');
+    expect(manager).toContain('actions.updateList(formList.id, { name: trimmed, color })');
+    expect(manager).toContain('actions.removeList(formList.id)');
+    expect(manager).toContain('void bootstrap.refresh()');
+    expect(manager).toContain('id="task-list-name"');
+    expect(manager).toContain('AccentSwatches');
+    expect(VIEW).toContain("searchParams.get('new') !== 'list'");
+    expect(VIEW).toContain('startInForm={listManager.creating}');
+  });
+
   it('removes the hairlines between rows and under the section header', () => {
-    // The user asked for both lines gone; separation is spacing now (`gap-1`
-    // between rows, the header's own `py-2.5` above them).
+    // The user asked for both lines gone; separation is spacing now (the header's
+    // own `py-2.5` and the rows' 44px boxes). There is deliberately no `gap-1`
+    // between rows: that gap is exactly where the per-row colour strips broke, so
+    // removing it makes the strip continuous down the section.
     expect(SECTION).not.toContain('divide-y');
     expect(SECTION).not.toContain('border-t border-border/70');
-    expect(SECTION).toContain('flex flex-col gap-1 text-base text-foreground');
+    expect(SECTION).toContain('flex flex-col text-base text-foreground');
+    expect(SECTION).not.toContain('flex flex-col gap-1');
   });
 
   it('squares the first row\'s highlight at the section\'s top edge', () => {

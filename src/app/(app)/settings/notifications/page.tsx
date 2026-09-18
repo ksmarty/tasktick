@@ -8,11 +8,9 @@
  * whether you arrive here from the index or from a deep link. All the platform
  * logic lives in `NotificationSettings`; this page only loads the payload.
  */
-import { PageHeader } from '@/components/app/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
-import { BackToSettings } from '@/components/settings/BackToSettings';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { SettingsPayload } from '@/lib/view-types';
@@ -22,8 +20,6 @@ export default function NotificationSettingsPage() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <PageHeader title="Notifications" leading={<BackToSettings />} />
-
       <SettingsTabs active="notifications">
         {!settings.data ? (
           <>

@@ -47,11 +47,10 @@
  * surface. Failures that need the user's attention *inside* the form — a load
  * error, a bad range — are inline, next to the field that caused them.
  */
-import { useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useMemo, useState } from 'react';
 import { DateTime } from 'luxon';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
-import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { useToast } from '@/components/app/Toast';
@@ -61,6 +60,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -85,9 +85,8 @@ import {
 } from '@/lib/dates';
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset, weekdayOfDate } from '@/lib/rrule';
 import { invalidate, useResource } from '@/lib/store';
-import { cn } from '@/lib/utils';
 import type { Calendar as CalendarRecord, CalendarEvent, DateOnly, TimeOnly } from '@/lib/types';
-import { calendarColorHex } from './colors';
+import { CalendarCombobox } from './CalendarCombobox';
 import { minuteToTime } from './geometry';
 import type { CalendarFilter, CalendarPrefs } from './types';
 
@@ -205,7 +204,39 @@ export function EventEditorSheet({
          */
         className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0 sm:max-w-lg"
         aria-labelledby="event-editor-title"
+        /*
+         * No autofocus on the title. Radix would focus the first focusable
+         * control — the title input — so opening the editor to *read* or change
+         * one field immediately put the caret in the title and, on iOS, raised
+         * the keyboard. The tasks quick-add sheet owns the deliberately
+         * synchronous focus it needs for the keyboard (see `QuickAddBar`); this
+         * sheet does not, so it starts without stealing focus. Keyboard users
+         * still reach the form on the first Tab. Same rule as
+         * `TaskEditorSheet`.
+         */
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        /*
+         * The close control is the dialog's own (`DialogClose`), not the
+         * primitive's default, because that one is a bare 16px glyph in a 16px
+         * box. See the button below for the measured target.
+         */
+        showCloseButton={false}
       >
+        {/*
+         * The close target. It is the same `DialogClose` — so it still closes,
+         * still returns focus and still sits where the primitive's did — but in
+         * a 44px box instead of a 16px one. The box is centred on the old
+         * glyph's own centre (the primitive's `top-4 right-4` put that centre
+         * 24px in from each edge; a 44px box therefore starts 2px in), so the
+         * glyph does not move and only the target around it grows. The glyph
+         * itself is unchanged at `size-4`.
+         */}
+        <DialogClose
+          className="absolute top-0.5 right-0.5 flex size-11 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        >
+          <Cross1Icon aria-hidden className="size-4 text-base" disableHover />
+          <span className="sr-only">Close</span>
+        </DialogClose>
         <DialogHeader className="shrink-0 gap-0 border-b border-border px-card py-stack">
           <DialogTitle id="event-editor-title" className="text-lg font-semibold">
             {isEdit ? 'Edit event' : 'New event'}
@@ -331,26 +362,8 @@ function EventForm({
   const [draft, setDraft] = useState(() => buildDraft(event, defaults, calendars, filter, prefs.zone, today));
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const calendarRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const patch = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
-
-  /** Standard radiogroup behaviour: arrows move the selection and the focus. */
-  function onCalendarKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const delta =
-      event.key === 'ArrowDown' || event.key === 'ArrowRight'
-        ? 1
-        : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
-          ? -1
-          : 0;
-    if (delta === 0 || calendars.length === 0) return;
-
-    event.preventDefault();
-    const index = calendars.findIndex((calendar) => calendar.id === draft.calendarId);
-    const next = calendars[(((index < 0 ? 0 : index) + delta) % calendars.length + calendars.length) % calendars.length];
-    patch({ calendarId: next.id });
-    calendarRefs.current.get(next.id)?.focus();
-  }
 
   const repeatRule = useMemo(() => {
     const preset = REPEAT_PRESETS.find((candidate) => candidate.id === draft.repeatId);
@@ -465,45 +478,18 @@ function EventForm({
         />
 
         {/*
-          The calendar the event belongs to. A radiogroup rather than a select,
-          because the choice is a colour-dotted list of a handful of options and
-          picking one is one tap — the arrow keys still move the selection.
+          The calendar the event belongs to: a combobox — see
+          `./CalendarCombobox`. It commits the same value the radiogroup it
+          replaced did, a calendar id, but the list is filterable, so a calendar
+          that is not one of the first few visible rows is still one typed word
+          away.
         */}
-        <div
-          aria-label="Calendar"
-          role="radiogroup"
-          onKeyDown={onCalendarKeyDown}
-          className="shrink-0 overflow-hidden rounded-xl border border-border"
-        >
-          {calendars.map((calendar) => {
-            const selected = calendar.id === draft.calendarId;
-            return (
-              <button
-                key={calendar.id}
-                ref={(node) => {
-                  if (node) calendarRefs.current.set(calendar.id, node);
-                  else calendarRefs.current.delete(calendar.id);
-                }}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => patch({ calendarId: calendar.id })}
-                className="flex min-h-11 w-full cursor-pointer items-center gap-3 px-row py-2 text-left"
-              >
-                <span
-                  aria-hidden
-                  className="size-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: calendarColorHex(calendar) }}
-                />
-                <span className={cn('min-w-0 flex-1 truncate text-sm', selected && 'font-semibold')}>
-                  {calendar.name}
-                </span>
-                {selected ? <CheckIcon aria-hidden className="size-4 shrink-0 text-primary" /> : null}
-              </button>
-            );
-          })}
-        </div>
+        <CalendarCombobox
+          value={draft.calendarId}
+          calendars={calendars}
+          onChange={(calendarId) => patch({ calendarId })}
+          className="shrink-0"
+        />
 
         <section aria-label="When" className={FIELD_GROUP_CLASS}>
           <div className="flex items-center gap-3">
@@ -725,7 +711,7 @@ function DateField({
   const selected = toDateTime(value, zone).toJSDate();
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <Label htmlFor={id}>{label}</Label>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
@@ -756,7 +742,18 @@ function DateField({
   );
 }
 
-/** A wall-clock `HH:mm`, from a native time input. */
+/**
+ * A wall-clock `HH:mm`, from a native time input.
+ *
+ * The input is **bounded**, not full-width. A native time field is one short
+ * value plus a picker glyph; stretched across the form (`w-full`, which is what
+ * it was) it read as an over-long empty box with its glyph jammed against the
+ * form's edge — and on a narrow phone the native control's own intrinsic width
+ * could push past that edge. `w-40` is the same compact width the habits
+ * editor's reminder field uses, it clears the control's ~138px content need with
+ * room to spare, and the wrapper's `min-w-0` means the column can always shrink
+ * it rather than letting a grid track overflow.
+ */
 function TimeField({
   id,
   label,
@@ -769,7 +766,7 @@ function TimeField({
   onChange: (time: TimeOnly) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
@@ -782,6 +779,7 @@ function TimeField({
           // last good value instead.
           if (input.target.value) onChange(input.target.value);
         }}
+        className="w-40"
       />
     </div>
   );

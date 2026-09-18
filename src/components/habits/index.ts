@@ -22,6 +22,7 @@ export {
   habitDoneOn,
   habitMetaSummary,
   habitProgressView,
+  habitRingColours,
   habitRingSegments,
   habitsCompletedOn,
   habitWindowRange,

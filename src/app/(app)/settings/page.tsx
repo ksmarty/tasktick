@@ -9,14 +9,13 @@
  * way out. Appearance and Date & time have their own sections, so this page no
  * longer mixes them in.
  *
- * The header is owned by the app shell: this page publishes its title through
- * `PageHeader` rather than stacking a second bar under the shell's, which is what
- * keeps one title row, one safe-area inset and one elevation across every screen.
+ * The header is owned by the app shell and published once by the settings
+ * layout (see `./layout`): the title is "Settings" on every section, because the
+ * section list already says which section is open. This page publishes nothing.
  *
  * Layout: one `flex flex-col gap-stack` column, inset by `px-gutter` and given a
  * top gutter so the first group does not sit flush against the app bar.
  */
-import { PageHeader } from '@/components/app/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { AccountSettings } from '@/components/settings/AccountSettings';
@@ -29,11 +28,6 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      {/* No back control: Settings is a top-level destination, reached from the
-          sidebar and from the tab bar. The header names the section the route
-          shows, not the area — every settings page names its own section. */}
-      <PageHeader title="Account" />
-
       <SettingsTabs active="account">
         {!data ? (
           <>

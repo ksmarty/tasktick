@@ -11,8 +11,10 @@
  * row menu here, because there is nothing to complete.
  *
  * The row keeps the list's shape (44px tall, the `px-row` inset, the same
- * press-highlight region, the rounded first/last corner) and adds the per-row
- * colour strip the tasks have, in the event's calendar colour.
+ * press-highlight region, the rounded last corner) and adds the per-row colour
+ * strip the tasks have, in the event's calendar colour. That colour is resolved
+ * through `itemHex`, which honours a calendar's custom `#rrggbb`
+ * `colorOverride` rather than narrowing it to one of the twelve palette tokens.
  *
  * ## The title is one line
  *
@@ -22,10 +24,14 @@
  * diverging here.
  */
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
-import { accentHex } from '@/lib/colors';
+import { itemHex } from '@/components/calendar/colors';
+import type { CalendarLookup } from '@/components/calendar/types';
 import { formatTime } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
+
+/** A stable empty lookup, so an event with no calendars passed still paints. */
+const EMPTY_CALENDARS: CalendarLookup = new Map();
 
 export interface EventRowProps {
   event: CalendarItem;
@@ -33,9 +39,16 @@ export interface EventRowProps {
   timeFormat: '12h' | '24h';
   /** Opens the event's detail sheet. */
   onOpen?: (event: CalendarItem) => void;
-  /** Rounds the top corner of the first row of a card. */
+  /**
+   * The calendars, so the strip can resolve the calendar's own colour — a custom
+   * `#rrggbb` `colorOverride` included. See `itemHex`.
+   */
+  calendars?: CalendarLookup;
+  /** Whether the resolved appearance is dark, for the accent hex lookup. */
+  dark?: boolean;
+  /** Squares the top of the first row's press region (it is not at a corner). */
   first?: boolean;
-  /** Rounds the bottom corner of the last row of a card. */
+  /** Rounds the bottom corner of the last row, so its strip follows the card. */
   last?: boolean;
   className?: string;
 }
@@ -45,6 +58,8 @@ export function EventRow({
   zone,
   timeFormat,
   onOpen,
+  calendars,
+  dark = false,
   first = false,
   last = false,
   className,
@@ -65,18 +80,19 @@ export function EventRow({
   return (
     <li
       className={cn(
+        // Only the last row sits on the card's corner, so only it rounds.
         'relative isolate overflow-hidden',
-        first && 'rounded-t-xl',
-        last && 'rounded-b-xl',
+        last && 'rounded-b-lg',
         className,
       )}
     >
       <div className="relative z-10 flex min-h-11 w-full items-center gap-1 px-row">
-        {/* The per-row colour strip: the event's calendar colour. */}
+        {/* The per-row colour strip: the event's calendar colour, custom hexes
+            included (see `itemHex`). */}
         <span
           aria-hidden
           className="absolute inset-y-0 left-0 w-1"
-          style={{ backgroundColor: accentHex(event.color) }}
+          style={{ backgroundColor: itemHex(event, calendars ?? EMPTY_CALENDARS, dark) }}
         />
 
         {/*

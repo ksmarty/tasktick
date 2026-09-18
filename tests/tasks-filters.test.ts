@@ -3,7 +3,7 @@
  * active filters the header button reports.
  */
 import { describe, expect, it } from 'vitest';
-import type { Task } from '@/lib/types';
+import type { CalendarItem, Task } from '@/lib/types';
 import {
   activeFilters,
   clearFilter,
@@ -17,6 +17,7 @@ import {
   taskQuery,
   taskViewTitle,
   updateTaskView,
+  visibleEvents,
 } from '@/components/tasks/filters';
 
 const lookups = {
@@ -288,5 +289,65 @@ describe('taskViewTitle', () => {
 
   it('survives a stale list id', () => {
     expect(taskViewTitle(parseTaskView('list=gone&window=overdue'), lookups)).toBe('Overdue');
+  });
+});
+
+function makeEvent(id: string, patch: Partial<CalendarItem> = {}): CalendarItem {
+  const startMs = Date.parse('2025-05-12T09:00:00Z');
+  return {
+    key: `event:${id}:${startMs}`,
+    kind: 'event',
+    id,
+    title: `Event ${id}`,
+    startMs,
+    endMs: startMs + 60 * 60 * 1000,
+    isAllDay: false,
+    color: 'blue',
+    calendarId: 'cal',
+    ...patch,
+  };
+}
+
+describe('visibleEvents — a filter that cannot apply excludes the event', () => {
+  const context = { zone: 'utc', today: '2025-05-12' as const };
+  const events = [
+    makeEvent('today'),
+    makeEvent('tomorrow', { startMs: Date.parse('2025-05-13T09:00:00Z'), key: 'event:tomorrow' }),
+    makeEvent('dentist', { title: 'Dentist appointment', location: 'Clinic' }),
+  ];
+
+  it('keeps every event when nothing is set', () => {
+    expect(visibleEvents(events, parseTaskView(''), context).map((e) => e.id)).toEqual([
+      'today',
+      'tomorrow',
+      'dentist',
+    ]);
+  });
+
+  it('applies the search to an event title and location', () => {
+    expect(visibleEvents(events, parseTaskView('q=dentist'), context).map((e) => e.id)).toEqual(['dentist']);
+    expect(visibleEvents(events, parseTaskView('q=clinic'), context).map((e) => e.id)).toEqual(['dentist']);
+    expect(visibleEvents(events, parseTaskView('q=nothing'), context)).toEqual([]);
+  });
+
+  it('trims to today when the window is Today', () => {
+    expect(visibleEvents(events, parseTaskView('window=today'), context).map((e) => e.id)).toEqual([
+      'today',
+      'dentist',
+    ]);
+  });
+
+  it('excludes events for list, tag and priority filters, which they cannot satisfy', () => {
+    // An event belongs to a calendar, not a list; it has no tags and no priority,
+    // so a filter naming one must not silently keep it.
+    expect(visibleEvents(events, parseTaskView('list=l1'), context)).toEqual([]);
+    expect(visibleEvents(events, parseTaskView('tag=t1'), context)).toEqual([]);
+    expect(visibleEvents(events, parseTaskView('priority=high'), context)).toEqual([]);
+  });
+
+  it('excludes events for windows a dated event can never be in', () => {
+    expect(visibleEvents(events, parseTaskView('window=completed'), context)).toEqual([]);
+    expect(visibleEvents(events, parseTaskView('window=overdue'), context)).toEqual([]);
+    expect(visibleEvents(events, parseTaskView('window=noDate'), context)).toEqual([]);
   });
 });

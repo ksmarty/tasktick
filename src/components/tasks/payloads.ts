@@ -5,7 +5,7 @@
  * module is reachable from the browser bundle; the fields mirror
  * `createTaskSchema` / `updateTaskSchema` in `@/lib/schemas`.
  */
-import type { DateOnly, Priority, TaskStatus, TimeOnly } from '@/lib/types';
+import type { AccentColor, DateOnly, Priority, TaskStatus, TimeOnly } from '@/lib/types';
 
 /** Body of `POST /api/tasks`. */
 export interface CreateTaskPayload {
@@ -49,6 +49,15 @@ export interface TaskPatch {
   reminders?: { offsetMinutes: number | null; absoluteAtMs?: number | null }[];
   clearReminders?: boolean;
   isPinned?: boolean;
+}
+
+/** Body of `PATCH /api/lists/[id]` — every field optional. */
+export interface ListPatch {
+  name?: string;
+  description?: string | null;
+  color?: AccentColor;
+  emoji?: string | null;
+  archived?: boolean;
 }
 
 export type BulkAction = 'complete' | 'delete' | 'move' | 'priority' | 'addTag' | 'removeTag';

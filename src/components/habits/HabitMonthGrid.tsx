@@ -36,11 +36,12 @@
  * ## The ring, on the grid's new seam
  *
  * A day on which at least one habit was completed carries a ring around its
- * number, sectioned into one arc per habit. The ring is painted *inside*
- * `MonthGrid`'s day cell, so the grid exposes a seam for a per-day mark —
- * `renderDayMarker(date)` / `dayMarkerLabel(date)` — and this screen is its only
- * caller. `habitRingSegments` turns the habits the screen already loads into one
- * count per completed day (no second read: the list is the only request this
+ * number, sectioned into one arc per habit and stroked in each habit's own
+ * colour. The ring is painted *inside* `MonthGrid`'s day cell, so the grid
+ * exposes a seam for a per-day mark — `renderDayMarker(date)` /
+ * `dayMarkerLabel(date)` — and this screen is its only caller.
+ * `habitRingColours` turns the habits the screen already loads into one colour
+ * list per completed day (no second read: the list is the only request this
  * screen makes), `HabitDayRing` draws the arcs, and the label rides on the day
  * button's accessible name so a completed day is not silent to a screen reader.
  *
@@ -59,10 +60,10 @@ import {
 } from '@/components/calendar';
 import { fromDateOnly, rangeForView, shiftViewAnchor } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import type { DateOnly, Habit } from '@/lib/types';
+import type { AccentColor, DateOnly, Habit } from '@/lib/types';
 import type { CalendarItemsPayload } from '@/lib/view-types';
 import { HabitDayRing } from './HabitDayRing';
-import { habitRingSegments } from './period';
+import { habitRingColours } from './period';
 
 /** The label of the grabber while the grid is expanded — see the file header. */
 const COLLAPSE_LABEL = 'Collapse to a week';
@@ -80,13 +81,22 @@ const NO_ITEMS: CalendarItemsPayload = { items: [], calendars: [], days: {} };
 /** The grid's `calendars` prop: nothing on this screen resolves an item's colour. */
 const NO_CALENDARS: CalendarLookup = new Map();
 
+/**
+ * A day with no ring, as a stable reference.
+ *
+ * Shared rather than `[]` per call so that the memoised `HabitDayRing` sees the
+ * same prop on every render and skips the days that have not changed.
+ */
+const NO_COLOURS: readonly AccentColor[] = [];
+
 export interface HabitMonthGridProps {
   /**
    * The habits the screen already loaded — the ring's only input.
    *
    * The month paints no items (see "No events here"), so it reads nothing of its
    * own: it turns this list's `entries`/`doneToday` into one ring per day with
-   * `habitRingSegments`, the same rule the check-in control and the list use.
+   * `habitRingColours`, the same rule the check-in control and the list use —
+   * only colouring the ring's arcs rather than counting them.
    */
   habits: readonly Habit[];
   /** A day inside the month being displayed. */
@@ -165,8 +175,8 @@ export function HabitMonthGrid({
   );
 
   /*
-   * The ring data: one completed-habit count per day, for every day any of the
-   * three panels can paint.
+   * The ring data: the habits completed on each day, one accent per habit, for
+   * every day any of the three panels can paint.
    *
    * The union matters for the paging track. A day that gets its ring from this
    * map is drawn identically in whichever panel holds it, and the two neighbours
@@ -175,9 +185,9 @@ export function HabitMonthGrid({
    * afterwards. The keys come from the panels' own `days` (the server's windows),
    * so a ring can never land on a cell the grid does not hold.
    */
-  const rings = useMemo(
+  const ringColours = useMemo(
     () =>
-      habitRingSegments(
+      habitRingColours(
         habits,
         [...range.days, ...neighbours[0].range.days, ...neighbours[1].range.days],
         today,
@@ -186,29 +196,27 @@ export function HabitMonthGrid({
   );
 
   /*
-   * The mark itself: a ring with one section per completed habit, or nothing.
+   * The mark itself: a ring with one coloured arc per completed habit, or
+   * nothing drawn.
    *
-   * The colour is chosen against the day cell's own state. A plain or "today"
-   * disc is the page background, where the ring's default `text-muted-foreground`
-   * is the legible token — the same grey the calendar's dots were toned down to.
-   * The selected disc is filled with `bg-primary`, where that grey all but
-   * vanishes in dark appearance, so there the ring takes `text-primary-foreground`:
-   * the token whose entire job is to contrast with the `primary` fill (it is what
-   * the selected day number is painted in). Still monochrome, still no hue — just
-   * the fill's own opposite.
+   * The colour is the habit's, resolved in `HabitDayRing` — the ring encodes
+   * which habits were kept, so a day with three habits reads as three
+   * identifiable segments. There is deliberately no per-day-state tint here any
+   * more: the old monochrome ring borrowed `text-primary-foreground` on the
+   * selected day to stay legible on the filled disc, and an override in any
+   * direction would recolour the very information the arcs now carry.
+   *
+   * The ring component is mounted on **every** day, with `NO_COLOURS` for the
+   * days that have none. That is not waste — it is the only way the exit can
+   * exist: an arc drawn by a component the parent has just removed pops out
+   * instead of retracting, and taking a completion back is exactly when the user
+   * is watching the day they just unchecked. An empty ring renders no DOM (its
+   * `AnimatePresence` has no children), and the shared `NO_COLOURS` array keeps
+   * the memoised component from re-rendering on every grid render.
    */
   const renderDayMarker = useCallback(
-    (date: DateOnly) => {
-      const segments = rings.get(date);
-      if (!segments) return null;
-      return (
-        <HabitDayRing
-          segments={segments}
-          className={date === selectedDate ? 'text-primary-foreground' : undefined}
-        />
-      );
-    },
-    [rings, selectedDate],
+    (date: DateOnly) => <HabitDayRing colours={ringColours.get(date) ?? NO_COLOURS} />,
+    [ringColours],
   );
 
   /*
@@ -222,11 +230,11 @@ export function HabitMonthGrid({
    */
   const dayMarkerLabel = useCallback(
     (date: DateOnly) => {
-      const segments = rings.get(date);
-      if (!segments) return null;
-      return segments === 1 ? '1 habit completed' : `${segments} habits completed`;
+      const colours = ringColours.get(date);
+      if (!colours) return null;
+      return colours.length === 1 ? '1 habit completed' : `${colours.length} habits completed`;
     },
-    [rings],
+    [ringColours],
   );
 
   /*

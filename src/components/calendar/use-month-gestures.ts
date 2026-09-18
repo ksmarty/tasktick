@@ -8,10 +8,10 @@
  *   · **Vertical** — the grid's height follows the finger, shrinking the month
  *     down to the one week that holds the selected day (the collapse the old
  *     chevron button used to do), and expanding back to all six.
- *   · **Horizontal** — the whole paging track translates with the finger, and on
- *     release either commits a page or snaps back. Sideways travel moves the
- *     track sideways and nothing else: the two axes never share an offset (see
- *     "One horizontal unit" below).
+ *   · **Horizontal** — the paging track translates with the finger, and on
+ *     release either commits a page or snaps back. What a page *is* follows the
+ *     grid's shape — a month expanded, a week collapsed (see "The paging unit"
+ *     below).
  *
  * ## The axis rule
  *
@@ -46,33 +46,40 @@
  * behind a transition. The slide is cross-faded on top of that movement — see
  * "The cross-fade" below.
  *
- * ## One horizontal unit: the month
+ * ## The paging unit
  *
- * A horizontal drag means one thing, and it means it on both shapes of the grid:
- * **the track moves sideways by one page, and a page is one month.** Expanded,
- * that is the six-week lattice sliding to the month either side. Collapsed, it is
- * the *same* slide: the clip is one week tall, but all three panels are still the
- * full lattice, so the neighbouring month's identical week row is already painted
- * beside the current one and simply slides in. One page is therefore the clip's
- * width at pointerdown whether or not the grid is collapsed, and a committed
- * swipe always reports a month delta through `onPage`.
+ * One horizontal page is **one month while the grid is expanded** and **one
+ * week while it is collapsed**. The shape of the grid is what says how far a
+ * swipe reaches, and the hook reads it from the `collapsed` state it owns, so
+ * neither caller has to tell it which unit it is on — and the two callers cannot
+ * disagree with it. A drag takes its unit at pointerdown, so a gesture that
+ * began expanded can never change its mind halfway.
  *
- * That is the fix for the gesture that used to read as vertical. A collapsed drag
- * once rolled the strip *down* one row — a seven-day step — 1:1 with the finger,
- * so a sideways swipe slid the whole lattice up or down the screen, and the
- * further the finger travelled sideways the further the numbers travelled
- * vertically. A horizontal finger may move things horizontally and nothing else;
- * the vertical axis belongs to the height drag alone. Nothing else about the
- * gesture changed: the same 1:1 tracking, the same 40%-or-a-flick commit rule,
- * the same live title and the same selection frozen until the release.
+ *   · Expanded, the six-week lattice *is* the month, so its neighbours are the
+ *     months either side and the track has somewhere to slide. The whole track
+ *     translates 1:1 with the finger, and a committed swipe reports a month
+ *     delta through `onPage`.
+ *   · Collapsed, the clip is one week tall, so its neighbour is a **week**: the
+ *     next or previous *row* of the same lattice. That row is already painted
+ *     inside the same panel — there is no month to slide to — so the strip rolls
+ *     vertically, 1:1 with the finger and clamped to the one row the lattice
+ *     paints beside the visible one. A committed swipe reports a week delta
+ *     through `onPageWeek`; the caller moves the selection seven days, and a
+ *     step that leaves the month moves the caller's anchor with it, which is the
+ *     caller's own rule for "the selected day is in another month".
  *
- * What the roll used to reach — the adjacent week — is still reachable where it
- * belongs: the arrow keys move the selection a week, and dragging down expands
- * the month again.
+ * The roll stops at the lattice's own ends. On the month's first or last week
+ * there is no seventh row to reveal, so the strip holds still while the drag is
+ * in flight — the *stored* shift keeps going (it is what the commit threshold is
+ * read from), but the painted offset is clamped, so the gesture can never open a
+ * blank band above or below the grid. The commit still lands on the adjacent
+ * week, which is in the neighbouring month.
  *
- * The month title follows the finger in both shapes now, for the same reason:
- * the month under the finger is the month the grid is showing, collapsed or not.
-
+ * The month title deliberately does not follow a collapsed drag: nothing about
+ * the month changes until a week step actually leaves it, so the label under the
+ * finger is still telling the truth. Expanded, the title follows the drag as
+ * before (see "The cross-fade").
+ *
  * ## The cross-fade
  *
  * The outgoing month fades out as the incoming one fades in, on top of the
@@ -86,8 +93,9 @@
  *
  * Each panel's opacity is its distance from the centre of the viewport, measured
  * in pages: the settled month is at 1, a full page away is at 0, and halfway
- * through a drag both are at 0.5. That holds collapsed too — there the fade
- * plays on the one visible row of each panel.
+ * through a drag both are at 0.5. That is the *expanded* fade. The collapsed
+ * week roll does not cross-fade: the incoming week is a row of the same panel,
+ * so dimming that panel would dim the outgoing week with it.
 
  * The gesture also *reports* which page is centred (`onPagePreview`), so the
  * toolbar's month name can follow the finger: a title that still named the old
@@ -112,11 +120,14 @@
  * and velocity alone lets a two-sample twitch page — a long flick needs neither
  * to be big nor to be fast, but it does need to be a flick.
  *
- * A committed page first finishes sliding (the tween the finger was in the
- * middle of) and only then hands the new month to `onPage`. The caller
- * re-renders the track keyed on the page, which re-applies the settled `-100%/3`
- * base in the same frame the new panels arrive — so the month the user dragged
- * to is the one already on screen, and neither axis accumulates an offset.
+ * A committed page first finishes moving (the tween the finger was in the middle
+ * of) and only then hands the new period to its handler. For a month that is
+ * `onPage`, and the caller re-renders the track keyed on the page, which
+ * re-applies the settled `-100%/3` base in the same frame the new panels arrive —
+ * so the month the user dragged to is the one already on screen, and neither axis
+ * accumulates an offset. For a week it is `onPageWeek`: the strip has already
+ * rolled onto the adjacent row, the caller moves the selection seven days, and
+ * the row the strip settles on is the new week's row.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
@@ -168,6 +179,14 @@ interface Session {
   startTranslateX: number;
   /** Viewport width when the gesture began: one page, and the drag's clamp. */
   width: number;
+  /**
+   * The grid's shape when the gesture began, and therefore its paging unit.
+   *
+   * Captured at pointerdown, not read live: a gesture's unit is fixed for its
+   * whole life, so a drag that started expanded pages months (and one that
+   * started collapsed pages weeks) however the grid changes under it.
+   */
+  collapsed: boolean;
   lastX: number;
   lastY: number;
   lastT: number;
@@ -177,20 +196,17 @@ interface Session {
 
 export interface MonthGestureOptions {
   /**
-   * Pages the period: `-1` the previous month, `+1` the next. Called by a
-   * committed swipe in both shapes of the grid — see "One horizontal unit".
+   * Pages the month: `-1` the previous month, `+1` the next. Called by a
+   * committed swipe while the grid is **expanded**.
    */
   onPage: (delta: number) => void;
   /**
-   * Retained, **never called**.
-   *
-   * A collapsed page used to be one *week* — a vertical roll of the strip — and
-   * that roll is exactly the motion that made a horizontal swipe read as
-   * vertical, so the collapsed page is a month now and a committed swipe goes to
-   * `onPage` in both shapes (see "One horizontal unit"). The option stays
-   * declared, and ignored, only because `MonthGrid` still passes it and an
-   * optional property that the type does not declare is excess-property error;
-   * it disappears from here once `MonthGrid` drops the handler.
+   * Pages the week while the grid is **collapsed**: `-1` the previous week,
+   * `+1` the next. The hook states the unit and this handler carries it — it is
+   * what moves the selection seven days (and, when the step leaves the month,
+   * the caller's anchor with it). Optional, so a caller with no week concept
+   * simply lets a collapsed swipe spring back instead of paging a month, which
+   * would be the wrong unit rather than merely an absent one.
    */
   onPageWeek?: (delta: 1 | -1) => void;
   /**
@@ -232,6 +248,7 @@ export interface MonthGestures {
 
 export function useMonthGestures({
   onPage,
+  onPageWeek,
   onPagePreview,
   focusRow,
   interaction,
@@ -244,6 +261,11 @@ export function useMonthGestures({
   const suppressClickRef = useRef(false);
   const heightRef = useRef(MONTH_EXPANDED_PX);
   const translateRef = useRef(0);
+  /**
+   * Rows the collapsed strip has been rolled past the selected week, 0 when it
+   * is settled. Fractional mid-drag; the vertical counterpart of `translateRef`.
+   */
+  const rowShiftRef = useRef(0);
   /** The last measured page width, so `paint` can place the cross-fade. */
   const pageWidthRef = useRef(0);
   /** The page delta last announced to `onPagePreview`, so it is only called on change. */
@@ -251,8 +273,8 @@ export function useMonthGestures({
   const frameRef = useRef<number | null>(null);
 
   // Read through a ref so the pointer handlers never close over stale props.
-  const optionsRef = useRef({ onPage, onPagePreview, focusRow });
-  optionsRef.current = { onPage, onPagePreview, focusRow };
+  const optionsRef = useRef({ onPage, onPageWeek, onPagePreview, focusRow });
+  optionsRef.current = { onPage, onPageWeek, onPagePreview, focusRow };
 
   /**
    * Which month the drag is showing: the panel holding the viewport's centre.
@@ -307,20 +329,23 @@ export function useMonthGestures({
   }, []);
 
   /**
-   * Writes the live height, horizontal offset and page cross-fade.
+   * Writes the live height, horizontal offset, collapsed row roll and page
+   * cross-fade.
    *
-   * The vertical offset is derived from the height alone, so the strip always
-   * lands on the selected week: at full height the track is unmoved, and as it
-   * collapses the track slides up by `focusRow` rows. Height is written by the
-   * vertical drag and by nothing else — a horizontal drag repaints the height it
-   * started with, which is what keeps the two axes from coupling. It is the
-   * *track* that moves, so all three months stay aligned with each other while
-   * the finger is down.
+   * The vertical offset is derived from the height so the strip always lands on
+   * the selected week: at full height the track is unmoved, and as it collapses
+   * the track slides up by `focusRow` rows — plus `rowShift`, the row a collapsed
+   * horizontal swipe has rolled past that week. Height is written by the vertical
+   * drag and by nothing else — a horizontal drag repaints the height it started
+   * with, which is what keeps the two axes from coupling. It is the *track* that
+   * moves, so all three months stay aligned with each other while the finger is
+   * down.
    */
   const paint = useCallback(
-    (height: number, translateX: number) => {
+    (height: number, translateX: number, rowShift = 0) => {
       heightRef.current = height;
       translateRef.current = translateX;
+      rowShiftRef.current = rowShift;
 
       const viewport = viewportRef.current;
       if (viewport) viewport.style.height = `${height}px`;
@@ -330,7 +355,15 @@ export function useMonthGestures({
       const span = MONTH_EXPANDED_PX - MONTH_COLLAPSED_PX;
       const progress = span > 0 ? clamp((MONTH_EXPANDED_PX - height) / span, 0, 1) : 0;
       const focusRow = optionsRef.current.focusRow;
-      const offsetY = -focusRow * MONTH_ROW_PX * progress;
+      /*
+       * The roll stops at the lattice's own ends: there is no seventh row to
+       * show, so a collapsed swipe on the month's first or last week holds still
+       * rather than opening a blank band above or below the strip. The *stored*
+       * shift stays unclamped — it is what the commit threshold is read from — so
+       * the gesture still pages, it just has nothing more to reveal.
+       */
+      const roll = clamp(rowShift, -focusRow, MONTH_ROWS - 1 - focusRow);
+      const offsetY = -(focusRow + roll) * MONTH_ROW_PX * progress;
       track.style.transform = `translate3d(${translateX.toFixed(1)}px, ${offsetY.toFixed(1)}px, 0)`;
       paintFade(track, translateX);
     },
@@ -338,31 +371,32 @@ export function useMonthGestures({
   );
 
   /**
-   * Short rAF tween to a settled height and horizontal offset.
+   * Short rAF tween to a settled height, horizontal offset and row roll.
    *
    * `onDone` runs after the final paint, which is what lets a committed page
-   * finish its slide before the caller swaps in the new month — and, because the
+   * finish its move before the caller swaps in the new period — and, because the
    * final paint is the last thing written to the DOM before the re-render, the
    * swap is invisible.
    */
   const settle = useCallback(
-    (toHeight: number, toTranslateX: number, onDone?: () => void) => {
+    (toHeight: number, toTranslateX: number, onDone?: () => void, toRowShift = 0) => {
       stopFrame();
       const fromHeight = heightRef.current;
       const fromX = translateRef.current;
+      const fromRowShift = rowShiftRef.current;
       const height = clamp(toHeight, MONTH_COLLAPSED_PX, MONTH_EXPANDED_PX);
       const next = height === MONTH_COLLAPSED_PX;
 
       const finish = () => {
         frameRef.current = null;
-        paint(height, toTranslateX);
+        paint(height, toTranslateX, toRowShift);
         setCollapsed((current) => (current === next ? current : next));
         onDone?.();
       };
 
       const reduced =
         typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduced || (fromHeight === height && fromX === toTranslateX)) {
+      if (reduced || (fromHeight === height && fromX === toTranslateX && fromRowShift === toRowShift)) {
         finish();
         return;
       }
@@ -371,7 +405,11 @@ export function useMonthGestures({
       const step = (now: number) => {
         const t = Math.min(1, (now - start) / SETTLE_MS);
         const eased = 1 - (1 - t) ** 3;
-        paint(fromHeight + (height - fromHeight) * eased, fromX + (toTranslateX - fromX) * eased);
+        paint(
+          fromHeight + (height - fromHeight) * eased,
+          fromX + (toTranslateX - fromX) * eased,
+          fromRowShift + (toRowShift - fromRowShift) * eased,
+        );
         if (t < 1) frameRef.current = window.requestAnimationFrame(step);
         else finish();
       };
@@ -427,6 +465,7 @@ export function useMonthGestures({
         startHeight: rect.height,
         startTranslateX: -rect.width,
         width: rect.width,
+        collapsed,
         lastX: event.clientX,
         lastY: event.clientY,
         lastT: event.timeStamp,
@@ -434,7 +473,7 @@ export function useMonthGestures({
         velocityY: 0,
       };
     },
-    [interaction, paint, stopFrame],
+    [collapsed, interaction, paint, stopFrame],
   );
 
   const onPointerMove = useCallback(
@@ -467,14 +506,26 @@ export function useMonthGestures({
         // height grows by exactly the travel and the strip follows it. The
         // track keeps whatever horizontal position it was settled on.
         paint(clamp(session.startHeight + dy, MONTH_COLLAPSED_PX, MONTH_EXPANDED_PX), translateRef.current);
+      } else if (session.collapsed) {
+        /*
+         * Collapsed, one page is one week, and a week is a row of the lattice
+         * the clip is already showing: the incoming week is painted directly
+         * above or below the visible one, inside the same panel, so the strip
+         * rolls vertically while the track itself does not move. The roll is 1:1
+         * with the finger and clamped to the single row that is painted, so the
+         * gesture can never reveal a week the lattice does not hold. The height
+         * is the one the gesture found, and the title does not follow: the month
+         * cannot change until a week step leaves it.
+         */
+        const travel = clamp(dx, -MONTH_ROW_PX, MONTH_ROW_PX);
+        paint(heightRef.current, -session.width, -travel / MONTH_ROW_PX);
       } else {
         /*
-         * The track moves with the finger, 1:1. A page is one viewport width in
-         * both shapes — collapsed, the neighbouring month's identical week row
-         * is already painted beside this one — which is also the clamp: there is
-         * no month beyond the two neighbours the track holds. The height is the
-         * one the gesture found, untouched: a sideways finger writes no vertical
-         * offset. The title follows the same number.
+         * Expanded, the track moves with the finger, 1:1. A page is one viewport
+         * width — the neighbours are the months on either side — which is also
+         * the clamp: there is no month beyond the two neighbours the track
+         * holds. The height is the one the gesture found, untouched: a sideways
+         * finger writes no vertical offset. The title follows the same number.
          */
         const x = clamp(session.startTranslateX + dx, -2 * session.width, 0);
         paint(heightRef.current, x);
@@ -522,29 +573,56 @@ export function useMonthGestures({
 
       /*
        * How far the finger carried the pager off its settled base, in px, and how
-       * far one page of travel is: one clip width, collapsed or not, because a
-       * page is a month in both shapes (see "One horizontal unit"). The commit
-       * rule is unchanged — 40% of a page, or a flick that carried at least
-       * `PAGE_FLICK_MIN_PX`.
+       * far one page of travel is. The *unit* follows the shape the drag started
+       * in: expanded a page is the clip's width (the months on either side), and
+       * collapsed it is one row (the week below or above — the only thing the
+       * strip can roll to). The commit *rule* is unchanged — 40% of a page, or a
+       * flick that carried at least `PAGE_FLICK_MIN_PX`; it is the page that
+       * fraction is taken of that follows the unit.
        *
-       * Negative travel is a leftward drag: the next month.
+       * Negative travel is a leftward drag: the next month, or the next week.
        */
-      const travel = translateRef.current + session.width;
+      const pageTravel = session.collapsed ? MONTH_ROW_PX : session.width;
+      const travel = session.collapsed
+        ? -rowShiftRef.current * MONTH_ROW_PX
+        : translateRef.current + session.width;
       const flicked = Math.abs(session.velocityX) > PAGE_FLICK_VELOCITY && Math.abs(travel) > PAGE_FLICK_MIN_PX;
-      const crossed = Math.abs(travel) > session.width * PAGE_COMMIT_FRACTION;
+      const crossed = Math.abs(travel) > pageTravel * PAGE_COMMIT_FRACTION;
 
       if (!cancelled && (crossed || flicked)) {
         const delta = travel < 0 ? 1 : -1;
-        // Slide the incoming month the rest of the way in, then re-render with it
-        // as the middle panel. The caller's remount re-applies the settled base,
-        // so the pixel offset never survives the page — and the preview resets in
-        // the same commit, so the title cannot flicker back. Collapsed, that
-        // remount is also what moves the strip onto the new month's week row.
-        settle(heightRef.current, delta > 0 ? -2 * session.width : 0, () => {
-          optionsRef.current.onPage(delta);
-          previewPage(0, session.width);
-        });
-        return;
+        if (session.collapsed) {
+          /*
+           * A week page never slides a month: roll the strip the rest of the way
+           * onto the adjacent row and let the caller move the selection seven
+           * days, which is what re-renders the strip on that row — and which
+           * moves the caller's anchor when the week leaves the month.
+           *
+           * Without a week handler the gesture springs back, because paging a
+           * month here would be the wrong unit rather than merely an absent one.
+           */
+          if (optionsRef.current.onPageWeek) {
+            settle(
+              heightRef.current,
+              -session.width,
+              () => optionsRef.current.onPageWeek?.(delta),
+              // A leftward drag (delta +1) is the next week, one row *down* the
+              // lattice, so the track's offset grows by a row: +1.
+              delta > 0 ? 1 : -1,
+            );
+            return;
+          }
+        } else {
+          // Slide the incoming month the rest of the way in, then re-render with
+          // it as the middle panel. The caller's remount re-applies the settled
+          // base, so the pixel offset never survives the page — and the preview
+          // resets in the same commit, so the title cannot flicker back.
+          settle(heightRef.current, delta > 0 ? -2 * session.width : 0, () => {
+            optionsRef.current.onPage(delta);
+            previewPage(0, session.width);
+          });
+          return;
+        }
       }
       // A drag that ends under the halfway point never changed the title; one
       // abandoned past it (a cancelled gesture) gets it put back.

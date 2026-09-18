@@ -10,8 +10,10 @@
  */
 import type { ReactNode } from 'react';
 import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { Inbox } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
+import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
 import type { List as TaskList } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -25,6 +27,12 @@ export interface ListPickerProps {
   /** Offers a "No list" row. Off for the bulk "Move to" action. */
   allowNone?: boolean;
   title?: string;
+  /**
+   * Opens the list manager (create/rename/recolour/delete). The picker is where
+   * lists are already visible, so it is the affordance's home; the parent owns
+   * the manager because it must outlive this drawer's own unmount.
+   */
+  onManage?: () => void;
 }
 
 interface OptionRowProps {
@@ -67,6 +75,7 @@ export function ListPicker({
   onChange,
   allowNone = true,
   title = 'List',
+  onManage,
 }: ListPickerProps) {
   function choose(listId: string | null) {
     onChange(listId);
@@ -113,6 +122,21 @@ export function ListPicker({
 
       {lists.length === 0 ? (
         <p className="pt-3 text-xs text-muted-foreground">You have no lists yet.</p>
+      ) : null}
+
+      {onManage ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="mt-2 w-full justify-start"
+          onClick={() => {
+            onOpenChange(false);
+            onManage();
+          }}
+        >
+          <Pencil1Icon className="size-4 text-base" />
+          Manage lists
+        </Button>
       ) : null}
     </Drawer>
   );

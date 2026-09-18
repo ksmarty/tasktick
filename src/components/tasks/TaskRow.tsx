@@ -122,9 +122,9 @@ export interface TaskRowProps {
   /** Writes are unavailable (offline). */
   disabled?: boolean;
   drag?: TaskRowDrag | null;
-  /** Rounds the bottom corner of the last row of a card. */
+  /** Rounds the bottom corner of the last row, so its strip follows the card. */
   last?: boolean;
-  /** Rounds the top corner of the first row of a card. */
+  /** Squares the top of the first row's press region (it is not at a corner). */
   first?: boolean;
   className?: string;
   ref?: Ref<HTMLLIElement>;
@@ -375,7 +375,11 @@ export function TaskRow({
         <span
           aria-hidden
           className={cn(
-            'pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50',
+            // The press accent is suppressed during a swipe: a drag is a gesture,
+            // not a press, and the highlight firing under the finger read as the
+            // row being selected.
+            'pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30',
+            !swiping && 'group-active/row-content:bg-accent/50',
             first && 'rounded-t-none',
           )}
         />
@@ -447,9 +451,10 @@ export function TaskRow({
     <li
       ref={ref}
       className={cn(
+        // Only the last row sits on the card's corner, so only it rounds. The
+        // first row's strip must stay square: it is mid-card, under the header.
         'relative isolate overflow-hidden',
-        first && 'rounded-t-xl',
-        last && 'rounded-b-xl',
+        last && 'rounded-b-lg',
         className,
       )}
     >

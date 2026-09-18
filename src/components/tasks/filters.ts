@@ -15,7 +15,8 @@
  * rather than a second query. Only the sorts where a reverse is meaningful carry
  * a direction; see `DIRECTIONAL_SORTS`.
  */
-import type { Priority, Task } from '@/lib/types';
+import type { CalendarItem, DateOnly, Priority, Task } from '@/lib/types';
+import { toDateOnly } from '@/lib/dates';
 
 export type TaskSort = 'smart' | 'due' | 'created' | 'updated' | 'priority' | 'title' | 'manual';
 export type TaskSortDir = 'asc' | 'desc';
@@ -312,4 +313,48 @@ export function taskViewTitle(state: TaskViewState, lookups: FilterLookups): str
     default:
       return 'All tasks';
   }
+}
+
+/** The zone + day the event filter needs, injected so it stays pure. */
+export interface EventFilterContext {
+  zone: string;
+  today: DateOnly;
+}
+
+/**
+ * Narrows the calendar events merged into the task list.
+ *
+ * Events come from `/api/calendar/items`, which knows nothing of the task
+ * filters, so without this they ignored every one of them: a search, a list, a
+ * tag or a priority left every event row in place, and a window that events
+ * cannot satisfy (Completed, Overdue, No date) still drew them. The rule here is
+ * the same one the task list states: a filter that cannot apply to an event
+ * removes it, because an unfiltered item in a filtered list is the bug.
+ *
+ * The two filters that *can* apply do: the search matches an event's title and
+ * location (it is free text, just like a task's), and the window trims the day
+ * groups. Everything else — a named list, a tag, a priority, or a task status —
+ * is a property an event does not have, so an event is excluded while one is set.
+ */
+export function visibleEvents(
+  events: readonly CalendarItem[],
+  state: TaskViewState,
+  { zone, today }: EventFilterContext,
+): CalendarItem[] {
+  // The filters an event cannot satisfy: excluded rather than silently kept.
+  if (state.listId || state.tagId || state.priority) return [];
+  if (state.window === 'completed' || state.window === 'overdue' || state.window === 'noDate') {
+    return [];
+  }
+
+  const query = state.q.trim().toLowerCase();
+
+  return events.filter((event) => {
+    if (state.window === 'today' && toDateOnly(event.startMs, zone) !== today) return false;
+    if (query) {
+      const haystack = `${event.title} ${event.location ?? ''}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
 }

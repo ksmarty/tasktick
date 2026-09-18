@@ -38,6 +38,7 @@ export {
 } from './ReminderPicker';
 export { TagPicker, type TagPickerProps } from './TagPicker';
 export { ListPicker, type ListPickerProps } from './ListPicker';
+export { ListManagerDialog, type ListManagerDialogProps } from './ListManagerDialog';
 export { TaskFilterMenu, type TaskFilterMenuProps } from './FilterMenu';
 export { TaskSortMenu, type TaskSortMenuProps } from './SortMenu';
 
@@ -99,10 +100,12 @@ export {
   sortTasks,
   taskQuery,
   taskViewTitle,
+  visibleEvents,
   TASK_SORTS,
   TASK_WINDOWS,
   updateTaskView,
   type ActiveFilter,
+  type EventFilterContext,
   type TaskSort,
   type TaskSortDir,
   type TaskViewState,
@@ -120,4 +123,4 @@ export {
   priorityLabel,
   type PriorityItem,
 } from './priority';
-export type { BulkAction, BulkPayload, CreateTaskPayload, TaskPatch } from './payloads';
+export type { BulkAction, BulkPayload, CreateTaskPayload, ListPatch, TaskPatch } from './payloads';
