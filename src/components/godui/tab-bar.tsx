@@ -13,6 +13,12 @@
  *     caller's `className` merges correctly against the component's own classes
  *     (Tailwind conflict resolution rather than string concatenation).
  *  2. `icon` is typed `React.ReactNode` — the app's icons come from two sets.
+ *  3. The icon-to-label gap is `gap-1.5` (6px) rather than `gap-2` (8px). The
+ *     selected tab is the only one that shows a label, and the icon sits between
+ *     that label and the pill's leading edge, so the gap reads as extra space to
+ *     the left of the word. The pill's own padding is symmetric (`px-4` both
+ *     sides) and was measured as such — this tightens the one thing that is
+ *     actually to the left of the text.
  */
 import { motion, useReducedMotion } from 'framer-motion';
 import * as React from 'react';
@@ -93,7 +99,7 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
               aria-current={active ? 'page' : undefined}
               onClick={() => select(tab.value)}
               className={cn(
-                'relative inline-flex h-11 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'relative inline-flex h-11 items-center justify-center gap-1.5 rounded-full px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 active
                   ? 'text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground',

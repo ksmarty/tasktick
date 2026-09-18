@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { EyeClosedIcon } from '@svg-animated-icons/react/eye-closed';
 import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
 import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { StarIcon } from '@svg-animated-icons/react/star';
@@ -235,6 +236,25 @@ function CalendarDialog({
   const [isVisible, setVisible] = useState(true);
   const readOnly = calendar?.readOnly ?? false;
 
+  /**
+   * A calendar that came from an integration, rather than being created here.
+   *
+   * The record carries where it came from: `provider` is `'local' | 'caldav'`
+   * and `caldavAccountId` names the account that discovered it, so a synced
+   * calendar is one with `provider === 'caldav'` (the `caldavAccountId` check is
+   * belt-and-braces for any row written before `provider` was populated). The
+   * only integration that produces calendar rows today is CalDAV; the iCal
+   * subscriptions in this area are an outgoing feed, not an inbound source, so
+   * they are not represented here.
+   */
+  const synced = calendar?.provider === 'caldav' || Boolean(calendar?.caldavAccountId);
+
+  // Radix focuses the first tabbable control on open. On the edit path that is
+  // the name field, where a stray keystroke would rename the calendar, so the
+  // dialog itself takes focus instead. Creating a calendar keeps the autofocus:
+  // the name is the first thing that must be entered and it saves a tap.
+  const contentRef = useRef<HTMLDivElement>(null);
+
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!open) {
@@ -271,7 +291,15 @@ function CalendarDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={SHEET_DIALOG_CLASS}>
+      <DialogContent
+        ref={contentRef}
+        className={SHEET_DIALOG_CLASS}
+        onOpenAutoFocus={(event) => {
+          if (!editing) return;
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit calendar' : 'New calendar'}</DialogTitle>
           <DialogDescription>
@@ -357,17 +385,33 @@ function CalendarDialog({
                 </p>
               ) : null}
 
-              <Button
-                variant="destructive"
-                className="w-full"
-                disabled={calendar === null}
-                onClick={() => {
-                  if (calendar) onRequestDelete(calendar);
-                }}
-              >
-                <TrashIcon />
-                Delete calendar
-              </Button>
+              {/*
+               * A synced calendar cannot be deleted here: removing it locally
+               * would only make the next sync recreate it, so the account is the
+               * thing to remove. Saying that is better than a delete button that
+               * looks like it works and then reappears.
+               */}
+              {synced ? (
+                <p className="flex items-start gap-2 rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                  <LockClosedIcon className="mt-0.5 shrink-0" />
+                  <span>
+                    This calendar is synced from a calendar account, so it cannot be deleted on its own. Remove the
+                    account under Integrations to remove it.
+                  </span>
+                </p>
+              ) : (
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  disabled={calendar === null}
+                  onClick={() => {
+                    if (calendar) onRequestDelete(calendar);
+                  }}
+                >
+                  <TrashIcon />
+                  Delete calendar
+                </Button>
+              )}
             </>
           ) : (
             <div className="flex items-start gap-3">

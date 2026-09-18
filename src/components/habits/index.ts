@@ -7,6 +7,7 @@
 export { CheckInControl, type CheckInControlProps } from './CheckInControl';
 export { HabitEditorSheet, type HabitEditorSheetProps } from './HabitEditorSheet';
 export { HabitList, type HabitListProps } from './HabitList';
+export { HabitMonthGrid, type HabitMonthGridProps } from './HabitMonthGrid';
 export { HabitRow, type HabitRowProps } from './HabitRow';
 export { HabitWeekStrip, type HabitWeekStripProps } from './HabitWeekStrip';
 export { StreakCount, type StreakCountProps } from './StreakCount';

@@ -795,7 +795,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             />
           </div>
 
-          <div className="flex shrink-0 flex-col gap-stack border-t px-gutter pt-stack pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+          <div className="flex shrink-0 flex-col gap-stack border-t px-gutter pt-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
             {disabled ? <p className="text-xs text-muted-foreground">{actions.offlineNotice}</p> : null}
             {saveError !== null ? (
               <Alert variant="destructive" role="alert">

@@ -28,7 +28,7 @@ export default function AdminSettingsPage() {
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
       <PageHeader title="Admin" leading={<BackToSettings />} />
 
-      <SettingsTabs active="advanced">
+      <SettingsTabs active="admin">
         {!user ? (
           <>
             <Skeleton className="h-40 w-full" />

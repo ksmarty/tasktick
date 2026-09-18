@@ -8,7 +8,9 @@
 
 /* ------------------------------- components ------------------------------ */
 export { TaskRow, type TaskRowProps, type TaskRowDrag } from './TaskRow';
+export { EventRow, type EventRowProps } from './EventRow';
 export { TaskListSection, type TaskListSectionProps } from './TaskListSection';
+export { taskAccentLookup } from './row-colors';
 export {
   DueDateLabel,
   TaskMeta,
@@ -50,6 +52,7 @@ export {
   SECTION_BUCKET,
   TODAY_SECTIONS,
   todayProgress,
+  visibleTasks,
   type ListSectionOptions,
   type TaskSection,
   type TaskSectionTone,

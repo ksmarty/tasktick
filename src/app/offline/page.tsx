@@ -44,7 +44,7 @@ export default function OfflinePage() {
           A plain anchor, not next/link: a client-side navigation would be handled by
           the router and could fail the same way this page was reached.
         */}
-        <a href="/today" className={cn(buttonVariants({ size: 'lg' }), 'h-11')}>
+        <a href="/tasks" className={cn(buttonVariants({ size: 'lg' }), 'h-11')}>
           <span aria-hidden className="inline-flex text-base">
             <ReloadIcon />
           </span>

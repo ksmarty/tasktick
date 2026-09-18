@@ -426,7 +426,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
          * GodUI bar reveals only the active tab's label and would otherwise
          * change width on every switch.
          */}
-        <div className="fixed inset-x-0 bottom-0 z-appbar flex items-center justify-center gap-2 px-gutter pb-[max(0.25rem,calc(env(safe-area-inset-bottom,0px)-0.625rem))] lg:hidden">
+        <div className="fixed inset-x-0 bottom-0 z-appbar flex items-center justify-center gap-2 px-gutter pb-[max(0.125rem,calc(env(safe-area-inset-bottom,0px)-1.125rem))] lg:hidden">
           <TabBar
             ref={tabBarRef}
             tabs={TABS}

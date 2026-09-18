@@ -1,57 +1,121 @@
 'use client';
 
 /**
- * The settings tab bar.
+ * The settings section navigation.
  *
- * Settings used to be one long page with a row of links at the bottom, which is
- * why the user read the whole thing as one continuous block. Each tab here is a
- * coherent concern — Account, Notifications, Calendars, Advanced — and the tab
- * bar is the only way to move between them.
+ * ## Why this is a navigation list, not a tab strip
  *
- * ## Why the tabs navigate rather than swap in place
+ * Settings grew past the four concerns the old horizontal `Tabs` strip was built
+ * for. A horizontal strip of nine sections does not fit 390px, and the old answer
+ * — let it scroll sideways — hides the sections past the fold, which is exactly
+ * the problem the extra sections were meant to solve. The design here is
+ * therefore a **vertical list of sections** that becomes a compact wrapping set
+ * of pills on a phone:
  *
- * Every tab already had a real route (the four settings screens), and those
- * routes have to stay reachable: they are deep links other screens and the smoke
- * tests rely on. So the tab bar drives the router — `Tabs` is controlled by the
- * route's own `active` value and `onValueChange` pushes the matching path —
- * which keeps one source of truth for "where am I" (the URL) and means nothing
- * is orphaned or duplicated. The panel below is rendered by the route itself;
- * this component only supplies the list, the active styling and the transition.
+ * - At `lg` and up, the sections are a column beside the panel, which is how the
+ *   app's own sidebar already reads.
+ * - Below `lg`, the same list wraps onto as many rows as it needs at 390px with
+ *   no horizontal scrollbar, so every section is visible.
  *
- * Because the trigger is a real button with `role="tab"` (Radix supplies it),
- * `aria-selected` and arrow-key navigation work as they should, and the list is
- * named by `aria-label` rather than relying on the page heading.
+ * The list stays on the shadcn `Tabs` primitive (Radix), so `role="tablist"`,
+ * `role="tab"`, `aria-selected`, the roving `tabindex` and the arrow-key handler
+ * are unchanged. Radix drives left/right for its horizontal orientation; an extra
+ * handler on the wrapper adds up/down for the column layout. The panel is still
+ * rendered by the route, and `onValueChange` still pushes a real route, so the
+ * URL remains the single source of truth and no sub-route is orphaned.
+ *
+ * The Admin section is filtered out for non-administrators: a tab that only some
+ * accounts can use is worse than one the rest never see, which is the rule the
+ * old Advanced page followed for its admin link.
  */
 import { useRouter } from 'next/navigation';
+import { BellIcon } from '@svg-animated-icons/react/bell';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { ClockIcon } from '@svg-animated-icons/react/clock';
+import { ColorWheelIcon } from '@svg-animated-icons/react/color-wheel';
+import { DownloadIcon } from '@svg-animated-icons/react/download';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
+import { PersonIcon } from '@svg-animated-icons/react/person';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
+import { TimerIcon } from '@svg-animated-icons/react/timer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { ReactNode } from 'react';
+import { useResource } from '@/lib/store';
+import type { BootstrapPayload } from '@/lib/view-types';
+import type { KeyboardEvent, ReactNode } from 'react';
 
-export type SettingsTab = 'account' | 'notifications' | 'calendars' | 'advanced';
+export type SettingsTab =
+  | 'account'
+  | 'appearance'
+  | 'date-time'
+  | 'notifications'
+  | 'calendars'
+  | 'integrations'
+  | 'focus'
+  | 'data'
+  | 'admin';
 
-/** The route each tab points at. `/settings/admin` deliberately maps to Advanced. */
+/** The route each section points at. */
 const TAB_HREF: Record<SettingsTab, string> = {
   account: '/settings',
+  appearance: '/settings/appearance',
+  'date-time': '/settings/date-time',
   notifications: '/settings/notifications',
   calendars: '/settings/calendars',
-  advanced: '/settings/advanced',
+  integrations: '/settings/integrations',
+  focus: '/settings/focus',
+  data: '/settings/data-export',
+  admin: '/settings/admin',
 };
 
-/** The four tabs, in order. */
-const TABS: { value: SettingsTab; label: string }[] = [
-  { value: 'account', label: 'Account' },
-  { value: 'notifications', label: 'Notifications' },
-  { value: 'calendars', label: 'Calendars' },
-  { value: 'advanced', label: 'Advanced' },
+interface SettingsSection {
+  value: SettingsTab;
+  label: string;
+  icon: ReactNode;
+  /** Hidden from accounts that are not administrators. */
+  adminOnly?: boolean;
+}
+
+/** Every section, in the order the list shows them. */
+const SECTIONS: SettingsSection[] = [
+  { value: 'account', label: 'Account', icon: <PersonIcon /> },
+  { value: 'appearance', label: 'Appearance', icon: <ColorWheelIcon /> },
+  { value: 'date-time', label: 'Date & time', icon: <ClockIcon /> },
+  { value: 'notifications', label: 'Notifications', icon: <BellIcon /> },
+  { value: 'calendars', label: 'Calendars', icon: <CalendarIcon /> },
+  { value: 'integrations', label: 'Integrations', icon: <ReloadIcon /> },
+  { value: 'focus', label: 'Focus', icon: <TimerIcon /> },
+  { value: 'data', label: 'Data', icon: <DownloadIcon /> },
+  { value: 'admin', label: 'Admin', icon: <LockClosedIcon />, adminOnly: true },
 ];
 
 export interface SettingsTabsProps {
-  /** The tab the current route represents. */
+  /** The section the current route represents. */
   active: SettingsTab;
   children: ReactNode;
 }
 
 export function SettingsTabs({ active, children }: SettingsTabsProps) {
   const router = useRouter();
+  const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
+  const isAdmin = bootstrap.data?.user.isAdmin ?? false;
+
+  const sections = SECTIONS.filter((section) => !section.adminOnly || isAdmin);
+
+  /**
+   * Up/down move between the sections when the list is a column. Radix's own
+   * handler already covers left/right for the horizontal orientation, so this
+   * only adds the pair a vertical list needs.
+   */
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const triggers = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'));
+    if (triggers.length === 0) return;
+    event.preventDefault();
+    const current = triggers.indexOf(document.activeElement as HTMLElement);
+    const delta = event.key === 'ArrowDown' ? 1 : -1;
+    const next = (((current < 0 ? 0 : current) + delta) % triggers.length + triggers.length) % triggers.length;
+    triggers[next]?.focus();
+  }
 
   return (
     <Tabs
@@ -60,43 +124,56 @@ export function SettingsTabs({ active, children }: SettingsTabsProps) {
       className="gap-stack"
     >
       {/*
-       * `flex-none` on the triggers is what keeps the labels on one line at
-       * 390px: the primitive gives every trigger `flex-1`, and four of those
-       * squeeze "Notifications" until it wraps. Sized to their content instead,
-       * the four fit the phone width, and if a locale ever makes them longer the
-       * list scrolls horizontally rather than wrapping or clipping.
+       * The nested wrapper carries the responsive layout. It is separate from
+       * the Radix root because the primitive hard-codes `flex-col` for its
+       * horizontal orientation at a specificity a plain `lg:flex-row` could not
+       * beat; one layer down, the list and panel are just two flex children.
        */}
-      <TabsList
-        aria-label="Settings sections"
-        className="w-full justify-start overflow-x-auto"
+      <div
+        className="flex flex-col gap-stack lg:flex-row lg:items-start lg:gap-gutter"
+        onKeyDown={onKeyDown}
       >
-        {TABS.map((tab) => (
-          <TabsTrigger
-            key={tab.value}
-            value={tab.value}
-            className="flex-none"
-            /*
-             * Radix only calls `onValueChange` when the value actually changes,
-             * so on `/settings/admin` — which shows the Advanced tab but has its
-             * own URL — clicking the already-selected Advanced tab would do
-             * nothing. Pushing from the trigger as well turns that tab back into
-             * a working link to `/settings/advanced`; on a normal switch the
-             * router just receives the same URL twice, which is a no-op.
-             */
-            onClick={() => {
-              if (tab.value === active) router.push(TAB_HREF[tab.value]);
-            }}
+        <div className="lg:w-56 lg:shrink-0">
+          {/*
+           * `h-auto` (and its variant-qualified twin) undoes the primitive's
+           * fixed `h-9`, which would clip the list once it wraps.
+           */}
+          <TabsList
+            aria-label="Settings sections"
+            className="h-auto w-full flex-wrap justify-start gap-1 group-data-[orientation=horizontal]/tabs:h-auto lg:w-full lg:flex-col lg:items-stretch"
           >
-            {tab.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+            {sections.map((section) => (
+              <TabsTrigger
+                key={section.value}
+                value={section.value}
+                className="flex-none gap-2 lg:w-full lg:justify-start"
+                /*
+                 * Radix only calls `onValueChange` when the value actually
+                 * changes, so a section that is already selected but lives at a
+                 * different URL (e.g. the legacy `/settings/advanced`) would do
+                 * nothing on click. Pushing from the trigger turns it back into a
+                 * working link; on a normal switch the router receives the same
+                 * URL twice, which is a no-op.
+                 */
+                onClick={() => {
+                  if (section.value === active) router.push(TAB_HREF[section.value]);
+                }}
+              >
+                <span aria-hidden className="shrink-0 text-muted-foreground [&_svg]:size-4">
+                  {section.icon}
+                </span>
+                {section.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
-      {/* The panel keeps the area's `gap-stack` rhythm, so a tab that holds
-          several groups spaces them exactly like a standalone screen does. */}
-      <TabsContent value={active} className="flex flex-col gap-stack">
-        {children}
-      </TabsContent>
+        {/* The panel keeps the area's `gap-stack` rhythm, so a section that holds
+            several groups spaces them exactly like a standalone screen does. */}
+        <TabsContent value={active} className="min-w-0 flex-1">
+          <div className="flex flex-col gap-stack">{children}</div>
+        </TabsContent>
+      </div>
     </Tabs>
   );
 }

@@ -51,6 +51,71 @@ export function caldavErrorMessage(error: string | null | undefined, serverUrl: 
   return error;
 }
 
+/**
+ * Which field a server-side CalDAV failure should be reported on.
+ *
+ * The add-account form used to show every failure under the password field,
+ * which put "give the account a name" on the password input. Validation now
+ * happens per-field before the request, and this maps the failures the *server*
+ * reports back to the control that caused them: rejected credentials belong on
+ * the password, a URL/well-known failure on the server URL, and everything else
+ * (transport, unknown) on the form as a whole.
+ */
+export type CaldavErrorField = 'password' | 'serverUrl' | 'form';
+
+export function caldavErrorField(error: string): CaldavErrorField {
+  if (AUTH_FAILURE.test(error)) return 'password';
+  if (URL_FAILURE.test(error)) return 'serverUrl';
+  return 'form';
+}
+
+/**
+ * The common CalDAV configurations offered as the first step of adding an
+ * account, each with the server URL the form should be pre-filled with.
+ *
+ * Only providers whose CalDAV root is fixed and documented are listed; the
+ * URLs match the provider table in `README.md`. One that the brief suggested is
+ * deliberately absent:
+ *
+ * - **Nextcloud** has no fixed URL — every instance lives at
+ *   `https://<your-host>/remote.php/dav`, so there is nothing honest to
+ *   pre-fill. The Custom entry covers it, and its hint names the path.
+ */
+export interface CaldavProvider {
+  id: 'icloud' | 'fastmail' | 'google' | 'custom';
+  label: string;
+  /** The CalDAV root to pre-fill; empty for Custom, where the user types one. */
+  serverUrl: string;
+  hint: string;
+}
+
+export const CALDAV_PROVIDERS: CaldavProvider[] = [
+  {
+    id: 'icloud',
+    label: 'iCloud',
+    serverUrl: 'https://caldav.icloud.com',
+    hint: 'Apple Account email and an app-specific password',
+  },
+  {
+    id: 'fastmail',
+    label: 'Fastmail',
+    serverUrl: 'https://caldav.fastmail.com',
+    hint: 'Fastmail address and app password',
+  },
+  {
+    id: 'google',
+    label: 'Google',
+    serverUrl: 'https://apidata.googleusercontent.com/caldav/v2',
+    hint: 'Google account email and an app password',
+  },
+  {
+    id: 'custom',
+    label: 'Custom',
+    serverUrl: '',
+    hint: 'Any other CalDAV server — Nextcloud lives at https://<your-host>/remote.php/dav',
+  },
+];
+
 /** `Synced 5m ago`, `Syncing…`, `Never synced`. */
 export function syncStatusLabel(account: Pick<CaldavAccount, 'lastSyncAtMs' | 'lastSyncStatus' | 'enabled'>, nowMs = Date.now()): string {
   if (!account.enabled) return 'Disabled';

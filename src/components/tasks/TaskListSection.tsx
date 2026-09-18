@@ -9,16 +9,22 @@
  * surface). That keeps the spring height animation and rotating chevron the
  * Accordion already owns, and lets the card be the thing that reads as GodUI.
  *
- * ## The colour: gone from the section header
+ * ## The colour: on the rows, not the header
  *
  * The card once painted a 4px stripe down its leading edge, then a single 8px dot
  * in the section header, both in the colour of the list most of its rows belong
- * to. The dot is gone now too. Celestial Sapphire is achromatic, and a list's
- * colour is already carried where it is actionable — the list's own row, the
- * pickers, the sidebar — so repeating it above every section was colour spent on
- * a datum the user is not acting on. The header still separates its sections by
- * contrast: Overdue is the only one at full `text-foreground`, the rest sit at
- * `text-muted-foreground`.
+ * to. Both are gone. A list's colour now rides each row's own leading edge (see
+ * `TaskRow`/`EventRow`): the colour belongs to the task you are reading, not to
+ * the group it was bucketed into, and one strip per row scans a mixed list
+ * better than one dot per section. The header therefore separates its sections
+ * by contrast alone: Overdue is the only one at full `text-foreground`, the rest
+ * sit at `text-muted-foreground`.
+ *
+ * ## Events share the list
+ *
+ * A section renders its tasks and then its events. Events are `CalendarItem`s
+ * from `/api/calendar/items`, drawn by `EventRow` with a calendar glyph where the
+ * checkbox sits; they are never completable and never reordered.
  *
  * ## The one edge on the card
  *
@@ -83,9 +89,10 @@ import {
 } from 'react';
 import { Accordion } from '@/components/godui/accordion';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
-import type { Task } from '@/lib/types';
+import type { CalendarItem, AccentColor, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
+import { EventRow } from './EventRow';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
 import type { TaskSection } from './sections';
 import { GLASS_TINT } from './surface';
@@ -107,6 +114,10 @@ export interface TaskListSectionProps {
   timeFormat: '12h' | '24h';
   onToggle: (task: Task) => void;
   onOpen: (task: Task) => void;
+  /** Resolves a task's list colour for its row strip. */
+  listColorFor?: (task: Task) => AccentColor | null;
+  /** Opens an event row. */
+  onOpenEvent?: (event: CalendarItem) => void;
   onDelete?: (task: Task) => void;
   onWontDo?: (task: Task) => void;
   /** Publishes a new manual order for this section. */
@@ -123,6 +134,8 @@ export function TaskListSection({
   timeFormat,
   onToggle,
   onOpen,
+  listColorFor,
+  onOpenEvent,
   onDelete,
   onWontDo,
   onReorder,
@@ -231,6 +244,8 @@ export function TaskListSection({
   }
 
   const danger = section.tone === 'danger';
+  const taskCount = section.tasks.length;
+  const eventCount = section.events.length;
 
   return (
     /*
@@ -293,6 +308,7 @@ export function TaskListSection({
                     timeFormat={timeFormat}
                     onToggle={onToggle}
                     onOpen={onOpen}
+                    accent={listColorFor?.(task) ?? null}
                     onDelete={onDelete}
                     onWontDo={onWontDo}
                     disabled={disabled}
@@ -301,7 +317,18 @@ export function TaskListSection({
                     onSelect={onSelect}
                     drag={dragPropsFor(task)}
                     first={index === 0}
-                    last={index === section.tasks.length - 1}
+                    last={eventCount === 0 && index === taskCount - 1}
+                  />
+                ))}
+                {section.events.map((event, index) => (
+                  <EventRow
+                    key={event.key}
+                    event={event}
+                    zone={zone}
+                    timeFormat={timeFormat}
+                    onOpen={onOpenEvent}
+                    first={taskCount === 0 && index === 0}
+                    last={index === eventCount - 1}
                   />
                 ))}
               </ul>

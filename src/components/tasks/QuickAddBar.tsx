@@ -311,7 +311,7 @@ export function QuickAddBar({ open, onOpenChange, listId = null, onCreated }: Qu
           inputRef.current?.focus({ preventScroll: true });
         }}
       >
-        <div className="flex flex-col gap-stack px-card pt-card pb-[max(2rem,env(safe-area-inset-bottom,0px))]">
+        <div className="flex flex-col gap-stack px-card pt-card pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
           <div className="flex flex-col gap-1">
             {/*
              * No explicit `id` on the title: Radix renders

@@ -1,20 +1,26 @@
 'use client';
 
 /**
- * Habits: check in, see the streaks, and read the week back as a strip.
+ * Habits: check in, see the streaks, and read the month back.
  *
- * The layout is the reference one: a compact week strip as the page header — the
- * selected day filled — then one card whose first row is the group name, and one
- * quiet row per habit (check-in control, glyph, name, right-aligned streak).
+ * The layout is: the calendar screen's own month grid as the pinned top —
+ * opened on the week, so the screen still leads with a single week — then one
+ * card whose first row is the group name, and one quiet row per habit
+ * (check-in control, glyph, name, right-aligned streak). Selecting a day on the
+ * grid scopes the card list to it, so the calendar and the list cannot disagree
+ * about which day is being checked in.
  *
- * The page owns two pieces of state — which day the cards are scoped to, and
- * whether archived habits are listed — because everything else (streaks,
- * completion rates, period progress) is computed server-side and merely
- * formatted here.
+ * The page owns three pieces of state — the day the cards are scoped to, the
+ * month the grid shows, and whether archived habits are listed — because
+ * everything else (streaks, completion rates, period progress) is computed
+ * server-side and merely formatted here.
  *
- * One read, on purpose: the card list is scoped to the current week so the
- * selected day's `entries` are present. An optimistic check-in patches it, so a
- * tap updates the row at the same instant.
+ * Two reads. The grid reads `/api/calendar/items` for the shown month exactly as
+ * the calendar screen does (the server has already expanded recurrence and
+ * bucketed the days), and the habit list reads `/api/habits` for a window that
+ * carries that month's entries, so a day the grid can select always has its own
+ * check-in state. An optimistic check-in patches the habit read, so a tap
+ * updates the row at the same instant.
  *
  * Chrome: the shell renders the single top bar from the `PageHeader` published
  * here — the title, the list-options popover and "New habit" — so this screen
@@ -43,17 +49,24 @@ import { Switch } from '@/components/ui/switch';
 import {
   HabitEditorSheet,
   HabitList,
-  HabitWeekStrip,
+  HabitMonthGrid,
   applyCheckInOptimistically,
   habitProgressView,
-  habitWindowRange,
   type CheckInChange,
 } from '@/components/habits';
 import { useToast } from '@/components/app/Toast';
 import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
-import { todayIn } from '@/lib/dates';
+import {
+  DATE_FORMAT,
+  fromDateOnly,
+  monthBounds,
+  rangeForView,
+  shiftViewAnchor,
+  startOfWeekDate,
+  todayIn,
+} from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
 import type { BootstrapPayload, CheckInPayload } from '@/lib/view-types';
 import type { DateOnly, Habit } from '@/lib/types';
@@ -88,6 +101,7 @@ export default function HabitsPage() {
   const settings = bootstrap.data?.settings;
   const zone = settings?.timezone ?? 'utc';
   const weekStartsOn = settings?.weekStartsOn ?? 1;
+  const timeFormat = settings?.timeFormat ?? '24h';
 
   // The zone comes from the server, so server and client agree on "today" and
   // the first paint cannot show yesterday's check-ins.
@@ -96,6 +110,8 @@ export default function HabitsPage() {
 
   /** The day the card list is scoped to; `null` means today. */
   const [selectedDay, setSelectedDay] = useState<DateOnly | null>(null);
+  /** The month the grid is showing; `null` means today's month. */
+  const [anchor, setAnchor] = useState<DateOnly | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -113,32 +129,73 @@ export default function HabitsPage() {
   /** Id of the habit whose check-in is still in flight, so only that row dims. */
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
 
-  // The cards only ever need the current week: the header strip selects days
-  // inside it, and the streak and period values are server-side anyway.
-  const range = useMemo(
-    () => (today ? habitWindowRange('week', today, weekStartsOn) : null),
-    [today, weekStartsOn],
+  // The month the grid shows, and the day the list is scoped to. The grid is
+  // the screen's header now, so selecting a day out of the shown month moves the
+  // month with it.
+  const activeDate = selectedDay ?? todayDate;
+  const activeMonth = anchor ?? todayDate;
+
+  const monthRange = useMemo(
+    () => (today ? rangeForView('month', activeMonth, zone, weekStartsOn) : null),
+    [today, activeMonth, zone, weekStartsOn],
   );
+
+  /*
+   * The window the habit read is scoped to.
+   *
+   * The grid can scope the list to any day in the shown month, so the read has
+   * to carry that month's entries — not just the current week. It also has to
+   * reach back past the month's own start whenever the current week or the
+   * current month began earlier, because the server derives `progress`,
+   * `doneToday` and the streak from this same window (see `listHabits`). The end
+   * stays today so a future period can never be counted.
+   */
+  const habitWindow = useMemo(() => {
+    if (!today) return null;
+    const currentWeek = startOfWeekDate(today, weekStartsOn, zone);
+    const currentMonth = monthBounds(today, zone).start;
+    let from = currentWeek < currentMonth ? currentWeek : currentMonth;
+    if (monthRange && monthRange.startDate < from) from = monthRange.startDate;
+    return { from, to: today };
+  }, [today, weekStartsOn, zone, monthRange]);
 
   const archives = showArchived ? '1' : undefined;
 
   const habits = useResource<Habit[]>(
     '/api/habits',
-    { from: range?.from, to: range?.to, includeArchived: archives },
-    { enabled: Boolean(today) },
+    { from: habitWindow?.from, to: habitWindow?.to, includeArchived: archives },
+    { enabled: Boolean(habitWindow) },
   );
 
   const list = habits.data ?? [];
 
-  // The strip's selection, defaulting to today until the user picks a day.
-  const activeDate = selectedDay ?? todayDate;
-  // Days before the earliest habit existed are dimmed and inert in the strip.
-  const earliestStart = useMemo(
-    () =>
-      list.length
-        ? list.reduce((min, habit) => (habit.startDate < min ? habit.startDate : min), list[0].startDate)
-        : null,
-    [list],
+  /* ---------------------------------------------------------------------- */
+  /* month navigation                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  /** Selects a day, moving the shown month when the two disagree. */
+  const selectDate = useCallback((date: DateOnly) => {
+    setSelectedDay(date);
+    setAnchor((current) => {
+      const base = current ?? date;
+      return base.slice(0, 7) === date.slice(0, 7) ? base : date;
+    });
+  }, []);
+
+  /** Moves a day by whole months, keeping the day-of-month where it exists. */
+  const shiftMonthKeepingDay = useCallback(
+    (date: DateOnly, delta: number): DateOnly =>
+      fromDateOnly(date, zone).plus({ months: delta }).toFormat(DATE_FORMAT),
+    [zone],
+  );
+
+  /** Pages the shown month, taking the selection along. */
+  const pageMonth = useCallback(
+    (delta: number) => {
+      setAnchor(shiftViewAnchor('month', activeMonth, delta, zone));
+      setSelectedDay((current) => shiftMonthKeepingDay(current ?? activeMonth, delta));
+    },
+    [activeMonth, zone, shiftMonthKeepingDay],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -280,7 +337,7 @@ export default function HabitsPage() {
 
           With `useShellPane({ fullHeight: true })` above, the shell hands the
           scrolling to this screen: the column fills the fixed-height pane
-          (`min-h-0 flex-1`), the week strip is the pinned top (`shrink-0`) and
+          (`min-h-0 flex-1`), the month grid is the pinned top (`shrink-0`) and
           only the list under it scrolls. */}
       <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col gap-stack px-gutter pb-stack">
         {loading ? (
@@ -297,27 +354,24 @@ export default function HabitsPage() {
               Try again
             </Button>
           </div>
-        ) : list.length === 0 ? (
-          <div className="flex flex-col items-center gap-stack px-card py-6 text-center">
-            <CheckCircledIcon className="size-10 text-muted-foreground/60" />
-            <h2 className="text-base font-medium">No habits yet</h2>
-            <p className="text-sm text-muted-foreground">
-              A habit is something you want to keep doing — every day, a few times a week, or once a month. Add one and
-              check in from this screen.
-            </p>
-            <Button type="button" className="gap-2" onClick={() => openEditor(null)}>
-              <PlusIcon />
-              Add your first habit
-            </Button>
-          </div>
         ) : (
           <>
-            <HabitWeekStrip
-              selected={activeDate}
+            {/*
+             * The pinned top: the calendar screen's own `MonthGrid`, collapsed
+             * to a week on open, with a day on which a habit was completed
+             * dotted alongside the calendar's own dots. `shrink-0`, so only the
+             * list under it scrolls.
+             */}
+            <HabitMonthGrid
+              anchor={activeMonth}
+              selectedDate={activeDate}
               today={todayDate}
+              zone={zone}
               weekStartsOn={weekStartsOn}
-              earliest={earliestStart}
-              onSelect={setSelectedDay}
+              timeFormat={timeFormat}
+              habits={list}
+              onSelectDate={selectDate}
+              onPage={pageMonth}
               className="shrink-0"
             />
             {/* The scroller. `data-habit-scroll` is also the anchor
@@ -329,15 +383,30 @@ export default function HabitsPage() {
               data-habit-scroll
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0"
             >
-              <HabitList
-                habits={list}
-                date={activeDate}
-                today={todayDate}
-                pendingId={checkingIn}
-                onCheckIn={(habit, change) => void checkIn(habit, change)}
-                onEdit={openEditor}
-                onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
-              />
+              {list.length === 0 ? (
+                <div className="flex flex-col items-center gap-stack px-card py-6 text-center">
+                  <CheckCircledIcon className="size-10 text-muted-foreground/60" />
+                  <h2 className="text-base font-medium">No habits yet</h2>
+                  <p className="text-sm text-muted-foreground">
+                    A habit is something you want to keep doing — every day, a few times a week, or once a month. Add
+                    one and check in from this screen.
+                  </p>
+                  <Button type="button" className="gap-2" onClick={() => openEditor(null)}>
+                    <PlusIcon />
+                    Add your first habit
+                  </Button>
+                </div>
+              ) : (
+                <HabitList
+                  habits={list}
+                  date={activeDate}
+                  today={todayDate}
+                  pendingId={checkingIn}
+                  onCheckIn={(habit, change) => void checkIn(habit, change)}
+                  onEdit={openEditor}
+                  onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
+                />
+              )}
             </div>
           </>
         )}

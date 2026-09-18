@@ -29,7 +29,7 @@ export function PriorityPicker({ open, onOpenChange, value, onChange, title = 'P
       onOpenChange={onOpenChange}
       side="bottom"
       title={title}
-      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
       <div role="radiogroup" aria-label="Priority">
         {PRIORITY_ITEMS.map((item) => {

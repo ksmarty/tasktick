@@ -4,18 +4,18 @@
  * The month grid — the top region of the calendar screen — and the one-week
  * strip it collapses into.
  *
- * The cell is deliberately almost empty: the day number and a row of up to three
- * small dots. No titles, no bars, no counts. A phone cell is ~55px wide, so it
- * has room for either a legible day number or four characters of an event title;
- * the previous bar-chart treatment chose the title, which made the grid noisy and
- * buried the date itself. The dots answer the only question the grid is asked —
- * "is anything happening that day?" — and the *what* lives in the agenda below
- * and in the day detail sheet, both one tap away.
+ * The cell is deliberately almost empty: the day number and one small dot. No
+ * titles, no bars, no counts. A phone cell is ~55px wide, so it has room for
+ * either a legible day number or four characters of an event title; the previous
+ * bar-chart treatment chose the title, which made the grid noisy and buried the
+ * date itself. The dot answers the only question the grid is asked — "is
+ * anything happening that day?" — and the *how many* is in the day's accessible
+ * name while the *what* lives in the agenda below and in the day detail sheet,
+ * both one tap away.
  *
- * A dot is still a handle on its item: pressing one opens it and dragging one
- * reschedules it, exactly as the bars did, so nothing the grid could do before
- * is lost. The visual is a dot cluster, never a bar: the item's title is not
- * rendered here at all.
+ * The dot is decoration, not a control: it cannot be focused, tapped or dragged,
+ * and it never intercepts its day's tap. The day cell, the agenda rows and the
+ * day sheet are where an item is opened and moved — see "The dots".
  *
  * ## One lattice, clipped
  *
@@ -24,14 +24,17 @@
  * a clip, not a re-render: the viewport shrinks and the lattice slides up so the
  * row holding the selected day stays under the header. That is what lets the
  * height follow a finger continuously — the alternative, swapping a six-row grid
- * for a one-row one, can only ever jump.
+ * for a one-row one, can only ever jump. It is also what lets a collapsed swipe
+ * reach the next week: that week is the next row of the same lattice, already
+ * painted, so it rolls in rather than being fetched or swapped.
  *
  * ## The two gestures — do not disturb this markup
  *
  * The two gestures the surface owns (vertical = height, horizontal = paging)
  * and the axis rule that separates them live in `./use-month-gestures`, next to
- * the numbers they settle on. The hook is untouched by this migration and
- * **nothing here may change its contract**:
+ * the numbers they settle on. The hook owns the paging *unit* as well as the
+ * movement — one month expanded, one week collapsed — and **nothing here may
+ * change its contract**:
  *
  *   · `{...handlers}` must stay on the outermost surface, because that is the
  *     node the pointer is captured on and the node `onClickCapture` eats the
@@ -42,17 +45,19 @@
  *     **the clip carries no padding of any kind**: padding would make the border
  *     box wider and taller than the page and the strip the hook believes in, and
  *     the drag would drift by half a gesture. The layout inset therefore lives on
- *     the surface's own `px-2` (and, before it, on a wrapper *around* the clip),
- *     never on the clip itself.
+ *     the weekday header and on each panel *wrapper* — never on the surface
+ *     (which carries none) and never on the clip.
  *   · `trackRef` must stay on the 300%-wide track whose settled transform is
  *     `-100% / 3` and whose only other transform source is the hook's own
  *     `paint()`. The React-rendered `style` here is the settled base the hook
  *     re-bases to; it must keep writing the same value or the two will disagree.
- *   · `gridRef` must stay on the live panel, because the drag geometry divides
- *     that element's rect by columns and rows. The inset that gives two months a
- *     visible boundary lives on the panel *wrapper* around this element, never
- *     on it: the element the drag measures is the day lattice alone, so its
- *     width is exactly seven cells.
+ *     The track's children must stay the three pages in order (previous,
+ *     current, next): the hook's cross-fade walks them and reads each one's
+ *     distance from the viewport's centre.
+ *   · `gridRef` must stay on the live panel, because the roving focus and the
+ *     day buttons register against that element. The inset that gives two months
+ *     a visible boundary lives on the panel *wrapper* around this element, never
+ *     on it: the lattice is exactly seven equal columns of what the inset leaves.
  *
  * Those four nodes and their nesting are load-bearing; this file only decides
  * how the cells inside them are painted.
@@ -69,11 +74,13 @@
  * the paging maths is untouched — the settled transform is still `-100% / 3` and
  * a drag still moves the track one-to-one.
  *
- * The inset is `px-2` on each panel wrapper, and the `px-2` the surface used to
- * carry moved onto the header and each panel instead. That keeps the settled
- * month's content exactly where it was (0.5rem from the screen edge) while the
- * space between two adjacent panels becomes 1rem of whitespace, centred on the
- * seam and legible the moment the drag starts.
+ * The inset is `px-4` on each panel wrapper and on the weekday header, which
+ * makes the whitespace between two adjacent panels 2rem (it was `px-2`, i.e.
+ * 1rem) and the settled month's content sit 1rem from the screen edge (it was
+ * 0.5rem). Both halves of that are the same number: the seam is two panels'
+ * insets and the outer edge is one, so doubling the seam doubles the edge. The
+ * weekday captions moved with the panels, so the letters still sit over the
+ * columns they label.
  *
  * ## Paging is a track, not a swap
  *
@@ -84,6 +91,13 @@
  * and its today/selected states already right, instead of appearing from blank
  * space once the finger lifts. One page is exactly a third of the track, so the
  * settled transform is `-100% / 3` and a drag only ever moves that one number.
+ *
+ * The slide is cross-faded on top of the movement: the outgoing month fades out
+ * as the incoming one fades in, and the *fade* is scrubbed by the same pointer
+ * the movement follows (see `./use-month-gestures`). At rest the panels are at
+ * the opacity that leaves the current month alone on screen — `opacity-100` for
+ * it, `opacity-0` for the two beside it, which are a full page away and
+ * invisible anyway; the hook overwrites those values per frame from the drag.
  *
  * `pageSeq` keys the track: a committed page remounts it, which is what
  * guarantees the settled DOM carries no leftover pixel offset, and the
@@ -134,13 +148,27 @@
  *
  * ## The dots
  *
- * A dot is a painted circle sized by `DOT_PX`/`DOT_HIT_PX`, not the animated
- * `dot`/`dot-filled` glyphs: those draw a circle only 4.75/15 of their 1em box,
- * so sizing one to this tuned 6px dot means a ~19px font size, and the resulting
- * 19px SVG would swallow the neighbouring dots' 10px hit boxes and break the
- * per-dot tap and drag. A dot also has to take a per-item accent hex, which is
- * an inline colour either way. The animated set is used for every *glyph* in the
- * feature's chrome instead.
+ * One dot, and only ever one, painted in the theme's muted foreground rather
+ * than in the item's colour. The lane answers one question — "is anything
+ * happening that day?" — and a cluster of up to three accent-coloured circles
+ * answered a different one badly: it was the most saturated thing on a
+ * monochrome surface, and it read as a bar chart, which is what the dots
+ * replaced. Which calendar, how many and *what* live in the day's accessible
+ * name, the day detail sheet and the agenda, one tap away.
+ *
+ * A dot is decoration. It is a plain `aria-hidden` span with
+ * `pointer-events-none` on both itself and the lane around it — no button, no
+ * `tabindex`, no `aria-label`, no click handler — so it can neither be focused
+ * nor tapped, and the day cell underneath keeps every pixel of its own hit area.
+ * (A dot that swallowed its day's tap was a real bug here; decoration cannot
+ * reintroduce it.) Items are opened from the agenda or the day sheet.
+ *
+ * The lane sits `top-6` (24px) from the row's top: the day number's 14px line
+ * box ends 25px down, so the 6px dot (centred at 30px) leaves visible whitespace
+ * under the digits instead of touching them, and its bottom edge stays inside
+ * the 36px selected disc — which is drawn above the lane and swallows its own
+ * dots. Both lane values are on Tailwind's own scale; the old 21px top was not,
+ * which is why it had to be an inline style.
  *
  * It never derives a date of its own: `days` is the server's padded day list for
  * the visible window, chunked into whole weeks by `buildMonthRows`, so the grid,
@@ -148,40 +176,26 @@
  * contains. Recurrence expansion, EXDATE handling and timed-overlap columns are
  * all absent here because the API already did them.
  *
- * Selecting a day, opening the day sheet and dragging a dot are direct
- * manipulation: a delay on any of them reads as a dropped tap.
+ * Selecting a day and opening the day sheet are direct manipulation: a delay on
+ * either reads as a dropped tap.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { useAppearance } from '@/app/providers';
-import { accentHex } from '@/lib/colors';
-import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { addDaysToDateOnly, fromDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import type { CalendarItem, DateOnly } from '@/lib/types';
+import type { DateOnly } from '@/lib/types';
 import type { CalendarItemsPayload } from '@/lib/view-types';
-import { itemColor } from './colors';
-import { DragGhostLabel } from './DragGhostLabel';
-import { MONTH_COLUMNS, buildMonthRows, minuteOfDay, weekdayLabels } from './geometry';
+import { MONTH_COLUMNS, buildMonthRows, weekdayLabels } from './geometry';
 import { MONTH_EXPANDED_PX, useMonthGestures } from './use-month-gestures';
-import { useItemDrag, type DragGhost, type DragInit } from './use-item-drag';
 import type { CalendarInteraction, CalendarLookup, CalendarPrefs, ItemOpenHandler, RescheduleHandler } from './types';
 
-/**
- * Dots a cell will show.
- *
- * Beyond three the cluster stops saying "this day is busy" and starts being a
- * bar chart again; the exact count is in the day's accessible name and in the
- * day detail sheet.
- */
-const MAX_DOTS = 3;
+/** The days one committed collapsed swipe carries the selection. */
+const DAYS_PER_WEEK = 7;
 
 /** Diameter of the day disc, and of the tap target's min box. */
 const DISC_PX = 36;
 const TAP_MIN_PX = 40;
-/** The dot lane's top edge, measured from the row's top: just under the digits. */
-const DOT_LANE_TOP_PX = 21;
-const DOT_LANE_HEIGHT_PX = 12;
-const DOT_HIT_PX = 10;
+/** Diameter of the painted dot. */
 const DOT_PX = 6;
 
 /**
@@ -203,7 +217,7 @@ const DAY_STACK_CLASS = '-my-0.5 flex min-h-10 w-full cursor-pointer flex-col it
  * the glyph's box — and therefore the digit's position — identical in all four.
  */
 const DISC_CLASS =
-  'pointer-events-none relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors';
+  'pointer-events-none relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors duration-200';
 
 /**
  * One month of the paging track: its window, the day it is anchored on and the
@@ -238,16 +252,29 @@ export interface MonthGridProps {
   /** The server's response: `days` is the single source of truth for the dots. */
   payload: CalendarItemsPayload;
   prefs: CalendarPrefs;
-  /** Lookup used to honour each calendar's colour override. */
+  /**
+   * Retained for both callers. The grid's dots are the theme's muted grey, not an
+   * item's colour, so nothing here resolves a calendar any more — the agenda and
+   * the day sheet are where a calendar's custom colour is painted.
+   */
   calendars: CalendarLookup;
   interaction: CalendarInteraction;
   /** Selects a day (updates the agenda) without navigating. */
   onSelectDate: (date: DateOnly) => void;
   /** Opens the day detail sheet. */
   onOpenDay: (date: DateOnly) => void;
+  /**
+   * Retained for both callers, which pass their own open-item handler.
+   *
+   * The grid itself no longer opens anything: its dots are decoration (see "The
+   * dots"), so the only item controls are the agenda's rows and the day sheet.
+   * The props stay on the surface rather than being deleted under the habits
+   * screen, which renders this grid and passes all three.
+   */
   onOpenItem: ItemOpenHandler;
+  /** Retained for both callers; the grid's dots are no longer draggable. */
   onReschedule: RescheduleHandler;
-  /** Pages the period: `-1` previous, `+1` next. Called by a committed swipe. */
+  /** Pages the month: `-1` previous, `+1` next. Called by a committed swipe. */
   onPage: (delta: number) => void;
   /** Reports the month the drag is showing, so the toolbar title can follow it. */
   onPagePreview: (delta: -1 | 0 | 1) => void;
@@ -263,22 +290,17 @@ export function MonthGrid({
   pageSeq,
   payload,
   prefs,
-  calendars,
   interaction,
   onSelectDate,
   onOpenDay,
-  onOpenItem,
-  onReschedule,
   onPage,
   onPagePreview,
 }: MonthGridProps) {
   const dayRefs = useRef(new Map<DateOnly, HTMLButtonElement>());
-  /** The live month's lattice: the drag lattice measures against this, not the track. */
+  /** The live month's lattice. The day buttons register into `dayRefs` from here. */
   const gridRef = useRef<HTMLDivElement>(null);
   const [focusDate, setFocusDate] = useState(selectedDate);
   const pendingFocus = useRef(false);
-  /** The resolved appearance, so an accent token maps to the right hex. */
-  const dark = useAppearance().resolvedTheme === 'dark';
 
   const rows = useMemo(() => buildMonthRows(days, anchor), [days, anchor]);
 
@@ -288,8 +310,21 @@ export function MonthGrid({
     return index >= 0 ? index : 0;
   }, [rows, selectedDate]);
 
+  /*
+   * One committed horizontal swipe moves **one week** while the strip is
+   * collapsed and **one month** while the grid is expanded; the hook decides
+   * which and calls the matching handler — see `./use-month-gestures`.
+   *
+   * A week is seven days of selection, which is what moves the strip: the row it
+   * shows is derived from the selected day, so stepping the selection a week
+   * steps the strip a row (and moves the caller's anchor month with it when the
+   * week leaves the month). Routing it through `onSelectDate` is deliberate — it
+   * is the one channel both screens already implement, the calendar's and the
+   * habits screen's, and it carries exactly the rule a week step needs.
+   */
   const { collapsed, viewportHeight, contentOffsetY, viewportRef, trackRef, toggle, handlers } = useMonthGestures({
     onPage,
+    onPageWeek: (delta) => onSelectDate(addDaysToDateOnly(selectedDate, delta * DAYS_PER_WEEK, prefs.zone)),
     onPagePreview,
     focusRow,
     interaction,
@@ -320,34 +355,7 @@ export function MonthGrid({
     dayRefs.current.get(focusDate)?.focus({ preventScroll: true });
   }, [focusDate]);
 
-  const drag = useItemDrag({
-    hourHeight: 0,
-    gridRef,
-    interaction,
-    axis: (init) => {
-      const rect = gridRef.current?.getBoundingClientRect();
-      if (!rect) return null;
-      return {
-        columns: MONTH_COLUMNS,
-        index: init.cellIndex,
-        count: Math.max(rows.length * MONTH_COLUMNS, 1),
-        cellWidth: rect.width / MONTH_COLUMNS,
-        // A collapsed strip has no week to move down into, so vertical movement
-        // is off while it is clipped to one row.
-        rowHeight: collapsed ? 0 : rect.height / Math.max(rows.length, 1),
-      };
-    },
-    formatLabel: (item, target) =>
-      fromDateOnly(addDaysToDateOnly(toDateOnly(item.startMs, prefs.zone), target.dayDelta, prefs.zone), prefs.zone).toFormat(
-        'ccc d LLL',
-      ),
-    onDrop: onReschedule,
-  });
-
   function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    // A dot is its own control: Enter there opens the item, not the day.
-    if ((event.target as HTMLElement).dataset.itemBlock) return;
-
     const index = visibleDays.indexOf(focusDate);
     if (index < 0) return;
     const weekStart = index - (index % MONTH_COLUMNS);
@@ -397,11 +405,11 @@ export function MonthGrid({
        * transform are written straight to the nodes by the hook.
        *
        * This is the surface, so it is also the node the pointer handlers and the
-       * capturing click handler are spread onto. It carries the screen's
-       * horizontal inset (`px-2`) and nothing else — no fill, no border and no
-       * rounding, so the grid sits on the page's own background — while the clip
-       * inside it stays padding-free: padding on the clip would move the page
-       * width the gesture measures.
+       * capturing click handler are spread onto. It carries no inset of its own —
+       * no fill, no border and no rounding, so the grid sits on the page's own
+       * background — while the clip inside it stays padding-free: padding on the
+       * clip would move the page width the gesture measures. The horizontal
+       * inset lives on the weekday header and on each panel.
        */
       className="flex min-h-0 shrink-0 touch-none flex-col overflow-hidden"
       {...handlers}
@@ -411,12 +419,11 @@ export function MonthGrid({
         are hidden from assistive tech because every day button already carries
         its full date name. No rule — the month is separated by whitespace.
 
-        The captions carry the screen's horizontal inset (`px-2`) directly now
-        that the surface no longer does: the inset moved down onto the header and
-        each panel so the clip can stay full width and the space between two
-        panels becomes the visible page gap. See `MonthPanel`.
+        The captions carry the same horizontal inset as each panel (`px-4`), so
+        the letters stay over the columns they label even as the gap between two
+        months changes. See `MonthPanel`.
       */}
-      <div aria-hidden className="grid shrink-0 grid-cols-7 px-2 pt-card pb-0.5">
+      <div aria-hidden className="grid shrink-0 grid-cols-7 px-4 pt-card pb-0.5">
         {headers.map((label, index) => (
           <span key={`${label}-${index}`} className="text-center text-xs leading-none text-muted-foreground/60">
             {label}
@@ -454,8 +461,6 @@ export function MonthGrid({
               selectedDate={selectedDate}
               today={today}
               prefs={prefs}
-              calendars={calendars}
-              dark={dark}
               live={null}
             />
 
@@ -465,8 +470,6 @@ export function MonthGrid({
               selectedDate={selectedDate}
               today={today}
               prefs={prefs}
-              calendars={calendars}
-              dark={dark}
               gridRef={gridRef}
               live={{
                 collapsed,
@@ -474,13 +477,10 @@ export function MonthGrid({
                 onKeyDown,
                 onSelectDate,
                 onOpenDay,
-                onOpenItem,
-                drag: drag.ghost,
                 registerDay: (date, node) => {
                   if (node) dayRefs.current.set(date, node);
                   else dayRefs.current.delete(date);
                 },
-                onDotPointerDown: (item, event, init) => drag.begin(item, event, init),
               }}
             />
 
@@ -490,8 +490,6 @@ export function MonthGrid({
               selectedDate={selectedDate}
               today={today}
               prefs={prefs}
-              calendars={calendars}
-              dark={dark}
               live={null}
             />
           </div>
@@ -513,8 +511,6 @@ export function MonthGrid({
       >
         <span aria-hidden className="h-1 w-9 rounded-full bg-border" />
       </button>
-
-      {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}
     </div>
   );
 }
@@ -523,7 +519,7 @@ export function MonthGrid({
  * What the live month needs and a neighbouring one does not.
  *
  * Only the settled month is interactive: the two beside it are pictures of where
- * the finger is taking the grid, so they take no focus, no taps and no drags.
+ * the finger is taking the grid, so they take no focus and no taps.
  */
 interface LivePanelProps {
   collapsed: boolean;
@@ -531,12 +527,8 @@ interface LivePanelProps {
   onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
   onSelectDate: (date: DateOnly) => void;
   onOpenDay: (date: DateOnly) => void;
-  onOpenItem: ItemOpenHandler;
   /** Registers a day button for the roving focus. */
   registerDay: (date: DateOnly, node: HTMLButtonElement | null) => void;
-  /** The lift in flight, so a dot being dragged still paints above the grid. */
-  drag: DragGhost | null;
-  onDotPointerDown: (item: CalendarItem, event: ReactPointerEvent<HTMLButtonElement>, init: DragInit) => void;
 }
 
 interface MonthPanelProps {
@@ -546,12 +538,9 @@ interface MonthPanelProps {
   selectedDate: DateOnly;
   today: DateOnly;
   prefs: CalendarPrefs;
-  calendars: CalendarLookup;
-  /** Resolved appearance, for the item accent hexes. */
-  dark: boolean;
   /** Set for the live month only; `null` makes the panel presentational. */
   live: LivePanelProps | null;
-  /** The live month's lattice, which the drag geometry is measured against. */
+  /** The live month's lattice, which the roving focus registers into. */
   gridRef?: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -563,16 +552,25 @@ interface MonthPanelProps {
  * only difference is that its days are not controls. `buildMonthRows` did the
  * chunking, so a panel never decides for itself which days it holds.
  *
- * The panel is `w-1/3` of the track and its inner lattice is the element the
- * drag measures. The panel *wrapper* carries the horizontal `px-2` that keeps
- * the cells off the seam; that padding is deliberately outside `gridRef`, so the
- * rect the drag divides by seven is the day lattice and not padding inflated.
+ * The panel is `w-1/3` of the track (one clip width) and its inner lattice is
+ * seven equal columns of what the inset leaves. The *wrapper* carries the
+ * horizontal `px-4` that keeps the cells off the seam and doubles as the visible
+ * page gap; a flex `gap` between panels would widen the stride the hook measures
+ * a page against, so the gap is padding and the stride stays one clip width.
+ *
+ * The opacity is the settled half of the paging cross-fade: the current month is
+ * opaque and the two a page away are not — see the "Paging is a track" note. The
+ * hook overwrites both per frame while a drag is in flight.
  */
-function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, dark, live, gridRef }: MonthPanelProps) {
+function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef }: MonthPanelProps) {
   const rows = useMemo(() => buildMonthRows(page.days, page.anchor), [page.days, page.anchor]);
+  const isCurrent = panel === 'current';
 
   return (
-    <div data-month-panel={panel} className="w-1/3 shrink-0 select-none px-2">
+    <div
+      data-month-panel={panel}
+      className={cn('w-1/3 shrink-0 select-none px-4', isCurrent ? 'opacity-100' : 'opacity-0')}
+    >
       <div
         ref={gridRef}
         role={live ? 'grid' : undefined}
@@ -584,11 +582,10 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, dark, 
       >
         {rows.map((row, rowIndex) => (
           <div key={rowIndex} role={live ? 'row' : undefined} className="contents">
-            {row.map((cell, columnIndex) => {
+            {row.map((cell) => {
               const dayItems = page.payload.days[cell.date] ?? [];
               const isSelected = cell.date === selectedDate;
               const isToday = cell.date === today;
-              const cellIndex = rowIndex * MONTH_COLUMNS + columnIndex;
 
               /*
                 A plain surface, never a boxed cell: the days are separated by
@@ -630,57 +627,36 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, dark, 
                   )}
 
                   {/*
-                    Fixed height, absolutely placed so it adds no height to
-                    the row and every number sits on the same line. The lane is one
-                    of the two measured boxes in the lattice (the strip's height is
-                    the other), so its top edge and height stay inline pixel values:
-                    21 is not on Tailwind's scale, and an arbitrary-value class is
-                    exactly what this migration exists to delete.
+                    The dot lane.
 
-                    The lane sits just below the centred day number, and still
-                    inside the 36px circle: the number's ink ends 5px under the
-                    disc's centre, so the dots start at 6px and the whole cluster
-                    stays within the curve (the outermost dot's corner reaches
-                    17.7px of the disc's 18px radius). Any lower and the selected
-                    circle would stop containing its own dots; any higher and the
-                    dots cross the digits' baseline.
+                    Fixed height and absolutely placed so it adds no height to
+                    the row and every day's dot sits on the same line. One dot,
+                    and only ever one, whatever the day holds: the lane answers
+                    "is anything happening that day?", and the count is in the
+                    day's accessible name, in the agenda and in the day sheet.
+                    A cluster of up to three turned the lane back into the bar
+                    chart the dots replaced.
 
-                    `pointer-events-none` on the lane itself is what keeps the
-                    day's hit box honest: only the dots are handles, so a tap
-                    beside them falls through to the day button underneath
-                    rather than stopping at an invisible strip.
+                    It is *decoration*. The lane and the dot are both
+                    `pointer-events-none`, and the dot is a plain `aria-hidden`
+                    span — no button, no `tabindex`, no label, no handler — so it
+                    can neither be focused nor tapped, and it cannot sit above
+                    the day cell's own hit area. A tap where a dot is drawn
+                    selects the day, exactly as a tap on the number does.
+
+                    `top-6` (24px) is the breathing room under the digits: the
+                    day number's 14px line box ends 25px down, so the 6px dot —
+                    centred in the 12px lane, i.e. 27px to 33px — leaves a clear
+                    gap under the glyphs instead of touching them. It still sits
+                    inside the 36px selected disc, which is painted above the
+                    lane and swallows its own dots. On Tailwind's own scale, so
+                    neither value needs an inline style.
                   */}
                   <span
-                    className="pointer-events-none absolute inset-x-0 flex items-center justify-center"
-                    style={{ top: DOT_LANE_TOP_PX, height: DOT_LANE_HEIGHT_PX }}
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-6 flex h-3 items-center justify-center"
                   >
-                    {dayItems.slice(0, MAX_DOTS).map((item) =>
-                      live ? (
-                        <DayDot
-                          key={item.key}
-                          item={item}
-                          prefs={prefs}
-                          calendars={calendars}
-                          dark={dark}
-                          drag={live.drag?.item.key === item.key ? live.drag : null}
-                          onOpen={live.onOpenItem}
-                          onPointerDown={(event) =>
-                            live.onDotPointerDown(item, event, {
-                              // `hourHeight` is 0 for the month, so this value is
-                              // carried straight through to the drop: it keeps a
-                              // timed item's clock time instead of zeroing it.
-                              startMinute: item.isAllDay ? 0 : minuteOfDay(item.startMs, prefs.zone),
-                              durationMinutes: 0,
-                              cellIndex,
-                            })
-                          }
-                        />
-                      ) : (
-                        <span key={item.key} className="flex size-2.5 items-center justify-center">
-                          <DotMark item={item} calendars={calendars} dark={dark} />
-                        </span>
-                      ),
-                    )}
+                    {dayItems.length > 0 ? <DotMark /> : null}
                   </span>
                 </div>
               );
@@ -715,8 +691,8 @@ interface DayNumberProps {
  *
  * The circle is one size for every state, so the month never re-lays-out as the
  * selection moves. It is drawn *above* the dot lane (`z-10`) and made
- * `pointer-events-none`, which is the pair that lets it hide the dots visually
- * while the dots keep their own hit boxes.
+ * `pointer-events-none`, so it covers the dots that fall inside it without ever
+ * taking their day's tap.
  */
 function DayNumber({
   date,
@@ -764,7 +740,10 @@ interface DayNumberFaceProps {
  *
  * Selection fades between fill, ring and tint over a fifth of a second, which is
  * what `transition-colors` is here for; only the colours change, so the grid
- * never re-lays-out when the selection moves.
+ * never re-lays-out when the selection moves. It is the feature's one colour
+ * fade, and its duration is stated on the same scale (`duration-200`, which is
+ * the 200ms `tw-animate-css` animates its own enter/exit fades over) so every
+ * timed fade in the calendar shares one vocabulary.
  */
 function DayNumberFace({ date, inMonth, isSelected, isToday }: DayNumberFaceProps) {
   return (
@@ -789,60 +768,20 @@ function DayNumberFace({ date, inMonth, isSelected, isToday }: DayNumberFaceProp
   );
 }
 
-/** The dot itself: one item's colour, at dot size. Shared by both panels. */
-function DotMark({ item, calendars, dark }: { item: CalendarItem; calendars: CalendarLookup; dark: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={cn('size-1.5 rounded-full', item.completed && 'opacity-60')}
-      style={{ backgroundColor: accentHex(itemColor(item, calendars), dark) }}
-    />
-  );
-}
-
-interface DayDotProps {
-  item: CalendarItem;
-  prefs: CalendarPrefs;
-  calendars: CalendarLookup;
-  dark: boolean;
-  /** Pixel offset while this dot is being dragged. */
-  drag: { offsetX: number; offsetY: number } | null;
-  onOpen: ItemOpenHandler;
-  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-}
-
 /**
- * One item, drawn as a dot.
+ * The dot itself: one mark, in the theme's muted foreground.
  *
- * Deliberately no title and no fill: at this size a title is unreadable and a
- * fill is a bar. The dot's own button is what keeps the item tappable and
- * draggable, and its accessible name is what keeps it reachable by keyboard.
+ * It used to be the item's accent colour, with up to three of them — which made
+ * a monochrome surface the most saturated thing on the screen and turned the
+ * lane into a bar chart. Celestial Sapphire says "something is here" with
+ * contrast, not hue, so the dot is the muted foreground rather than a literal
+ * grey: the token is what keeps it legible in both appearances (a mid grey on
+ * white, a lighter one on near-black) without carrying a colour of its own.
+ *
+ * `aria-hidden` and `pointer-events-none`: decoration, so it is invisible to a
+ * screen reader and untouchable to a finger — the day cell underneath keeps its
+ * whole hit area. The day button's accessible name carries the item count.
  */
-function DayDot({ item, prefs, calendars, dark, drag, onOpen, onPointerDown }: DayDotProps) {
-  const isTask = item.kind === 'task';
-  const timeLabel = item.isAllDay ? 'All-day' : formatTime(item.startMs, prefs);
-  const accessibleName = [timeLabel, item.title, isTask ? 'task' : 'event', item.completed ? 'completed' : null]
-    .filter(Boolean)
-    .join(', ');
-
-  return (
-    <button
-      type="button"
-      data-item-block="true"
-      aria-label={accessibleName}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen(item);
-      }}
-      onPointerDown={onPointerDown}
-      onContextMenu={(event) => event.preventDefault()}
-      className={cn(
-        'pointer-events-auto flex size-2.5 cursor-pointer items-center justify-center',
-        drag ? 'relative z-40' : null,
-      )}
-      style={drag ? { transform: `translate3d(${drag.offsetX}px, ${drag.offsetY}px, 0)` } : undefined}
-    >
-      <DotMark item={item} calendars={calendars} dark={dark} />
-    </button>
-  );
+function DotMark() {
+  return <span aria-hidden className="pointer-events-none size-1.5 rounded-full bg-muted-foreground/70" />;
 }

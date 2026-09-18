@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { AgendaBuckets } from '@/lib/agenda-types';
-import type { Task } from '@/lib/types';
+import type { CalendarItem, Task } from '@/lib/types';
 import {
   buildListSections,
   buildTodaySections,
@@ -138,20 +138,54 @@ describe('countRemaining / todayProgress', () => {
 describe('buildListSections', () => {
   const options = { zone: 'utc', today: '2025-05-12' };
 
-  it('buckets open work into the four groups, in order', () => {
+  /** A minimal calendar item, so events can be bucketed beside the tasks. */
+  function event(id: string, startDate: string, patch: Partial<CalendarItem> = {}): CalendarItem {
+    const startMs = Date.parse(`${startDate}T09:00:00Z`);
+    return {
+      key: `event:${id}:${startMs}`,
+      kind: 'event',
+      id,
+      title: `Event ${id}`,
+      startMs,
+      endMs: startMs + 60 * 60 * 1000,
+      isAllDay: false,
+      color: 'blue',
+      calendarId: 'cal',
+      ...patch,
+    };
+  }
+
+  it('buckets open work into the six groups, in order', () => {
     const sections = buildListSections(
       [
         task('later', { dueDate: '2025-05-25' }),
         task('now', { dueDate: '2025-05-12' }),
+        task('next', { dueDate: '2025-05-13' }),
+        task('week', { dueDate: '2025-05-15' }),
         task('pinned', { isPinned: true }),
         task('late', { dueDate: '2025-05-10' }),
       ],
       options,
     );
 
-    expect(sections.map((s) => s.id)).toEqual(['pinned', 'overdue', 'next7days', 'later']);
-    expect(sections.map((s) => s.title)).toEqual(['Pinned', 'Overdue', 'Next 7 days', 'Later']);
+    expect(sections.map((s) => s.id)).toEqual([
+      'today',
+      'tomorrow',
+      'pinned',
+      'overdue',
+      'next7days',
+      'later',
+    ]);
+    expect(sections.map((s) => s.title)).toEqual([
+      'Today',
+      'Tomorrow',
+      'Pinned',
+      'Overdue',
+      'Next 7 days',
+      'Later',
+    ]);
     expect(sections.find((s) => s.id === 'overdue')?.tone).toBe('danger');
+    expect(sections.find((s) => s.id === 'today')?.tone).toBe('default');
     expect(sections.every((s) => s.reorderable)).toBe(true);
   });
 
@@ -178,8 +212,24 @@ describe('buildListSections', () => {
       options,
     );
 
-    expect(sections.find((s) => s.id === 'next7days')?.tasks.map((t) => t.id)).toEqual(['today', 'edge']);
+    expect(sections.find((s) => s.id === 'today')?.tasks.map((t) => t.id)).toEqual(['today']);
+    expect(sections.find((s) => s.id === 'next7days')?.tasks.map((t) => t.id)).toEqual(['edge']);
     expect(sections.find((s) => s.id === 'later')?.tasks.map((t) => t.id)).toEqual(['past-edge']);
+  });
+
+  it('pulls today and tomorrow out of the Next 7 days bucket', () => {
+    const sections = buildListSections(
+      [
+        task('t', { dueDate: '2025-05-12' }),
+        task('m', { dueDate: '2025-05-13' }),
+        task('w', { dueDate: '2025-05-14' }),
+      ],
+      options,
+    );
+
+    expect(sections.find((s) => s.id === 'today')?.tasks.map((t) => t.id)).toEqual(['t']);
+    expect(sections.find((s) => s.id === 'tomorrow')?.tasks.map((t) => t.id)).toEqual(['m']);
+    expect(sections.find((s) => s.id === 'next7days')?.tasks.map((t) => t.id)).toEqual(['w']);
   });
 
   it('sends undated work to Later', () => {
@@ -192,14 +242,15 @@ describe('buildListSections', () => {
   it('reads an instant-only task through the user zone', () => {
     // 2025-05-12T23:30Z is still the 12th in UTC.
     const sections = buildListSections([task('a', { dueAtMs: Date.UTC(2025, 4, 12, 23, 30) })], options);
-    expect(sections[0].id).toBe('next7days');
+    expect(sections[0].id).toBe('today');
   });
 
   it('keeps the incoming order inside a group', () => {
     const sections = buildListSections(
-      [task('b', { dueDate: '2025-05-12' }), task('a', { dueDate: '2025-05-13' })],
+      [task('b', { dueDate: '2025-05-12' }), task('a', { dueDate: '2025-05-12' })],
       options,
     );
+    expect(sections[0].id).toBe('today');
     expect(sections[0].tasks.map((t) => t.id)).toEqual(['b', 'a']);
   });
 
@@ -213,14 +264,59 @@ describe('buildListSections', () => {
       options,
     );
 
-    expect(sections.map((s) => s.title)).toEqual(['Next 7 days', 'Completed']);
+    expect(sections.map((s) => s.title)).toEqual(['Today', 'Completed']);
     const completed = sections[sections.length - 1];
     expect(completed.defaultCollapsed).toBe(true);
     expect(completed.reorderable).toBe(false);
+    expect(completed.events).toEqual([]);
     expect(completed.tasks.map((t) => t.id)).toEqual(['c', 'd']);
   });
 
   it('returns nothing at all for an empty list', () => {
     expect(buildListSections([], options)).toEqual([]);
+  });
+
+  it('places events in the day buckets beside the tasks', () => {
+    const sections = buildListSections(
+      [task('t', { dueDate: '2025-05-12' })],
+      options,
+      [event('tomorrow', '2025-05-13'), event('today', '2025-05-12')],
+    );
+
+    const today = sections.find((s) => s.id === 'today');
+    const tomorrow = sections.find((s) => s.id === 'tomorrow');
+    expect(today?.tasks.map((t) => t.id)).toEqual(['t']);
+    expect(today?.events.map((e) => e.id)).toEqual(['today']);
+    expect(tomorrow?.events.map((e) => e.id)).toEqual(['tomorrow']);
+  });
+
+  it('orders a group\'s events by start time and drops past events', () => {
+    const sections = buildListSections([], options, [
+      event('late', '2025-05-12', { startMs: Date.parse('2025-05-12T18:00:00Z') }),
+      event('early', '2025-05-12', { startMs: Date.parse('2025-05-12T09:00:00Z') }),
+      event('old', '2025-05-11'),
+    ]);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].id).toBe('today');
+    expect(sections[0].events.map((e) => e.id)).toEqual(['early', 'late']);
+  });
+
+  it('treats a horizon-edge event as Next 7 days and a further one as Later', () => {
+    const sections = buildListSections([], options, [
+      event('edge', '2025-05-19'),
+      event('far', '2025-05-25'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'next7days')?.events.map((e) => e.id)).toEqual(['edge']);
+    expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['far']);
+  });
+
+  it('marks an events-only group as un-reorderable', () => {
+    const sections = buildListSections([], options, [event('e', '2025-05-12')]);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].tasks).toEqual([]);
+    expect(sections[0].reorderable).toBe(false);
   });
 });

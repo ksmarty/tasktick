@@ -6,8 +6,8 @@
  * here and unit-tested, so the view components stay presentational.
  */
 import type { AgendaBuckets } from '@/lib/agenda-types';
-import { addDaysToDateOnly, taskDay } from '@/lib/dates';
-import type { DateOnly, Task } from '@/lib/types';
+import { addDaysToDateOnly, taskDay, toDateOnly } from '@/lib/dates';
+import type { CalendarItem, DateOnly, Task } from '@/lib/types';
 
 export type TaskSectionTone = 'default' | 'danger';
 
@@ -19,6 +19,14 @@ export interface TaskSection {
   id: string;
   title: string;
   tasks: Task[];
+  /**
+   * Calendar events that start in this group.
+   *
+   * Events render as rows beside the tasks, but they are not tasks: they cannot
+   * be completed and are never reordered, so they are carried in their own list
+   * rather than forced into a `Task` shape (see `EventRow`).
+   */
+  events: CalendarItem[];
   /** `danger` renders the header in red — used for Overdue. */
   tone: TaskSectionTone;
   /** Starts collapsed; the user can still expand it. */
@@ -69,6 +77,7 @@ function section(spec: TodaySectionSpec, tasks: Task[]): TaskSection {
     id: spec.id,
     title: spec.title,
     tasks,
+    events: [],
     tone: spec.tone,
     defaultCollapsed: spec.defaultCollapsed,
     // Completed rows are never draggable, but the open sections are: a user who
@@ -127,6 +136,19 @@ export interface ListSectionOptions {
 }
 
 /**
+ * The task rows a list should show, given whether completed work is revealed.
+ *
+ * Pure and separate from the grouping because it is the one rule the header's
+ * completed toggle owns. It only ever *filters tasks*: calendar events are not
+ * tasks, never reach this function, and so can never be counted as completed or
+ * hidden by the toggle — they are merged in afterwards.
+ */
+export function visibleTasks(tasks: readonly Task[], includeCompleted: boolean): Task[] {
+  if (includeCompleted) return [...tasks];
+  return tasks.filter((task) => task.status === 'todo');
+}
+
+/**
  * How far ahead the "Next 7 days" group reaches: today through today + 7.
  *
  * Kept in step with the server's agenda bucket and `dueWindowBounds`, so the
@@ -142,6 +164,8 @@ export const NEXT_7_DAYS_SPAN = 7;
  * which slice to look at first.
  */
 export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectionTone }[] = [
+  { id: 'today', title: 'Today', tone: 'default' },
+  { id: 'tomorrow', title: 'Tomorrow', tone: 'default' },
   { id: 'pinned', title: 'Pinned', tone: 'default' },
   { id: 'overdue', title: 'Overdue', tone: 'danger' },
   { id: 'next7days', title: 'Next 7 days', tone: 'default' },
@@ -149,25 +173,38 @@ export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectio
 ];
 
 /**
- * The list screen's grouping: Pinned, Overdue, Next 7 days, Later.
+ * The list screen's grouping: Today, Tomorrow, Pinned, Overdue, Next 7 days,
+ * Later.
  *
- * One pass over the rows, each open task landing in exactly one group — a task
- * that is both pinned and overdue is pinned, and never appears twice. A group
- * with nothing in it is skipped rather than rendered as an empty header.
+ * Today and Tomorrow lead because they are the two days a person actually acts
+ * on; the rest of the urgency buckets follow. One pass over the rows, each open
+ * task landing in exactly one group — a task that is both pinned and due today
+ * is pinned, and never appears twice. A group with nothing in it is skipped
+ * rather than rendered as an empty header.
  *
- * Pinned wins over everything because it is the user's own ordering of their
- * day; Overdue is anything due before today; Next 7 days is today through the
- * end of the week-long horizon; Later is the rest, undated work included, so
- * nothing has a home it does not belong in.
+ * Pinned wins over the day buckets because it is the user's own ordering of
+ * their list; Overdue is anything due before today; Next 7 days is the rest of
+ * the week-long horizon after tomorrow; Later is everything else, undated work
+ * included, so nothing has a home it does not belong in.
+ *
+ * Events are bucketed by the day they start and never pinned. A past event is
+ * dropped: the caller asks the calendar for today onward, and an event that has
+ * already happened is not an outstanding item.
  *
  * Closed rows are kept reachable in a collapsed trailing section: ticking a task
  * off must never make it vanish with no way back.
  */
-export function buildListSections(tasks: readonly Task[], options: ListSectionOptions): TaskSection[] {
+export function buildListSections(
+  tasks: readonly Task[],
+  options: ListSectionOptions,
+  events: readonly CalendarItem[] = [],
+): TaskSection[] {
   const { zone, today } = options;
   const horizon = addDaysToDateOnly(today, NEXT_7_DAYS_SPAN, zone);
+  const tomorrow = addDaysToDateOnly(today, 1, zone);
 
   const buckets = new Map<string, Task[]>(LIST_GROUPS.map((group) => [group.id, []]));
+  const eventBuckets = new Map<string, CalendarItem[]>(LIST_GROUPS.map((group) => [group.id, []]));
   const closed: Task[] = [];
 
   for (const task of tasks) {
@@ -182,22 +219,36 @@ export function buildListSections(tasks: readonly Task[], options: ListSectionOp
 
     const day = taskDay(task, zone);
     if (day && day < today) buckets.get('overdue')?.push(task);
+    else if (day === today) buckets.get('today')?.push(task);
+    else if (day === tomorrow) buckets.get('tomorrow')?.push(task);
     else if (day && day <= horizon) buckets.get('next7days')?.push(task);
     else buckets.get('later')?.push(task);
+  }
+
+  for (const event of [...events].sort((a, b) => a.startMs - b.startMs)) {
+    const day = toDateOnly(event.startMs, zone);
+    if (day < today) continue;
+    if (day === today) eventBuckets.get('today')?.push(event);
+    else if (day === tomorrow) eventBuckets.get('tomorrow')?.push(event);
+    else if (day <= horizon) eventBuckets.get('next7days')?.push(event);
+    else eventBuckets.get('later')?.push(event);
   }
 
   const sections: TaskSection[] = [];
 
   for (const group of LIST_GROUPS) {
     const grouped = buckets.get(group.id) ?? [];
-    if (grouped.length === 0) continue;
+    const groupedEvents = eventBuckets.get(group.id) ?? [];
+    if (grouped.length === 0 && groupedEvents.length === 0) continue;
     sections.push({
       id: group.id,
       title: group.title,
       tasks: grouped,
+      events: groupedEvents,
       tone: group.tone,
       defaultCollapsed: false,
-      reorderable: true,
+      // A section carrying only events has nothing to drag.
+      reorderable: grouped.length > 0,
     });
   }
 
@@ -206,6 +257,7 @@ export function buildListSections(tasks: readonly Task[], options: ListSectionOp
       id: 'completed',
       title: 'Completed',
       tasks: closed,
+      events: [],
       tone: 'default',
       defaultCollapsed: true,
       reorderable: false,

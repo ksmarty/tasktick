@@ -20,7 +20,7 @@ export { CalendarSidebar, type CalendarSidebarProps } from './CalendarSidebar';
 export { DragGhostLabel } from './DragGhostLabel';
 
 /* ------------------------------- internals ------------------------------- */
-export { itemColor } from './colors';
+export { itemColor, itemHex, calendarColorHex, customCalendarHex } from './colors';
 export { moveItemInPayload, type MovedInstants } from './optimistic';
 export { useItemDrag, type DragGhost, type DragInit, type ItemDragConfig } from './use-item-drag';
 export {

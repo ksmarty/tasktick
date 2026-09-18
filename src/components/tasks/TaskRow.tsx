@@ -43,10 +43,13 @@
  *
  * ## The list colour
  *
- * The section used to paint a 4px coloured stripe down its leading edge. It is
- * an 8px dot in the section header now (see `TaskListSection`): the same "which
- * list" signal, on a card that is otherwise pure contrast, which is what lets
- * Celestial Sapphire be the monochrome palette it is.
+ * The section used to paint a 4px coloured stripe down its leading edge, then a
+ * single dot in the section header. The stripe is back, but per row and on the
+ * row's own leading edge: the colour belongs to the task you are looking at, not
+ * to the group it happens to sit in, and it is the thing the eye uses to scan a
+ * mixed list. The header dot is gone, so the two do not repeat each other — see
+ * `TaskListSection`. The strip is a positioned span rather than a left border so
+ * the text keeps the section header's axis.
  *
  * ## The drag grip
  *
@@ -65,7 +68,8 @@ import { CrossCircledIcon } from '@svg-animated-icons/react/cross-circled';
 import { DragHandleDots1Icon } from '@svg-animated-icons/react/drag-handle-dots-1';
 import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
 import { useMediaQuery } from '@/lib/store';
-import type { Task } from '@/lib/types';
+import { accentHex } from '@/lib/colors';
+import type { AccentColor, Task } from '@/lib/types';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -109,6 +113,8 @@ export interface TaskRowProps {
   timeFormat: '12h' | '24h';
   /** Ticks the task off, or un-ticks it when it is already done. */
   onToggle: (task: Task) => void;
+  /** The list's colour, drawn as the strip on the row's leading edge. */
+  accent?: AccentColor | null;
   /** Opens the editor dialog. */
   onOpen: (task: Task) => void;
   onDelete?: (task: Task) => void;
@@ -136,6 +142,7 @@ export function TaskRow({
   zone,
   timeFormat,
   onToggle,
+  accent,
   onOpen,
   onDelete,
   onWontDo,
@@ -312,6 +319,20 @@ export function TaskRow({
         disabled && 'opacity-60',
       )}
     >
+      {/*
+       * The list's colour, as a 4px strip on the row's own leading edge. It is
+       * a positioned span rather than a left border so it never shifts the text
+       * axis off the section header's (see `TaskListSection`), and it sits
+       * inside the row so the swipe/lift transform carries it along.
+       */}
+      {accent ? (
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1"
+          style={{ backgroundColor: accentHex(accent) }}
+        />
+      ) : null}
+
       <motion.span
         className="-ml-3 grid size-11 shrink-0 place-items-center"
         animate={justCompleted && !reduceMotion ? { scale: [0.82, 1.12, 1] } : { scale: 1 }}
@@ -325,6 +346,8 @@ export function TaskRow({
           // explicit attribute is what the old row exposed; keep it.
           aria-checked={completed ? true : wontDo ? 'mixed' : false}
           onCheckedChange={toggle}
+          // `size-5` is 20px, the title's `text-base leading-tight` line box, so
+          // the tick and the words it ticks are the same height.
           className={cn('size-5 border-foreground/25', wontDo && !completed && 'opacity-60')}
         />
       </motion.span>

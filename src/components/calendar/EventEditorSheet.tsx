@@ -76,7 +76,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { api, errorMessage } from '@/lib/api-client';
-import { accentHex, resolveCalendarColor } from '@/lib/colors';
 import {
   addDaysToDateOnly,
   combineDateAndTime,
@@ -88,6 +87,7 @@ import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset, weekdayOfDate }
 import { invalidate, useResource } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { Calendar as CalendarRecord, CalendarEvent, DateOnly, TimeOnly } from '@/lib/types';
+import { calendarColorHex } from './colors';
 import { minuteToTime } from './geometry';
 import type { CalendarFilter, CalendarPrefs } from './types';
 
@@ -109,7 +109,14 @@ export interface EventEditorSheetProps {
   prefs: CalendarPrefs;
   /** Called after a write lands, so the screen can refetch the range. */
   onChanged: () => void;
-  /** Seeds the calendar picker when the view is filtered to one calendar. */
+  /**
+   * Seeds the calendar picker when the view is filtered to one calendar.
+   *
+   * `CalendarFilter` carries the calendar's base colour for the screens that
+   * paint a chip from it (the sidebar, the event editor's filter); anything that
+   * paints a calendar's own colour resolves it with `calendarColorHex`, which is
+   * what honours a custom colour.
+   */
   filter?: CalendarFilter | null;
 }
 
@@ -487,7 +494,7 @@ function EventForm({
                 <span
                   aria-hidden
                   className="size-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: accentHex(resolveCalendarColor(calendar.color, calendar.colorOverride)) }}
+                  style={{ backgroundColor: calendarColorHex(calendar) }}
                 />
                 <span className={cn('min-w-0 flex-1 truncate text-sm', selected && 'font-semibold')}>
                   {calendar.name}
@@ -648,7 +655,7 @@ function EventForm({
         ) : null}
       </div>
 
-      <DialogFooter className="shrink-0 border-t border-border px-card pt-stack pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+      <DialogFooter className="shrink-0 border-t border-border px-card pt-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
           Cancel
         </Button>

@@ -36,6 +36,7 @@ import { QuickAddBar } from './QuickAddBar';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
 import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
+import { taskAccentLookup } from './row-colors';
 import { buildTodaySections, countRemaining, todayProgress, type TaskSection } from './sections';
 import { GLASS_TINT } from './surface';
 import { useTaskActions } from './useTaskActions';
@@ -49,6 +50,10 @@ export function TodayView() {
   const timeFormat = data?.settings.timeFormat ?? '24h';
   const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
+
+  // Resolves each row's list colour once, for the per-row colour strip.
+  const lists = useMemo(() => data?.lists ?? [], [data?.lists]);
+  const accentForTask = useMemo(() => taskAccentLookup(lists), [lists]);
 
   // This screen owns its own scroll: the header stays put while the list moves.
   // The shell hands the pane over as a fixed-height box; see `ShellPane`.
@@ -263,6 +268,7 @@ export function TodayView() {
               timeFormat={timeFormat}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
+              listColorFor={accentForTask}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
               onReorder={reorderSection}

@@ -3,11 +3,12 @@
 /**
  * The task list screen: every open task, grouped by urgency.
  *
- * One pass over `/api/tasks`, bucketed into Pinned / Overdue / Next 7 days /
- * Later by `buildListSections` — the user does not choose a window here, they
- * read one list. Filtering and sorting each live in their own compact header
- * menu (see `FilterMenu.tsx` and `SortMenu.tsx`), and both are GodUI `Drawer`s so
- * a swipe down puts them away.
+ * One pass over `/api/tasks`, bucketed into Today / Tomorrow / Pinned /
+ * Overdue / Next 7 days / Later by `buildListSections` — the user does not
+ * choose a window here, they read one list. Calendar events for the same window
+ * are merged in as non-completable rows. Filtering and sorting each live in their
+ * own compact header menu (see `FilterMenu.tsx` and `SortMenu.tsx`), and both are
+ * GodUI `Drawer`s so a swipe down puts them away.
  *
  * ## Search
  *
@@ -37,6 +38,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { ExclamationCircledIcon } from '@svg-animated-icons/react/exclamation-circled';
+import { EyeNoneIcon } from '@svg-animated-icons/react/eye-none';
+import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
 import { FilterIcon } from '@svg-animated-icons/react/filter';
 import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -45,11 +48,11 @@ import { Folder } from 'lucide-react';
 import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide, Flag, Tag } from 'lucide-react';
 import { useShellPane } from '@/components/app/ShellPane';
 import { accentHex } from '@/lib/colors';
-import { todayIn } from '@/lib/dates';
+import { todayIn, addDaysToDateOnly, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
 import { useIsDesktop, useResource } from '@/lib/store';
-import type { Task } from '@/lib/types';
-import type { BootstrapPayload } from '@/lib/view-types';
+import type { CalendarItem, Task } from '@/lib/types';
+import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
 import { FloatingToolbar } from '@/components/godui/floating-toolbar';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
 import { Button } from '@/components/ui/button';
@@ -91,7 +94,8 @@ import {
 } from './filters';
 import { removeByIds, reorderList, setPriorityByIds, setStatusByIds } from './optimistic';
 import type { BulkAction, BulkPayload } from './payloads';
-import { buildListSections, type TaskSection } from './sections';
+import { buildListSections, NEXT_7_DAYS_SPAN, visibleTasks, type TaskSection } from './sections';
+import { taskAccentLookup } from './row-colors';
 import { useTaskActions } from './useTaskActions';
 
 /** Debounce for the search field, so typing does not fire a request per key. */
@@ -118,6 +122,8 @@ export function TasksView() {
   const actions = useTaskActions(zone);
 
   const lists = useMemo(() => data?.lists ?? [], [data?.lists]);
+  // Resolves each row's list colour once, for the per-row colour strip.
+  const accentForTask = useMemo(() => taskAccentLookup(lists), [lists]);
   const tags = useMemo(() => data?.tags ?? [], [data?.tags]);
   const lookups = useMemo(() => ({ lists, tags }), [lists, tags]);
 
@@ -132,6 +138,8 @@ export function TasksView() {
   const [bulkSheet, setBulkSheet] = useState<BulkSheet>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  /** Completed rows are hidden until the header's eye toggle asks for them. */
+  const [showCompleted, setShowCompleted] = useState(false);
 
   // The shell's action button asks the mounted view for its primary create action.
   usePrimaryAction(openQuickAdd);
@@ -196,10 +204,60 @@ export function TasksView() {
     [tasks, state.sort, state.sortDir],
   );
 
-  const sections = useMemo(
-    () => buildListSections(sortedTasks, { zone, today: todayIn(zone) }),
-    [sortedTasks, zone],
+  // The day the list is grouped around, computed once so the calendar window and
+  // the section buckets cannot disagree about where "today" is.
+  const today = useMemo(() => todayIn(zone), [zone]);
+
+  /*
+   * Events for the window the list groups: today through the end of the "Next 7
+   * days" horizon. `/api/calendar/items` is the one read endpoint that expands
+   * recurring events and projects both kinds into `CalendarItem`. Its task rows
+   * are dropped here because `/api/tasks` already owns them, and the endpoint has
+   * no "events only" switch (see the report).
+   */
+  const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', {
+    startMs: fromDateOnly(today, zone).toMillis(),
+    endMs: fromDateOnly(addDaysToDateOnly(today, NEXT_7_DAYS_SPAN + 1, zone), zone).toMillis(),
+  });
+  const events = useMemo(
+    () => (calendarItems.data?.items ?? []).filter((item) => item.kind === 'event'),
+    [calendarItems.data],
   );
+
+  /*
+   * Completed work is hidden by default. The explicit Completed filter is the
+   * exception: it asks for closed rows and nothing else, so forcing them hidden
+   * there would leave an empty screen.
+   */
+  const completedVisible = showCompleted || state.window === 'completed';
+  const visibleRows = useMemo(
+    () => visibleTasks(sortedTasks, completedVisible),
+    [completedVisible, sortedTasks],
+  );
+
+  const sections = useMemo(
+    () => buildListSections(visibleRows, { zone, today }, events),
+    [visibleRows, zone, today, events],
+  );
+
+  /**
+   * Flips the completed rows. While the list *is* the Completed filter there is
+   * nothing to hide, so turning the toggle off leaves the filter for All tasks —
+   * otherwise the control could never read as off there.
+   */
+  function toggleCompleted() {
+    if (state.window === 'completed') {
+      setShowCompleted(false);
+      applyState({ window: 'all' });
+      return;
+    }
+    setShowCompleted((value) => !value);
+  }
+
+  /** Opens the calendar day an event starts on. */
+  function openEvent(event: CalendarItem) {
+    router.push(`/calendar?date=${toDateOnly(event.startMs, zone)}`);
+  }
 
   function toggleSelect(task: Task) {
     setSelectedIds((current) => {
@@ -347,11 +405,17 @@ export function TasksView() {
             variant={chips.length ? 'filled' : 'tinted'}
             onClick={() => setFilterOpen(true)}
           />
+          {/*
+           * The completed toggle. It fills while completed rows are showing and
+           * exposes that through `aria-pressed`; events are never counted as
+           * completed and are never hidden by it.
+           */}
           <HeaderActionButton
-            aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
-            icon={selectionMode ? Cross1Icon : CheckCircledIcon}
-            variant={selectionMode ? 'filled' : 'tinted'}
-            onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
+            aria-label={completedVisible ? 'Hide completed tasks' : 'Show completed tasks'}
+            aria-pressed={completedVisible}
+            icon={completedVisible ? EyeOpenIcon : EyeNoneIcon}
+            variant={completedVisible ? 'filled' : 'tinted'}
+            onClick={toggleCompleted}
           />
           {/*
            * Desktop only. The floating band — and with it the action button — is
@@ -448,6 +512,29 @@ export function TasksView() {
         />
       ) : (
         <div className="flex flex-col gap-stack px-gutter py-3">
+          {/*
+           * Multi-select keeps a home here, above the groups. Its old header
+           * toggle gave that slot to the completed eye; the row context menu is
+           * desktop-only, so this button is the entry point on every input, and
+           * it toggles the same mode the bulk bar docks over.
+           */}
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={selectionMode ? 'Done selecting' : 'Select tasks'}
+              aria-pressed={selectionMode}
+              onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
+            >
+              {selectionMode ? (
+                <Cross1Icon className="text-base" />
+              ) : (
+                <CheckCircledIcon className="text-base" />
+              )}
+              {selectionMode ? 'Done' : 'Select'}
+            </Button>
+          </div>
           {sections.map((section) => (
             <TaskListSection
               key={section.id}
@@ -456,6 +543,8 @@ export function TasksView() {
               timeFormat={timeFormat}
               onToggle={toggleTask}
               onOpen={(task) => setEditor({ open: true, task })}
+              listColorFor={accentForTask}
+              onOpenEvent={openEvent}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
               onReorder={reorderSection}

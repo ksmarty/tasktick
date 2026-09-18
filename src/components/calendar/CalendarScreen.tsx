@@ -68,7 +68,6 @@ import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { useShellPane } from '@/components/app/ShellPane';
 import { useToast } from '@/components/app/Toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
 import {
   DATE_FORMAT,
@@ -87,6 +86,7 @@ import type { CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
 import { AgendaTaskEditor } from './AgendaTaskEditor';
 import { CalendarToolbar } from './CalendarToolbar';
+import { calendarColorHex } from './colors';
 import { DayAgenda } from './DayAgenda';
 import { DayDetailSheet, DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
 import { EventEditorSheet, type EventDefaults } from './EventEditorSheet';
@@ -470,7 +470,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
    * stands both down (`interaction.dragging`).
    */
   const agendaSwipe = useSwipePaging(interaction, moveDay);
-  const filterHex = filterCalendar ? accentHex(filterCalendar.color) : null;
+  const filterHex = filterCalendar ? calendarColorHex(filterCalendar) : null;
 
   return (
     <>

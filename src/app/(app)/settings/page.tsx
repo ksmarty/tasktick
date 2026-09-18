@@ -1,35 +1,25 @@
 'use client';
 
 /**
- * Settings: the index, and the Account tab.
+ * Settings: the Account section.
  *
- * Settings is split into four tabs (Account, Notifications, Calendars,
- * Advanced). Each is a real route, and the tab bar in `SettingsTabs` drives the
- * router, so the URL always names the section you are in and the sub-routes
- * other screens link to keep working.
- *
- * The Account tab is the default because it is the one the user opens Settings
- * for. It holds the things that are personal to the signed-in account: the
- * name/email/password, how the app looks, and the time zone and clock. Those
- * last two are deliberately here rather than under a separate Preferences tab —
- * they are per-person choices with an instant effect, and keeping them on the
- * landing tab means the theme and clock controls are reachable without a second
- * tap (which is also what the settings probe assumes).
+ * Settings is a set of small, single-concern sections (see `SettingsTabs`), each
+ * a real route. Account is the landing section because it is the one most people
+ * open Settings for: the display name, the sign-in address, the password and the
+ * way out. Appearance and Date & time have their own sections, so this page no
+ * longer mixes them in.
  *
  * The header is owned by the app shell: this page publishes its title through
  * `PageHeader` rather than stacking a second bar under the shell's, which is what
  * keeps one title row, one safe-area inset and one elevation across every screen.
  *
  * Layout: one `flex flex-col gap-stack` column, inset by `px-gutter` and given a
- * top gutter so the first group does not sit flush against the app bar — the
- * specific complaint that the Account section "has no margin".
+ * top gutter so the first group does not sit flush against the app bar.
  */
 import { PageHeader } from '@/components/app/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { AccountSettings } from '@/components/settings/AccountSettings';
-import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
-import { DateTimeSettings } from '@/components/settings/DateTimeSettings';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { BootstrapPayload } from '@/lib/view-types';
 
@@ -48,14 +38,9 @@ export default function SettingsPage() {
           <>
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-24 w-full" />
           </>
         ) : (
-          <>
-            <AccountSettings user={data.user} />
-            <AppearanceSettings />
-            <DateTimeSettings settings={data.settings} />
-          </>
+          <AccountSettings user={data.user} />
         )}
       </SettingsTabs>
     </div>

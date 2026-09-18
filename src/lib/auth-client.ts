@@ -26,7 +26,7 @@ export const { signIn, signUp, signOut, useSession } = authClient;
  * The response body is better-auth's own shape (`{ url, redirect }`), NOT this
  * app's `{ ok, data }` envelope, so `api` from `@/lib/api-client` is not used.
  */
-export async function startOidcSignIn(callbackURL = '/today'): Promise<void> {
+export async function startOidcSignIn(callbackURL = '/tasks'): Promise<void> {
   const response = await fetch('/api/auth/sign-in/oauth2', {
     method: 'POST',
     credentials: 'same-origin',

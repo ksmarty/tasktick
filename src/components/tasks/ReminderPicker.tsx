@@ -61,7 +61,7 @@ export function ReminderPicker({ open, onOpenChange, value, hasDueDate, onChange
       onOpenChange={onOpenChange}
       side="bottom"
       title="Reminders"
-      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+      className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
       <div>
         {REMINDER_OFFSETS.map((item) => {

@@ -20,16 +20,17 @@
  * chip cover the same ground), but it is part of the feature's public surface
  * and is kept on the same primitives as the rest of it.
  *
- * The colour dot is painted from `accentHex`, which is a runtime accent lookup
- * and therefore the one thing here that has to be an inline `style`.
+ * The colour dot is painted from `calendarColorHex`, which resolves the
+ * calendar's accent token — or passes a custom (literal) colour straight through
+ * — and is therefore the one thing here that has to be an inline `style`.
  */
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { accentHex, resolveCalendarColor } from '@/lib/colors';
 import { cn } from '@/lib/utils';
 import type { Calendar } from '@/lib/types';
+import { calendarColorHex } from './colors';
 import type { CalendarFilter } from './types';
 
 export interface CalendarSidebarProps {
@@ -62,7 +63,7 @@ export function CalendarSidebar({
 
         <ul className="flex flex-col">
           {calendars.map((calendar) => {
-            const color = resolveCalendarColor(calendar.color, calendar.colorOverride);
+            const hex = calendarColorHex(calendar);
             const visible = visibility[calendar.id] ?? calendar.isVisible;
             const focused = filter?.id === calendar.id;
 
@@ -71,7 +72,7 @@ export function CalendarSidebar({
                 <span
                   aria-hidden
                   className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: accentHex(color) }}
+                  style={{ backgroundColor: hex }}
                 />
 
                 <button

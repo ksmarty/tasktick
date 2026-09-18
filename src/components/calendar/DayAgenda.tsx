@@ -70,11 +70,10 @@ import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckboxIcon } from '@svg-animated-icons/react/checkbox';
 import { useAppearance } from '@/app/providers';
 import { Separator } from '@/components/ui/separator';
-import { accentHex } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { CalendarItem } from '@/lib/types';
-import { itemColor } from './colors';
+import { itemHex } from './colors';
 import { DragGhostLabel } from './DragGhostLabel';
 import { minuteOfDay } from './geometry';
 import { useItemDrag } from './use-item-drag';
@@ -157,8 +156,7 @@ export function DayAgenda({
         className="flex flex-col gap-stack touch-pan-y px-2 pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-2"
       >
         {items.map((item) => {
-          const color = itemColor(item, calendars);
-          const hex = accentHex(color, dark);
+          const hex = itemHex(item, calendars, dark);
           const isTask = item.kind === 'task';
           const done = Boolean(item.completed);
           // The gutter carries the start of the row; the card carries the range.

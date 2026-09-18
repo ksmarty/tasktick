@@ -239,22 +239,62 @@ OIDC_ALLOWED_DOMAINS=example.com     # optional allowlist
 
 ### Web Push (optional)
 
+Notifications need a **VAPID key pair**: a public key the
+browser uses to subscribe, and a private key the server uses to sign the pushes
+it sends. They are a pair — generating one without the other, or mixing keys
+from two generations, produces a subscription the server cannot deliver to.
+
+#### 1. Generate a key pair
+
 ```bash
 npx web-push generate-vapid-keys
 ```
 
-``bash
-VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
+It prints a public and a private key. Both are URL-safe base64; copy them
+exactly, including any trailing `=`.
+
+#### 2. Configure
+
+```bash
+VAPID_PUBLIC_KEY=BNc...your_public_key...
+VAPID_PRIVATE_KEY=...your_private_key...
+VAPID_SUBJECT=mailto:you@example.com
 ```
 
-The public key is handed to the browser through `/api/settings` at request time —
-deliberately not through a `NEXT_PUBLIC_*` variable, because those are inlined at
-build time and a container configured at runtime would send the browser an empty
-key and push would silently stay disabled.
+- **`VAPID_PUBLIC_KEY`** and **`VAPID_PRIVATE_KEY`** — both are required. With
+  only one set, push stays disabled.
+- **`VAPID_SUBJECT`** — a `mailto:` or `https:` contact the push service can use
+  to reach you about your traffic. It defaults to `mailto:admin@localhost`, which
+  some push services reject, so **set it to a real address** if notifications
+  silently fail to arrive.
 
-Without these the notification controls disable themselves and explain why,
-rather than failing silently.
+With Docker Compose, put them in `.env` beside the other variables — the compose
+file already reads that file.
+
+#### 3. Restart, then enable per device
+
+The keys are read at boot, so restart the container after setting them. Then open
+**Settings → Notifications** and enable push **on each device you want to receive
+them on** — a subscription belongs to a browser, not to your account.
+
+#### Why the public key is not `NEXT_PUBLIC_*`
+
+It is handed to the browser through `/api/settings` at request time.
+`NEXT_PUBLIC_*` variables are inlined at **build** time, so a container configured
+at runtime would send the browser an empty key and push would silently stay
+disabled — which is the failure this avoids.
+
+#### If it does not work
+
+- **The controls are disabled and explain why** — the server has no usable key
+  pair. Check both variables are set, then that the container was restarted.
+- **On iOS, push only works in an installed PWA.** Safari in a tab cannot receive
+  it; add the app to the Home Screen first.
+- **A denied permission cannot be re-requested from the page** — the browser will
+  not prompt again. Re-enable it in the browser's own site settings, or reset the
+  site data.
+- **The toggle is on but nothing arrives** — check `VAPID_SUBJECT` is a real
+  contact address, then look at the server logs for the push service's response.
 
 ---
 

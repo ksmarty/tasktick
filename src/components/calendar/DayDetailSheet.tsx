@@ -33,10 +33,10 @@ import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { useAppearance } from '@/app/providers';
 import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
-import { accentHex, resolveCalendarColor } from '@/lib/colors';
 import { formatTime, fromDateOnly, relativeDayLabel } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { CalendarItem, DateOnly } from '@/lib/types';
+import { calendarColorHex } from './colors';
 import type { CalendarLookup, CalendarPrefs, ItemOpenHandler } from './types';
 
 /** Default slot for the sheet's own "New event" action. */
@@ -70,23 +70,19 @@ export function DayDetailSheet({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} side="bottom" title={title} className="p-0 px-card">
-      <div className="flex flex-col gap-stack pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+      <div className="flex flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         <p className="text-sm text-muted-foreground">{description}</p>
 
         {items.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-gutter py-8 text-center">
             <CalendarIcon aria-hidden className="size-8 text-3xl text-muted-foreground" disableHover />
             <p className="text-sm font-semibold text-foreground">Nothing scheduled</p>
-            <p className="text-sm text-muted-foreground">
-              This day is clear. Add an event, or drag one here from another day.
-            </p>
           </div>
         ) : (
           <ul className="flex flex-col">
             {items.map((item) => {
               const calendar = item.calendarId ? calendars.get(item.calendarId) : undefined;
-              const color = resolveCalendarColor(calendar?.color ?? null, calendar?.colorOverride ?? null);
-              const hex = accentHex(color, dark);
+              const hex = calendarColorHex(calendar, dark);
               const isTask = item.kind === 'task';
               const time = item.isAllDay
                 ? 'All day'
