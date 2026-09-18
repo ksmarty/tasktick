@@ -4,16 +4,11 @@
  * Repeat picker, built from `REPEAT_PRESETS` so the rule this writes is the same
  * rule `@/lib/rrule` can describe back to the user.
  */
-import Check from '@mui/icons-material/Check';
-import Drawer from '@mui/material/Drawer';
-import Repeat from '@mui/icons-material/Repeat';
-import Box from '@mui/material/Box';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Typography from '@mui/material/Typography';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Repeat } from 'lucide-react';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset } from '@/lib/rrule';
+import { cn } from '@/lib/utils';
 
 export interface RepeatPickerProps {
   open: boolean;
@@ -39,66 +34,53 @@ export function RepeatPicker({ open, onOpenChange, value, dueDay, onChange }: Re
   }
 
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={() => onOpenChange(false)}
-      slotProps={{
-        paper: {
-          role: 'dialog',
-          'aria-modal': true,
-          'aria-label': 'Repeat',
-          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
-        },
-      }}
-    >
-      <Box
-        sx={{
-          borderTopLeftRadius: 3,
-          borderTopRightRadius: 3,
-          pb: 2,
-          maxHeight: '90dvh',
-          overflowY: 'auto',
-        }}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        aria-label="Repeat"
+        aria-modal={true}
+        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       >
-        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
-          Repeat
-        </Typography>
+        <SheetTitle className="sr-only">Repeat</SheetTitle>
 
-        <List role="radiogroup" aria-label="Repeat" sx={{ py: 0 }}>
+        <h2 className="pb-2 text-lg font-semibold text-foreground">Repeat</h2>
+
+        <div role="radiogroup" aria-label="Repeat">
           {REPEAT_PRESETS.map((preset) => {
             const selected = preset.id === current;
             return (
-              <ListItemButton
+              <button
                 key={preset.id}
+                type="button"
                 role="radio"
                 aria-checked={selected}
                 onClick={() => choose(preset.id)}
+                className={cn(
+                  'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
+                  selected ? 'text-primary' : 'text-foreground',
+                )}
               >
-                <ListItemIcon sx={{ minWidth: 32 }}>
+                <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
                   <Repeat
-                    sx={{ fontSize: 20, color: selected ? 'primary.main' : 'text.secondary' }}
+                    className={cn('size-5', selected ? 'text-primary' : 'text-muted-foreground')}
                     aria-hidden
                   />
-                </ListItemIcon>
-                <ListItemText
-                  primary={preset.label}
-                  slotProps={{
-                    primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
-                  }}
-                />
-                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
-              </ListItemButton>
+                </span>
+                <span className="min-w-0 flex-1 truncate">{preset.label}</span>
+                {selected ? (
+                  <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                    <CheckIcon className="size-5" />
+                  </span>
+                ) : null}
+              </button>
             );
           })}
-        </List>
+        </div>
 
         {description ? (
-          <Typography variant="caption" sx={{ display: 'block', px: 2, pt: 1.5, color: 'text.secondary' }}>
-            Currently: {description}.
-          </Typography>
+          <p className="pt-3 text-xs text-muted-foreground">Currently: {description}.</p>
         ) : null}
-      </Box>
-    </Drawer>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -14,31 +14,31 @@
  * these results are a page, not a dropdown, and claiming otherwise would misdescribe
  * the widget.
  *
- * Material owns the surfaces: a MUI `TextField` with the magnifier as an input
- * adornment, a `List` per section under a `ListSubheader`, and `ListItemButton`
- * rows — which is also what makes the focus-follows-selection design above work,
- * since `ListItemButton` forwards its ref to the focusable root element.
+ * shadcn/GodUI own the surfaces now: the magnifier is an absolutely positioned
+ * adornment over a shadcn `Input`, a `<section aria-label>` per kind holds a
+ * heading row and a `<ul>` of rows, and each row is a real `<button>` — which is
+ * what keeps the focus-follows-selection design above working, since a button is
+ * focusable and activates itself on Enter. Every button refs itself into
+ * `itemRefs` by its index in the *flat* list, so the arrow keys walk the sections
+ * as one list.
+ *
+ * Each section is wrapped in `ScrollReveal`, so an answer that arrives after the
+ * debounce reads as an answer rather than as a layout jump.
+ *
+ * Spacing: every margin, padding and gap is a layout token (`px-gutter`,
+ * `px-card`, `px-row`, `gap-stack`) or a step on Tailwind's own scale — see
+ * `GODUI-CONVENTIONS.md`.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
-import InputAdornment from '@mui/material/InputAdornment';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemText from '@mui/material/ListItemText';
-import ListSubheader from '@mui/material/ListSubheader';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import SearchIcon from '@mui/icons-material/Search';
-import SearchOffIcon from '@mui/icons-material/SearchOff';
-import type { SvgIconProps } from '@mui/material/SvgIcon';
+import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
+import { ChevronRight, SearchX } from 'lucide-react';
+import { ScrollReveal } from '@/components/godui/scroll-reveal';
+import { Input } from '@/components/ui/input';
 import { useResource } from '@/lib/store';
 import { todayIn } from '@/lib/dates';
+import { cn } from '@/lib/utils';
 import {
   SEARCH_DEBOUNCE_MS,
   SEARCH_SECTIONS,
@@ -52,6 +52,17 @@ import type { BootstrapPayload, SearchPayload } from '@/lib/view-types';
 
 /** The API ignores anything shorter than this, so neither do we. */
 const MIN_QUERY_LENGTH = 2;
+
+/**
+ * Positions the decorative field glyph inside a `relative` input wrapper.
+ *
+ * The animated icons forward a `className` but no ARIA props, so the hide lives
+ * on a wrapper `<span>` while the position lives on the icon. The wrapper is
+ * deliberately static: the glyph then lines up against the `relative` field box
+ * itself, not against a span that has no size of its own.
+ */
+const GLYPH =
+  'pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 size-4 text-base text-muted-foreground';
 
 /** Debounces a value: the echo only follows once the typing pauses. */
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -92,7 +103,7 @@ export default function SearchPage() {
 
   const flat = useMemo(() => flattenResults(groups), [groups]);
   const total = totalResults(groups);
-  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // A new result set invalidates the previous selection.
   useEffect(() => {
@@ -138,80 +149,71 @@ export default function SearchPage() {
     // against that pane and paints the shell's own background colour, so a row
     // scrolling under it stays legible without a separate surface appearing at
     // the top of the screen.
-    <Box onKeyDown={onKeyDown}>
+    //
+    // The column gap is the page's vertical rhythm, stated once here rather than
+    // repeated as a bottom margin on each block.
+    <div onKeyDown={onKeyDown} className="flex flex-col gap-stack">
       {/*
        * No back control: Search is a top-level destination reached from the Tools
        * list and the More sheet, not a child of Today. A back arrow pointing at
        * Today would misrepresent where the user came from.
        */}
-      <Box
-        component="header"
-        sx={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 'appBar',
-          bgcolor: 'background.default',
-          px: 2,
-          pt: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)',
-          pb: 0.5,
-        }}
-      >
-        <Typography variant="h6" component="h1">
-          Search
-        </Typography>
-      </Box>
+      <header className="sticky top-0 z-appbar bg-background px-gutter pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2">
+        <h1 className="truncate text-lg font-semibold">Search</h1>
+      </header>
 
-      <Box sx={{ px: 2, pb: 1 }}>
-        <TextField
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Tasks, events and habits"
-          // A search screen that does not focus its field wastes the one thing
-          // the user came here to do.
-          autoFocus
-          fullWidth
-          slotProps={{
-            htmlInput: {
-              'aria-label': 'Search everything',
-              enterKeyHint: 'search',
-              autoComplete: 'off',
-              autoCorrect: 'off',
-              spellCheck: false,
-            },
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-              endAdornment:
-                search.isLoading && ready ? (
-                  <InputAdornment position="end">
-                    <CircularProgress size={16} aria-label="Searching" />
-                  </InputAdornment>
-                ) : undefined,
-            },
-          }}
-        />
-      </Box>
+      <div className="px-gutter">
+        <div className="relative">
+          <span aria-hidden>
+            <MagnifyingGlassIcon className={GLYPH} />
+          </span>
+          <Input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Tasks, events and habits"
+            // A search screen that does not focus its field wastes the one thing
+            // the user came here to do.
+            autoFocus
+            aria-label="Search everything"
+            enterKeyHint="search"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-11 pr-10 pl-10"
+          />
+          {search.isLoading && ready ? (
+            // `progressbar` + a name, as the Material spinner had: the wait is
+            // announced rather than silent, and it never blocks the field.
+            <span
+              role="progressbar"
+              aria-label="Searching"
+              className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+            />
+          ) : null}
+        </div>
+      </div>
 
       {!ready ? (
         <EmptyNotice
-          icon={SearchIcon}
+          icon={MagnifyingGlassIcon}
           title="Search everything"
           description="Type at least two characters to search across your tasks, calendar events and habits."
         />
       ) : search.error ? (
-        <EmptyNotice icon={SearchOffIcon} title="Search failed" description={search.error} />
+        <EmptyNotice icon={SearchX} title="Search failed" description={search.error} />
       ) : search.isInitialLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+        <div className="flex justify-center py-6">
           {/* `status` + a name, so the wait is announced rather than silent. */}
-          <CircularProgress role="status" aria-label="Searching" />
-        </Box>
+          <span
+            role="status"
+            aria-label="Searching"
+            className="size-10 animate-spin rounded-full border-4 border-muted-foreground/30 border-t-muted-foreground"
+          />
+        </div>
       ) : total === 0 ? (
         <EmptyNotice
-          icon={SearchOffIcon}
+          icon={SearchX}
           title="No results"
           description={`Nothing matches “${debounced}”. Try a shorter word, or check another spelling.`}
         />
@@ -222,73 +224,61 @@ export default function SearchPage() {
             if (items.length === 0) return null;
 
             return (
-              <Box component="section" key={section.kind} aria-label={section.label}>
-                <List
-                  sx={{ py: 0 }}
-                  subheader={
-                    <ListSubheader
-                      disableSticky
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 1,
-                        px: 2,
-                        py: 0.5,
-                        lineHeight: 'normal',
-                        bgcolor: 'transparent',
-                      }}
-                    >
-                      <span>{section.label}</span>
-                      <Typography component="span" variant="caption" color="text.secondary">
-                        {items.length}
-                      </Typography>
-                    </ListSubheader>
-                  }
-                >
-                  {items.map((result) => {
-                    const index = flat.findIndex((candidate) => candidate.key === result.key);
-                    const isActive = index === active;
-                    return (
-                      <ListItem key={result.key} disablePadding>
-                        <ListItemButton
-                          ref={(node) => {
-                            itemRefs.current[index] = node;
-                          }}
-                          onClick={() => open(index)}
-                          onPointerEnter={() => setActive(index)}
-                          sx={{
-                            minHeight: 44,
-                            gap: 1.5,
-                            px: 2,
-                            py: 1,
-                            ...(isActive ? { bgcolor: 'action.selected' } : {}),
-                          }}
-                        >
-                          <ListItemText
-                            primary={result.title}
-                            secondary={result.subtitle}
-                            slotProps={{
-                              primary: { sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-                              secondary: { sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+              <ScrollReveal key={section.kind}>
+                <section aria-label={section.label}>
+                  <div className="flex items-center justify-between gap-2 px-gutter py-2">
+                    <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                      {section.label}
+                    </h2>
+                    <span className="text-xs tabular-nums text-muted-foreground">{items.length}</span>
+                  </div>
+
+                  <ul>
+                    {items.map((result) => {
+                      const index = flat.findIndex((candidate) => candidate.key === result.key);
+                      const isActive = index === active;
+                      return (
+                        <li key={result.key}>
+                          <button
+                            type="button"
+                            ref={(node) => {
+                              itemRefs.current[index] = node;
                             }}
-                          />
-                          <ChevronRightIcon sx={{ flexShrink: 0, color: 'text.disabled' }} aria-hidden />
-                        </ListItemButton>
-                      </ListItem>
-                    );
-                  })}
-                </List>
-              </Box>
+                            onClick={() => open(index)}
+                            onPointerEnter={() => setActive(index)}
+                            // The button's own two lines are what Material
+                            // computed the name from; state it explicitly so the
+                            // selected row reads out the same as before.
+                            aria-label={result.subtitle ? `${result.title}, ${result.subtitle}` : result.title}
+                            className={cn(
+                              'flex min-h-11 w-full items-center gap-3 px-row py-2 text-left outline-none transition-colors',
+                              'hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring',
+                              isActive && 'bg-accent',
+                            )}
+                          >
+                            <span className="flex min-w-0 flex-1 flex-col">
+                              <span className="truncate text-sm">{result.title}</span>
+                              {result.subtitle ? (
+                                <span className="truncate text-xs text-muted-foreground">{result.subtitle}</span>
+                              ) : null}
+                            </span>
+                            <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground/60" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              </ScrollReveal>
             );
           })}
 
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 2 }}>
+          <p className="px-gutter text-xs text-muted-foreground">
             {total} {total === 1 ? 'result' : 'results'} · use ↑ ↓ and Enter
-          </Typography>
+          </p>
         </>
       )}
-    </Box>
+    </div>
   );
 }
 
@@ -298,34 +288,22 @@ function EmptyNotice({
   title,
   description,
 }: {
-  icon: ComponentType<SvgIconProps>;
+  // The animated set and lucide both take a bare `className`; that is the whole
+  // contract this panel needs from an icon.
+  icon: ComponentType<{ className?: string }>;
   title: string;
   description: string;
 }) {
   return (
-    <Stack spacing={1} sx={{ alignItems: 'center', px: 6, py: 6, textAlign: 'center' }}>
-      <Box
+    <div className="flex flex-col items-center gap-1 px-card py-6 text-center">
+      <div
         aria-hidden
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 56,
-          height: 56,
-          mb: 1,
-          borderRadius: '50%',
-          bgcolor: 'action.hover',
-          color: 'text.secondary',
-        }}
+        className="mb-1 flex size-14 items-center justify-center rounded-full bg-accent text-muted-foreground"
       >
-        <Icon />
-      </Box>
-      <Typography variant="subtitle1" component="h2">
-        {title}
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 288 }}>
-        {description}
-      </Typography>
-    </Stack>
+        <Icon className="size-6 text-2xl" />
+      </div>
+      <h2 className="text-base font-medium">{title}</h2>
+      <p className="max-w-72 text-sm text-muted-foreground">{description}</p>
+    </div>
   );
 }

@@ -13,30 +13,35 @@
  * discoverable from the 401 the server receives. There is no link, deliberately:
  * the instruction is complete on its own and a deep link into Apple's account
  * pages rots quickly.
+ *
+ * The MUI `Dialog` becomes the shadcn `Dialog` with the area's sheet shell
+ * (`SHEET_DIALOG_CLASS`): the same seven fields, the same conditional iCloud help,
+ * the same write-only password and the same translated error, with a real focus
+ * trap and a labelled dialog instead of the hand-rolled overlay.
  */
-import { useEffect, useRef, useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import InputAdornment from '@mui/material/InputAdornment';
-import MenuItem from '@mui/material/MenuItem';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
-import CloudIcon from '@mui/icons-material/Cloud';
-import DnsIcon from '@mui/icons-material/Dns';
-import KeyIcon from '@mui/icons-material/Key';
-import MailIcon from '@mui/icons-material/Mail';
-import PersonIcon from '@mui/icons-material/Person';
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { GlobeIcon } from '@svg-animated-icons/react/globe';
+import { EnvelopeClosedIcon } from '@svg-animated-icons/react/envelope-closed';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
+import { PersonIcon } from '@svg-animated-icons/react/person';
+import { ServerIcon } from '@svg-animated-icons/react/server';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/components/app/Toast';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
 import { CALDAV_HELP, caldavErrorMessage, isIcloudServer } from './caldav';
+import { SHEET_DIALOG_CLASS } from './styles';
 import type { CaldavAccount, SyncDirection } from '@/lib/types';
 
 const INTERVAL_OPTIONS = [
@@ -62,10 +67,38 @@ export interface CalDavAccountSheetProps {
   onSaved?: () => void;
 }
 
+/** A labelled input with a leading glyph and an optional hint/error line. */
+function Field({
+  id,
+  label,
+  icon: Icon,
+  hint,
+  invalid = false,
+  className,
+  ...input
+}: {
+  id: string;
+  label: string;
+  icon: typeof ServerIcon;
+  hint?: ReactNode;
+  invalid?: boolean;
+} & ComponentProps<typeof Input>) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="relative">
+        <Icon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
+        <Input id={id} className={cn('pl-9', className)} aria-invalid={invalid || undefined} {...input} />
+      </div>
+      {hint ? (
+        <p className={cn('text-xs', invalid ? 'text-destructive' : 'text-muted-foreground')}>{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function CalDavAccountSheet({ open, onOpenChange, account = null, onSaved }: CalDavAccountSheetProps) {
   const { toast } = useToast();
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const editing = Boolean(account);
 
   const [name, setName] = useState('');
@@ -141,143 +174,129 @@ export function CalDavAccountSheet({ open, onOpenChange, account = null, onSaved
   const icloud = isIcloudServer(serverUrl);
 
   return (
-    <Dialog open={open} onClose={() => onOpenChange(false)} fullScreen={fullScreen} fullWidth maxWidth="sm">
-      <DialogTitle>{editing ? 'Edit calendar account' : 'Add calendar account'}</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={3} sx={{ pb: 2 }}>
-          <TextField
-            fullWidth
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={SHEET_DIALOG_CLASS}>
+        <DialogHeader>
+          <DialogTitle>{editing ? 'Edit calendar account' : 'Add calendar account'}</DialogTitle>
+          <DialogDescription>
+            TaskTick talks to the CalDAV server directly and keeps both sides in step.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <Field
+            id="caldav-name"
             label="Name"
+            icon={ServerIcon}
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="iCloud"
             autoComplete="off"
-            slotProps={{
-              htmlInput: { maxLength: 200 },
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <CloudIcon fontSize="small" aria-hidden />
-                  </InputAdornment>
-                ),
-              },
-            }}
+            maxLength={200}
           />
 
-          <TextField
-            fullWidth
+          <Field
+            id="caldav-url"
             label="Server URL"
+            icon={GlobeIcon}
             value={serverUrl}
             onChange={(event) => setServerUrl(event.target.value)}
             placeholder="https://caldav.icloud.com"
-            helperText={CALDAV_HELP.server}
+            hint={CALDAV_HELP.server}
             autoComplete="url"
-            slotProps={{
-              htmlInput: { inputMode: 'url', maxLength: 500 },
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <DnsIcon fontSize="small" aria-hidden />
-                  </InputAdornment>
-                ),
-              },
-            }}
+            inputMode="url"
+            maxLength={500}
           />
 
-          <TextField
-            fullWidth
+          <Field
+            id="caldav-username"
             label="Username"
+            icon={PersonIcon}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             placeholder="you@example.com"
-            helperText={icloud ? 'Your Apple Account email address.' : undefined}
+            hint={icloud ? 'Your Apple Account email address.' : undefined}
             autoComplete="username"
-            slotProps={{
-              htmlInput: { maxLength: 320 },
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PersonIcon fontSize="small" aria-hidden />
-                  </InputAdornment>
-                ),
-              },
-            }}
+            maxLength={320}
           />
 
-          <TextField
-            fullWidth
+          <Field
+            id="caldav-password"
             label="Password"
+            icon={LockClosedIcon}
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder={editing ? 'Leave blank to keep the current password' : 'App-specific password'}
-            helperText={error ?? CALDAV_HELP.password}
-            error={Boolean(error)}
+            hint={error ?? CALDAV_HELP.password}
+            invalid={Boolean(error)}
             autoComplete="new-password"
-            slotProps={{
-              htmlInput: { maxLength: 500 },
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <KeyIcon fontSize="small" aria-hidden />
-                  </InputAdornment>
-                ),
-              },
-            }}
+            maxLength={500}
           />
 
           {icloud ? (
-            <Box sx={{ borderRadius: 2, bgcolor: 'action.hover', px: 1.5, py: 1.25 }}>
-              <Typography variant="caption">{CALDAV_HELP.icloud}</Typography>
-            </Box>
+            <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">{CALDAV_HELP.icloud}</p>
           ) : null}
 
-          <TextField
-            select
-            fullWidth
-            label="Sync every"
-            value={String(syncIntervalMinutes)}
-            onChange={(event) => setSyncIntervalMinutes(Number.parseInt(event.target.value, 10) || 30)}
-          >
-            {INTERVAL_OPTIONS.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="caldav-interval">Sync every</Label>
+            <Select
+              value={String(syncIntervalMinutes)}
+              onValueChange={(value) => setSyncIntervalMinutes(Number.parseInt(value, 10) || 30)}
+            >
+              <SelectTrigger id="caldav-interval" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {INTERVAL_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          <TextField
-            select
-            fullWidth
-            label="Direction"
-            value={direction}
-            onChange={(event) => setDirection(event.target.value as SyncDirection)}
-            helperText={`Two-way keeps both sides in step. Read only never writes back to ${icloud ? 'iCloud' : 'the server'}.`}
-          >
-            {DIRECTION_OPTIONS.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="caldav-direction">Direction</Label>
+            <Select
+              value={direction}
+              onValueChange={(value) => setDirection(value as SyncDirection)}
+            >
+              <SelectTrigger id="caldav-direction" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {DIRECTION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Two-way keeps both sides in step. Read only never writes back to {icloud ? 'iCloud' : 'the server'}.
+            </p>
+          </div>
 
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
-            <MailIcon sx={{ fontSize: 14, mt: 0.25, flexShrink: 0, color: 'text.disabled' }} aria-hidden />
-            <Typography variant="caption" color="text.disabled">
+          <div className="flex items-start gap-2">
+            <EnvelopeClosedIcon className="mt-0.5 shrink-0 text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">
               TaskTick talks to the server directly. If your provider emails you about a new sign-in, that message is
               expected.
-            </Typography>
-          </Box>
-        </Stack>
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button aria-busy={save.isPending || undefined} disabled={save.isPending} onClick={() => void save.run()}>
+            {editing ? 'Save account' : 'Add account'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button variant="text" onClick={() => onOpenChange(false)}>
-          Cancel
-        </Button>
-        <Button variant="contained" loading={save.isPending} onClick={() => void save.run()}>
-          {editing ? 'Save account' : 'Add account'}
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }

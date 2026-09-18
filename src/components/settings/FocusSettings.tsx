@@ -9,25 +9,24 @@
  * racing ones, and the timer itself re-reads these values the next time it is
  * idle.
  *
- * Material has no numeric stepper, so the control is two `IconButton`s around an
- * `<output>`. The accessible names and the `aria-live` announcement are the ones
- * the old `Stepper` exposed: a `group` named by its label, `Decrease`/`Increase`
- * buttons, and a polite live region for the value.
+ * Neither Material nor shadcn ships a numeric stepper, so the control stays two
+ * buttons around an `<output>` — the shadcn `Button` at its icon size, which is
+ * the same 40px target the `IconButton` had. The accessible names and the
+ * `aria-live` announcement are the ones the old `Stepper` exposed: a `group`
+ * named by its label, `Decrease`/`Increase` buttons, and a polite live region for
+ * the value. Each button disables itself at its own bound so it is visible which
+ * direction is still available.
  */
 import { useEffect, useRef, useState } from 'react';
-import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import Switch from '@mui/material/Switch';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import Typography from '@mui/material/Typography';
-import AddIcon from '@mui/icons-material/Add';
-import RemoveIcon from '@mui/icons-material/Remove';
+import { MinusIcon } from '@svg-animated-icons/react/minus';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate } from '@/lib/store';
 import { useToast } from '@/components/app/Toast';
-import { SettingsGroup } from './SettingsGroup';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { UserSettings } from '@/lib/types';
 
 /** Milliseconds of quiet before the coalesced PATCH goes out. */
@@ -120,20 +119,17 @@ export function FocusSettings({ settings }: FocusSettingsProps) {
         onChange={(value) => queue({ pomodoroLongBreakEvery: value })}
       />
 
-      <ListItem>
-        <FormControlLabel
-          sx={{ m: 0, flex: 1, justifyContent: 'space-between' }}
-          labelPlacement="start"
-          label="Start breaks automatically"
-          control={
-            <Switch
-              checked={draft.pomodoroAutoStartBreaks}
-              onChange={(_event, checked) => queue({ pomodoroAutoStartBreaks: checked })}
-              slotProps={{ input: { 'aria-label': 'Start breaks automatically' } }}
-            />
-          }
+      <SettingsRow>
+        <Label htmlFor="focus-autostart" className="min-w-0 flex-1">
+          Start breaks automatically
+        </Label>
+        <Switch
+          id="focus-autostart"
+          aria-label="Start breaks automatically"
+          checked={draft.pomodoroAutoStartBreaks}
+          onCheckedChange={(checked) => queue({ pomodoroAutoStartBreaks: checked })}
         />
-      </ListItem>
+      </SettingsRow>
     </SettingsGroup>
   );
 }
@@ -157,8 +153,8 @@ function NumberRow({
   onChange: (value: number) => void;
 }) {
   return (
-    <ListItem>
-      <ListItemText primary={label} />
+    <SettingsRow>
+      <span className="min-w-0 flex-1 text-sm">{label}</span>
       <NumberStepper
         label={stepperLabel}
         value={value}
@@ -167,16 +163,11 @@ function NumberRow({
         formatValue={formatValue}
         onChange={onChange}
       />
-    </ListItem>
+    </SettingsRow>
   );
 }
 
-/**
- * `− value +`, as an ARIA group.
- *
- * Each button disables and dims itself at its own bound, so the user can see
- * which direction is still available.
- */
+/** `− value +`, as an ARIA group. */
 function NumberStepper({
   label,
   value,
@@ -196,31 +187,35 @@ function NumberStepper({
   const canIncrease = value < max;
 
   return (
-    <Box role="group" aria-label={label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-      <IconButton
+    <div role="group" aria-label={label} className="inline-flex items-center gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-lg"
         aria-label={`Decrease ${label}`}
         disabled={!canDecrease}
         onClick={() => onChange(Math.max(min, value - 1))}
       >
-        <RemoveIcon fontSize="small" aria-hidden />
-      </IconButton>
+        <MinusIcon />
+      </Button>
 
-      <Typography
-        component="output"
+      <output
         aria-live="polite"
-        variant="body1"
-        sx={{ minWidth: 56, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
+        className="min-w-14 text-center text-sm tabular-nums"
       >
         {formatValue(value)}
-      </Typography>
+      </output>
 
-      <IconButton
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-lg"
         aria-label={`Increase ${label}`}
         disabled={!canIncrease}
         onClick={() => onChange(Math.min(max, value + 1))}
       >
-        <AddIcon fontSize="small" aria-hidden />
-      </IconButton>
-    </Box>
+        <PlusIcon />
+      </Button>
+    </div>
   );
 }

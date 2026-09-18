@@ -11,12 +11,12 @@
  * siblings: caption weekday letters, a plain date number, and a filled circle
  * for the selection. Days outside the selectable range — after today, or before
  * the earliest habit started — are dimmed and inert rather than hidden, so the
- * week keeps its shape. Each day is a MUI `ButtonBase`, which is what keeps the
- * 48dp touch target and the press state Material expects.
+ * week keeps its shape.
+ *
+ * Each day is a real `<button>` in a `role="group"`; `disabled`, `aria-pressed`
+ * and the full-date accessible name are unchanged from the Material version.
  */
-import Box from '@mui/material/Box';
-import ButtonBase from '@mui/material/ButtonBase';
-import Typography from '@mui/material/Typography';
+import { cn } from '@/lib/utils';
 import { WEEKDAY_SHORT, longDateLabel, weekOfDays } from './period';
 import type { DateOnly } from '@/lib/types';
 
@@ -42,18 +42,10 @@ export function HabitWeekStrip({
   const days = weekOfDays(today, weekStartsOn);
 
   return (
-    <Box
+    <div
       role="group"
       aria-label="Week"
-      className={className}
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-        gap: 0.5,
-        px: 1.5,
-        pt: 0.5,
-        pb: 1,
-      }}
+      className={cn('grid grid-cols-7 gap-1 px-row pt-1 pb-2', className)}
     >
       {days.map((day) => {
         const isSelected = day.date === selected;
@@ -61,57 +53,36 @@ export function HabitWeekStrip({
         const outOfRange = day.date > today || (earliest !== null && day.date < earliest);
 
         return (
-          <ButtonBase
+          <button
             key={day.date}
+            type="button"
             disabled={outOfRange}
             aria-pressed={isSelected}
             aria-label={`${WEEKDAY_SHORT[day.weekday]}, ${longDateLabel(day.date)}`}
             onClick={() => onSelect(day.date)}
-            sx={{
-              display: 'flex',
-              minHeight: 44,
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 0.5,
-              borderRadius: 1,
-              py: 0.5,
-            }}
+            className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-md py-1 select-none outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
           >
-            <Typography
-              component="span"
-              variant="caption"
-              aria-hidden
-              sx={{ lineHeight: 1, color: outOfRange ? 'text.disabled' : 'text.secondary' }}
-            >
+            <span aria-hidden className={cn('text-xs leading-none', outOfRange ? 'text-muted-foreground/50' : 'text-muted-foreground')}>
               {day.letter}
-            </Typography>
-            <Box
-              component="span"
+            </span>
+            <span
               aria-hidden
-              sx={{
-                display: 'flex',
-                width: 32,
-                height: 32,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '50%',
-                lineHeight: 1,
-                fontVariantNumeric: 'tabular-nums',
-                ...(isSelected
-                  ? { bgcolor: 'primary.main', color: 'primary.contrastText', fontWeight: 600 }
+              className={cn(
+                'flex size-8 items-center justify-center rounded-full leading-none tabular-nums',
+                isSelected
+                  ? 'bg-primary font-semibold text-primary-foreground'
                   : outOfRange
-                    ? { color: 'text.disabled' }
+                    ? 'text-muted-foreground/50'
                     : isToday
-                      ? { color: 'primary.main', fontWeight: 600 }
-                      : { color: 'text.primary' }),
-              }}
+                      ? 'font-semibold text-primary'
+                      : 'text-foreground',
+              )}
             >
               {day.dayOfMonth}
-            </Box>
-          </ButtonBase>
+            </span>
+          </button>
         );
       })}
-    </Box>
+    </div>
   );
 }

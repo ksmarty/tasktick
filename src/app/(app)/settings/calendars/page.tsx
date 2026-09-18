@@ -3,24 +3,23 @@
 /**
  * Calendar settings: the accounts, the calendars they brought with them, and the
  * read-only feeds other apps can subscribe to.
+ *
+ * A `flex flex-col gap-stack` column inset by `px-gutter`. The add-account sheet
+ * is mounted once here and driven by `editing`, so the empty state's button and
+ * the caption's "Add" open the same dialog rather than two near-copies of it.
  */
 import { useState } from 'react';
-import Link from 'next/link';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import AddIcon from '@mui/icons-material/Add';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { PageHeader } from '@/components/app/PageHeader';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
+import { BackToSettings } from '@/components/settings/BackToSettings';
 import { CalDavAccountRow } from '@/components/settings/CalDavAccountRow';
 import { CalDavAccountSheet } from '@/components/settings/CalDavAccountSheet';
 import { CalendarListEditor } from '@/components/settings/CalendarListEditor';
 import { IcalSubscriptionCard } from '@/components/settings/IcalSubscriptionCard';
-import { SettingsGroup } from '@/components/settings/SettingsGroup';
+import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import type { AccountsPayload } from '@/lib/view-types';
 import type { CaldavAccount } from '@/lib/types';
 
@@ -37,42 +36,33 @@ export default function CalendarSettingsPage() {
   }
 
   return (
-    <Box sx={{ pb: 4 }}>
-      <PageHeader
-        title="Calendars"
-        leading={
-          <IconButton component={Link} href="/settings" aria-label="Back to Settings" edge="start">
-            <ArrowBackIcon aria-hidden />
-          </IconButton>
-        }
-      />
+    <div className="flex flex-col gap-stack px-gutter pb-6">
+      <PageHeader title="Calendars" leading={<BackToSettings />} />
 
       {accounts.isInitialLoading ? (
-        <Stack sx={{ px: 2, pt: 1 }}>
-          <Skeleton variant="rounded" height={128} />
-        </Stack>
+        <Skeleton className="h-32 w-full" />
       ) : (
         <SettingsGroup
           title="CalDAV accounts"
           action={
-            <Button size="small" variant="text" startIcon={<AddIcon aria-hidden />} onClick={() => openSheet(null)}>
+            <Button size="sm" variant="ghost" onClick={() => openSheet(null)}>
+              <PlusIcon />
               Add
             </Button>
           }
           footer="TaskTick keeps both sides in step. Run Discover once after adding an account so its calendars appear below."
         >
           {list.length === 0 ? (
-            <Box sx={{ px: 2, py: 2 }}>
-              <Typography variant="body1">No accounts connected</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 0.5 }}>
+            <SettingsRow stacked>
+              <span className="block text-sm">No accounts connected</span>
+              <span className="block text-xs text-muted-foreground">
                 Connect iCloud, Fastmail, Nextcloud or any other CalDAV server to sync your calendars both ways.
-              </Typography>
-              <Box sx={{ pt: 1.5 }}>
-                <Button variant="outlined" startIcon={<AddIcon aria-hidden />} onClick={() => openSheet(null)}>
-                  Add a CalDAV account
-                </Button>
-              </Box>
-            </Box>
+              </span>
+              <Button variant="outline" className="self-start" onClick={() => openSheet(null)}>
+                <PlusIcon />
+                Add a CalDAV account
+              </Button>
+            </SettingsRow>
           ) : (
             list.map((account) => (
               <CalDavAccountRow
@@ -95,6 +85,6 @@ export default function CalendarSettingsPage() {
         account={editing}
         onSaved={() => void accounts.refresh()}
       />
-    </Box>
+    </div>
   );
 }

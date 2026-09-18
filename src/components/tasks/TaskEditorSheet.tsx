@@ -1,61 +1,61 @@
 'use client';
 
 /**
- * The task editor — every field a task has, in a Material dialog (full-screen on
- * a phone via `fullScreen` at the `sm` breakpoint).
+ * The task editor — every field a task has, in a shadcn dialog (full-screen on a
+ * phone, a centred panel from `sm` up).
  *
  * Saving is debounced (600ms after the last keystroke) and flushed immediately
  * when the dialog closes, so a user who edits and swipes away never loses a
  * change. Picking a value inside a sub-drawer makes the editor undismissible for
  * the duration, which keeps Escape from closing both at once.
  *
- * The date and time fields are `@mui/x-date-pickers` (Luxon adapter, matching the
- * `luxon` the rest of the app already uses); the pickers for repeat, reminders,
- * priority, list and tags are the shared MUI `Drawer`s in this folder.
+ * ## The date and time fields
+ *
+ * The due date is a shadcn `Calendar` (react-day-picker) inside a `Popover`; the
+ * floating day (`YYYY-MM-DD`, no timezone) is converted to and from the `Date`
+ * the picker speaks with Luxon **at the edge only**, so a day never gets compared
+ * against an instant. The due time is a native `<input type="time">` that stores
+ * `HH:mm`: a native control renders in the user's own 12h/24h convention and
+ * emits `HH:mm` either way, so the `timeFormat` setting has nothing to do here.
+ *
+ * ## Why the full-screen shape keeps a close button
+ *
+ * Under `sm` the panel covers the viewport, so there is no backdrop left to tap
+ * — an explicit close control is the only pointer affordance that survives, and
+ * the shadcn `DialogContent` close button is it. The delete confirmation, which
+ * is never full-screen, keeps its labelled Cancel instead.
+ *
+ * The pickers for repeat, reminders, priority, list and tags are the shared
+ * drawers in this folder.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DateTime } from 'luxon';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import Divider from '@mui/material/Divider';
-import IconButton from '@mui/material/IconButton';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Snackbar from '@mui/material/Snackbar';
-import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
-import AddIcon from '@mui/icons-material/Add';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import DeleteIcon from '@mui/icons-material/Delete';
-import FlagIcon from '@mui/icons-material/Flag';
-import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
-import LabelIcon from '@mui/icons-material/Label';
-import LinkIcon from '@mui/icons-material/Link';
-import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
-import PushPinIcon from '@mui/icons-material/PushPin';
-import RemoveIcon from '@mui/icons-material/Remove';
-import RepeatIcon from '@mui/icons-material/Repeat';
-import ScheduleIcon from '@mui/icons-material/Schedule';
-import { AdapterLuxon } from '@mui/x-date-pickers/AdapterLuxon';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { TimePicker } from '@mui/x-date-pickers/TimePicker';
-import { humanDuration, timeIn, todayIn } from '@/lib/dates';
+
+import { BellIcon } from '@svg-animated-icons/react/bell';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
+import { LoopIcon } from '@svg-animated-icons/react/loop';
+import { MinusIcon } from '@svg-animated-icons/react/minus';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { TimerIcon } from '@svg-animated-icons/react/timer';
+import { TrashIcon } from '@svg-animated-icons/react/trash';
+import { ChevronRight, Flag, Folder, Link, LoaderCircle, Tag } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
+import { humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
-import { useResource } from '@/lib/store';
+import { useMediaQuery, useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { ListPicker } from './ListPicker';
 import { PriorityPicker } from './PriorityPicker';
@@ -69,6 +69,9 @@ import { useTaskActions } from './useTaskActions';
 
 /** Quiet period after the last edit before the PATCH goes out. */
 const SAVE_DEBOUNCE_MS = 600;
+
+/** How long an inline save failure stays on screen. */
+const SAVE_ERROR_MS = 4000;
 
 type PickerId = 'repeat' | 'reminder' | 'priority' | 'list' | 'tags';
 
@@ -100,31 +103,42 @@ function EditorRow({
   onClick: () => void;
 }) {
   return (
-    <ListItemButton disabled={disabled} onClick={onClick} sx={{ minHeight: 48, gap: 1.5, px: 1 }}>
-      <ListItemIcon sx={{ minWidth: 0, color: 'text.secondary' }}>{icon}</ListItemIcon>
-      <ListItemText primary={title} slotProps={{ primary: { variant: 'body1' } }} sx={{ my: 0 }} />
-      <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '45%' }}>
-        {value}
-      </Typography>
-      <ChevronRightIcon sx={{ fontSize: 18, color: 'text.disabled' }} aria-hidden />
-    </ListItemButton>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'flex min-h-12 w-full items-center gap-3 rounded-md px-row py-2 text-left text-sm',
+        'hover:bg-accent hover:text-accent-foreground',
+        'disabled:pointer-events-none disabled:opacity-50',
+      )}
+    >
+      <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{title}</span>
+      <span className="max-w-[45%] shrink-0 truncate text-sm text-muted-foreground">{value}</span>
+      <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground/60" />
+    </button>
   );
 }
 
 export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEditorSheetProps) {
   const { data: bootstrap } = useResource<BootstrapPayload>('/api/bootstrap', undefined, { staleAfterMs: 60_000 });
   const zone = bootstrap?.settings.timezone ?? bootstrap?.user.timezone ?? 'utc';
-  const timeFormat = bootstrap?.settings.timeFormat ?? '24h';
   const lists = bootstrap?.lists ?? [];
   const tags = bootstrap?.tags ?? [];
+  /* react-day-picker wants the literal weekday union; the setting is 0 or 1. */
+  const weekStartsOn = (bootstrap?.settings.weekStartsOn ?? 1) as 0 | 1;
 
   const actions = useTaskActions(zone);
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const fullScreen = useMediaQuery('(max-width: 639px)');
 
   const [draft, setDraft] = useState<TaskPatch>({});
   const [picker, setPicker] = useState<PickerId | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** The due-date popover is controlled so picking a day closes it. */
+  const [dateOpen, setDateOpen] = useState(false);
   /** A save failure is surfaced inline rather than only as a toast. */
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -140,9 +154,18 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
     setDraft({});
     setPicker(null);
     setConfirmOpen(false);
+    setDateOpen(false);
     setSaveError(null);
     blocked.current = false;
   }, [task?.id, open]);
+
+  // The snackbar's `autoHideDuration`, kept: an inline error that never leaves
+  // would outlive the mistake it reports.
+  useEffect(() => {
+    if (saveError === null) return;
+    const timer = window.setTimeout(() => setSaveError(null), SAVE_ERROR_MS);
+    return () => window.clearTimeout(timer);
+  }, [saveError]);
 
   const flush = useCallback(async () => {
     const current = latest.current;
@@ -184,6 +207,18 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
     onOpenChange(next);
   }
 
+  async function confirmDelete() {
+    if (!task) return;
+    const deleted = await actions.remove(task.id);
+    if (!deleted) {
+      setSaveError('Could not delete the task.');
+      return;
+    }
+    setDraft({});
+    onSaved?.();
+    onOpenChange(false);
+  }
+
   /* ------------------------------------------------------------------ values */
 
   const fallbackDueTime = task?.dueAtMs && !task.isAllDay ? timeIn(task.dueAtMs, zone) : null;
@@ -223,151 +258,185 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
   const disabled = !actions.online;
 
-  const dateValue = dueDate ? DateTime.fromISO(dueDate, { zone }) : null;
-  const timeValue = dueTime
-    ? DateTime.fromISO(`${dueDate ?? todayIn(zone)}T${dueTime}`, { zone })
-    : null;
+  const dateValue = dueDate ? DateTime.fromISO(dueDate, { zone }).toJSDate() : undefined;
 
   return (
-    <LocalizationProvider dateAdapter={AdapterLuxon}>
-      <Dialog
-        open={open}
-        onClose={(_event, reason) => {
-          // A sub-picker is open: Escape and the backdrop must not close the
-          // editor out from under it.
-          if (picker || confirmOpen) return;
-          handleOpenChange(false);
-        }}
-        fullScreen={fullScreen}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>Task</DialogTitle>
-        <DialogContent dividers sx={{ pb: 2 }}>
-          <List disablePadding>
-            <Box sx={{ px: 1, pt: 1 }}>
-              <TextField
-                variant="standard"
-                fullWidth
-                multiline
-                maxRows={3}
-                placeholder="Title"
-                value={title}
-                disabled={disabled}
-                onChange={(event) => edit({ title: event.target.value })}
-                onKeyDown={(event) => {
-                  // A title is one line; Enter files it away instead of adding a newline.
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    event.currentTarget.blur();
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className={cn(
+            'flex max-h-dvh flex-col gap-0 p-0',
+            fullScreen
+              ? 'top-0 left-0 h-dvh w-full max-w-full translate-x-0 translate-y-0 rounded-none border-0'
+              : 'sm:max-w-lg',
+          )}
+          onEscapeKeyDown={(event) => {
+            // A sub-picker is open: Escape and the backdrop must not close the
+            // editor out from under it.
+            if (picker || confirmOpen) event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (picker || confirmOpen) event.preventDefault();
+          }}
+        >
+          <div
+            className={cn(
+              'flex shrink-0 items-center gap-2 border-b px-gutter pb-stack',
+              fullScreen ? 'pt-[max(0.75rem,env(safe-area-inset-top,0px))]' : 'pt-stack',
+            )}
+          >
+            <DialogTitle>Task</DialogTitle>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-stack overflow-y-auto px-gutter py-card">
+            <Textarea
+              aria-label="Title"
+              placeholder="Title"
+              rows={1}
+              value={title}
+              disabled={disabled}
+              onChange={(event) => edit({ title: event.target.value })}
+              onKeyDown={(event) => {
+                // A title is one line; Enter files it away instead of adding a newline.
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+              className="min-h-0 resize-none text-xl font-semibold"
+            />
+
+            <Separator />
+
+            <Textarea
+              aria-label="Notes"
+              placeholder="Notes"
+              rows={2}
+              value={notes}
+              disabled={disabled}
+              onChange={(event) => edit({ notes: event.target.value })}
+              className="resize-none"
+            />
+
+            <Separator />
+
+            <div className="flex items-center gap-stack">
+              <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" className="min-w-0 flex-1 justify-start" disabled={disabled}>
+                    <CalendarIcon className="size-4 text-base" />
+                    <span className="truncate">{dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    autoFocus
+                    weekStartsOn={weekStartsOn}
+                    /* The picker opens on the task's own month, not today's. */
+                    defaultMonth={dateValue}
+                    selected={dateValue}
+                    onSelect={(day) => {
+                      if (!day) {
+                        edit({ clearDue: true, dueDate: null, dueTime: null });
+                      } else {
+                        edit({ dueDate: DateTime.fromJSDate(day, { zone }).toISODate(), clearDue: false });
+                      }
+                      setDateOpen(false);
+                    }}
+                  />
+                  {dueDate ? (
+                    <div className="flex justify-end px-3 pb-3">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          edit({ clearDue: true, dueDate: null, dueTime: null });
+                          setDateOpen(false);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
+
+              {/*
+               * `w-auto`: the parent is a row, and the date button is the
+               * flexible one. An `Input`'s default `w-full` is a 100% flex
+               * basis, which would win the space and collapse the button.
+               */}
+              <Input
+                type="time"
+                aria-label="Time"
+                className="w-auto"
+                value={dueTime ?? ''}
+                disabled={disabled || !dueDate}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) {
+                    edit({ dueTime: null, clearDue: false });
+                    return;
                   }
-                }}
-                slotProps={{
-                  htmlInput: { 'aria-label': 'Title', style: { fontSize: '1.25rem', fontWeight: 600 } },
+                  edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
                 }}
               />
-            </Box>
-            <Divider sx={{ my: 1 }} />
-            <Box sx={{ px: 1 }}>
-              <TextField
-                variant="standard"
-                fullWidth
-                multiline
-                minRows={2}
-                maxRows={8}
-                placeholder="Notes"
-                value={notes}
+            </div>
+
+            <div className="flex flex-col">
+              <EditorRow
+                icon={<LoopIcon />}
+                title="Repeat"
+                value={describeRRule(recurrenceRule) ?? 'Never'}
                 disabled={disabled}
-                onChange={(event) => edit({ notes: event.target.value })}
-                slotProps={{ htmlInput: { 'aria-label': 'Notes' } }}
+                onClick={() => setPicker('repeat')}
               />
-            </Box>
-          </List>
+              <EditorRow
+                icon={<BellIcon />}
+                title="Reminder"
+                value={describeReminders(reminderOffsets)}
+                disabled={disabled}
+                onClick={() => setPicker('reminder')}
+              />
+              <EditorRow
+                icon={<Flag className={cn('size-5', priorityColor(priority))} />}
+                title="Priority"
+                value={priorityLabel(priority)}
+                disabled={disabled}
+                onClick={() => setPicker('priority')}
+              />
+            </div>
 
-          <Divider sx={{ my: 2 }} />
+            <Separator />
 
-          <Stack spacing={1.5}>
-            <DatePicker
-              label="Due date"
-              value={dateValue}
-              disabled={disabled}
-              onChange={(value) => {
-                if (!value) {
-                  edit({ clearDue: true, dueDate: null, dueTime: null });
-                  return;
-                }
-                edit({ dueDate: value.toISODate(), clearDue: false });
-              }}
-              slotProps={{
-                textField: { fullWidth: true, size: 'small' },
-                field: { clearable: true },
-              }}
-            />
-            <TimePicker
-              label="Time"
-              value={timeValue}
-              ampm={timeFormat === '12h'}
-              disabled={disabled || !dueDate}
-              onChange={(value) => {
-                if (!value) {
-                  edit({ dueTime: null, clearDue: false });
-                  return;
-                }
-                edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value.toFormat('HH:mm'), clearDue: false });
-              }}
-              slotProps={{
-                textField: { fullWidth: true, size: 'small' },
-                field: { clearable: true },
-              }}
-            />
-          </Stack>
+            <div className="flex flex-col">
+              <EditorRow
+                icon={<Folder className="size-5" />}
+                title="List"
+                value={activeList?.name ?? 'No list'}
+                disabled={disabled}
+                onClick={() => setPicker('list')}
+              />
+              <EditorRow
+                icon={<Tag className="size-5" />}
+                title="Tags"
+                value={selectedTags.length ? selectedTags.map((tag) => `#${tag.name}`).join(' ') : 'None'}
+                disabled={disabled}
+                onClick={() => setPicker('tags')}
+              />
 
-          <List disablePadding sx={{ mt: 2 }}>
-            <EditorRow
-              icon={<RepeatIcon sx={{ fontSize: 20 }} aria-hidden />}
-              title="Repeat"
-              value={describeRRule(recurrenceRule) ?? 'Never'}
-              disabled={disabled}
-              onClick={() => setPicker('repeat')}
-            />
-            <EditorRow
-              icon={<NotificationsNoneIcon sx={{ fontSize: 20 }} aria-hidden />}
-              title="Reminder"
-              value={describeReminders(reminderOffsets)}
-              disabled={disabled}
-              onClick={() => setPicker('reminder')}
-            />
-            <EditorRow
-              icon={<FlagIcon sx={{ fontSize: 20, color: priorityColor(priority) }} aria-hidden />}
-              title="Priority"
-              value={priorityLabel(priority)}
-              disabled={disabled}
-              onClick={() => setPicker('priority')}
-            />
-          </List>
-
-          <Divider sx={{ my: 2 }} />
-
-          <List disablePadding>
-            <EditorRow
-              icon={<FormatListBulletedIcon sx={{ fontSize: 20 }} aria-hidden />}
-              title="List"
-              value={activeList?.name ?? 'No list'}
-              disabled={disabled}
-              onClick={() => setPicker('list')}
-            />
-            <EditorRow
-              icon={<LabelIcon sx={{ fontSize: 20 }} aria-hidden />}
-              title="Tags"
-              value={selectedTags.length ? selectedTags.map((tag) => `#${tag.name}`).join(' ') : 'None'}
-              disabled={disabled}
-              onClick={() => setPicker('tags')}
-            />
-            <ListItem
-              disablePadding
-              secondaryAction={
-                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                  <IconButton
+              <div className="flex min-h-12 items-center gap-3 px-row py-2 text-sm">
+                <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
+                  <TimerIcon />
+                </span>
+                <span className="min-w-0 flex-1 truncate">Estimated time</span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
                     aria-label="Decrease estimated time"
                     disabled={disabled || estimateMinutes === 0}
                     onClick={() => {
@@ -375,131 +444,109 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                       edit({ estimateMinutes: next === 0 ? null : next });
                     }}
                   >
-                    <RemoveIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                  <Typography variant="body2" sx={{ minWidth: 48, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                    <MinusIcon className="size-4 text-base" />
+                  </Button>
+                  <span className="min-w-12 text-center text-sm text-muted-foreground tabular-nums">
                     {estimateMinutes === 0 ? 'None' : humanDuration(estimateMinutes)}
-                  </Typography>
-                  <IconButton
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
                     aria-label="Increase estimated time"
                     disabled={disabled || estimateMinutes >= 1440}
                     onClick={() => edit({ estimateMinutes: Math.min(1440, estimateMinutes + 5) })}
                   >
-                    <AddIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Stack>
-              }
-            >
-              <ListItemIcon sx={{ minWidth: 0, mr: 1.5, color: 'text.secondary' }}>
-                <ScheduleIcon sx={{ fontSize: 20 }} aria-hidden />
-              </ListItemIcon>
-              <ListItemText primary="Estimated time" slotProps={{ primary: { variant: 'body1' } }} sx={{ my: 0 }} />
-            </ListItem>
+                    <PlusIcon className="size-4 text-base" />
+                  </Button>
+                </span>
+              </div>
 
-            <Box sx={{ px: 1, py: 1 }}>
-              <TextField
-                variant="standard"
-                fullWidth
-                placeholder="https://…"
-                value={url}
-                disabled={disabled}
-                onChange={(event) => edit({ url: event.target.value })}
-                slotProps={{
-                  htmlInput: { 'aria-label': 'Link', inputMode: 'url' },
-                  input: {
-                    startAdornment: <LinkIcon sx={{ fontSize: 18, color: 'text.secondary', mr: 1 }} aria-hidden />,
-                  },
-                }}
-              />
-            </Box>
+              <div className="flex items-center gap-3 px-row py-2">
+                <Link aria-hidden className="size-5 shrink-0 text-muted-foreground" />
+                <Input
+                  aria-label="Link"
+                  inputMode="url"
+                  placeholder="https://…"
+                  value={url}
+                  disabled={disabled}
+                  onChange={(event) => edit({ url: event.target.value })}
+                />
+              </div>
 
-            <ListItem
-              disablePadding
-              secondaryAction={
+              <div className="flex min-h-12 items-center gap-3 px-row py-2 text-sm">
+                <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
+                  <DrawingPinIcon />
+                </span>
+                <span className="min-w-0 flex-1 truncate">Pin to top</span>
+                {/*
+                 * A switch keeps one name and reports its state through
+                 * `aria-checked` — a name that flips between "Pin…" and
+                 * "Unpin…" would be announced as a different control.
+                 */}
                 <Switch
+                  aria-label="Pin to top"
                   checked={isPinned}
                   disabled={disabled}
-                  /*
-                   * A switch keeps one name and reports its state through
-                   * `aria-checked` — a name that flips between "Pin…" and
-                   * "Unpin…" would be announced as a different control.
-                   */
-                  slotProps={{ input: { 'aria-label': 'Pin to top' } }}
-                  onChange={(event) => edit({ isPinned: event.target.checked })}
+                  onCheckedChange={(checked) => edit({ isPinned: checked })}
                 />
+              </div>
+            </div>
+
+            <Separator />
+
+            <h3 className="px-row text-sm font-medium">Subtasks</h3>
+            <SubTaskList
+              subtasks={subtasks}
+              disabled={disabled}
+              onToggle={(subtask) =>
+                void actions.complete(subtask, subtask.status === 'completed').then((result) => {
+                  if (result) onSaved?.();
+                })
               }
+              onRename={(subtask, nextTitle) =>
+                void actions.patch(subtask.id, { title: nextTitle }).then((result) => {
+                  if (result) onSaved?.();
+                })
+              }
+              onDelete={(subtask) =>
+                void actions.remove(subtask.id).then((removed) => {
+                  if (removed) onSaved?.();
+                })
+              }
+              onAdd={async (nextTitle) => {
+                if (!task) return;
+                const created = await actions.create({ title: nextTitle, parentId: task.id, listId });
+                if (created) onSaved?.();
+              }}
+            />
+          </div>
+
+          <div className="flex shrink-0 flex-col gap-stack border-t px-gutter pt-stack pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+            {disabled ? <p className="text-xs text-muted-foreground">{actions.offlineNotice}</p> : null}
+            {actions.isSaving ? (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <LoaderCircle aria-label="Saving" className="size-4 animate-spin" />
+                Saving…
+              </p>
+            ) : null}
+            {saveError !== null ? (
+              <Alert variant="destructive" role="alert">
+                <AlertDescription>{saveError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-full"
+              disabled={disabled || !task}
+              onClick={() => setConfirmOpen(true)}
             >
-              <ListItemIcon sx={{ minWidth: 0, mr: 1.5, color: 'text.secondary' }}>
-                <PushPinIcon sx={{ fontSize: 20 }} aria-hidden />
-              </ListItemIcon>
-              <ListItemText primary="Pin to top" slotProps={{ primary: { variant: 'body1' } }} sx={{ my: 0 }} />
-            </ListItem>
-          </List>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Typography variant="subtitle2" sx={{ px: 1, pb: 1 }}>
-            Subtasks
-          </Typography>
-          <SubTaskList
-            subtasks={subtasks}
-            disabled={disabled}
-            onToggle={(subtask) =>
-              void actions.complete(subtask, subtask.status === 'completed').then((result) => {
-                if (result) onSaved?.();
-              })
-            }
-            onRename={(subtask, nextTitle) =>
-              void actions.patch(subtask.id, { title: nextTitle }).then((result) => {
-                if (result) onSaved?.();
-              })
-            }
-            onDelete={(subtask) =>
-              void actions.remove(subtask.id).then((removed) => {
-                if (removed) onSaved?.();
-              })
-            }
-            onAdd={async (nextTitle) => {
-              if (!task) return;
-              const created = await actions.create({ title: nextTitle, parentId: task.id, listId });
-              if (created) onSaved?.();
-            }}
-          />
+              <TrashIcon className="size-4 text-base" />
+              Delete task
+            </Button>
+          </div>
         </DialogContent>
-
-        <DialogActions
-          sx={{
-            flexDirection: 'column',
-            alignItems: 'stretch',
-            gap: 1,
-            px: 2,
-            pt: 1.5,
-            pb: 'max(1rem, env(safe-area-inset-bottom, 0px))',
-          }}
-        >
-          {disabled ? (
-            <Typography variant="caption" color="text.secondary">
-              {actions.offlineNotice}
-            </Typography>
-          ) : null}
-          {actions.isSaving ? (
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
-              <CircularProgress size={14} aria-label="Saving" />
-              <Typography variant="caption">Saving…</Typography>
-            </Stack>
-          ) : null}
-          <Button
-            variant="contained"
-            color="error"
-            disableElevation
-            fullWidth
-            startIcon={<DeleteIcon />}
-            disabled={disabled || !task}
-            onClick={() => setConfirmOpen(true)}
-          >
-            Delete task
-          </Button>
-        </DialogActions>
       </Dialog>
 
       <RepeatPicker
@@ -544,42 +591,28 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
         onCreate={actions.createTag}
       />
 
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-        <DialogTitle>Delete this task?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            {`“${title}” will be removed from every list. This cannot be undone.`}
-          </Typography>
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent showCloseButton={false} className="gap-0 p-0">
+          <div className="flex flex-col gap-stack p-card">
+            <DialogTitle>Delete this task?</DialogTitle>
+            <DialogDescription>
+              {`“${title}” will be removed from every list. This cannot be undone.`}
+            </DialogDescription>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <HoldConfirmButton
+                variant="destructive"
+                disabled={disabled || !task}
+                onConfirm={() => void confirmDelete()}
+              >
+                Delete
+              </HoldConfirmButton>
+            </div>
+          </div>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            disableElevation
-            onClick={async () => {
-              if (!task) return;
-              const deleted = await actions.remove(task.id);
-              if (!deleted) {
-                setSaveError('Could not delete the task.');
-                return;
-              }
-              setDraft({});
-              onSaved?.();
-              onOpenChange(false);
-            }}
-          >
-            Delete
-          </Button>
-        </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={saveError !== null}
-        autoHideDuration={4000}
-        onClose={() => setSaveError(null)}
-        message={saveError}
-      />
-    </LocalizationProvider>
+    </>
   );
 }

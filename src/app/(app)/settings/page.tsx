@@ -12,46 +12,47 @@
  * `PageHeader` (see `@/components/app/PageHeader`) rather than stacking a second
  * bar under the shell's, which is what keeps one title row, one safe-area inset
  * and one elevation across every screen.
+ *
+ * Layout: one `flex flex-col gap-stack` column, inset by `px-gutter`. The gap
+ * between cards is stated once here instead of as a bottom margin on each card,
+ * which is how the previous version ended up with three different ones.
  */
 import Link from 'next/link';
-import Box from '@mui/material/Box';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import CloudIcon from '@mui/icons-material/Cloud';
-import GridViewIcon from '@mui/icons-material/GridView';
-import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
-import SearchIcon from '@mui/icons-material/Search';
-import ShieldIcon from '@mui/icons-material/Shield';
-import SpaIcon from '@mui/icons-material/Spa';
-import TimerIcon from '@mui/icons-material/Timer';
+import { BellIcon } from '@svg-animated-icons/react/bell';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { ChevronRightIcon } from '@svg-animated-icons/react/chevron-right';
+import { DashboardIcon } from '@svg-animated-icons/react/dashboard';
+import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
+import { PeopleIcon } from '@svg-animated-icons/react/people';
+import { StopwatchIcon } from '@svg-animated-icons/react/stopwatch';
+import { TimerIcon } from '@svg-animated-icons/react/timer';
 import { PageHeader } from '@/components/app/PageHeader';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { useResource } from '@/lib/store';
 import { AccountSettings } from '@/components/settings/AccountSettings';
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
 import { DateTimeSettings } from '@/components/settings/DateTimeSettings';
-import { SettingsGroup } from '@/components/settings/SettingsGroup';
+import { SETTINGS_ROW_CLASS, SettingsGroup } from '@/components/settings/SettingsGroup';
 import type { BootstrapPayload } from '@/lib/view-types';
+import type { ReactNode } from 'react';
 
 export default function SettingsPage() {
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const data = bootstrap.data;
 
   return (
-    <Box sx={{ pb: 4 }}>
+    <div className="flex flex-col gap-stack px-gutter pb-6">
       {/* No back control: Settings is a top-level destination, reached from the
           sidebar and from the tab bar. */}
       <PageHeader title="Settings" />
 
       {!data ? (
-        <Stack spacing={2} sx={{ px: 2, pt: 1 }}>
-          <Skeleton variant="rounded" height={96} />
-          <Skeleton variant="rounded" height={128} />
-          <Skeleton variant="rounded" height={96} />
-        </Stack>
+        <>
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </>
       ) : (
         <>
           <AccountSettings user={data.user} />
@@ -61,7 +62,7 @@ export default function SettingsPage() {
           <SettingsGroup title="Calendars and sync" footer="CalDAV accounts, local calendars and read-only feeds.">
             <SectionLink
               href="/settings/calendars"
-              icon={<CloudIcon />}
+              icon={<CalendarIcon />}
               title="Calendars"
               subtitle="Accounts, colours, subscriptions"
             />
@@ -70,7 +71,7 @@ export default function SettingsPage() {
           <SettingsGroup title="Notifications">
             <SectionLink
               href="/settings/notifications"
-              icon={<NotificationsActiveIcon />}
+              icon={<BellIcon />}
               title="Push and reminders"
               subtitle={`${data.capabilities.push ? 'Push available' : 'Push not configured'} · reminders ${data.settings.notificationsEnabled ? 'on' : 'off'}`}
             />
@@ -79,7 +80,7 @@ export default function SettingsPage() {
           <SettingsGroup title="Focus and data" footer="Pomodoro lengths, export and offline behaviour.">
             <SectionLink
               href="/settings/advanced"
-              icon={<SpaIcon />}
+              icon={<TimerIcon />}
               title="Focus and advanced"
               subtitle={`${data.settings.pomodoroFocus} min focus · ${data.settings.pomodoroLongBreakEvery} sessions per long break`}
             />
@@ -94,19 +95,19 @@ export default function SettingsPage() {
           <SettingsGroup title="Tools" footer="Also in the desktop sidebar.">
             <SectionLink
               href="/matrix"
-              icon={<GridViewIcon />}
+              icon={<DashboardIcon />}
               title="Priority matrix"
               subtitle="Urgent and important, at a glance"
             />
-            <SectionLink href="/pomodoro" icon={<TimerIcon />} title="Focus timer" subtitle="Pomodoro sessions" />
-            <SectionLink href="/search" icon={<SearchIcon />} title="Search" subtitle="Tasks, events and habits" />
+            <SectionLink href="/pomodoro" icon={<StopwatchIcon />} title="Focus timer" subtitle="Pomodoro sessions" />
+            <SectionLink href="/search" icon={<MagnifyingGlassIcon />} title="Search" subtitle="Tasks, events and habits" />
           </SettingsGroup>
 
           {data.user.isAdmin ? (
             <SettingsGroup title="Instance" footer="Only administrators see this section.">
               <SectionLink
                 href="/settings/admin"
-                icon={<ShieldIcon />}
+                icon={<PeopleIcon />}
                 title="Users and invitations"
                 subtitle="Invite people, promote or disable accounts"
               />
@@ -114,7 +115,7 @@ export default function SettingsPage() {
           ) : null}
         </>
       )}
-    </Box>
+    </div>
   );
 }
 
@@ -126,15 +127,21 @@ function SectionLink({
   subtitle,
 }: {
   href: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   subtitle: string;
 }) {
   return (
-    <ListItemButton component={Link} href={href}>
-      <ListItemIcon sx={{ minWidth: 40, color: 'primary.main' }}>{icon}</ListItemIcon>
-      <ListItemText primary={title} secondary={subtitle} />
-      <ChevronRightIcon fontSize="small" aria-hidden sx={{ color: 'text.disabled' }} />
-    </ListItemButton>
+    <Link
+      href={href}
+      className={cn(SETTINGS_ROW_CLASS, 'flex items-center gap-3 transition-colors hover:bg-accent/50')}
+    >
+      <span className="shrink-0 text-muted-foreground">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm">{title}</span>
+        <span className="block truncate text-xs text-muted-foreground">{subtitle}</span>
+      </span>
+      <ChevronRightIcon className="shrink-0 text-muted-foreground" />
+    </Link>
   );
 }

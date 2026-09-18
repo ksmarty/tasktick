@@ -6,9 +6,20 @@
  * The card follows the task list's in-card header shape: the group name is the
  * card's first row, with the habit count and a collapse chevron on its trailing
  * edge. There is no real grouping in the habit data, so this is one "Habits"
- * card rather than invented categories. Material's surfaces do the work: a
- * `Paper` for the card, a `List` of `HabitRow`s, and a MUI `Collapse` for the
- * height animation.
+ * card rather than invented categories.
+ *
+ * ## Why the reorder is still hand-rolled
+ *
+ * The GodUI `reorder-list` was evaluated for this list and deliberately not
+ * adopted. It drives its drag from `pointerdown` with `touch-none` on every
+ * item, which is the one thing this list cannot have: the card sits inside the
+ * shell's scroll pane, so a finger that lands on a row must still scroll the
+ * page. Its gesture is also unconditional, whereas this list only lifts a row
+ * after a 320ms long press, and it has no keyboard path — while the grip's
+ * Arrow Up / Arrow Down reorder is part of the behaviour being preserved.
+ * Swapping the gesture layer would have meant rewriting exactly the parts that
+ * cannot be verified without a device, so the proven implementation stays and
+ * only its rendering changed.
  *
  * Reordering uses Pointer Events rather than HTML5 drag-and-drop, because
  * drag-and-drop does not exist on touch. There are two ways in, and they are
@@ -32,15 +43,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { keyframes } from '@emotion/react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Collapse from '@mui/material/Collapse';
-import List from '@mui/material/List';
-import Paper from '@mui/material/Paper';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronDownIcon } from '@svg-animated-icons/react/chevron-down';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { HabitRow } from './HabitRow';
 import type { CheckInChange } from './period';
 import type { DateOnly, Habit } from '@/lib/types';
@@ -53,29 +59,14 @@ const LONG_PRESS_SLOP_PX = 8;
  * How long the rows keep their entrance animation.
  *
  * The column's longest delay plus its animation is a little over half a second,
- * so that covers every row; after that the animation style is dropped and the
- * list is inert for the rest of its life.
+ * so that covers every row; after that the entrance is dropped and the list is
+ * inert for the rest of its life.
  */
 const ROW_STAGGER_MS = 600;
-
 /** The row entrance: a short rise and fade, staggered by row index. */
-const rowEnter = keyframes`
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-`;
-
-/** A screen-reader-only mark, without pulling in a helper package. */
-const SR_ONLY = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  whiteSpace: 'nowrap',
-  border: 0,
-} as const;
+const ROW_ENTER_DURATION = 0.32;
+const ROW_STAGGER_STEP = 0.04;
+const ROW_STAGGER_MAX = 0.24;
 
 export interface HabitListProps {
   habits: Habit[];
@@ -116,9 +107,9 @@ export function HabitList({
    *
    * The entrance animation plays whenever a row mounts — and a check-in
    * re-renders this list (the optimistic patch, then the refetch), which must
-   * not replay the entrance. Leaving the style on would already be enough for
+   * not replay the entrance. Leaving the flag on would already be enough for
    * that, but collapsing and expanding the card remounts the rows and would
-   * replay it, so the style is removed once the animation has run. "Animate in"
+   * replay it, so the flag is cleared once the animation has run. "Animate in"
    * then means "on the first mount" and nothing else.
    */
   const [entering, setEntering] = useState(true);
@@ -309,81 +300,83 @@ export function HabitList({
         }
       }}
     >
-      <Paper component="section" aria-label="Habits" variant="outlined" sx={{ mx: 2, borderRadius: 2, overflow: 'hidden' }}>
+      <section
+        aria-label="Habits"
+        className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
+      >
         {/* The in-card header, the same shape the task list's groups use: the
             name, then the count and the chevron as quiet trailing marks. */}
-        <Stack
-          direction="row"
-          sx={{
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 1,
-            pl: 1.5,
-            pr: 1,
-            minHeight: 48,
-            ...(collapsed ? null : { borderBottom: 1, borderColor: 'divider' }),
-          }}
+        <div
+          className={cn(
+            'flex min-h-12 items-center justify-between gap-2 pr-2 pl-row',
+            !collapsed && 'border-b border-border',
+          )}
         >
-          <Typography variant="subtitle1" component="h2" noWrap sx={{ minWidth: 0, fontWeight: 600 }}>
-            Habits
-          </Typography>
+          <h2 className="min-w-0 truncate text-base font-semibold">Habits</h2>
           <Button
-            color="inherit"
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => setCollapsed((value) => !value)}
             aria-expanded={!collapsed}
             aria-label={`${collapsed ? 'Expand' : 'Collapse'} habits`}
-            sx={{ minWidth: 0, gap: 1, px: 1, py: 0.5, color: 'text.secondary', textTransform: 'none' }}
+            className="gap-2 px-2 text-muted-foreground"
           >
-            <Typography component="span" aria-hidden variant="caption" sx={{ fontWeight: 500 }}>
+            <span aria-hidden className="text-xs font-medium">
               {habits.length}
-            </Typography>
-            <Box component="span" sx={SR_ONLY}>{`${habits.length} habit${habits.length === 1 ? '' : 's'}`}</Box>
-            <ExpandMoreIcon
-              aria-hidden
-              sx={{
-                fontSize: 16,
-                transition: 'transform 200ms',
-                ...(collapsed ? { transform: 'rotate(-90deg)' } : null),
-              }}
+            </span>
+            <span className="sr-only">{`${habits.length} habit${habits.length === 1 ? '' : 's'}`}</span>
+            <ChevronDownIcon
+              className={cn('size-4 transition-transform duration-200', collapsed && '-rotate-90')}
             />
           </Button>
-        </Stack>
+        </div>
 
-        <Collapse in={!collapsed} unmountOnExit>
-          <List disablePadding>
-            {ordered.map((habit, index) => (
-              <Box
-                key={habit.id}
-                data-habit-id={habit.id}
-                sx={{
-                  ...(index > 0 ? { borderTop: 1, borderColor: 'divider' } : null),
-                  ...(entering
-                    ? {
-                        animation: `${rowEnter} 320ms ease-out both`,
-                        animationDelay: `${Math.min(index * 40, 240)}ms`,
-                      }
-                    : null),
-                }}
-              >
-                <HabitRow
-                  habit={habit}
-                  date={date}
-                  today={today}
-                  pending={pendingId === habit.id}
-                  dragging={dragId === habit.id}
-                  onRowPointerDown={(event) => armLongPress(habit, event)}
-                  onCheckIn={(change) => onCheckIn(habit, change)}
-                  onEdit={() => onEdit(habit)}
-                  onGripPointerDown={(event) => startDrag(habit, event)}
-                  onMoveBy={(delta) => moveBy(index, delta)}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < ids.length - 1}
-                />
-              </Box>
-            ))}
-          </List>
-        </Collapse>
-      </Paper>
+        <AnimatePresence initial={false}>
+          {collapsed ? null : (
+            <motion.div
+              key="habit-rows"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="overflow-hidden"
+            >
+              <div role="list">
+                {ordered.map((habit, index) => (
+                  <motion.div
+                    key={habit.id}
+                    data-habit-id={habit.id}
+                    initial={entering ? { opacity: 0, y: 6 } : false}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      duration: ROW_ENTER_DURATION,
+                      ease: 'easeOut',
+                      delay: entering ? Math.min(index * ROW_STAGGER_STEP, ROW_STAGGER_MAX) : 0,
+                    }}
+                    className={cn(index > 0 && 'border-t border-border')}
+                  >
+                    <HabitRow
+                      habit={habit}
+                      date={date}
+                      today={today}
+                      pending={pendingId === habit.id}
+                      dragging={dragId === habit.id}
+                      onRowPointerDown={(event) => armLongPress(habit, event)}
+                      onCheckIn={(change) => onCheckIn(habit, change)}
+                      onEdit={() => onEdit(habit)}
+                      onGripPointerDown={(event) => startDrag(habit, event)}
+                      onMoveBy={(delta) => moveBy(index, delta)}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < ids.length - 1}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </section>
     </div>
   );
 }

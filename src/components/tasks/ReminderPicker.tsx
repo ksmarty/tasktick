@@ -6,15 +6,10 @@
  * Offsets are stored the way the server expects them — minutes *added* to the
  * due instant — so "5 minutes before" is `-5`.
  */
-import Box from '@mui/material/Box';
-import Check from '@mui/icons-material/Check';
-import Drawer from '@mui/material/Drawer';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import NotificationsNone from '@mui/icons-material/NotificationsNone';
-import Typography from '@mui/material/Typography';
+import { BellIcon } from '@svg-animated-icons/react/bell';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { cn } from '@/lib/utils';
 
 export interface ReminderOffset {
   offsetMinutes: number;
@@ -58,66 +53,56 @@ export function ReminderPicker({ open, onOpenChange, value, hasDueDate, onChange
   }
 
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={() => onOpenChange(false)}
-      slotProps={{
-        paper: {
-          role: 'dialog',
-          'aria-modal': true,
-          'aria-label': 'Reminders',
-          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
-        },
-      }}
-    >
-      <Box
-        sx={{
-          borderTopLeftRadius: 3,
-          borderTopRightRadius: 3,
-          pb: 2,
-          maxHeight: '90dvh',
-          overflowY: 'auto',
-        }}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        aria-label="Reminders"
+        aria-modal={true}
+        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       >
-        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
-          Reminders
-        </Typography>
+        <SheetTitle className="sr-only">Reminders</SheetTitle>
 
-        <List sx={{ py: 0 }}>
+        <h2 className="pb-2 text-lg font-semibold text-foreground">Reminders</h2>
+
+        <div>
           {REMINDER_OFFSETS.map((item) => {
             const selected = value.includes(item.offsetMinutes);
             return (
-              <ListItemButton
+              <button
                 key={item.offsetMinutes}
+                type="button"
                 role="checkbox"
                 aria-checked={selected}
                 aria-disabled={!hasDueDate || undefined}
                 onClick={() => toggle(item.offsetMinutes)}
-                sx={{ opacity: hasDueDate ? 1 : 0.4 }}
+                className={cn(
+                  'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
+                  selected ? 'text-primary' : 'text-foreground',
+                  hasDueDate ? null : 'opacity-40',
+                )}
               >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  <NotificationsNone
-                    sx={{ fontSize: 20, color: selected ? 'primary.main' : 'text.secondary' }}
-                    aria-hidden
+                <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                  <BellIcon
+                    className={cn('size-5', selected ? 'text-primary' : 'text-muted-foreground')}
                   />
-                </ListItemIcon>
-                <ListItemText
-                  primary={item.label}
-                  slotProps={{ primary: { noWrap: true, sx: { color: 'text.primary' } } }}
-                />
-                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
-              </ListItemButton>
+                </span>
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {selected ? (
+                  <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                    <CheckIcon className="size-5" />
+                  </span>
+                ) : null}
+              </button>
             );
           })}
-        </List>
+        </div>
 
-        <Typography variant="caption" sx={{ display: 'block', px: 2, pt: 1.5, color: 'text.secondary' }}>
+        <p className="pt-3 text-xs text-muted-foreground">
           {hasDueDate
             ? 'Each selected offset fires a notification before the task is due.'
             : 'Add a due date first — a reminder with nothing to count back from would never fire.'}
-        </Typography>
-      </Box>
-    </Drawer>
+        </p>
+      </SheetContent>
+    </Sheet>
   );
 }

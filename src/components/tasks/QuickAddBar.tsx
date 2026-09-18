@@ -3,47 +3,59 @@
 /**
  * Natural-language quick add.
  *
- * One presentation: a MUI `Dialog` anchored to the bottom of the screen, opened
- * from the shell's action button, on every screen alike. It parses on every
- * keystroke (`parseQuickAdd`) and shows exactly what was understood as tinted
- * chips. The caret lands in the field the moment the dialog opens, and a
- * successful submit closes it — one task is one gesture. A submit that *fails*
- * leaves the dialog open with the sentence still in the field, so nothing typed
- * is lost to an error.
+ * One presentation: a bottom sheet opened from the shell's action button, on
+ * every screen alike. It parses on every keystroke (`parseQuickAdd`) and shows
+ * exactly what was understood as tinted chips. The caret lands in the field the
+ * moment the dialog opens, and a successful submit closes it — one task is one
+ * gesture. A submit that *fails* leaves the dialog open with the sentence still in
+ * the field, so nothing typed is lost to an error.
  *
  * ## Focus timing (do not "simplify" this)
  *
  * iOS raises the keyboard only when `focus()` runs in the task that handled the
- * tap. MUI's `Dialog` mounts through a `Portal` and, by default, animates in
- * with `Fade` — both of which can put the input a frame away from the tap. Two
- * things keep the old guarantee:
+ * tap. Two things keep that guarantee now that the sheet is a shadcn `Dialog`
+ * (Radix) rather than a MUI one:
  *
- *   - `transitionDuration={0}` so the panel is not faded in over 225ms; and
- *   - the focus runs in a *layout* effect, not a passive one, so it belongs to
- *     the same commit that `open` arrived in. `TasksView.openQuickAdd` flushes
- *     that commit synchronously inside the tap (see `usePrimaryAction`).
+ *   - the panel does **not** animate (`duration-0`, and the `animate-in`/`animate-out`
+ *     classes are switched off). Radix mounts the panel through a portal, so the
+ *     panel's presence in the DOM is what has to be immediate, and a 200ms
+ *     entrance animation is exactly the delay that was fixed; and
+ *   - the focus runs in a *layout* effect, not a passive one, so it belongs to the
+ *     same commit that `open` arrived in. `TasksView.openQuickAdd` flushes that
+ *     commit synchronously inside the tap (see `usePrimaryAction`), and Radix's
+ *     `Presence` renders its children in that same commit, so the input node
+ *     exists by the time the layout effect runs.
  *
  * `autoFocus` is left on the field as a second, React-native path (ReactDOM
- * focuses an `autoFocus` node during the commit phase), so the caret is in the
- * field even if a future MUI change moves the portal a render later. There is a
- * probe for this: see the focus-timing report.
+ * focuses an `autoFocus` node during the commit phase), and `onOpenAutoFocus`
+ * cancels Radix's own deferred autofocus so nothing re-focuses a frame later. The
+ * raw probe result for this is in the migration report.
  */
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import InputAdornment from '@mui/material/InputAdornment';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import KeyboardReturnIcon from '@mui/icons-material/KeyboardReturn';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
+import { MagicWandIcon } from '@svg-animated-icons/react/magic-wand';
 import { parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
 import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { dueLabel } from './TaskMeta';
 import { planQuickAdd, quickAddChips, type QuickAddChip, type QuickAddContext } from './quick-add';
 import { useTaskActions } from './useTaskActions';
@@ -148,13 +160,13 @@ function QuickAddInput({
   state,
   open,
   onClose,
+  inputRef,
 }: {
   state: QuickAddState;
   open: boolean;
   onClose: () => void;
+  inputRef: RefObject<HTMLInputElement | null>;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
   /*
    * The caret goes into the field when the dialog is deliberately opened — and
    * at no other time. `open` is the only trigger: focusing unconditionally would
@@ -193,117 +205,135 @@ function QuickAddInput({
   }
 
   return (
-    <Stack spacing={1.5}>
-      <TextField
-        inputRef={inputRef}
-        autoFocus
-        value={state.value}
-        disabled={!state.online}
-        placeholder="Add a task…"
-        onChange={(event) => state.setValue(event.target.value)}
-        onKeyDown={onKeyDown}
-        slotProps={{
-          htmlInput: { 'aria-label': 'Quick add a task' },
-          input: {
-            startAdornment: (
-              <InputAdornment position="start">
-                <AutoAwesomeIcon sx={{ fontSize: 16, color: 'text.secondary' }} aria-hidden />
-              </InputAdornment>
-            ),
-            endAdornment: (
-              <InputAdornment position="end">
-                <Button
-                  size="small"
-                  variant="contained"
-                  disableElevation
-                  startIcon={
-                    state.busy ? (
-                      <CircularProgress size={14} color="inherit" aria-label="Saving" />
-                    ) : (
-                      <KeyboardReturnIcon sx={{ fontSize: 16 }} aria-hidden />
-                    )
-                  }
-                  disabled={!state.online || !state.value.trim() || state.busy}
-                  onClick={() => void submit()}
-                >
-                  Add
-                </Button>
-              </InputAdornment>
-            ),
-          },
-        }}
-      />
+    <div className="flex flex-col gap-stack">
+      <div className="relative">
+        <MagicWandIcon
+          className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-base text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          ref={inputRef}
+          autoFocus
+          type="text"
+          value={state.value}
+          disabled={!state.online}
+          placeholder="Add a task…"
+          aria-label="Quick add a task"
+          onChange={(event) => state.setValue(event.target.value)}
+          onKeyDown={onKeyDown}
+          className="pr-16 pl-9"
+        />
+        <Button
+          type="button"
+          size="sm"
+          className="absolute top-1/2 right-1.5 h-6 -translate-y-1/2 px-2 text-xs"
+          disabled={!state.online || !state.value.trim() || state.busy}
+          aria-busy={state.busy || undefined}
+          onClick={() => void submit()}
+        >
+          {state.busy ? (
+            // `status` + a name, so the wait is announced rather than silent —
+            // the same announcement MUI's spinner carried.
+            <span
+              role="status"
+              aria-label="Saving"
+              className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+            />
+          ) : (
+            'Add'
+          )}
+        </Button>
+      </div>
 
       {state.online ? (
-        <Stack direction="row" spacing={0.75} sx={{ minHeight: 28, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="flex min-h-7 flex-wrap items-center gap-1.5">
           {state.chips.length ? (
             state.chips.map((chip, index) => (
-              <Chip
+              <Badge
                 key={`${chip.kind}-${index}`}
-                size="small"
-                label={chip.label}
-                color={chip.kind === 'priority' ? 'warning' : 'default'}
-                variant={chip.kind === 'priority' ? 'filled' : 'outlined'}
-              />
+                variant={chip.kind === 'priority' ? 'default' : 'outline'}
+                className={cn(
+                  'h-7 px-2 text-xs',
+                  chip.kind === 'priority' && 'bg-chart-4 text-white',
+                )}
+              >
+                {chip.label}
+              </Badge>
             ))
           ) : (
-            <Typography variant="caption" color="text.disabled">
+            <span className="text-xs text-muted-foreground">
               Try “Pay rent tomorrow 5pm !high #home”, “@Work call Sam”, or “every monday gym”.
-            </Typography>
+            </span>
           )}
-        </Stack>
+        </div>
       ) : (
-        <Typography variant="caption" color="text.secondary">
-          {state.offlineNotice}
-        </Typography>
+        <span className="text-xs text-muted-foreground">{state.offlineNotice}</span>
       )}
-    </Stack>
+    </div>
   );
 }
 
 /** The quick-add dialog: the one way to type a task in a sentence. */
 export function QuickAddBar({ open, onOpenChange, listId = null, onCreated }: QuickAddBarProps) {
   const state = useQuickAdd(listId, onCreated);
+  /*
+   * One ref for the field, owned here rather than inside the panel, because two
+   * mechanisms have to agree on it: the panel's layout effect (the same-task
+   * focus) and Radix's cancelled autofocus below.
+   */
+  const inputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Dialog
-      open={open}
-      onClose={() => onOpenChange(false)}
-      maxWidth="sm"
-      fullWidth
-      /*
-       * No fade. The panel must be in the DOM — and the input focusable — in the
-       * commit that the tap produced, or iOS never raises the keyboard.
-       */
-      transitionDuration={0}
-      aria-labelledby="quick-add-title"
-      slotProps={{
-        paper: {
-          sx: {
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            top: 'auto',
-            m: 0,
-            width: '100%',
-            maxWidth: '100%',
-            borderRadius: '16px 16px 0 0',
-            p: 2,
-            pb: 'max(2rem, env(safe-area-inset-bottom, 0px))',
-          },
-        },
-      }}
-    >
-      <Stack spacing={0.5} sx={{ mb: 1.5 }}>
-        <Typography id="quick-add-title" variant="h6" component="h2">
-          New task
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Type it the way you would say it — the date, priority and tags are read out of the sentence.
-        </Typography>
-      </Stack>
-      <QuickAddInput state={state} open={open} onClose={() => onOpenChange(false)} />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        /*
+         * A bottom sheet, and nothing else. `p-0`/`gap-0` neutralise the
+         * dialog's own `p-6`/`gap-4` (a token class cannot override them — see
+         * the note on `tailwind-merge` in `TaskListSection`), and the padding
+         * that remains is the sheet's own, on the wrapper below.
+         */
+        className={cn(
+          'bottom-0 top-auto left-0 max-w-full translate-x-0 translate-y-0',
+          'gap-0 rounded-t-2xl rounded-b-none border-x-0 border-b-0 p-0',
+          // No entrance animation. The panel must be in the DOM — and the input
+          // focusable — in the commit that the tap produced, or iOS never raises
+          // the keyboard.
+          'duration-0 data-[state=open]:animate-none data-[state=closed]:animate-none',
+        )}
+        showCloseButton={false}
+        /*
+         * Radix's own autofocus runs in a passive effect, a frame after the tap,
+         * where the gesture is already spent. Cancel it and let the layout effect
+         * above own the focus, in the tap's own task.
+         */
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus({ preventScroll: true });
+        }}
+      >
+        <div className="flex flex-col gap-stack px-card pt-card pb-[max(2rem,env(safe-area-inset-bottom,0px))]">
+          <div className="flex flex-col gap-1">
+            {/*
+             * No explicit `id` on the title: Radix renders
+             * `<h2 id={context.titleId} {...titleProps}>` — the caller's props
+             * come last, so passing an `id` would override the generated one and
+             * leave the content's `aria-labelledby` pointing at nothing. The
+             * dialog is named from this text either way; the id is not a
+             * contract.
+             */}
+            <DialogTitle className="text-base font-semibold">New task</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Type it the way you would say it — the date, priority and tags are read out of the sentence.
+            </DialogDescription>
+          </div>
+          <QuickAddInput
+            state={state}
+            open={open}
+            onClose={() => onOpenChange(false)}
+            inputRef={inputRef}
+          />
+        </div>
+      </DialogContent>
     </Dialog>
   );
 }

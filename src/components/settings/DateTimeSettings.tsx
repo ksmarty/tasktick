@@ -13,21 +13,25 @@
  * the clock format together, so "12h in Tokyo" can be verified at a glance.
  *
  * The two pickers keep the semantics they had: the long timezone list and the
- * two-value week start are `TextField select`, and the clock format — a genuine
- * either/or pair — is a `ToggleButtonGroup`.
+ * two-value week start stay `Select`s, and the clock format — a genuine either/or
+ * pair — is the GodUI `SegmentedControl`, which is what the MUI `ToggleButtonGroup`
+ * was standing in for.
  */
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import ListItem from '@mui/material/ListItem';
-import MenuItem from '@mui/material/MenuItem';
-import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
 import { formatTime, nowIn } from '@/lib/dates';
 import { useToast } from '@/components/app/Toast';
-import { SettingsGroup } from './SettingsGroup';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { UserSettings } from '@/lib/types';
 
 /** Zones offered when `Intl.supportedValuesOf` is unavailable. */
@@ -70,6 +74,11 @@ export function listTimeZones(current: string): string[] {
   return [...all].sort((a, b) => a.localeCompare(b));
 }
 
+const CLOCK_FORMAT_OPTIONS: SegmentedOption[] = [
+  { value: '24h', label: '24-hour' },
+  { value: '12h', label: '12-hour' },
+];
+
 export interface DateTimeSettingsProps {
   settings: UserSettings;
 }
@@ -106,70 +115,62 @@ export function DateTimeSettings({ settings }: DateTimeSettingsProps) {
       title="Date and time"
       footer={`Stored once on your server, so every device agrees. Times are shown in ${settings.timezone}; it is ${preview} there now.`}
     >
-      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-        <TextField
-          select
-          fullWidth
-          label="Time zone"
-          value={settings.timezone}
-          onChange={(event) => void persist.run({ timezone: event.target.value })}
-        >
-          {zones.map((zone) => (
-            <MenuItem key={zone} value={zone}>
-              {zone}
-            </MenuItem>
-          ))}
-        </TextField>
+      <SettingsRow stacked>
+        <Label htmlFor="settings-timezone">Time zone</Label>
+        <Select value={settings.timezone} onValueChange={(zone) => void persist.run({ timezone: zone })}>
+          <SelectTrigger id="settings-timezone" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          {/* `popper` so a four-hundred-entry zone list scrolls in a box sized to
+              the viewport instead of stretching to the selected item. */}
+          <SelectContent position="popper">
+            {zones.map((zone) => (
+              <SelectItem key={zone} value={zone}>
+                {zone}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {localZone && localZone !== settings.timezone ? (
           <Button
-            variant="text"
-            size="small"
+            variant="link"
+            size="sm"
+            className="h-auto self-start p-0"
             onClick={() => void persist.run({ timezone: localZone })}
-            sx={{ mt: 0.5, px: 0.5 }}
           >
             Use this device&apos;s zone ({localZone})
           </Button>
         ) : null}
-      </ListItem>
+      </SettingsRow>
 
-      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-        <TextField
-          select
-          fullWidth
-          label="Start of week"
+      <SettingsRow stacked>
+        <Label htmlFor="settings-week-start">Start of week</Label>
+        <Select
           value={String(settings.weekStartsOn)}
-          onChange={(event) => void persist.run({ weekStartsOn: event.target.value === '1' ? 1 : 0 })}
+          onValueChange={(value) => void persist.run({ weekStartsOn: value === '1' ? 1 : 0 })}
         >
-          <MenuItem value="1">Monday</MenuItem>
-          <MenuItem value="0">Sunday</MenuItem>
-        </TextField>
-      </ListItem>
+          <SelectTrigger id="settings-week-start" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            <SelectItem value="1">Monday</SelectItem>
+            <SelectItem value="0">Sunday</SelectItem>
+          </SelectContent>
+        </Select>
+      </SettingsRow>
 
-      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box
-            component="span"
-            id="clock-format-label"
-            sx={{ flex: 1, minWidth: 0, typography: 'body1' }}
-          >
-            Clock format
-          </Box>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={settings.timeFormat}
-            onChange={(_event, value: '12h' | '24h' | null) => {
-              if (!value) return;
-              void persist.run({ timeFormat: value });
-            }}
-            aria-labelledby="clock-format-label"
-          >
-            <ToggleButton value="24h">24-hour</ToggleButton>
-            <ToggleButton value="12h">12-hour</ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
-      </ListItem>
+      <SettingsRow>
+        <span id="clock-format-label" className="min-w-0 flex-1 text-sm font-medium">
+          Clock format
+        </span>
+        <SegmentedControl
+          aria-labelledby="clock-format-label"
+          options={CLOCK_FORMAT_OPTIONS}
+          value={settings.timeFormat}
+          onChange={(value) => void persist.run({ timeFormat: value === '12h' ? '12h' : '24h' })}
+        />
+      </SettingsRow>
     </SettingsGroup>
   );
 }

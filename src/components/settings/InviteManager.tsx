@@ -10,34 +10,30 @@
  * whether each one is still usable.
  *
  * The expiry choices were a row of buttons changing weight on selection; they are
- * a genuine either/or, so they are a `ToggleButtonGroup` now.
+ * a genuine either/or set, so they are the GodUI `SegmentedControl` — the primitive
+ * the MUI `ToggleButtonGroup` was standing in for — and the newly minted link
+ * reuses `SettingsGroup` so it lines up with the cards around it.
  */
 import { useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import Paper from '@mui/material/Paper';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
-import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Typography from '@mui/material/Typography';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import MailIcon from '@mui/icons-material/Mail';
-import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import { ClipboardCopyIcon } from '@svg-animated-icons/react/clipboard-copy';
+import { EnvelopeClosedIcon } from '@svg-animated-icons/react/envelope-closed';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { relativeTimeAgo } from '@/lib/dates';
 import { copyText } from './clipboard';
-import { SettingsGroup } from './SettingsGroup';
+import { MONO_URL_BOX_CLASS } from './styles';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { InvitePayload } from '@/lib/view-types';
 
-const EXPIRY_OPTIONS = [
+const EXPIRY_OPTIONS: SegmentedOption[] = [
   { value: '7', label: '7 days' },
   { value: '14', label: '14 days' },
   { value: '30', label: '30 days' },
@@ -96,104 +92,87 @@ export function InviteManager() {
         title="Invite someone"
         footer="Creating a new invitation for the same address cancels the previous one, so only the newest link works."
       >
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-          <Stack spacing={3}>
-            <TextField
-              fullWidth
-              label="Email address"
+        <SettingsRow stacked>
+          <Label htmlFor="invite-email">Email address</Label>
+          <div className="relative">
+            <EnvelopeClosedIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="invite-email"
+              className="pl-9"
               type="email"
+              inputMode="email"
               autoComplete="email"
               placeholder="friend@example.com"
+              maxLength={320}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              slotProps={{
-                htmlInput: { inputMode: 'email', maxLength: 320 },
-                input: {
-                  startAdornment: <MailIcon fontSize="small" aria-hidden sx={{ mr: 1, color: 'text.secondary' }} />,
-                },
-              }}
             />
+          </div>
 
-            <FormControlLabel
-              sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
-              labelPlacement="start"
-              label="Make them an administrator"
-              control={
-                <Switch
-                  checked={isAdmin}
-                  onChange={(_event, checked) => setIsAdmin(checked)}
-                  slotProps={{ input: { 'aria-label': 'Make them an administrator' } }}
-                />
-              }
+          <div className="flex items-center gap-3">
+            <Label htmlFor="invite-admin" className="min-w-0 flex-1">
+              Make them an administrator
+            </Label>
+            <Switch
+              id="invite-admin"
+              aria-label="Make them an administrator"
+              checked={isAdmin}
+              onCheckedChange={setIsAdmin}
             />
+          </div>
 
-            <Box>
-              <Typography variant="caption" color="text.secondary" id="invite-expiry-label" sx={{ display: 'block', px: 1, pb: 0.5 }}>
-                Link expires in
-              </Typography>
-              <ToggleButtonGroup
-                exclusive
-                size="small"
-                value={expiresInDays}
-                onChange={(_event, value: string | null) => {
-                  if (value) setExpiresInDays(value);
-                }}
-                aria-labelledby="invite-expiry-label"
-              >
-                {EXPIRY_OPTIONS.map((option) => (
-                  <ToggleButton key={option.value} value={option.value}>
-                    {option.label}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            </Box>
+          <div className="flex flex-col gap-2">
+            <p id="invite-expiry-label" className="text-sm font-medium">
+              Link expires in
+            </p>
+            <SegmentedControl
+              aria-labelledby="invite-expiry-label"
+              size="sm"
+              options={EXPIRY_OPTIONS}
+              value={expiresInDays}
+              onChange={setExpiresInDays}
+            />
+          </div>
 
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<PersonAddIcon aria-hidden />}
-              loading={create.isPending}
-              disabled={!email.trim()}
-              onClick={() => void create.run()}
-            >
-              Create invitation
-            </Button>
-          </Stack>
-        </ListItem>
+          <Button
+            className="w-full"
+            aria-busy={create.isPending || undefined}
+            disabled={create.isPending || !email.trim()}
+            onClick={() => void create.run()}
+          >
+            <PlusIcon />
+            Create invitation
+          </Button>
+        </SettingsRow>
       </SettingsGroup>
 
       {freshUrl ? (
-        <Paper variant="outlined" sx={{ borderRadius: 3, mx: 2, mt: 2, p: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Invitation link
-          </Typography>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ pt: 0.5, fontFamily: 'monospace', wordBreak: 'break-all' }}
-          >
-            {freshUrl}
-          </Typography>
-          <Box sx={{ pt: 1.5 }}>
-            <Button size="small" variant="contained" startIcon={<ContentCopyIcon aria-hidden />} onClick={() => void copy(freshUrl)}>
+        <SettingsGroup
+          title="Invitation link"
+          footer="Send this to them yourself — this server has no mail delivery, and the link is shown in full only once."
+        >
+          <SettingsRow stacked>
+            <p className={MONO_URL_BOX_CLASS}>{freshUrl}</p>
+            <Button size="sm" className="self-start" onClick={() => void copy(freshUrl)}>
+              <ClipboardCopyIcon />
               Copy link
             </Button>
-          </Box>
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pt: 1 }}>
-            Send this to them yourself — this server has no mail delivery, and the link is shown in full only once.
-          </Typography>
-        </Paper>
+          </SettingsRow>
+        </SettingsGroup>
       ) : null}
 
       <SettingsGroup title="Invitations" footer="Accepted invitations are spent and cannot be reused.">
         {invites.isInitialLoading ? (
-          <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-            <Skeleton variant="rounded" height={40} />
-          </ListItem>
+          <SettingsRow>
+            <Skeleton className="h-10 w-full" />
+          </SettingsRow>
         ) : list.length === 0 ? (
-          <ListItem>
-            <ListItemText primary="No invitations yet" secondary="Invite someone above to get a link." />
-          </ListItem>
+          <SettingsRow>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm">No invitations yet</span>
+              <span className="block text-xs text-muted-foreground">Invite someone above to get a link.</span>
+            </span>
+          </SettingsRow>
         ) : (
           list.map((invite) => {
             const expired = invite.expiresAtMs < Date.now();
@@ -203,22 +182,20 @@ export function InviteManager() {
                 ? `expired ${relativeTimeAgo(invite.expiresAtMs)}`
                 : `expires in ${Math.max(1, Math.round((invite.expiresAtMs - Date.now()) / 86_400_000))} days`;
             return (
-              <ListItem
-                key={invite.id}
-                secondaryAction={
-                  invite.url && !expired && !invite.acceptedAtMs ? (
-                    <Button size="small" variant="text" startIcon={<ContentCopyIcon aria-hidden />} onClick={() => void copy(invite.url!)}>
-                      Copy
-                    </Button>
-                  ) : undefined
-                }
-              >
-                <ListItemText
-                  primary={invite.email}
-                  secondary={`${invite.isAdmin ? 'Administrator · ' : ''}${status}`}
-                  slotProps={{ primary: { noWrap: true }, secondary: { noWrap: true } }}
-                />
-              </ListItem>
+              <SettingsRow key={invite.id}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{invite.email}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {`${invite.isAdmin ? 'Administrator · ' : ''}${status}`}
+                  </span>
+                </span>
+                {invite.url && !expired && !invite.acceptedAtMs ? (
+                  <Button size="sm" variant="ghost" onClick={() => void copy(invite.url!)}>
+                    <ClipboardCopyIcon />
+                    Copy
+                  </Button>
+                ) : null}
+              </SettingsRow>
             );
           })
         )}

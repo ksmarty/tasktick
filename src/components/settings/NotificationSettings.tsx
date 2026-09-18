@@ -17,27 +17,24 @@
  * `/api/push/subscribe` has accepted the subscription, and the test button is
  * explicit about what it tests.
  *
- * Material shape: each toggle is a `Switch` inside a `FormControlLabel` in a
- * `ListItem` row, so the whole row is the label and the touch target is the row.
+ * Only the markup changed in this migration: each toggle is a shadcn `Switch`
+ * paired with a `Label` on a shared `SettingsRow`, so the row keeps the same
+ * height and gutter as every other row in the area. Every branch of the state
+ * machine, every message and the enable/disable/rollback flow are untouched.
  */
 import { useCallback, useEffect, useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import ListItem from '@mui/material/ListItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Switch from '@mui/material/Switch';
-import Typography from '@mui/material/Typography';
-import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
-import SendIcon from '@mui/icons-material/Send';
-import SmartphoneIcon from '@mui/icons-material/Smartphone';
+import { BellIcon } from '@svg-animated-icons/react/bell';
+import { MobileIcon } from '@svg-animated-icons/react/mobile';
+import { PaperPlaneIcon } from '@svg-animated-icons/react/paper-plane';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { IosInstallHint } from '@/components/pwa';
 import { isIos, isStandalone } from '@/components/pwa/platform';
 import { api, errorMessage } from '@/lib/api-client';
 import { PUSH_STATE_MESSAGE, pushStateFor, urlBase64ToUint8Array, withTimeout, type PushEnvironment } from './push';
-import { SettingsGroup } from './SettingsGroup';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { SettingsPayload } from '@/lib/view-types';
 import type { UserSettings } from '@/lib/types';
 
@@ -200,14 +197,26 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
             : 'Checking what this device supports…'
         }
       >
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-          {state === 'needs-install' ? (
-            <Box sx={{ pb: 2 }}>
-              <IosInstallHint />
-            </Box>
-          ) : null}
-
-          {/*
+        {state === 'ready' ? (
+          <SettingsRow>
+            <Label htmlFor="push-device" className="min-w-0 flex-1">
+              Notifications on this device
+            </Label>
+            <Switch
+              id="push-device"
+              aria-label="Notifications on this device"
+              checked={subscribed}
+              disabled={busy}
+              // Only ever from this tap; `checked` is server-confirmed, so the
+              // switch is not optimistically flipped.
+              onCheckedChange={(next) => {
+                if (next) void enable();
+                else void disable();
+              }}
+            />
+          </SettingsRow>
+        ) : (
+          /*
            * A switch is rendered only when it can actually do something.
            *
            * This was a permanently `disabled` Switch whenever the server had no
@@ -216,75 +225,54 @@ export function NotificationSettings({ payload, onChanged }: NotificationSetting
            * tapping it does nothing, forever. That is what users reported as "the
            * toggles do not work". When the control cannot work, it should not be
            * drawn — show a status row and say why instead.
-           */}
-          {state === 'ready' ? (
-            <FormControlLabel
-              sx={{ m: 0, display: 'flex', justifyContent: 'space-between' }}
-              labelPlacement="start"
-              label="Notifications on this device"
-              control={
-                <Switch
-                  checked={subscribed}
-                  disabled={busy}
-                  onChange={(_event, next) => {
-                    // Only ever from this tap; `checked` is server-confirmed, so
-                    // the switch is not optimistically flipped.
-                    if (next) void enable();
-                    else void disable();
-                  }}
-                  slotProps={{ input: { 'aria-label': 'Notifications on this device' } }}
-                />
-              }
-            />
-          ) : (
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-              <NotificationsActiveIcon aria-hidden sx={{ mt: 0.25, color: 'text.disabled' }} />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body1">Notifications on this device</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 0.25 }}>
+           */
+          <SettingsRow stacked>
+            {state === 'needs-install' ? <IosInstallHint /> : null}
+            <div className="flex items-start gap-3">
+              <BellIcon className="mt-0.5 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="text-sm">Notifications on this device</p>
+                <p className="pt-0.5 text-xs text-muted-foreground">
                   {state ? PUSH_STATE_MESSAGE[state] : 'Checking what this device supports\u2026'}
-                </Typography>
-              </Box>
-            </Box>
-          )}
-        </ListItem>
+                </p>
+              </div>
+            </div>
+          </SettingsRow>
+        )}
 
-        <ListItem>
-          <ListItemIcon sx={{ minWidth: 40 }}>
-            <SmartphoneIcon aria-hidden />
-          </ListItemIcon>
-          <ListItemText primary="Registered devices" secondary="Devices that have accepted notifications" />
-          <Typography variant="body1" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-            {payload.pushDevices}
-          </Typography>
-        </ListItem>
+        <SettingsRow>
+          <MobileIcon className="text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm">Registered devices</p>
+            <p className="text-xs text-muted-foreground">Devices that have accepted notifications</p>
+          </div>
+          <p className="text-sm font-semibold tabular-nums">{payload.pushDevices}</p>
+        </SettingsRow>
 
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+        <SettingsRow stacked>
           <Button
-            fullWidth
-            variant="outlined"
-            startIcon={<SendIcon aria-hidden />}
+            variant="outline"
+            className="w-full"
             disabled={!subscribed || state !== 'ready'}
             onClick={() => void test()}
           >
+            <PaperPlaneIcon />
             Test on this device
           </Button>
           {/* When the server has no VAPID keys the group's own footer already
               says so — repeating it here in grey on grey only looked like a
               rendering fault. */}
           {state === 'server-not-configured' ? null : (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 1 }}>
+            <p className="text-xs text-muted-foreground">
               Shows a notification through this device’s service worker. It proves the device side works; a message from
               the server would arrive the same way.
-            </Typography>
+            </p>
           )}
-        </ListItem>
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title="Reminders" footer="Controls whether TaskTick sends due-task reminders at all. Push for this device is set above.">
-        <ListItem>
-          <ReminderSwitch enabled={reminders} onChanged={onChanged} />
-        </ListItem>
+        <ReminderSwitch enabled={reminders} onChanged={onChanged} />
       </SettingsGroup>
     </>
   );
@@ -313,18 +301,17 @@ function ReminderSwitch({ enabled, onChanged }: { enabled: boolean; onChanged?: 
   }
 
   return (
-    <FormControlLabel
-      sx={{ m: 0, flex: 1, justifyContent: 'space-between' }}
-      labelPlacement="start"
-      label="Task reminders"
-      control={
-        <Switch
-          checked={checked}
-          disabled={busy}
-          onChange={(_event, next) => void toggle(next)}
-          slotProps={{ input: { 'aria-label': 'Task reminders' } }}
-        />
-      }
-    />
+    <SettingsRow>
+      <Label htmlFor="task-reminders" className="min-w-0 flex-1">
+        Task reminders
+      </Label>
+      <Switch
+        id="task-reminders"
+        aria-label="Task reminders"
+        checked={checked}
+        disabled={busy}
+        onCheckedChange={(next) => void toggle(next)}
+      />
+    </SettingsRow>
   );
 }

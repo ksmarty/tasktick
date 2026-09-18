@@ -9,7 +9,7 @@
  * main source of the clutter this screen had; the week is now the page header's.
  *
  * A counted habit (`count` / `duration`) adds one quiet second line under its
- * name: a slim `LinearProgress` of the server's own period `progress`, with the
+ * name: a slim shadcn `Progress` of the server's own period `progress`, with the
  * goal and schedule beside it. The bar is drawn *beside* the name's button
  * rather than inside it, so a screen reader still hears "Edit Drink water" on
  * the button and the progress as its own labelled element.
@@ -21,14 +21,15 @@
  * that used to sit next to it. A long press on the same button still lifts the
  * row for reordering (see `HabitList`): the row body is exempted from the
  * "press on a control belongs to the control" rule.
+ *
+ * The habit's own colour is the one thing a class cannot carry — an accent name
+ * is stored per habit and the palette lives in JS (`@/lib/colors`) — so it is the
+ * single inline style on the row, exactly as the MUI version had it.
  */
-import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
-import LinearProgress from '@mui/material/LinearProgress';
-import ListItem from '@mui/material/ListItem';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import { DragHandleDots1Icon } from '@svg-animated-icons/react/drag-handle-dots-1';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 import { accentHex } from '@/lib/colors';
 import { CheckInControl } from './CheckInControl';
 import { StreakCount } from './StreakCount';
@@ -82,73 +83,46 @@ export function HabitRow({
   const counted = view.counted;
 
   return (
-    <ListItem
-      disablePadding
+    <div
+      role="listitem"
       aria-label={habit.name}
       onPointerDown={onRowPointerDown}
-      className={className}
-      sx={{
-        display: 'block',
-        px: 1.5,
-        py: counted ? 0.75 : 1,
-        minHeight: 56,
-        userSelect: 'none',
-        ...(habit.archived ? { opacity: 0.7 } : null),
-        ...(dragging ? { opacity: 0.6 } : null),
-      }}
+      className={cn(
+        'group/row flex min-h-14 flex-col justify-center px-row py-2 select-none',
+        habit.archived && 'opacity-70',
+        dragging && 'opacity-60',
+        className,
+      )}
     >
-      <Stack direction="row" sx={{ alignItems: 'center', gap: 0.5, minHeight: 40 }}>
+      <div className="flex min-h-10 items-center gap-2">
         <CheckInControl habit={habit} date={date} today={today} pending={pending} onCheckIn={onCheckIn} />
 
-        <Box
-          component="button"
+        <button
           type="button"
           // Marks the one button a long press may still drag from, so tapping the
           // name opens the editor while holding it reorders the card.
           data-habit-body="true"
           onClick={onEdit}
           aria-label={`Edit ${habit.name}`}
-          sx={{
-            display: 'flex',
-            minWidth: 0,
-            flex: 1,
-            alignItems: 'center',
-            gap: 1.25,
-            p: 0.5,
-            m: 0,
-            border: 0,
-            borderRadius: 1,
-            bgcolor: 'transparent',
-            color: 'inherit',
-            font: 'inherit',
-            textAlign: 'left',
-            cursor: 'pointer',
-            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
-          }}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md p-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <Box
+          <span
             aria-hidden
-            sx={{
-              display: 'flex',
-              width: 20,
-              height: 20,
-              flexShrink: 0,
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: accentHex(habit.color),
-            }}
+            className="flex size-5 shrink-0 items-center justify-center [&_svg]:size-5"
+            style={{ color: accentHex(habit.color) }}
           >
-            <Icon sx={{ fontSize: 18 }} />
-          </Box>
-          <Typography variant="body1" sx={{ minWidth: 0, fontWeight: 500 }}>
-            {habit.name}
-          </Typography>
-        </Box>
+            <Icon />
+          </span>
+          <span className="min-w-0 text-base font-medium">{habit.name}</span>
+        </button>
 
         <StreakCount streak={habit.streak ?? 0} frequency={habit.frequency} longestStreak={habit.longestStreak} />
 
         {onGripPointerDown ? (
-          <IconButton
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
             aria-label={`Reorder ${habit.name}`}
             aria-roledescription="sortable"
             onPointerDown={onGripPointerDown}
@@ -164,35 +138,25 @@ export function HabitRow({
             }}
             // Pointer devices only: it fades in on hover or keyboard focus, so a
             // touch screen never pays for a grip it cannot use.
-            sx={{
-              display: { xs: 'none', lg: 'inline-flex' },
-              flexShrink: 0,
-              touchAction: 'none',
-              color: 'text.secondary',
-              opacity: 0,
-              transition: 'opacity 150ms',
-              '.MuiListItem-root:hover &': { opacity: 1 },
-              '&:focus-visible': { opacity: 1 },
-            }}
+            className="hidden shrink-0 touch-none text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 lg:inline-flex"
           >
-            <DragIndicatorIcon sx={{ fontSize: 18 }} />
-          </IconButton>
+            <DragHandleDots1Icon />
+          </Button>
         ) : null}
-      </Stack>
+      </div>
 
       {counted ? (
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.25, pl: 0.5, minWidth: 0 }}>
-          <LinearProgress
-            variant="determinate"
+        <div className="mt-1 flex min-w-0 items-center gap-2 pl-1">
+          <Progress
             value={Math.round(view.fraction * 100)}
             aria-label={`${view.logged} of ${view.target}${unit} ${view.periodNoun}`}
-            sx={{ flex: 1, height: 4, borderRadius: 2 }}
+            className="h-1 flex-1"
           />
-          <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 1, minWidth: 0, maxWidth: '60%' }}>
+          <span className="max-w-[60%] min-w-0 shrink truncate text-xs text-muted-foreground">
             {habitMetaSummary(habit)}
-          </Typography>
-        </Stack>
+          </span>
+        </div>
       ) : null}
-    </ListItem>
+    </div>
   );
 }

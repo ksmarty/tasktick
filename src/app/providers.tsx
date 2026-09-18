@@ -10,11 +10,9 @@
  * bar and Dynamic Island from it) and the accent preference.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme } from '@mui/material/styles';
 import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
 import { ToastProvider } from '@/components/app/Toast';
-import { THEME_COLOR } from '@/lib/theme-colors';
 import type { AccentColor } from '@/lib/types';
 
 type ThemePreference = 'light' | 'dark' | 'system';
@@ -45,25 +43,31 @@ export function Providers({
   initialTheme?: string;
   initialAccent?: string;
 }) {
-  const { mode, setMode, colorScheme } = useColorScheme();
+  const [theme, setThemeState] = useState<ThemePreference>(
+    initialTheme === 'light' || initialTheme === 'dark' ? initialTheme : 'system',
+  );
   const [accent, setAccentState] = useState<AccentColor>(initialAccent as AccentColor);
-
-  const theme: ThemePreference =
-    mode === 'light' || mode === 'dark' ? mode : 'system';
-
-  /*
-   * `colorScheme` is the *resolved* appearance — MUI has already folded the
-   * system preference in — which is what the OS-drawn band needs. The server
-   * emits a single `theme-color` (see `generateViewport`) because iOS ignores
-   * `media` on that tag and a light/dark pair collapses to whichever comes last,
-   * which painted the status bar black over a light app. A single tag means the
-   * client maintains it, and this is the effect that knows the real value.
-   */
-  const resolvedTheme: 'light' | 'dark' = colorScheme === 'dark' ? 'dark' : 'light';
+  const [systemDark, setSystemDark] = useState(false);
 
   useEffect(() => {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (meta) meta.content = THEME_COLOR[resolvedTheme];
+    setSystemDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const listener = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    mql.addEventListener('change', listener);
+    return () => mql.removeEventListener('change', listener);
+  }, []);
+
+  const resolvedTheme: 'light' | 'dark' =
+    theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+
+  /*
+   * The `dark` class is what GodUI's tokens are keyed on, so this is the single
+   * place the appearance is applied. The pre-paint script in `layout.tsx` sets
+   * it before hydration; this keeps it in step afterwards.
+   */
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
   }, [resolvedTheme]);
 
   // Mirrored into a cookie so the next request can render the right theme-color
@@ -83,14 +87,15 @@ export function Providers({
     }
   }, []);
 
-  const setTheme = useCallback(
-    (next: ThemePreference) => {
-      // MUI persists the preference itself; the cookie is only for SSR.
-      setMode(next);
-      writeCookie('tasktick-theme', next);
-    },
-    [setMode],
-  );
+  const setTheme = useCallback((next: ThemePreference) => {
+    setThemeState(next);
+    try {
+      localStorage.setItem('tasktick-theme', next);
+    } catch {
+      /* localStorage is unavailable in private mode; the cookie still works. */
+    }
+    writeCookie('tasktick-theme', next);
+  }, []);
 
   const setAccent = useCallback((next: AccentColor) => {
     setAccentState(next);

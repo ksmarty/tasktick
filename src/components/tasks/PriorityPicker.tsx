@@ -3,16 +3,11 @@
 /**
  * Priority picker: the four flags, in the colours the row and the bulk bar use.
  */
-import Check from '@mui/icons-material/Check';
-import Drawer from '@mui/material/Drawer';
-import Flag from '@mui/icons-material/Flag';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Flag } from 'lucide-react';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import type { Priority } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import { PRIORITY_ITEMS } from './priority';
 
 export interface PriorityPickerProps {
@@ -26,60 +21,49 @@ export interface PriorityPickerProps {
 
 export function PriorityPicker({ open, onOpenChange, value, onChange, title = 'Priority' }: PriorityPickerProps) {
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={() => onOpenChange(false)}
-      slotProps={{
-        paper: {
-          role: 'dialog',
-          'aria-modal': true,
-          'aria-label': title,
-          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
-        },
-      }}
-    >
-      <Box
-        sx={{
-          borderTopLeftRadius: 3,
-          borderTopRightRadius: 3,
-          pb: 2,
-          maxHeight: '90dvh',
-          overflowY: 'auto',
-        }}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        aria-label={title}
+        aria-modal={true}
+        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       >
-        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
-          {title}
-        </Typography>
+        <SheetTitle className="sr-only">{title}</SheetTitle>
 
-        <List role="radiogroup" aria-label="Priority" sx={{ py: 0 }}>
+        <h2 className="pb-2 text-lg font-semibold text-foreground">{title}</h2>
+
+        <div role="radiogroup" aria-label="Priority">
           {PRIORITY_ITEMS.map((item) => {
             const selected = item.value === value;
             return (
-              <ListItemButton
+              <button
                 key={item.value}
+                type="button"
                 role="radio"
                 aria-checked={selected}
                 onClick={() => {
                   onChange(item.value);
                   onOpenChange(false);
                 }}
+                className={cn(
+                  'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
+                  selected ? 'text-primary' : 'text-foreground',
+                )}
               >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  <Flag sx={{ fontSize: 20, color: item.color }} aria-hidden />
-                </ListItemIcon>
-                <ListItemText
-                  primary={item.label}
-                  slotProps={{
-                    primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
-                  }}
-                />
-                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
-              </ListItemButton>
+                <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                  <Flag className={cn('size-5', item.color)} aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {selected ? (
+                  <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                    <CheckIcon className="size-5" />
+                  </span>
+                ) : null}
+              </button>
             );
           })}
-        </List>
-      </Box>
-    </Drawer>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

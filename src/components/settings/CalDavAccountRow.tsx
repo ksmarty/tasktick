@@ -11,29 +11,27 @@
  * The removal choice — keep the synced events or delete them with the account —
  * is a real decision with no safe default, so it stays a dialog with both options
  * spelled out rather than a confirm/cancel pair.
+ *
+ * The state badge is a shadcn `Badge`: `tint` is the plain primary pill, `danger`
+ * is the destructive one, and the resting state is `secondary` so a healthy
+ * account is quiet rather than loud.
  */
 import { useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import ListItem from '@mui/material/ListItem';
-import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
-import Typography from '@mui/material/Typography';
-import CloudIcon from '@mui/icons-material/Cloud';
-import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import SyncIcon from '@mui/icons-material/Sync';
+import { DownloadIcon } from '@svg-animated-icons/react/download';
+import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
+import { ServerIcon } from '@svg-animated-icons/react/server';
+import { TrashIcon } from '@svg-animated-icons/react/trash';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
 import { caldavErrorMessage, syncStatusLabel, syncStatusTone, syncStatusWord } from './caldav';
+import { SettingsRow } from './SettingsGroup';
 import type { CaldavAccount } from '@/lib/types';
 import type { SyncRunPayload } from '@/lib/view-types';
 
@@ -55,11 +53,11 @@ export function syncResultSummary(result: SyncRunPayload): string {
   return parts.length > 0 ? parts.join(' · ') : 'Nothing changed.';
 }
 
-/** The chip tone the old badge used, on MUI's palette. */
-function statusChipColor(tone: 'default' | 'tint' | 'danger'): 'default' | 'primary' | 'error' {
-  if (tone === 'tint') return 'primary';
-  if (tone === 'danger') return 'error';
-  return 'default';
+/** The chip tone the old badge used, on the shadcn `Badge` variants. */
+function statusBadgeVariant(tone: 'default' | 'tint' | 'danger'): 'secondary' | 'default' | 'destructive' {
+  if (tone === 'tint') return 'default';
+  if (tone === 'danger') return 'destructive';
+  return 'secondary';
 }
 
 export function CalDavAccountRow({ account, onEdit, onChanged }: CalDavAccountRowProps) {
@@ -135,140 +133,107 @@ export function CalDavAccountRow({ account, onEdit, onChanged }: CalDavAccountRo
   const busy = discover.isPending || sync.isPending || remove.isPending;
 
   return (
-    <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Box
-          aria-hidden
-          sx={{
-            display: 'grid',
-            placeItems: 'center',
-            width: 36,
-            height: 36,
-            flexShrink: 0,
-            borderRadius: 1,
-            bgcolor: 'action.hover',
-            color: 'primary.main',
-          }}
-        >
-          <CloudIcon fontSize="small" />
-        </Box>
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="body1" sx={{ fontWeight: 500 }} noWrap>
-            {account.name}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+    <SettingsRow stacked>
+      <div className="flex items-center gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+          <ServerIcon />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{account.name}</p>
+          <p className="truncate text-xs text-muted-foreground">
             {account.username} · {account.serverUrl}
-          </Typography>
-        </Box>
-        <Chip size="small" color={statusChipColor(syncStatusTone(account))} label={syncStatusWord(account)} />
-      </Box>
+          </p>
+        </div>
+        <Badge variant={statusBadgeVariant(syncStatusTone(account))}>{syncStatusWord(account)}</Badge>
+      </div>
 
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 1 }}>
-        {syncStatusLabel(account)}
-      </Typography>
+      <p className="text-xs text-muted-foreground">{syncStatusLabel(account)}</p>
       {advice ? (
-        <Typography variant="caption" color="error.main" sx={{ display: 'block', pt: 0.5 }}>
-          {advice}
-        </Typography>
+        <p className="text-xs text-destructive">{advice}</p>
       ) : null}
       {!advice && account.consecutiveFailures > 0 ? (
-        <Typography variant="caption" color="warning.main" sx={{ display: 'block', pt: 0.5 }}>
+        <p className="text-xs text-muted-foreground">
           {account.consecutiveFailures} failed {account.consecutiveFailures === 1 ? 'attempt' : 'attempts'} in a row.
-        </Typography>
+        </p>
       ) : null}
 
-      <Box sx={{ pt: 1 }}>
-        <FormControlLabel
-          sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
-          labelPlacement="start"
-          label={account.enabled ? 'Sync enabled' : 'Sync paused'}
-          control={
-            <Switch
-              size="small"
-              checked={account.enabled}
-              disabled={busy}
-              onChange={(_event, next) => void toggle.run(next)}
-              slotProps={{ input: { 'aria-label': `Sync ${account.name}` } }}
-            />
-          }
+      <div className="flex items-center gap-3">
+        <Label htmlFor={`caldav-sync-${account.id}`} className="min-w-0 flex-1">
+          {account.enabled ? 'Sync enabled' : 'Sync paused'}
+        </Label>
+        <Switch
+          id={`caldav-sync-${account.id}`}
+          aria-label={`Sync ${account.name}`}
+          checked={account.enabled}
+          disabled={busy}
+          onCheckedChange={(next) => void toggle.run(next)}
         />
-      </Box>
+      </div>
 
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, pt: 1 }}>
+      <div className="flex flex-wrap gap-2">
         <Button
-          size="small"
-          variant="outlined"
-          startIcon={<CloudDownloadIcon aria-hidden />}
-          loading={discover.isPending}
+          size="sm"
+          variant="outline"
+          aria-busy={discover.isPending || undefined}
           disabled={busy}
           onClick={() => void discover.run()}
         >
+          <DownloadIcon />
           Discover
         </Button>
         <Button
-          size="small"
-          variant="outlined"
-          startIcon={<SyncIcon aria-hidden />}
-          loading={sync.isPending}
+          size="sm"
+          variant="outline"
+          aria-busy={sync.isPending || undefined}
           disabled={busy}
           onClick={() => void sync.run()}
         >
+          <ReloadIcon />
           Sync now
         </Button>
-        <Button
-          size="small"
-          variant="text"
-          color="inherit"
-          startIcon={<EditIcon aria-hidden />}
-          disabled={busy}
-          onClick={onEdit}
-        >
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onEdit}>
+          <Pencil1Icon />
           Edit
         </Button>
-        <Button
-          size="small"
-          variant="text"
-          color="error"
-          startIcon={<DeleteIcon aria-hidden />}
-          disabled={busy}
-          onClick={() => setRemoveOpen(true)}
-        >
+        <Button size="sm" variant="ghost" className="text-destructive" disabled={busy} onClick={() => setRemoveOpen(true)}>
+          <TrashIcon />
           Remove
         </Button>
-      </Stack>
+      </div>
 
-      <Dialog open={removeOpen} onClose={() => setRemoveOpen(false)}>
-        <DialogTitle>{`Remove ${account.name}?`}</DialogTitle>
+      <Dialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            Choose whether the events already synced from this account stay on this server.
-          </Typography>
+          <DialogHeader>
+            <DialogTitle>{`Remove ${account.name}?`}</DialogTitle>
+            <DialogDescription>
+              Choose whether the events already synced from this account stay on this server.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRemoveOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRemoveOpen(false);
+                void remove.run(false);
+              }}
+            >
+              Remove and keep events
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setRemoveOpen(false);
+                void remove.run(true);
+              }}
+            >
+              Remove and delete synced events
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions sx={{ flexWrap: 'wrap', gap: 1, px: 3, pb: 2 }}>
-          <Button variant="text" onClick={() => setRemoveOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={() => {
-              setRemoveOpen(false);
-              void remove.run(false);
-            }}
-          >
-            Remove and keep events
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => {
-              setRemoveOpen(false);
-              void remove.run(true);
-            }}
-          >
-            Remove and delete synced events
-          </Button>
-        </DialogActions>
       </Dialog>
-    </ListItem>
+    </SettingsRow>
   );
 }

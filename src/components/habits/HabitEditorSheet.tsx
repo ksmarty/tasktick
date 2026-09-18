@@ -7,14 +7,20 @@
  * habit" screen would duplicate every control. Archive and Delete only appear
  * when editing — they are actions on a habit that exists.
  *
- * Material shapes the overlay: a `Dialog` that becomes `fullScreen` below the
- * `sm` breakpoint (the phone case, where the sheet used to snap to 60%/95%),
- * with the single save action pinned in `DialogActions`. The segmented choices
- * are `ToggleButtonGroup`s — Material has no colour picker, so the twelve
- * swatches are a `ToggleButtonGroup` of colour buttons, and the same control
- * carries the icon, goal, frequency and weekday choices. The numeric steppers
- * are two `IconButton`s around a value, and the date/time fields are the app's
- * `@mui/x-date-pickers` (Luxon adapter).
+ * The overlay is the shadcn `Dialog`: full-screen below `sm` (the phone case,
+ * where the sheet used to snap to 60%/95%) and a centred card above it, with the
+ * single save action pinned in the footer. Radix owns the focus trap, the escape
+ * key and the scroll lock, so the hand-rolled trap the Material version carried
+ * is gone rather than layered underneath.
+ *
+ * The segmented choices (goal, frequency) are the GodUI `SegmentedControl`; the
+ * icon, colour and weekday pickers are `role="group"` grids of `aria-pressed`
+ * buttons, because they are multi-swatch pickers rather than a two-or-four way
+ * segmented choice and the old `ToggleButtonGroup` semantics were a pressed
+ * button, not a tab. There is no colour input in shadcn, so the twelve swatches
+ * are buttons painted with the accent's hex (`@/lib/colors`), each with the
+ * accent's own accessible label. The numeric steppers are two buttons around a
+ * value, and the date field is the shadcn `Calendar` in a `Popover`.
  *
  * Two server contracts worth knowing:
  *   - `reminderAt` is a wall-clock `HH:mm`; the API anchors it itself, and it
@@ -24,37 +30,35 @@
  *     rather than spreading the form state.
  */
 import { useEffect, useRef, useState } from 'react';
-import { DateTime } from 'luxon';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import IconButton from '@mui/material/IconButton';
-import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
-import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Typography from '@mui/material/Typography';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
-import ArchiveIcon from '@mui/icons-material/Archive';
-import CheckIcon from '@mui/icons-material/Check';
-import DeleteIcon from '@mui/icons-material/Delete';
-import AddIcon from '@mui/icons-material/Add';
-import RemoveIcon from '@mui/icons-material/Remove';
-import { AdapterLuxon } from '@mui/x-date-pickers/AdapterLuxon';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { TimePicker } from '@mui/x-date-pickers/TimePicker';
+import { ArchiveIcon } from '@svg-animated-icons/react/archive';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { MinusIcon } from '@svg-animated-icons/react/minus';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { TrashIcon } from '@svg-animated-icons/react/trash';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { SegmentedControl } from '@/components/godui/segmented-control';
+import { cn } from '@/lib/utils';
 import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
 import { timeIn } from '@/lib/dates';
 import { ACCENT_COLORS } from '@/lib/types';
+import { longDateLabel } from './period';
 import { DEFAULT_HABIT_ICON, HABIT_ICON_NAMES, asHabitIconName, habitIcon, habitIconLabel } from './icons';
 import { useToast } from '@/components/app/Toast';
 import type { AccentColor, DateOnly, Habit, HabitFrequency, HabitGoalType, TimeOnly } from '@/lib/types';
@@ -88,19 +92,25 @@ const WEEKDAY_LABELS = [
 
 /** A small section caption above a group of controls. */
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 1, px: 0.5 }}>
-      {children}
-    </Typography>
-  );
+  return <p className="mb-1 px-0.5 text-sm text-muted-foreground">{children}</p>;
 }
+
+/**
+ * The shared shape of a picker swatch: a square button with the 44px touch
+ * target the Material toggles had.
+ */
+const SWATCH_CLASS = 'flex aspect-square min-h-11 items-center justify-center rounded-md border';
+const SWATCH_IDLE = 'border-border text-muted-foreground hover:bg-accent';
+const SWATCH_ACTIVE = 'border-primary bg-secondary text-primary';
+/** The weekday toggles are borderless: a filled circle when on, plain when off. */
+const WEEKDAY_IDLE = 'text-muted-foreground hover:bg-accent';
 
 /**
  * `− value +`, the numeric control the old `Stepper` was.
  *
- * The two buttons are separate real MUI `IconButton`s with their own accessible
- * names, and each disables itself at its bound so the user can see which way is
- * still available.
+ * The two buttons are separate real buttons with their own accessible names, and
+ * each disables itself at its bound so the user can see which way is still
+ * available.
  */
 function NumberStepper({
   label,
@@ -122,29 +132,29 @@ function NumberStepper({
   const canIncrease = current < max;
 
   return (
-    <Box role="group" aria-label={label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-      <IconButton
+    <div role="group" aria-label={label} className="inline-flex items-center gap-2">
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon"
         aria-label={`Decrease ${label}`}
         disabled={!canDecrease}
         onClick={() => onChange(clampNumber(current - step, min, max))}
-        sx={{ bgcolor: 'action.hover', borderRadius: 1, '&:hover': { bgcolor: 'action.selected' } }}
       >
-        <RemoveIcon sx={{ fontSize: 20 }} />
-      </IconButton>
-      <Typography
-        sx={{ minWidth: 32, textAlign: 'center', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
-      >
-        {`${current}`}
-      </Typography>
-      <IconButton
+        <MinusIcon />
+      </Button>
+      <span className="min-w-8 text-center font-semibold tabular-nums">{`${current}`}</span>
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon"
         aria-label={`Increase ${label}`}
         disabled={!canIncrease}
         onClick={() => onChange(clampNumber(current + step, min, max))}
-        sx={{ bgcolor: 'action.hover', borderRadius: 1, '&:hover': { bgcolor: 'action.selected' } }}
       >
-        <AddIcon sx={{ fontSize: 20 }} />
-      </IconButton>
-    </Box>
+        <PlusIcon />
+      </Button>
+    </div>
   );
 }
 
@@ -160,8 +170,6 @@ export interface HabitEditorSheetProps {
 
 export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onChanged }: HabitEditorSheetProps) {
   const { toast } = useToast();
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const editing = Boolean(habit);
 
   const [name, setName] = useState('');
@@ -181,6 +189,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
   /** A problem with the form as a whole, shown above the fields. */
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
 
   // Hydrate once per opening. Keyed on the habit id rather than the object, so a
   // background revalidation of the list cannot wipe what the user is typing.
@@ -286,376 +295,325 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
   const busy = save.isPending || patch.isPending || remove.isPending;
   const counted = goalType !== 'boolean';
 
+  /** Flips the switch locally and persists it, exactly as the Material switch did. */
+  function setArchivedAndPersist(next: boolean) {
+    setArchived(next);
+    void patch.run({ archived: next });
+  }
+
   return (
     <>
-      <LocalizationProvider dateAdapter={AdapterLuxon}>
-        <Dialog
-          open={open}
-          onClose={() => onOpenChange(false)}
-          fullScreen={fullScreen}
-          fullWidth
-          maxWidth="sm"
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          // Full-screen under `sm`, a centred card above it: the sizes the
+          // Material dialog used, expressed as two sets of utilities.
+          className="max-h-[90dvh] gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0 sm:max-w-lg"
         >
-          <DialogTitle>{editing ? 'Edit habit' : 'New habit'}</DialogTitle>
+          <DialogHeader className="shrink-0 gap-0 border-b border-border px-card py-stack">
+            <DialogTitle className="text-lg font-semibold">{editing ? 'Edit habit' : 'New habit'}</DialogTitle>
+            <DialogDescription className="sr-only">
+              Set the habit&rsquo;s name, icon, colour, goal, schedule, start date and reminder.
+            </DialogDescription>
+          </DialogHeader>
 
-          <DialogContent dividers>
-            <Stack spacing={2.5} sx={{ pb: 1 }}>
-              {formError ? (
-                <Box role="alert" sx={{ borderRadius: 1, bgcolor: 'action.hover', px: 1.5, py: 1.25 }}>
-                  <Typography variant="body2" color="error">
-                    {formError}
-                  </Typography>
-                </Box>
-              ) : null}
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-card py-card">
+            {formError ? (
+              <p role="alert" className="rounded-md bg-muted px-3 py-3 text-sm text-destructive">
+                {formError}
+              </p>
+            ) : null}
 
-              <Stack spacing={1.5}>
-                <TextField
-                  label="Name"
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="habit-name">Name</Label>
+                <Input
+                  id="habit-name"
                   value={name}
                   onChange={(event) => {
                     setName(event.target.value);
                     if (nameError) setNameError(null);
                   }}
                   placeholder="Drink water"
-                  error={Boolean(nameError)}
-                  helperText={nameError ?? undefined}
+                  aria-invalid={Boolean(nameError)}
                   autoComplete="off"
-                  fullWidth
-                  slotProps={{ htmlInput: { maxLength: 200 } }}
+                  maxLength={200}
                 />
-                <TextField
-                  label="Description"
+                {nameError ? <p className="text-sm text-destructive">{nameError}</p> : null}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="habit-description">Description</Label>
+                <Textarea
+                  id="habit-description"
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   placeholder="Why this habit matters"
-                  multiline
                   rows={2}
-                  fullWidth
-                  slotProps={{ htmlInput: { maxLength: 2000 } }}
+                  maxLength={2000}
                 />
-              </Stack>
+              </div>
+            </div>
 
-              <Box>
-                <FieldLabel>Icon</FieldLabel>
-                <ToggleButtonGroup
-                  exclusive
-                  aria-label="Habit icon"
-                  value={icon}
-                  onChange={(_event, next: string | null) => {
-                    if (next) setIcon(next);
-                  }}
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-                    gap: 1,
-                    border: 0,
-                    '& .MuiToggleButtonGroup-grouped': { border: 0, m: 0, borderRadius: 1 },
-                  }}
-                >
-                  {HABIT_ICON_NAMES.map((option) => {
-                    const Icon = habitIcon(option);
-                    return (
-                      <ToggleButton
-                        key={option}
-                        value={option}
-                        aria-label={habitIconLabel(option)}
-                        sx={{ minWidth: 44, minHeight: 44, p: 0 }}
-                      >
-                        <Icon sx={{ fontSize: 20 }} aria-hidden />
-                      </ToggleButton>
-                    );
-                  })}
-                </ToggleButtonGroup>
-              </Box>
-
-              <Box>
-                <FieldLabel>Colour</FieldLabel>
-                <ToggleButtonGroup
-                  exclusive
-                  aria-label="Habit colour"
-                  value={color}
-                  onChange={(_event, next: AccentColor | null) => {
-                    if (next) setColor(next);
-                  }}
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-                    gap: 1,
-                    border: 0,
-                    '& .MuiToggleButtonGroup-grouped': { border: 0, m: 0, borderRadius: '50%' },
-                  }}
-                >
-                  {ACCENT_COLORS.map((option) => (
-                    <ToggleButton
+            <div>
+              <FieldLabel>Icon</FieldLabel>
+              <div role="group" aria-label="Habit icon" className="grid grid-cols-6 gap-2">
+                {HABIT_ICON_NAMES.map((option) => {
+                  const Icon = habitIcon(option);
+                  const active = option === icon;
+                  return (
+                    <button
                       key={option}
-                      value={option}
-                      aria-label={ACCENT_LABEL[option]}
-                      sx={{
-                        width: '100%',
-                        minWidth: 44,
-                        aspectRatio: '1 / 1',
-                        p: 0,
-                        bgcolor: accentHex(option),
-                        '&:hover': { bgcolor: accentHex(option), filter: 'brightness(0.92)' },
-                        '&.Mui-selected': { bgcolor: accentHex(option) },
-                        '&.Mui-selected:hover': { bgcolor: accentHex(option), filter: 'brightness(0.92)' },
-                      }}
+                      type="button"
+                      aria-label={habitIconLabel(option)}
+                      aria-pressed={active}
+                      onClick={() => setIcon(option)}
+                      className={cn(SWATCH_CLASS, active ? SWATCH_ACTIVE : SWATCH_IDLE)}
                     >
-                      {option === color ? (
-                        <CheckIcon
-                          aria-hidden
-                          sx={{ fontSize: 18, color: 'common.white', filter: 'drop-shadow(0 0 1px rgba(0,0,0,0.7))' }}
-                        />
-                      ) : null}
-                    </ToggleButton>
-                  ))}
-                </ToggleButtonGroup>
-              </Box>
+                      {/* `size-5` plus `text-xl`: the animated glyphs draw at
+                          `1em`, lucide's at the class size, so naming both keeps
+                          the two sets the same 20px. */}
+                      <Icon className="size-5 text-xl" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-              <Box>
-                <FieldLabel>Goal</FieldLabel>
-                <ToggleButtonGroup
-                  exclusive
-                  fullWidth
-                  size="small"
-                  aria-label="Goal type"
-                  value={goalType}
-                  onChange={(_event, next: HabitGoalType | null) => {
-                    if (next) setGoalType(next);
-                  }}
-                >
-                  {GOAL_OPTIONS.map((option) => (
-                    <ToggleButton key={option.value} value={option.value} sx={{ flex: 1 }}>
-                      {option.label}
-                    </ToggleButton>
-                  ))}
-                </ToggleButtonGroup>
-                {counted ? (
-                  <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-                    <Stack
-                      direction="row"
-                      sx={{
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 1.5,
-                        borderRadius: 1,
-                        bgcolor: 'action.hover',
-                        px: 1.5,
-                        py: 1,
-                      }}
-                    >
-                      <Typography variant="body1">
-                        {goalType === 'duration' ? 'Target minutes' : 'Target'}
-                      </Typography>
-                      <NumberStepper
-                        label="Goal target"
-                        value={goalTarget}
-                        min={1}
-                        max={1440}
-                        onChange={setGoalTarget}
-                      />
-                    </Stack>
-                    <TextField
-                      label="Unit"
+            <div>
+              <FieldLabel>Colour</FieldLabel>
+              <div role="group" aria-label="Habit colour" className="grid grid-cols-6 gap-2">
+                {ACCENT_COLORS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-label={ACCENT_LABEL[option]}
+                    aria-pressed={option === color}
+                    onClick={() => setColor(option)}
+                    // The one thing a class cannot carry: an accent is a stored
+                    // name and its hex lives in JS (`@/lib/colors`).
+                    style={{ backgroundColor: accentHex(option) }}
+                    className="flex aspect-square min-h-11 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {option === color ? (
+                      <CheckIcon aria-hidden className="size-4 text-white drop-shadow-sm" />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>Goal</FieldLabel>
+              <SegmentedControl
+                aria-label="Goal type"
+                className="flex w-full [&>button]:flex-1"
+                value={goalType}
+                onChange={(next) => setGoalType(next as HabitGoalType)}
+                options={GOAL_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              />
+              {counted ? (
+                <div className="mt-4 flex flex-col gap-4">
+                  <div className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2">
+                    <span className="text-base">{goalType === 'duration' ? 'Target minutes' : 'Target'}</span>
+                    <NumberStepper label="Goal target" value={goalTarget} min={1} max={1440} onChange={setGoalTarget} />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="habit-unit">Unit</Label>
+                    <Input
+                      id="habit-unit"
                       value={unit}
                       onChange={(event) => setUnit(event.target.value)}
                       placeholder={goalType === 'duration' ? 'min' : 'glasses'}
-                      helperText={
-                        goalType === 'duration'
-                          ? 'Leave blank to count minutes.'
-                          : 'Shown next to the progress, e.g. “3/8 glasses”.'
-                      }
                       autoComplete="off"
-                      fullWidth
-                      slotProps={{ htmlInput: { maxLength: 24 } }}
+                      maxLength={24}
                     />
-                  </Stack>
-                ) : null}
-              </Box>
+                    <p className="text-sm text-muted-foreground">
+                      {goalType === 'duration'
+                        ? 'Leave blank to count minutes.'
+                        : 'Shown next to the progress, e.g. “3/8 glasses”.'}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
-              <Box>
-                <FieldLabel>Frequency</FieldLabel>
-                <ToggleButtonGroup
-                  exclusive
-                  fullWidth
-                  size="small"
-                  aria-label="Frequency"
-                  value={frequency}
-                  onChange={(_event, next: HabitFrequency | null) => {
-                    if (next) setFrequency(next);
-                  }}
-                >
-                  {FREQUENCY_OPTIONS.map((option) => (
-                    <ToggleButton key={option.value} value={option.value} sx={{ flex: 1 }}>
-                      {option.label}
-                    </ToggleButton>
-                  ))}
-                </ToggleButtonGroup>
+            <div>
+              <FieldLabel>Frequency</FieldLabel>
+              <SegmentedControl
+                aria-label="Frequency"
+                className="flex w-full [&>button]:flex-1"
+                value={frequency}
+                onChange={(next) => setFrequency(next as HabitFrequency)}
+                options={FREQUENCY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              />
 
-                {frequency === 'custom' ? (
-                  <ToggleButtonGroup
-                    aria-label="Days of the week"
-                    value={weekDays}
-                    onChange={(_event, next: number[]) => setWeekDays(next)}
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-                      gap: 0.5,
-                      mt: 1.5,
-                      border: 0,
-                      '& .MuiToggleButtonGroup-grouped': { border: 0, m: 0, borderRadius: '50%' },
-                    }}
-                  >
-                    {WEEKDAY_LABELS.map((day) => (
-                      <ToggleButton
+              {frequency === 'custom' ? (
+                <div role="group" aria-label="Days of the week" className="mt-4 grid grid-cols-7 gap-1">
+                  {WEEKDAY_LABELS.map((day) => {
+                    const active = weekDays.includes(day.day);
+                    return (
+                      <button
                         key={day.long}
-                        value={day.day}
+                        type="button"
                         aria-label={day.long}
-                        sx={{ minWidth: 40, minHeight: 40, p: 0, fontWeight: 500 }}
+                        aria-pressed={active}
+                        onClick={() =>
+                          setWeekDays((current) =>
+                            current.includes(day.day)
+                              ? current.filter((value) => value !== day.day)
+                              : [...current, day.day],
+                          )
+                        }
+                        className={cn(
+                          'flex aspect-square min-h-10 items-center justify-center rounded-full text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          active ? 'bg-primary text-primary-foreground' : WEEKDAY_IDLE,
+                        )}
                       >
                         {day.short}
-                      </ToggleButton>
-                    ))}
-                  </ToggleButtonGroup>
-                ) : null}
-
-                {frequency === 'weekly' || frequency === 'monthly' ? (
-                  <Stack
-                    direction="row"
-                    sx={{
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 1.5,
-                      borderRadius: 1,
-                      bgcolor: 'action.hover',
-                      px: 1.5,
-                      py: 1,
-                      mt: 1.5,
-                    }}
-                  >
-                    <Typography variant="body1">
-                      {`Times per ${frequency === 'weekly' ? 'week' : 'month'}`}
-                    </Typography>
-                    <NumberStepper
-                      label="Times per period"
-                      value={timesPerPeriod}
-                      min={1}
-                      max={31}
-                      onChange={setTimesPerPeriod}
-                    />
-                  </Stack>
-                ) : null}
-              </Box>
-
-              <Stack spacing={1.5}>
-                <DatePicker
-                  label="Start date"
-                  value={dateToDateTime(startDate)}
-                  onChange={(value) => {
-                    if (value) setStartDate(value.toFormat('yyyy-MM-dd'));
-                  }}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
-                <TimePicker
-                  label="Reminder"
-                  ampm={false}
-                  value={reminder ? timeToDateTime(reminder, today) : null}
-                  onChange={(value) => setReminder(value ? value.toFormat('HH:mm') : null)}
-                  slotProps={{
-                    textField: { fullWidth: true },
-                    field: { clearable: Boolean(reminder) },
-                  }}
-                />
-              </Stack>
-
-              {editing && habit ? (
-                <Stack spacing={1.5} sx={{ pt: 1 }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={archived}
-                        disabled={busy}
-                        onChange={(event) => {
-                          const next = event.target.checked;
-                          setArchived(next);
-                          void patch.run({ archived: next });
-                        }}
-                      />
-                    }
-                    label="Archived"
-                  />
-                  <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
-                    An archived habit keeps its history but is hidden from the list and from the daily check-ins.
-                  </Typography>
-
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    color="inherit"
-                    disableElevation
-                    startIcon={<ArchiveIcon />}
-                    disabled={busy || archived}
-                    onClick={() => {
-                      setArchived(true);
-                      void patch.run({ archived: true }).then(() => onOpenChange(false));
-                    }}
-                  >
-                    Archive habit
-                  </Button>
-                  <Button
-                    fullWidth
-                    color="error"
-                    variant="contained"
-                    disableElevation
-                    startIcon={<DeleteIcon />}
-                    disabled={busy}
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    Delete habit
-                  </Button>
-                </Stack>
+                      </button>
+                    );
+                  })}
+                </div>
               ) : null}
-            </Stack>
-          </DialogContent>
 
-          <DialogActions
-            sx={{
-              px: 2,
-              pt: 1.5,
-              pb: 'max(1rem, env(safe-area-inset-bottom, 0px))',
-            }}
-          >
+              {frequency === 'weekly' || frequency === 'monthly' ? (
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2">
+                  <span className="text-base">{`Times per ${frequency === 'weekly' ? 'week' : 'month'}`}</span>
+                  <NumberStepper
+                    label="Times per period"
+                    value={timesPerPeriod}
+                    min={1}
+                    max={31}
+                    onChange={setTimesPerPeriod}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="habit-start-date">Start date</Label>
+                <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="habit-start-date"
+                      type="button"
+                      variant="outline"
+                      aria-expanded={dateOpen}
+                      className="w-full justify-start gap-2 font-normal"
+                    >
+                      <CalendarIcon />
+                      {longDateLabel(startDate)}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={pickerDateOf(startDate)}
+                      defaultMonth={pickerDateOf(startDate)}
+                      onSelect={(value) => {
+                        if (!value) return;
+                        setStartDate(dateOnlyOf(value));
+                        setDateOpen(false);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="habit-reminder">Reminder</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="habit-reminder"
+                    type="time"
+                    value={reminder ?? ''}
+                    onChange={(event) => setReminder(event.target.value ? (event.target.value as TimeOnly) : null)}
+                    className="w-40"
+                  />
+                  {reminder ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setReminder(null)}>
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {editing && habit ? (
+              <div className="flex flex-col gap-4 pt-2">
+                <div className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2">
+                  <Label htmlFor="habit-archived">Archived</Label>
+                  <Switch
+                    id="habit-archived"
+                    checked={archived}
+                    disabled={busy}
+                    onCheckedChange={(next) => setArchivedAndPersist(next)}
+                  />
+                </div>
+                <p className="px-0.5 text-sm text-muted-foreground">
+                  An archived habit keeps its history but is hidden from the list and from the daily check-ins.
+                </p>
+
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full gap-2"
+                  disabled={busy || archived}
+                  onClick={() => {
+                    setArchived(true);
+                    void patch.run({ archived: true }).then(() => onOpenChange(false));
+                  }}
+                >
+                  <ArchiveIcon />
+                  Archive habit
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full gap-2"
+                  disabled={busy}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <TrashIcon />
+                  Delete habit
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="shrink-0 border-t border-border px-card py-stack">
             <Button
-              variant="contained"
-              fullWidth
-              size="large"
-              loading={save.isPending}
+              type="button"
+              size="lg"
+              className="w-full"
+              disabled={save.isPending}
+              aria-busy={save.isPending}
               onClick={() => void save.run()}
             >
               {editing ? 'Save changes' : 'Create habit'}
             </Button>
-          </DialogActions>
-        </Dialog>
-      </LocalizationProvider>
-
-      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
-        <DialogTitle>Delete this habit?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            {`“${habit?.name ?? 'This habit'}” and every check-in in its history will be removed. This cannot be undone.`}
-          </Typography>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
-          <Button
-            color="error"
-            variant="contained"
-            disableElevation
-            onClick={() => void remove.run()}
-          >
-            Delete
-          </Button>
-        </DialogActions>
+      </Dialog>
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this habit?</DialogTitle>
+            <DialogDescription>
+              {`“${habit?.name ?? 'This habit'}” and every check-in in its history will be removed. This cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => void remove.run()}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </>
   );
@@ -673,14 +631,23 @@ function sortWeekDays(days: number[]): number[] {
   return order.filter((day) => unique.includes(day));
 }
 
-/** A floating day as a picker value, anchored in UTC so no zone can shift it. */
-function dateToDateTime(date: DateOnly): DateTime {
-  return DateTime.fromISO(date, { zone: REMINDER_ZONE });
+/**
+ * A floating day as a `Calendar` value.
+ *
+ * Built from local date parts rather than `new Date('yyyy-MM-dd')`: the picker
+ * works in the browser's own zone, and a UTC-anchored `Date` would highlight the
+ * previous day west of Greenwich.
+ */
+function pickerDateOf(date: DateOnly): Date {
+  const [year, month, day] = date.split('-').map((part) => Number.parseInt(part, 10));
+  return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1);
 }
 
-/** A wall-clock `HH:mm` as a picker value on `anchor`, anchored in UTC. */
-function timeToDateTime(time: TimeOnly, anchor: DateOnly): DateTime {
-  return DateTime.fromISO(`${anchor}T${time}`, { zone: REMINDER_ZONE });
+/** A `Calendar` value back to a floating day, in the same local zone. */
+function dateOnlyOf(value: Date): DateOnly {
+  const month = `${value.getMonth() + 1}`.padStart(2, '0');
+  const day = `${value.getDate()}`.padStart(2, '0');
+  return `${value.getFullYear()}-${month}-${day}`;
 }
 
 /** `HH:mm` of an instant, read in the same zone the API writes it in. */

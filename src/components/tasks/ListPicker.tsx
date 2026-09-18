@@ -4,17 +4,13 @@
  * List picker: the user's projects, plus "No list" for tasks that belong only to
  * the inbox.
  */
-import Box from '@mui/material/Box';
-import Check from '@mui/icons-material/Check';
-import Drawer from '@mui/material/Drawer';
-import Inbox from '@mui/icons-material/Inbox';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Typography from '@mui/material/Typography';
+import type { ReactNode } from 'react';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Inbox } from 'lucide-react';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { accentHex } from '@/lib/colors';
 import type { List as TaskList } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 export interface ListPickerProps {
   open: boolean;
@@ -25,6 +21,38 @@ export interface ListPickerProps {
   /** Offers a "No list" row. Off for the bulk "Move to" action. */
   allowNone?: boolean;
   title?: string;
+}
+
+interface OptionRowProps {
+  selected: boolean;
+  label: string;
+  leading: ReactNode;
+  onSelect: () => void;
+}
+
+function OptionRow({ selected, label, leading, onSelect }: OptionRowProps) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
+        selected ? 'text-primary' : 'text-foreground',
+      )}
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+        {leading}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {selected ? (
+        <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+          <CheckIcon className="size-5" />
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 export function ListPicker({
@@ -42,96 +70,51 @@ export function ListPicker({
   }
 
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={() => onOpenChange(false)}
-      slotProps={{
-        paper: {
-          role: 'dialog',
-          'aria-modal': true,
-          'aria-label': title,
-          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
-        },
-      }}
-    >
-      <Box
-        sx={{
-          borderTopLeftRadius: 3,
-          borderTopRightRadius: 3,
-          pb: 2,
-          maxHeight: '90dvh',
-          overflowY: 'auto',
-        }}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        aria-label={title}
+        aria-modal={true}
+        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       >
-        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
-          {title}
-        </Typography>
+        <SheetTitle className="sr-only">{title}</SheetTitle>
 
-        <List role="radiogroup" aria-label={title} sx={{ py: 0 }}>
+        <h2 className="pb-2 text-lg font-semibold text-foreground">{title}</h2>
+
+        <div role="radiogroup" aria-label={title}>
           {allowNone ? (
-            <ListItemButton role="radio" aria-checked={value === null} onClick={() => choose(null)}>
-              <ListItemIcon sx={{ minWidth: 32 }}>
-                <Inbox sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />
-              </ListItemIcon>
-              <ListItemText
-                primary="No list"
-                slotProps={{
-                  primary: {
-                    noWrap: true,
-                    sx: { color: value === null ? 'primary.main' : 'text.primary' },
-                  },
-                }}
-              />
-              {value === null ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
-            </ListItemButton>
+            <OptionRow
+              selected={value === null}
+              label="No list"
+              leading={<Inbox className="size-5 text-muted-foreground" aria-hidden />}
+              onSelect={() => choose(null)}
+            />
           ) : null}
 
-          {lists.map((list) => {
-            const selected = list.id === value;
-            return (
-              <ListItemButton
-                key={list.id}
-                role="radio"
-                aria-checked={selected}
-                onClick={() => choose(list.id)}
-              >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  {list.emoji ? (
-                    <Box component="span" aria-hidden sx={{ display: 'flex', alignItems: 'center' }}>
-                      {list.emoji}
-                    </Box>
-                  ) : (
-                    <Box
-                      aria-hidden
-                      sx={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        bgcolor: accentHex(list.color),
-                      }}
-                    />
-                  )}
-                </ListItemIcon>
-                <ListItemText
-                  primary={list.name}
-                  slotProps={{
-                    primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
-                  }}
-                />
-                {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
-              </ListItemButton>
-            );
-          })}
-        </List>
+          {lists.map((list) => (
+            <OptionRow
+              key={list.id}
+              selected={list.id === value}
+              label={list.name}
+              leading={
+                list.emoji ? (
+                  <span className="flex size-5 items-center justify-center text-base">{list.emoji}</span>
+                ) : (
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: accentHex(list.color) }}
+                  />
+                )
+              }
+              onSelect={() => choose(list.id)}
+            />
+          ))}
+        </div>
 
         {lists.length === 0 ? (
-          <Typography variant="caption" sx={{ display: 'block', px: 2, pt: 1.5, color: 'text.secondary' }}>
-            You have no lists yet.
-          </Typography>
+          <p className="pt-3 text-xs text-muted-foreground">You have no lists yet.</p>
         ) : null}
-      </Box>
-    </Drawer>
+      </SheetContent>
+    </Sheet>
   );
 }

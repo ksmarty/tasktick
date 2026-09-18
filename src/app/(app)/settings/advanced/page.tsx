@@ -5,42 +5,35 @@
  *
  * The capability list is not decoration: it is how a self-hoster finds out
  * whether push and OIDC are wired up without reading the boot log.
+ *
+ * A `flex flex-col gap-stack` column inset by `px-gutter`. The on/off marker is a
+ * shadcn `Badge` rather than the old green dot: Celestial Sapphire has no success
+ * token — the palette is monochrome on purpose — so the state is carried by the
+ * badge's fill and its word, which reads the same for everyone instead of relying
+ * on a hue that no longer exists.
  */
-import Link from 'next/link';
-import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { PageHeader } from '@/components/app/PageHeader';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
+import { BackToSettings } from '@/components/settings/BackToSettings';
 import { DataExportCard } from '@/components/settings/DataExportCard';
 import { FocusSettings } from '@/components/settings/FocusSettings';
-import { SettingsGroup } from '@/components/settings/SettingsGroup';
+import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import type { BootstrapPayload } from '@/lib/view-types';
 
 export default function AdvancedSettingsPage() {
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
 
   return (
-    <Box sx={{ pb: 4 }}>
-      <PageHeader
-        title="Advanced"
-        leading={
-          <IconButton component={Link} href="/settings" aria-label="Back to Settings" edge="start">
-            <ArrowBackIcon />
-          </IconButton>
-        }
-      />
+    <div className="flex flex-col gap-stack px-gutter pb-6">
+      <PageHeader title="Advanced" leading={<BackToSettings />} />
 
       {!bootstrap.data ? (
-        <Stack spacing={2} sx={{ px: 2, pt: 1 }}>
-          <Skeleton variant="rounded" height={160} />
-          <Skeleton variant="rounded" height={96} />
-        </Stack>
+        <>
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </>
       ) : (
         <>
           <FocusSettings settings={bootstrap.data.settings} />
@@ -57,36 +50,36 @@ export default function AdvancedSettingsPage() {
               subtitle={bootstrap.data.capabilities.oidc ? 'OIDC provider configured' : 'Email and password only'}
               on={bootstrap.data.capabilities.oidc}
             />
-            <ListItem>
-              <ListItemText primary="Time zone" secondary={bootstrap.data.settings.timezone} />
-            </ListItem>
-            <ListItem>
-              <ListItemText
-                primary="Week starts on"
-                secondary={bootstrap.data.settings.weekStartsOn === 0 ? 'Sunday' : 'Monday'}
-              />
-            </ListItem>
+            <SettingsRow>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm">Time zone</span>
+                <span className="block text-xs text-muted-foreground">{bootstrap.data.settings.timezone}</span>
+              </span>
+            </SettingsRow>
+            <SettingsRow>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm">Week starts on</span>
+                <span className="block text-xs text-muted-foreground">
+                  {bootstrap.data.settings.weekStartsOn === 0 ? 'Sunday' : 'Monday'}
+                </span>
+              </span>
+            </SettingsRow>
           </SettingsGroup>
         </>
       )}
-    </Box>
+    </div>
   );
 }
 
-/** A read-only fact with an on/off dot: green when configured, grey when not. */
+/** A read-only fact with an on/off badge. */
 function CapabilityRow({ title, subtitle, on }: { title: string; subtitle: string; on: boolean }) {
   return (
-    <ListItem>
-      <ListItemText primary={title} secondary={subtitle} />
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexShrink: 0 }}>
-        <Box
-          aria-hidden
-          sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: on ? 'success.main' : 'action.disabled' }}
-        />
-        <Typography variant="caption" color="text.secondary">
-          {on ? 'On' : 'Off'}
-        </Typography>
-      </Stack>
-    </ListItem>
+    <SettingsRow>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm">{title}</span>
+        <span className="block text-xs text-muted-foreground">{subtitle}</span>
+      </span>
+      <Badge variant={on ? 'default' : 'secondary'}>{on ? 'On' : 'Off'}</Badge>
+    </SettingsRow>
   );
 }

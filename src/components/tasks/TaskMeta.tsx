@@ -9,7 +9,7 @@
  * The list name used to lead this line. It is gone: the card's coloured edge
  * already says which list a row belongs to, so naming it again was duplication.
  *
- * The due date does not lead this line either: it now lives at the row's trailing
+ * The due date does not lead this line either: it lives at the row's trailing
  * edge (see `DueDateLabel`), because it is the one datum that has to keep its
  * position while the title and this line take whatever width is left.
  *
@@ -20,24 +20,30 @@
  * out of room the *meta* ellipsises — the tag chips are the only items that may
  * shrink — because the title above it always outranks it.
  *
- * Colours come from the MUI palette (`priority.ts` maps a priority to a palette
- * path) so light and dark are both correct, and data-driven tag colours use
- * `accentHex` because they are user data rather than theme tokens.
+ * ## Sizing and colour without `sx`
+ *
+ * `@svg-animated-icons/react` sizes each glyph with `width: 1em; height: 1em` in
+ * a stylesheet it injects itself, so a `size-*` utility would be fighting that
+ * rule. The size is therefore set the way the icon expects — through the font
+ * size (`text-sm`, Tailwind's scale) — which is also why one class switches the
+ * whole line's glyphs at once.
+ *
+ * Colours come from `priority.ts` (a Tailwind class per priority) and from the
+ * theme's muted foreground. Tag colours are user data rather than theme tokens, so
+ * they are the one thing set inline, via `accentHex`.
  */
-import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import ChecklistIcon from '@mui/icons-material/Checklist';
-import FlagIcon from '@mui/icons-material/Flag';
-import RepeatIcon from '@mui/icons-material/Repeat';
+import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
+import { LoopIcon } from '@svg-animated-icons/react/loop';
+import { Half1Icon } from '@svg-animated-icons/react/half-1';
 import { accentHex } from '@/lib/colors';
 import { formatTime, isOverdue, relativeDayLabel, taskDay, todayIn } from '@/lib/dates';
 import type { Task } from '@/lib/types';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { priorityColor, priorityLabel } from './priority';
 
-/** The one icon size for the whole meta line. */
-const META_ICON_SX = { fontSize: 13 } as const;
+/** The one glyph size for the whole meta line. */
+const META_GLYPH = 'text-sm';
 
 export type DueTone = 'danger' | 'tint' | 'secondary';
 
@@ -48,10 +54,10 @@ export interface DueLabel {
   day: string;
 }
 
-const TONE_COLOR: Record<DueTone, string> = {
-  danger: 'error.main',
-  tint: 'primary.main',
-  secondary: 'text.secondary',
+const TONE_CLASS: Record<DueTone, string> = {
+  danger: 'text-destructive',
+  tint: 'text-primary',
+  secondary: 'text-muted-foreground',
 };
 
 /**
@@ -84,7 +90,7 @@ export interface DueDateLabelProps {
   task: Task;
   zone: string;
   timeFormat: '12h' | '24h';
-  sx?: object;
+  className?: string;
 }
 
 /**
@@ -95,48 +101,31 @@ export interface DueDateLabelProps {
  * ellipsises to make room for a date.
  *
  * The tone is unchanged from when it led the meta line, so an overdue date is
- * still red and today's is still tinted.
+ * still destructive and today's is still tinted.
  */
-export function DueDateLabel({ task, zone, timeFormat, sx }: DueDateLabelProps) {
+export function DueDateLabel({ task, zone, timeFormat, className }: DueDateLabelProps) {
   const due = dueLabel(task, zone, timeFormat);
   if (!due) return null;
 
   return (
-    <Typography
-      component="span"
-      variant="caption"
-      sx={{
-        flexShrink: 0,
-        whiteSpace: 'nowrap',
-        fontVariantNumeric: 'tabular-nums',
-        color: TONE_COLOR[due.tone],
-        ...sx,
-      }}
+    <span
+      className={cn(
+        'shrink-0 whitespace-nowrap text-xs tabular-nums',
+        TONE_CLASS[due.tone],
+        className,
+      )}
     >
       {due.label}
-    </Typography>
+    </span>
   );
 }
 
-/** A screen-reader-only mark, without pulling in a helper package. */
-const SR_ONLY = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  whiteSpace: 'nowrap',
-  border: 0,
-} as const;
-
 export interface TaskMetaProps {
   task: Task;
-  sx?: object;
+  className?: string;
 }
 
-export function TaskMeta({ task, sx }: TaskMetaProps) {
+export function TaskMeta({ task, className }: TaskMetaProps) {
   const subtasks = task.subtasks ?? [];
   const doneSubtasks = subtasks.filter((subtask) => subtask.status === 'completed').length;
   const tags = task.tags ?? [];
@@ -147,67 +136,46 @@ export function TaskMeta({ task, sx }: TaskMetaProps) {
   if (!hasAnything) return null;
 
   return (
-    <Stack
-      component="span"
-      direction="row"
-      spacing={1}
-      sx={{
-        width: '100%',
-        minWidth: 0,
-        height: 20,
-        alignItems: 'center',
-        overflow: 'hidden',
-        whiteSpace: 'nowrap',
-        color: 'text.secondary',
-        ...sx,
-      }}
+    <span
+      className={cn(
+        'flex h-5 w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-muted-foreground',
+        className,
+      )}
     >
       {task.priority !== 'none' ? (
-        <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0, color: priorityColor(task.priority) }}>
-          <FlagIcon sx={{ ...META_ICON_SX, fill: 'currentColor' }} aria-hidden />
-          <Box component="span" sx={SR_ONLY}>
-            {priorityLabel(task.priority)} priority
-          </Box>
-        </Box>
+        <span
+          className={cn('inline-flex shrink-0 items-center', priorityColor(task.priority))}
+        >
+          <LightningBoltIcon className={META_GLYPH} aria-hidden />
+          <span className="sr-only">{priorityLabel(task.priority)} priority</span>
+        </span>
       ) : null}
 
       {task.recurrenceRule ? (
-        <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
-          <RepeatIcon sx={META_ICON_SX} aria-hidden />
-          <Box component="span" sx={SR_ONLY}>
-            Repeating
-          </Box>
-        </Box>
+        <span className="inline-flex shrink-0 items-center">
+          <LoopIcon className={META_GLYPH} aria-hidden />
+          <span className="sr-only">Repeating</span>
+        </span>
       ) : null}
 
       {subtasks.length ? (
-        <Box
-          component="span"
-          sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}
-        >
-          <ChecklistIcon sx={META_ICON_SX} aria-hidden />
+        <span className="inline-flex shrink-0 items-center gap-0.5 tabular-nums">
+          <Half1Icon className={META_GLYPH} aria-hidden />
           {doneSubtasks}/{subtasks.length}
-          <Box component="span" sx={SR_ONLY}>
-            subtasks done
-          </Box>
-        </Box>
+          <span className="sr-only">subtasks done</span>
+        </span>
       ) : null}
 
       {tags.map((tag) => (
-        <Chip
+        <Badge
           key={tag.id}
-          label={`#${tag.name}`}
-          size="small"
-          variant="outlined"
-          sx={{
-            height: 20,
-            minWidth: 0,
-            fontSize: 13,
-            color: accentHex(tag.color),
-            borderColor: accentHex(tag.color),
-          }}
-        />
+          variant="outline"
+          className="h-5 shrink-0 px-1.5 text-xs"
+          style={{ color: accentHex(tag.color), borderColor: accentHex(tag.color) }}
+        >
+          {`#${tag.name}`}
+        </Badge>
       ))}
-    </Stack>
+    </span>
   );
 }

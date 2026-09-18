@@ -5,91 +5,88 @@
  *
  * ## Layout contract
  *
- * The frame is a fixed-height box (`100dvh`, `overflow: hidden`) whose children
+ * The frame is a fixed-height box (`100dvh`, `overflow-hidden`) whose children
  * own their own scrolling. Nothing scrolls the document. That is what makes the
  * chrome behave like a native nav bar, stops iOS rubber-banding the whole page,
  * and keeps the sidebar and the content column scrolling independently.
  *
  * Desktop is a row: sidebar + content column. Mobile is just the content column,
- * with the bottom navigation pinned over the bottom.
+ * with the bottom band — the GodUI `TabBar` and the action button — pinned over
+ * the bottom. The desktop sidebar is `lg` and up, and the band is everything
+ * below it.
  *
  * ## Breakpoints are CSS, not JavaScript
  *
- * The sidebar and the bottom band use `sx` breakpoints (`display: { xs, lg }`)
- * rather than `useMediaQuery`, for the same reason the previous version used
- * `hidden lg:flex`: the hook resolves after hydration, so a desktop visitor
- * would paint the mobile layout first and then snap to the desktop one. A media
- * query is applied by the engine before first paint, so there is nothing to
- * flash.
+ * The sidebar and the bottom band are hidden with `hidden lg:flex` / `lg:hidden`
+ * rather than with `useMediaQuery`, deliberately: a media query is applied by
+ * the engine before first paint, so a desktop visitor never paints the mobile
+ * layout and then snaps to the desktop one. There is nothing to flash.
+ *
+ * ## Safe-area insets
+ *
+ * The app runs installed, under `viewport-fit=cover`, so the viewport starts at
+ * the physical screen edge. The top app bar carries
+ * `pt-[env(safe-area-inset-top)]` and the bottom band carries
+ * `pb-[env(safe-area-inset-bottom)]`; without them the header slides under the
+ * Dynamic Island and the tab bar under the home indicator. The insets resolve
+ * to `0px` off-device, so they are safe to apply unconditionally, and they live
+ * on the chrome — not on the scroll pane — so a screen that renders its own
+ * header can never be pushed twice.
  *
  * ## The page header
  *
- * The header belongs to the screen, not to the shell. Every route renders its
- * own Material `AppBar` + `Toolbar` — `TasksView`, `TodayView` and
- * `CalendarToolbar` already do, and the remaining screens replace their old
- * `NavBar` the same way. A second bar up here would stack two titles on every
- * page.
+ * The header belongs to the screen, not to the shell. A screen publishes its
+ * title, leading control and actions through `PageHeader` (see `./PageHeader`)
+ * and the shell renders the single top app bar below. That is how the inset,
+ * the border and the title position stay identical everywhere. A screen that
+ * would rather render its own header simply publishes nothing, and the shell
+ * renders no bar at all — a screen must do one or the other, never both, or two
+ * titles stack on every page.
  *
- * What the shell does own is the *contract* for that bar: a screen that would
- * rather have the shell render it publishes its title, leading control and
- * actions through `PageHeader` (see `./PageHeader`), and the shell renders the
- * single `AppBar` below, safe-area inset included. That is the supported path
- * for a screen with a simple header, and it is exactly what the shell's own
- * header is for — a screen must do one or the other, never both.
+ * ## Spacing
+ *
+ * Every margin, padding and gap below comes from the layout tokens (`px-gutter`,
+ * `gap-stack`, `px-row`, `h-appbar`) or from Tailwind's own scale. Nothing is
+ * invented, which is the point of the migration — see `GODUI-CONVENTIONS.md`.
+ * The sidebar's sections are one `flex flex-col gap-stack`, so the rhythm
+ * between them is stated once rather than repeated as a bottom margin on each.
  */
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 
-import AppBar from '@mui/material/AppBar';
-import Badge from '@mui/material/Badge';
-import BottomNavigation from '@mui/material/BottomNavigation';
-import BottomNavigationAction from '@mui/material/BottomNavigationAction';
-import Box from '@mui/material/Box';
-import Drawer from '@mui/material/Drawer';
-import IconButton from '@mui/material/IconButton';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import ListSubheader from '@mui/material/ListSubheader';
-import Paper from '@mui/material/Paper';
-import Skeleton from '@mui/material/Skeleton';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
-import { keyframes } from '@emotion/react';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
+import { CheckboxIcon } from '@svg-animated-icons/react/checkbox';
+import { DashboardIcon } from '@svg-animated-icons/react/dashboard';
+import { GearIcon } from '@svg-animated-icons/react/gear';
+import { ListBulletIcon } from '@svg-animated-icons/react/list-bullet';
+import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { SunIcon } from '@svg-animated-icons/react/sun';
+import { TimerIcon } from '@svg-animated-icons/react/timer';
 
-import AddIcon from '@mui/icons-material/Add';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ChecklistIcon from '@mui/icons-material/Checklist';
-import DateRangeIcon from '@mui/icons-material/DateRange';
-import GridViewIcon from '@mui/icons-material/GridView';
-import ListAltIcon from '@mui/icons-material/ListAlt';
-import SearchIcon from '@mui/icons-material/Search';
-import SettingsIcon from '@mui/icons-material/Settings';
-import TimerIcon from '@mui/icons-material/Timer';
-import WbSunnyIcon from '@mui/icons-material/WbSunny';
-
+import { TabBar } from '@/components/godui/tab-bar';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { accentHex } from '@/lib/colors';
 import { useResource } from '@/lib/store';
+import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { PageHeaderContext, type PageHeaderContent } from './PageHeader';
 import { QuickAddFab } from './QuickAddFab';
 
 type TabValue = 'tasks' | 'calendar' | 'habits' | 'settings';
 
-/** Width of the desktop sidebar. */
-const DRAWER_WIDTH = 280;
-
 /**
  * The four destinations, in order.
  *
  * Tasks leads because it is the thing a task app is opened for, and it absorbs
  * the old Today tab: Today is a filter over that list rather than a separate
- * place, so it lives in the list's own filter bar. More is gone too — with
- * four tabs there is nothing left to overflow, and Settings is a destination
- * people actually visit rather than a drawer.
+ * place, so it lives in the list's own filter bar. More is gone too — with four
+ * tabs there is nothing left to overflow, and Settings is a destination people
+ * actually visit rather than a drawer.
  */
 const TAB_ROUTES: Record<TabValue, string> = {
   tasks: '/tasks',
@@ -100,16 +97,16 @@ const TAB_ROUTES: Record<TabValue, string> = {
 
 /** Smart lists, in the order TickTick shows them. */
 const SMART_LISTS = [
-  { href: '/today', match: '/today', label: 'Today', Icon: WbSunnyIcon, key: 'today' },
-  { href: '/tasks?window=next7days', match: '/tasks', label: 'Next 7 days', Icon: DateRangeIcon, key: 'next7days' },
-  { href: '/tasks', match: '', label: 'All tasks', Icon: ListAltIcon, key: 'all' },
-  { href: '/tasks?window=completed', match: '', label: 'Completed', Icon: CheckCircleIcon, key: 'completed' },
+  { href: '/today', match: '/today', label: 'Today', Icon: SunIcon, key: 'today' },
+  { href: '/tasks?window=next7days', match: '/tasks', label: 'Next 7 days', Icon: CalendarIcon, key: 'next7days' },
+  { href: '/tasks', match: '', label: 'All tasks', Icon: ListBulletIcon, key: 'all' },
+  { href: '/tasks?window=completed', match: '', label: 'Completed', Icon: CheckCircledIcon, key: 'completed' },
 ] as const;
 
 const TOOL_LINKS = [
-  { href: '/matrix', label: 'Priority matrix', Icon: GridViewIcon },
+  { href: '/matrix', label: 'Priority matrix', Icon: DashboardIcon },
   { href: '/pomodoro', label: 'Focus timer', Icon: TimerIcon },
-  { href: '/search', label: 'Search', Icon: SearchIcon },
+  { href: '/search', label: 'Search', Icon: MagnifyingGlassIcon },
 ] as const;
 
 /** The smart-list filters the Tasks screen exposes, including the old Today tab. */
@@ -121,18 +118,20 @@ export const TASK_FILTERS = [
 ] as const;
 
 /**
- * Opacity only, deliberately.
+ * The four tabs, declared outside the component so the icon elements keep a
+ * stable identity across renders.
  *
- * Any transform on this wrapper — including the identity matrix a finished
- * animation leaves behind with `fill-mode: both` — makes it the containing block
- * for `position: fixed` descendants. A docked bar inside a route then positions
- * against the content box instead of the viewport. The movement is not worth
- * breaking every fixed element inside it.
+ * The icons are the animated set. Those paint at `1em`, so a font-size utility
+ * is what actually sizes them; `size-5` is carried alongside as the same 20px,
+ * so the glyph is 20px whichever declaration the cascade picks. `TabBar`
+ * reserves exactly `h-5 w-5` for the glyph, so 20px is the size that fits.
  */
-const pageIn = keyframes`
-  from { opacity: 0; }
-  to { opacity: 1; }
-`;
+const TABS: { value: TabValue; label: string; icon: React.ReactNode }[] = [
+  { value: 'tasks', label: 'Tasks', icon: <CheckboxIcon className="size-5 text-xl" /> },
+  { value: 'calendar', label: 'Calendar', icon: <CalendarIcon className="size-5 text-xl" /> },
+  { value: 'habits', label: 'Habits', icon: <CheckCircledIcon className="size-5 text-xl" /> },
+  { value: 'settings', label: 'Settings', icon: <GearIcon className="size-5 text-xl" /> },
+];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -171,17 +170,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     for (const href of Object.values(TAB_ROUTES)) router.prefetch(href);
   }, [router]);
 
-  function onTabChange(value: TabValue) {
-    router.push(TAB_ROUTES[value]);
+  function onTabChange(value: string) {
+    router.push(TAB_ROUTES[value as TabValue]);
   }
 
   /*
-   * Arrow keys move between the tabs, as they did in the previous tab bar.
-   * Material's `BottomNavigation` has no built-in roving focus, so the shell
-   * keeps it: one tab is in the tab order (the active one) and the arrows move
-   * focus between the four.
+   * Roving tabindex.
+   *
+   * One tab is in the tab order — the active one — and the arrow keys move
+   * focus across the four, exactly as the previous bar did. The vendored
+   * `TabBar` renders its own buttons and takes no per-tab `tabIndex`, and
+   * `components/godui` is upstream source we do not fork, so the index is
+   * applied to the rendered buttons here. The DOM order is the `TABS` order, so
+   * the two stay in step without a second source of truth.
    */
-  function onTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  const tabBarRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const buttons = tabBarRef.current?.querySelectorAll('button');
+    if (!buttons) return;
+    buttons.forEach((button, index) => {
+      const active = TABS[index]?.value === activeTab;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
+    });
+  }, [activeTab]);
+
+  /** Arrow keys move between the tabs, as they did in the previous tab bar. */
+  function onTabKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
     const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'));
     if (tabs.length === 0) return;
@@ -194,226 +210,157 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <PageHeaderContext.Provider value={setPublished}>
-      <Box sx={{ display: 'flex', height: '100dvh', overflow: 'hidden', bgcolor: 'background.default' }}>
+      <div className="flex h-dvh overflow-hidden bg-background text-foreground">
         {/* -------------------------------------------------------------- */}
         {/* Sidebar — desktop only, CSS-driven so desktop never flashes mobile */}
         {/* -------------------------------------------------------------- */}
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: 'none', lg: 'block' },
-            width: DRAWER_WIDTH,
-            flexShrink: 0,
-            '& .MuiDrawer-paper': {
-              position: 'relative',
-              width: DRAWER_WIDTH,
-              height: '100%',
-              boxSizing: 'border-box',
-              bgcolor: 'background.paper',
-              borderColor: 'divider',
-              pt: 'env(safe-area-inset-top, 0px)',
-              pb: 'env(safe-area-inset-bottom, 0px)',
-            },
-          }}
+        <aside
+          aria-label="Navigation"
+          className="hidden w-70 shrink-0 flex-col border-r border-sidebar-border bg-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:flex"
         >
-          <Box
-            component="aside"
-            aria-label="Navigation"
-            sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
+          <div className="flex items-center gap-2 px-row pt-3 pb-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground [&_svg]:size-5">
+              <CheckboxIcon />
+            </span>
+            <span className="text-lg font-semibold tracking-tight">TaskTick</span>
+          </div>
+
+          {/*
+           * The whole rail is one scroll pane and one vertical rhythm: the gap
+           * between sections lives here, on the `gap-stack`, rather than as a
+           * margin on each section's last row.
+           */}
+          <nav
+            aria-label="Smart lists"
+            className="flex min-h-0 flex-1 flex-col gap-stack overflow-y-auto px-2 pb-4"
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 2, pt: 1.5, pb: 1 }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 32,
-                  height: 32,
-                  borderRadius: 1,
-                  bgcolor: 'primary.main',
-                  color: 'primary.contrastText',
-                }}
-              >
-                <ChecklistIcon fontSize="small" />
-              </Box>
-              <Typography variant="h6" sx={{ fontWeight: 600, letterSpacing: '-0.01em' }}>
-                TaskTick
-              </Typography>
-            </Box>
+            <div className="flex flex-col gap-0.5">
+              {SMART_LISTS.map((item) => (
+                <SidebarLink
+                  key={item.key}
+                  href={item.href}
+                  label={item.label}
+                  icon={<item.Icon />}
+                  active={item.match === pathname && item.key === 'today'}
+                  badge={item.key === 'today' && agendaCounts.today ? agendaCounts.today : undefined}
+                />
+              ))}
+            </div>
 
-            <Box
-              component="nav"
-              aria-label="Smart lists"
-              sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 1, pb: 2 }}
+            <SidebarSection
+              title="Lists"
+              action={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="New list"
+                  onClick={() => router.push('/tasks?new=list')}
+                >
+                  <PlusIcon className="size-4 text-base" />
+                </Button>
+              }
             >
-              <List sx={{ py: 0 }}>
-                {SMART_LISTS.map((item) => (
+              {isInitialLoading ? (
+                <>
+                  <Skeleton className="h-8 rounded-md" />
+                  <Skeleton className="h-8 rounded-md" />
+                </>
+              ) : (
+                lists.map((list) => (
                   <SidebarLink
-                    key={item.key}
-                    href={item.href}
-                    label={item.label}
-                    icon={<item.Icon fontSize="small" />}
-                    active={item.match === pathname && item.key === 'today'}
-                    badge={item.key === 'today' && agendaCounts.today ? agendaCounts.today : undefined}
-                  />
-                ))}
-              </List>
-
-              <SidebarSection
-                title="Lists"
-                action={
-                  <IconButton
-                    aria-label="New list"
-                    size="small"
-                    onClick={() => router.push('/tasks?new=list')}
-                  >
-                    <AddIcon fontSize="small" />
-                  </IconButton>
-                }
-              >
-                {isInitialLoading ? (
-                  <>
-                    <Skeleton variant="rounded" height={32} sx={{ mx: 1, my: 0.5 }} />
-                    <Skeleton variant="rounded" height={32} sx={{ mx: 1, my: 0.5 }} />
-                  </>
-                ) : (
-                  lists.map((list) => (
-                    <SidebarLink
-                      key={list.id}
-                      href={`/tasks?list=${list.id}`}
-                      label={list.name}
-                      icon={
-                        list.emoji ? (
-                          <Box component="span" sx={{ fontSize: 16, lineHeight: 1 }} aria-hidden>
-                            {list.emoji}
-                          </Box>
-                        ) : (
-                          <Box
-                            aria-hidden
-                            sx={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '50%',
-                              bgcolor: accentHex(list.color),
-                            }}
-                          />
-                        )
-                      }
-                      badge={list.openTaskCount || undefined}
-                    />
-                  ))
-                )}
-              </SidebarSection>
-
-              <SidebarSection title="Calendars">
-                {calendars.map((calendar) => (
-                  <SidebarLink
-                    key={calendar.id}
-                    href={`/calendar?calendar=${calendar.id}`}
-                    label={calendar.name}
+                    key={list.id}
+                    href={`/tasks?list=${list.id}`}
+                    label={list.name}
                     icon={
-                      <Box
-                        aria-hidden
-                        sx={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: '50%',
-                          bgcolor: accentHex(calendar.color),
-                        }}
-                      />
+                      list.emoji ? (
+                        <span aria-hidden className="text-base leading-none">
+                          {list.emoji}
+                        </span>
+                      ) : (
+                        <span
+                          aria-hidden
+                          className="size-2.5 rounded-full"
+                          style={{ backgroundColor: accentHex(list.color) }}
+                        />
+                      )
                     }
-                    muted={!calendar.isVisible}
+                    badge={list.openTaskCount || undefined}
                   />
-                ))}
-              </SidebarSection>
+                ))
+              )}
+            </SidebarSection>
 
-              <SidebarSection title="Tools">
-                {TOOL_LINKS.map((item) => (
-                  <SidebarLink
-                    key={item.href}
-                    href={item.href}
-                    label={item.label}
-                    icon={<item.Icon fontSize="small" />}
-                    active={pathname.startsWith(item.href)}
-                  />
-                ))}
-              </SidebarSection>
-            </Box>
+            <SidebarSection title="Calendars">
+              {calendars.map((calendar) => (
+                <SidebarLink
+                  key={calendar.id}
+                  href={`/calendar?calendar=${calendar.id}`}
+                  label={calendar.name}
+                  icon={
+                    <span
+                      aria-hidden
+                      className="size-2.5 rounded-full"
+                      style={{ backgroundColor: accentHex(calendar.color) }}
+                    />
+                  }
+                  muted={!calendar.isVisible}
+                />
+              ))}
+            </SidebarSection>
 
-            <Box sx={{ flexShrink: 0, p: 1, borderTop: 1, borderColor: 'divider' }}>
-              <SidebarLink
-                href="/settings"
-                label="Settings"
-                icon={<SettingsIcon fontSize="small" />}
-                active={pathname.startsWith('/settings')}
-              />
-            </Box>
-          </Box>
-        </Drawer>
+            <SidebarSection title="Tools">
+              {TOOL_LINKS.map((item) => (
+                <SidebarLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={<item.Icon />}
+                  active={pathname.startsWith(item.href)}
+                />
+              ))}
+            </SidebarSection>
+          </nav>
+
+          <div className="shrink-0 border-t border-sidebar-border p-2">
+            <SidebarLink
+              href="/settings"
+              label="Settings"
+              icon={<GearIcon />}
+              active={pathname.startsWith('/settings')}
+            />
+          </div>
+        </aside>
 
         {/* -------------------------------------------------------------- */}
         {/* Content column — its own scroll pane, so the chrome stays put   */}
         {/* -------------------------------------------------------------- */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/*
-           * The header, when the screen asked the shell to render it.
-           *
-           * `pt` carries the Dynamic Island inset: the app runs installed under
-           * `viewport-fit=cover`, so without it the bar slides under the island.
-           * The inset is on the bar rather than on the pane below, so a screen
-           * that renders its own `AppBar` can never be pushed twice.
+           * The header, when the screen asked the shell to render it. `pt`
+           * carries the Dynamic Island inset, so the title clears the island
+           * instead of sliding under it.
            */}
           {published ? (
-            <AppBar
-              position="static"
-              color="default"
-              elevation={0}
-              sx={{
-                flexShrink: 0,
-                bgcolor: 'background.default',
-                backgroundImage: 'none',
-                borderBottom: 1,
-                borderColor: 'divider',
-                pt: 'env(safe-area-inset-top, 0px)',
-              }}
-            >
-              <Toolbar sx={{ gap: 1 }}>
+            <header className="shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top)]">
+              <div className="flex h-appbar items-center gap-2 px-gutter">
                 {published.leading}
 
-                <Typography variant="h6" component="h1" noWrap sx={{ flex: 1, minWidth: 0 }}>
-                  {published.title}
-                </Typography>
+                <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{published.title}</h1>
 
                 {published.actions ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                    {published.actions}
-                  </Box>
+                  <div className="flex shrink-0 items-center gap-1">{published.actions}</div>
                 ) : null}
-              </Toolbar>
+              </div>
 
               {/* Everything below the title row belongs to the screen. */}
               {published.children}
-            </AppBar>
+            </header>
           ) : null}
 
-          <Box
-            component="main"
+          <main
             id="main"
-            sx={{
-              flex: 1,
-              minHeight: 0,
-              // `relative` makes the pane the containing block for anything a
-              // screen positions absolutely. Without it such an element resolves
-              // against the viewport, escapes this box entirely and hands the
-              // whole document a horizontal scrollbar. It cannot disturb a
-              // screen's `position: fixed` chrome: the pane carries no transform,
-              // filter or backdrop-filter, so fixed stays viewport-anchored.
-              position: 'relative',
-              overflowY: 'auto',
-              overscrollBehaviorY: 'contain',
-              // Clearance for the floating bottom band on a phone.
-              pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 5.25rem)', lg: 0 },
-            }}
+            className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0"
           >
             {/*
              * Keyed on the pathname so React remounts this wrapper on every
@@ -421,85 +368,61 @@ export function AppShell({ children }: { children: React.ReactNode }) {
              * element persists across routes and the animation runs exactly
              * once, ever — which is the opposite of what it is for.
              *
-             * `minHeight: calc(100% + 3rem)` guarantees the pane can always
-             * scroll a little, even when the content is shorter than the screen.
-             * The search field on the task lists is revealed by an upward
-             * scroll, so on a list with three items there was no gesture
-             * available to bring it back — the reveal depended on the user
-             * having enough tasks, which is not something a control should ever
-             * depend on. A small guaranteed overscroll means the gesture exists
-             * on every screen at every length.
+             * Opacity only, deliberately. Any transform on this wrapper makes it
+             * the containing block for `position: fixed` descendants, so a
+             * docked bar inside a route would position against this box instead
+             * of the viewport. Animating opacity leaves it a plain block.
+             *
+             * `min-h-[calc(100%_+_3rem)]` guarantees the pane can always scroll
+             * a little, even when the content is shorter than the screen. The
+             * search field on the task lists is revealed by an upward scroll, so
+             * on a list with three items there was no gesture available to bring
+             * it back — the reveal depended on the user having enough tasks,
+             * which is not something a control should ever depend on.
+             *
+             * `gap-stack` is the page's vertical rhythm, stated once here rather
+             * than repeated as a bottom margin on every card a screen renders.
+             * The horizontal gutter is deliberately *not* applied here: the
+             * calendar grid is full-bleed and the shell cannot know which
+             * screens are.
              */}
-            <Box
+            <motion.div
               key={pathname}
-              sx={{ minHeight: 'calc(100% + 3rem)', animation: `${pageIn} 340ms ease-out both` }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.34, ease: 'easeOut' }}
+              className="flex min-h-[calc(100%_+_3rem)] flex-col gap-stack"
             >
               {children}
-            </Box>
-          </Box>
-        </Box>
+            </motion.div>
+          </main>
+        </div>
 
         {/*
          * The floating bottom band: bottom navigation and action button sharing
          * one row.
          *
-         * One fixed container holding both means they cannot overlap, and it sits
-         * just clear of the home indicator rather than floating high above it.
+         * One fixed container holding both means they cannot overlap, and the
+         * home-indicator inset is padding on the band rather than an offset on
+         * each child, so the two stay on one baseline.
+         *
+         * The bar is `flex-1` and capped at the width the old nav paper used, so
+         * it takes the room the action button leaves and no more; `justify-center`
+         * keeps its four tabs centred inside the pill, which matters because the
+         * GodUI bar reveals only the active tab's label and would otherwise
+         * change width on every switch.
          */}
-        <Box
-          sx={{
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 2px)',
-            zIndex: (theme) => theme.zIndex.appBar + 1,
-            display: { xs: 'flex', lg: 'none' },
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 1,
-            px: 1.5,
-          }}
-        >
-          <Paper
-            elevation={3}
-            sx={{ flex: 1, minWidth: 0, maxWidth: '26.25rem', borderRadius: 4, overflow: 'hidden' }}
-          >
-            <BottomNavigation
-              value={activeTab}
-              onChange={(_event, value) => onTabChange(value as TabValue)}
-              showLabels
-              role="tablist"
-              aria-label="Main sections"
-              onKeyDown={onTabKeyDown}
-              sx={{
-                bgcolor: 'transparent',
-                height: 64,
-                '& .MuiBottomNavigationAction-root': { minWidth: 0, maxWidth: 'none', px: 0.5 },
-              }}
-            >
-              {TABS.map(({ value, label, Icon }) => {
-                const active = value === activeTab;
-                // The count pill the Tasks tab has always carried: the agenda's
-                // today + overdue. Absent on every other tab.
-                const badge = value === 'tasks' ? agendaCounts.today || undefined : undefined;
-                return (
-                  <BottomNavigationAction
-                    key={value}
-                    value={value}
-                    label={label}
-                    role="tab"
-                    aria-selected={active}
-                    tabIndex={active ? 0 : -1}
-                    icon={
-                      <Badge badgeContent={badge ?? 0} color="error" overlap="circular">
-                        <Icon fontSize="small" />
-                      </Badge>
-                    }
-                  />
-                );
-              })}
-            </BottomNavigation>
-          </Paper>
+        <div className="fixed inset-x-0 bottom-0 z-appbar flex items-center justify-center gap-2 px-gutter pb-[env(safe-area-inset-bottom)] lg:hidden">
+          <TabBar
+            ref={tabBarRef}
+            tabs={TABS}
+            value={activeTab}
+            onChange={onTabChange}
+            role="tablist"
+            aria-label="Main sections"
+            onKeyDown={onTabKeyDown}
+            className="min-w-0 max-w-105 flex-1 justify-center"
+          />
 
           {/*
            * The button is contextual, so its name has to be too. It sits on the
@@ -516,24 +439,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   : 'Add a task'
             }
           />
-        </Box>
-      </Box>
+        </div>
+      </div>
     </PageHeaderContext.Provider>
   );
 }
-
-// Declared outside the component so the icon components keep a stable identity.
-const TABS: {
-  value: TabValue;
-  label: string;
-  Icon: React.ElementType;
-  badge?: number;
-}[] = [
-  { value: 'tasks', label: 'Tasks', Icon: ChecklistIcon },
-  { value: 'calendar', label: 'Calendar', Icon: CalendarMonthIcon },
-  { value: 'habits', label: 'Habits', Icon: CheckCircleIcon },
-  { value: 'settings', label: 'Settings', Icon: SettingsIcon },
-];
 
 function SidebarSection({
   title,
@@ -545,40 +455,25 @@ function SidebarSection({
   children: React.ReactNode;
 }) {
   return (
-    <List
-      sx={{ py: 0.5 }}
-      subheader={
-        <ListSubheader
-          component="div"
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.5,
-            px: 1,
-            bgcolor: 'transparent',
-            color: 'text.secondary',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            fontSize: 12,
-            fontWeight: 600,
-            lineHeight: '32px',
-          }}
-        >
-          <Box
-            component="span"
-            sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {title}
-          </Box>
-          {action}
-        </ListSubheader>
-      }
-    >
+    <section className="flex flex-col gap-0.5">
+      <div className="flex h-8 items-center gap-1 px-row">
+        <h2 className="min-w-0 flex-1 truncate text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+          {title}
+        </h2>
+        {action}
+      </div>
       {children}
-    </List>
+    </section>
   );
 }
 
+/**
+ * One sidebar row.
+ *
+ * A real `<a>` (`next/link`), not a button: every one of these navigates, so it
+ * can be opened in a new tab, copied and read out as a link. The active row
+ * carries `aria-current="page"` — the accessible half of "you are here".
+ */
 function SidebarLink({
   href,
   label,
@@ -595,36 +490,20 @@ function SidebarLink({
   muted?: boolean;
 }) {
   return (
-    <ListItemButton
-      component={Link}
+    <Link
       href={href}
-      selected={active}
       aria-current={active ? 'page' : undefined}
-      sx={{ borderRadius: 1, gap: 1.25, color: muted ? 'text.disabled' : 'text.primary' }}
+      className={cn(
+        'flex items-center gap-2 rounded-md px-row py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+        active && 'bg-sidebar-accent font-medium text-sidebar-accent-foreground',
+        muted && 'text-muted-foreground',
+      )}
     >
-      <ListItemIcon sx={{ minWidth: 0, width: 20, justifyContent: 'center', color: 'inherit' }}>
-        {icon}
-      </ListItemIcon>
-      <ListItemText
-        primary={label}
-        sx={{
-          my: 0,
-          minWidth: 0,
-          '& .MuiListItemText-primary': {
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          },
-        }}
-      />
+      <span className="flex w-5 shrink-0 items-center justify-center [&_svg]:size-5">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge ? (
-        <Typography
-          variant="caption"
-          sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
-        >
-          {badge}
-        </Typography>
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{badge}</span>
       ) : null}
-    </ListItemButton>
+    </Link>
   );
 }

@@ -1,16 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import CloseIcon from '@mui/icons-material/Close';
-import InstallMobileIcon from '@mui/icons-material/InstallMobile';
+import { MobileIcon } from '@svg-animated-icons/react/mobile';
+import { X } from 'lucide-react';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { IosInstallHint } from './IosInstallHint';
 import { INSTALL_DISMISS_STORAGE_KEY, isIosSafari, isStandalone } from './platform';
+import { cn } from '@/lib/utils';
 
 /**
  * The install affordance, in two shapes.
@@ -25,8 +22,10 @@ import { INSTALL_DISMISS_STORAGE_KEY, isIosSafari, isStandalone } from './platfo
  * that comes back after being closed is the fastest way to make an app feel
  * like spam.
  *
- * The surface is a Material `Alert` in the floating slot the hand-rolled banner
- * used; the detection, dismissal and prompt logic is unchanged.
+ * The detection, dismissal and prompt logic below is byte-identical to the
+ * Material version; only the surface changed. It keeps Material's stacking
+ * intent — below the offline and update prompts, which are more urgent — with
+ * the layout scale's `z-appbar` under their `z-toast`.
  */
 
 /** `beforeinstallprompt` is still not in the DOM lib types. */
@@ -101,62 +100,48 @@ export function InstallPrompt() {
   if (!iosSafari && !deferredPrompt) return null;
 
   return (
-    <Box
+    <div
       role="complementary"
       aria-label="Install TaskTick"
-      sx={{
-        position: 'fixed',
-        left: 12,
-        right: 12,
-        bottom: {
-          xs: 'calc(env(safe-area-inset-bottom, 0px) + 5.25rem)',
-          lg: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
-        },
+      className={cn(
+        'fixed inset-x-3 z-appbar flex',
         // Below the offline and update prompts, which are more urgent.
-        zIndex: 'appBar',
-        display: 'flex',
-      }}
+        'bottom-[calc(env(safe-area-inset-bottom,0px)_+_var(--spacing-tabbar)_+_1.5rem)]',
+        'lg:bottom-[calc(env(safe-area-inset-bottom,0px)_+_1.5rem)]',
+      )}
     >
-      <Alert
-        severity="info"
-        icon={iosSafari ? false : <InstallMobileIcon aria-hidden />}
-        action={
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            {!iosSafari ? (
-              <Button
-                color="inherit"
-                size="small"
-                onClick={() => void install()}
-                sx={{ textTransform: 'none', fontWeight: 600 }}
-              >
-                Install
-              </Button>
-            ) : null}
-            <IconButton
-              aria-label="Dismiss install prompt"
-              size="small"
-              color="inherit"
-              onClick={dismiss}
-            >
-              <CloseIcon fontSize="small" aria-hidden />
-            </IconButton>
-          </Stack>
-        }
-        sx={{ width: '100%', alignItems: 'flex-start', boxShadow: 4 }}
-      >
+      <Alert className="flex w-full items-start gap-3 shadow-lg">
         {iosSafari ? (
-          <IosInstallHint sx={{ minWidth: 0 }} />
+          <IosInstallHint className="min-w-0 flex-1" />
         ) : (
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-              Install TaskTick
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Add it to your home screen for full-screen use and offline access.
-            </Typography>
-          </Box>
+          <>
+            <span aria-hidden className="inline-flex shrink-0 text-lg text-muted-foreground">
+              <MobileIcon />
+            </span>
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="text-sm font-semibold">Install TaskTick</span>
+              <span className="text-sm text-muted-foreground">
+                Add it to your home screen for full-screen use and offline access.
+              </span>
+            </span>
+          </>
         )}
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {!iosSafari ? (
+            <Button variant="ghost" size="sm" onClick={() => void install()}>
+              Install
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Dismiss install prompt"
+            onClick={dismiss}
+          >
+            <X aria-hidden />
+          </Button>
+        </span>
       </Alert>
-    </Box>
+    </div>
   );
 }

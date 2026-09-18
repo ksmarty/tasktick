@@ -3,15 +3,43 @@
 /**
  * One collapsible group of task rows, with drag reordering.
  *
- * The section header is the card's first row: one card per section, starting
- * with `Pinned  4  ⌄` and followed by the rows, rather than a caption floating
- * above a separate card. Each card also paints a stripe down its leading edge in
- * the colour of the list most of its rows belong to — Material has no equivalent
- * of the iOS grouped-list edge, so it is drawn explicitly with `borderLeft`,
- * which is what makes a long scroll scannable (see `edgeColorFor`).
+ * The section header is the card's first row: one card per section, starting with
+ * `Pinned  4  ⌄` and followed by the rows, rather than a caption floating above a
+ * separate card. Each card paints a stripe down its leading edge in the colour of
+ * the list most of its rows belong to — Material had no equivalent of the iOS
+ * grouped-list edge, so it is drawn explicitly, which is what makes a long scroll
+ * scannable (see `edgeColorFor`).
  *
- * The header is a MUI `ListSubheader`; the rows live in a MUI `Collapse`, which
- * owns the height animation, so no hand-rolled grid-rows transition is needed.
+ * Material's `List`/`ListSubheader`/`Collapse` trio is replaced by the GodUI
+ * `Accordion`, which already owns a spring height animation and rotating chevron —
+ * so there is no hand-rolled grid-rows track, and a collapsed section is unmounted
+ * at rest (which matters for `Completed`, which can hold hundreds of rows).
+ *
+ * ## The three places this file compensates for the vendored Accordion
+ *
+ * `components/godui/accordion.tsx` is upstream's file and is shared, so it is not
+ * edited here; instead its own padding is neutralised, and the compensation is
+ * stated rather than hidden:
+ *
+ *  - the panel owns `px-5 pb-4 pt-0`, so the row track pulls back with `-mx-5
+ *    -mb-4` and every row then supplies its own `px-row`. That is what keeps the
+ *    row inset coming from the layout token instead of from a vendored number.
+ *  - the trigger owns `px-5`, so the header's own content pulls back with `-mx-1`
+ *    (1.25rem − 0.25rem = 1rem) and lands on exactly the same `px-row` axis as the
+ *    rows. A negative margin rather than an override, because `tailwind-merge`
+ *    cannot be relied on to resolve a token class against a vendored one.
+ *  - the panel paints `text-sm text-muted-foreground`, which the row track resets
+ *    with an explicit `text-base text-foreground`.
+ *
+ * ## The coloured edge
+ *
+ * `border-l-4` rather than the old 3px: three is not on Tailwind's scale, and the
+ * conventions are explicit that a size which is not on the scale is a size the
+ * design should not want. The colour is per-section and therefore a CSS custom
+ * property written inline (`--edge-color`), which is the one thing about the edge
+ * that genuinely cannot be a class.
+ *
+ * ## Reordering
  *
  * Reordering is deliberately browser-native on a desktop pointer (HTML5
  * drag-and-drop, with a real drop indicator) and pointer-driven on touch (press
@@ -23,18 +51,14 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import Box from '@mui/material/Box';
-import Collapse from '@mui/material/Collapse';
-import List from '@mui/material/List';
-import ListSubheader from '@mui/material/ListSubheader';
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { Accordion } from '@/components/godui/accordion';
 import { accentHex } from '@/lib/colors';
 import type { AccentColor, Task } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
 import type { TaskSection } from './sections';
@@ -45,38 +69,22 @@ interface DragState {
   edge: 'before' | 'after';
 }
 
-/** The collapse/expand transition, in ms. */
-const COLLAPSE_MS = 300;
-
 interface LiftState extends DragState {
   startY: number;
   offset: number;
 }
 
-/** A screen-reader-only mark, without pulling in a helper package. */
-const SR_ONLY = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  whiteSpace: 'nowrap',
-  border: 0,
-} as const;
-
 /**
  * The stripe colour for a section card.
  *
  * Overdue is about urgency rather than about a list, so it always paints the
- * danger colour. Every other section paints the list colour most of its rows
- * share: a section that mixes lists still has to show one stripe, and the most
- * common list is the one the section reads as. No known list colour falls back
- * to the theme primary.
+ * theme's destructive colour. Every other section paints the list colour most of
+ * its rows share: a section that mixes lists still has to show one stripe, and the
+ * most common list is the one the section reads as. No known list colour falls
+ * back to the theme primary.
  */
 function edgeColorFor(section: TaskSection, listColors?: ReadonlyMap<string, AccentColor>): string {
-  if (section.tone === 'danger') return 'error.main';
+  if (section.tone === 'danger') return 'var(--destructive)';
 
   const counts = new Map<AccentColor, number>();
   for (const task of section.tasks) {
@@ -93,7 +101,7 @@ function edgeColorFor(section: TaskSection, listColors?: ReadonlyMap<string, Acc
     }
   }
 
-  return winner ? accentHex(winner) : 'primary.main';
+  return winner ? accentHex(winner) : 'var(--primary)';
 }
 
 export interface TaskListSectionProps {
@@ -129,7 +137,6 @@ export function TaskListSection({
   onSelect,
   disabled = false,
 }: TaskListSectionProps) {
-  const [collapsed, setCollapsed] = useState(section.defaultCollapsed);
   const [htmlDrag, setHtmlDrag] = useState<DragState | null>(null);
   const [lift, setLift] = useState<LiftState | null>(null);
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
@@ -232,87 +239,33 @@ export function TaskListSection({
   const danger = section.tone === 'danger';
 
   return (
-    <Box sx={{ mx: 2, pt: 1.5, '&:first-of-type': { pt: 0.5 } }}>
-      {/*
-       * One card per section. The 3px stripe is the deliberate iOS-style edge —
-       * `overflow: hidden` keeps a revealed swipe action inside the rounded
-       * corners.
-       */}
-      <Paper
-        variant="outlined"
-        sx={{
-          borderRadius: 2,
-          overflow: 'hidden',
-          borderLeft: '3px solid',
-          borderLeftColor: edgeColorFor(section, listColors),
-        }}
-      >
-        <List
-          component="div"
-          disablePadding
-          subheader={
-            <ListSubheader
-              component="div"
-              disableSticky
-              sx={{ p: 0, bgcolor: 'transparent', lineHeight: 'normal' }}
-            >
-              <Box
-                component="button"
-                type="button"
-                onClick={() => setCollapsed((value) => !value)}
-                aria-expanded={!collapsed}
-                aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section.title}`}
-                sx={{
-                  display: 'flex',
-                  width: '100%',
-                  minHeight: 44,
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 1.5,
-                  border: 0,
-                  bgcolor: 'transparent',
-                  cursor: 'pointer',
-                  font: 'inherit',
-                  color: 'inherit',
-                  textAlign: 'left',
-                }}
+    <Accordion
+      type="single"
+      collapsible
+      // A section that starts collapsed is the one the caller marked as such —
+      // "Completed" holds work the user has finished with, so it arrives closed.
+      defaultValue={section.defaultCollapsed ? [] : [section.id]}
+      className="border-l-4 border-l-[var(--edge-color)]"
+      style={{ '--edge-color': edgeColorFor(section, listColors) } as CSSProperties}
+      items={[
+        {
+          value: section.id,
+          title: (
+            <span className="-mx-1 flex min-w-0 flex-1 items-center gap-2">
+              {/* The section title is the loudest thing on the line. */}
+              <span
+                className={cn('truncate text-sm font-semibold', danger ? 'text-destructive' : 'text-foreground')}
               >
-                {/* The section title is the loudest thing on the line. */}
-                <Typography
-                  component="span"
-                  variant="subtitle2"
-                  sx={{ fontWeight: 600, color: danger ? 'error.main' : 'text.primary' }}
-                >
-                  {section.title}
-                </Typography>
-                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
-                  <Typography component="span" variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                    {section.tasks.length}
-                  </Typography>
-                  <Box component="span" sx={SR_ONLY}>
-                    {`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}
-                  </Box>
-                  <ExpandMoreIcon
-                    aria-hidden
-                    sx={{
-                      fontSize: 14,
-                      transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
-                      transform: collapsed ? 'rotate(-90deg)' : 'none',
-                    }}
-                  />
-                </Box>
-              </Box>
-            </ListSubheader>
-          }
-        >
-          {/*
-           * The rows live in a MUI `Collapse`, which owns the height animation.
-           * `unmountOnExit` keeps a collapsed section — the completed one can hold
-           * hundreds of rows — out of the DOM at rest, exactly as the old
-           * grid-rows track did.
-           */}
-          <Collapse in={!collapsed} timeout={COLLAPSE_MS} mountOnEnter unmountOnExit>
-            <List disablePadding>
+                {section.title}
+              </span>
+              <span className="ml-auto flex shrink-0 items-center gap-2 text-xs tabular-nums">
+                {section.tasks.length}
+                <span className="sr-only">{`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}</span>
+              </span>
+            </span>
+          ),
+          content: (
+            <ul className="-mx-5 -mb-4 flex flex-col text-base text-foreground">
               {section.tasks.map((task, index) => (
                 <TaskRow
                   key={task.id}
@@ -336,10 +289,10 @@ export function TaskListSection({
                   last={index === section.tasks.length - 1}
                 />
               ))}
-            </List>
-          </Collapse>
-        </List>
-      </Paper>
-    </Box>
+            </ul>
+          ),
+        },
+      ]}
+    />
   );
 }

@@ -10,9 +10,14 @@
  *
  * An empty streak renders nothing at all: a reading of "0 day" is both
  * ungrammatical and noise, and the row already has plenty to say.
+ *
+ * The glyph is `lightning-bolt` rather than a flame: `local-fire-department` has
+ * no animated counterpart, and a bolt is the app's existing "streak/priority"
+ * mark. It is decorative — the accessible name on the wrapper already spells the
+ * streak out in words.
  */
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
+import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
+import { cn } from '@/lib/utils';
 import { streakPhrase, streakUnit } from './period';
 import type { HabitFrequency } from '@/lib/types';
 
@@ -36,34 +41,19 @@ export function StreakCount({ streak, frequency, longestStreak, className }: Str
   const label = best ? `Current streak ${phrase}, best ${best}` : `Current streak ${phrase}`;
 
   return (
-    <Box
-      component="span"
-      className={className}
+    <span
       aria-label={label}
       title={best ? `${phrase} · best ${best}` : phrase}
-      sx={{
-        display: 'flex',
-        flexShrink: 0,
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        lineHeight: 1,
-      }}
+      className={cn('flex shrink-0 flex-col items-end leading-none', className)}
     >
-      <Box component="span" aria-hidden sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
-        <Typography
-          component="span"
-          variant="h6"
-          sx={{ fontWeight: 600, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}
-        >
-          {streak}
-        </Typography>
-        <Typography component="span" variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-          {plural}
-        </Typography>
-      </Box>
-      <Typography component="span" aria-hidden variant="caption" color="text.disabled" sx={{ mt: 0.25 }}>
+      <span aria-hidden className="flex items-baseline gap-1">
+        <LightningBoltIcon className="size-4 text-muted-foreground" />
+        <span className="text-lg font-semibold leading-none tabular-nums">{streak}</span>
+        <span className="text-xs font-medium text-muted-foreground">{plural}</span>
+      </span>
+      <span aria-hidden className="mt-0.5 text-xs text-muted-foreground/70">
         Current Streak
-      </Typography>
-    </Box>
+      </span>
+    </span>
   );
 }

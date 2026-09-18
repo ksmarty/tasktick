@@ -11,24 +11,32 @@
  *
  * The email row is read-only on purpose: better-auth only accepts an email change
  * with a verification mail, and this server has no SMTP. Offering a button that
- * can never succeed would be worse than saying so. It is a plain `ListItem` with
- * its text at full contrast, not a disabled control — dimming a fact made it
- * unreadable.
+ * can never succeed would be worse than saying so. It is a plain row with its text
+ * at full contrast, not a disabled control — dimming a fact made it unreadable.
+ *
+ * shadcn's `Button` has no `loading` prop (MUI's did), so a pending write keeps
+ * the button disabled, marks it `aria-busy` and shows a spinning glyph instead of
+ * swapping the label — the width stays put, so nothing jumps under the thumb.
+ *
+ * There is deliberately no "delete account" control. The endpoint
+ * (`POST /api/auth/delete-user`) is served by better-auth only when
+ * `user.deleteUser.enabled` is set, and `src/server/auth.ts` does not set it, so
+ * the call would always fail — and that file is outside this migration. A button
+ * that cannot work is worse than no button; enabling it is a one-line change on
+ * the server, after which this group can grow a confirm dialog.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Button from '@mui/material/Button';
-import InputAdornment from '@mui/material/InputAdornment';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import KeyIcon from '@mui/icons-material/Key';
-import LogoutIcon from '@mui/icons-material/Logout';
+import { ExitIcon } from '@svg-animated-icons/react/exit';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/app/Toast';
 import { authClient, signOut } from '@/lib/auth-client';
 import { useMutation } from '@/lib/store';
-import { SettingsGroup } from './SettingsGroup';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { SessionUser } from '@/lib/types';
 
 export interface AccountSettingsProps {
@@ -102,87 +110,85 @@ export function AccountSettings({ user }: AccountSettingsProps) {
         title="Account"
         footer={`Your sign-in address is ${user.email}. Changing it needs an email verification flow, which this server does not have configured.`}
       >
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-          <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-            <TextField
-              fullWidth
-              label="Name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              autoComplete="name"
-              slotProps={{ htmlInput: { maxLength: 200 } }}
-            />
-            <Button
-              size="small"
-              variant="outlined"
-              loading={saveName.isPending}
-              disabled={!name.trim() || name.trim() === user.name}
-              onClick={() => void saveName.run()}
-            >
-              Save name
-            </Button>
-          </Stack>
-        </ListItem>
-
-        <ListItem>
-          <ListItemText primary="Email" secondary={user.email} />
-        </ListItem>
-
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
+        <SettingsRow stacked>
+          <Label htmlFor="account-name">Name</Label>
+          <Input
+            id="account-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoComplete="name"
+            maxLength={200}
+          />
           <Button
-            fullWidth
-            variant="outlined"
-            color="inherit"
-            startIcon={<LogoutIcon aria-hidden />}
-            loading={leave.isPending}
+            variant="outline"
+            size="sm"
+            className="self-start"
+            aria-busy={saveName.isPending || undefined}
+            disabled={saveName.isPending || !name.trim() || name.trim() === user.name}
+            onClick={() => void saveName.run()}
+          >
+            {saveName.isPending ? <ReloadIcon className="animate-spin" /> : null}
+            Save name
+          </Button>
+        </SettingsRow>
+
+        <SettingsRow>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm">Email</span>
+            <span className="block text-xs break-all text-muted-foreground">{user.email}</span>
+          </span>
+        </SettingsRow>
+
+        <SettingsRow>
+          <Button
+            variant="outline"
+            className="w-full"
+            aria-busy={leave.isPending || undefined}
+            disabled={leave.isPending}
             onClick={() => void leave.run()}
           >
+            <ExitIcon />
             Sign out
           </Button>
-        </ListItem>
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title="Change password" footer="At least 8 characters. Other sessions are signed out afterwards.">
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-          <Stack spacing={3}>
-            <TextField
-              fullWidth
-              label="Current password"
+        <SettingsRow stacked>
+          <Label htmlFor="current-password">Current password</Label>
+          <div className="relative">
+            <LockClosedIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="current-password"
+              className="pl-9"
               type="password"
               autoComplete="current-password"
+              maxLength={500}
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
-              slotProps={{
-                htmlInput: { maxLength: 500 },
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <KeyIcon fontSize="small" aria-hidden />
-                    </InputAdornment>
-                  ),
-                },
-              }}
             />
-            <TextField
-              fullWidth
-              label="New password"
-              type="password"
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 200 } }}
-            />
-            <Button
-              fullWidth
-              variant="contained"
-              disabled={!canChangePassword}
-              loading={savePassword.isPending}
-              onClick={() => void savePassword.run()}
-            >
-              Change password
-            </Button>
-          </Stack>
-        </ListItem>
+          </div>
+
+          <Label htmlFor="new-password">New password</Label>
+          <Input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            maxLength={200}
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+          />
+
+          <Button
+            className="w-full"
+            aria-busy={savePassword.isPending || undefined}
+            disabled={!canChangePassword || savePassword.isPending}
+            onClick={() => void savePassword.run()}
+          >
+            {savePassword.isPending ? <ReloadIcon className="animate-spin" /> : null}
+            Change password
+          </Button>
+        </SettingsRow>
       </SettingsGroup>
     </>
   );

@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 /**
  * Registers `/sw.js` and surfaces the "a new build is waiting" prompt.
@@ -20,9 +20,10 @@ import RefreshIcon from '@mui/icons-material/Refresh';
  * that sleeps for a week still notices a deploy within a minute of being opened
  * without polling the network in the background.
  *
- * There is no UI until a new worker is waiting; the prompt itself is a Material
- * `Alert` in the same floating slot the old banner used. The registration and
- * update logic below is unchanged.
+ * The registration and update logic below is byte-identical to the Material
+ * version; only the prompt's surface changed, and the floating slot is now
+ * expressed against the layout scale — the tab-bar height token plus a
+ * Tailwind-scale gap — instead of a hand-tuned `5.25rem`.
  */
 
 /** Don't re-check the worker more often than this when returning to the tab. */
@@ -102,35 +103,28 @@ export function ServiceWorkerRegistrar() {
   if (!waitingWorker) return null;
 
   return (
-    <Box
-      sx={{
-        position: 'fixed',
-        left: 12,
-        right: 12,
+    <div
+      className={cn(
+        'fixed inset-x-3 z-toast flex',
         // Clear of the shell's floating bottom band on a phone, and of the home
         // indicator when running installed.
-        bottom: {
-          xs: 'calc(env(safe-area-inset-bottom, 0px) + 5.25rem)',
-          lg: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
-        },
-        zIndex: 'snackbar',
-        display: 'flex',
-      }}
+        'bottom-[calc(env(safe-area-inset-bottom,0px)_+_var(--spacing-tabbar)_+_1.5rem)]',
+        'lg:bottom-[calc(env(safe-area-inset-bottom,0px)_+_1.5rem)]',
+      )}
     >
       <Alert
-        severity="info"
         role="status"
         aria-live="polite"
-        icon={<RefreshIcon aria-hidden />}
-        action={
-          <Button color="inherit" size="small" onClick={applyUpdate} sx={{ textTransform: 'none' }}>
-            Reload
-          </Button>
-        }
-        sx={{ width: '100%', alignItems: 'center', boxShadow: 4 }}
+        className="flex w-full items-center gap-3 border-l-4 border-l-foreground shadow-lg"
       >
-        A new version of TaskTick is ready.
+        <span aria-hidden className="inline-flex shrink-0 text-base text-muted-foreground">
+          <ReloadIcon />
+        </span>
+        <span className="min-w-0">A new version of TaskTick is ready.</span>
+        <Button variant="ghost" size="sm" className="ml-auto shrink-0" onClick={applyUpdate}>
+          Reload
+        </Button>
       </Alert>
-    </Box>
+    </div>
   );
 }

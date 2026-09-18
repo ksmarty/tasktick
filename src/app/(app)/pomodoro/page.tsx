@@ -4,7 +4,7 @@
  * The focus timer.
  *
  * The state machine lives in `./timer` (pure, tested); this page wires it to the
- * clock, to the settings, and to the focus-session API.
+ * clock, to the settings, and to the focus-session API. None of that moved.
  *
  * Two behaviours are worth calling out:
  *
@@ -17,36 +17,35 @@
  *     when it ends — whether it ran out or was skipped/reset. An abandoned
  *     session is recorded as abandoned, not silently dropped.
  *
- * Material owns the chrome: a sticky `AppBar`, the phase ring as a determinate
- * `CircularProgress` with the clock `Typography` centred over it, the controls
- * as MUI `Button`s, and the two summary rows as outlined `Paper`s. None of the
- * timing, session or notification code below has moved.
+ * Only the presentation changed: the top bar is published to the shell through
+ * `PageHeader`, the phase ring is an SVG drawn from the pure geometry in
+ * `./ring` (shadcn has no circular progress and a linear bar would have lost the
+ * ring the reference layout is built around), the controls are shadcn `Button`s,
+ * the task picker is a shadcn `Select`, and the two summary rows are cards.
+ * The end of a focus phase also fires the GodUI `Confetti` burst, which is the
+ * celebratory moment it exists for.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextLink from 'next/link';
-import AppBar from '@mui/material/AppBar';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import Link from '@mui/material/Link';
-import MenuItem from '@mui/material/MenuItem';
-import Paper from '@mui/material/Paper';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
-import CheckIcon from '@mui/icons-material/Check';
-import PauseIcon from '@mui/icons-material/Pause';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import SkipNextIcon from '@mui/icons-material/SkipNext';
-import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { LapTimerIcon } from '@svg-animated-icons/react/lap-timer';
+import { PauseIcon } from '@svg-animated-icons/react/pause';
+import { PlayIcon } from '@svg-animated-icons/react/play';
+import { ResetIcon } from '@svg-animated-icons/react/reset';
+import { ResumeIcon } from '@svg-animated-icons/react/resume';
+import { TrackNextIcon } from '@svg-animated-icons/react/track-next';
+import { PageHeader } from '@/components/app/PageHeader';
+import { Confetti, type ConfettiHandle } from '@/components/godui/confetti';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/app/Toast';
 import { api, errorMessage } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { formatClock, humanDuration, todayIn, toDateOnly } from '@/lib/dates';
 import { notifyPeriodEnd, playChime } from './feedback';
+import { ringGeometry } from './ring';
 import {
   applyConfig,
   finishPhase,
@@ -71,15 +70,12 @@ const PHASE_LABEL: Record<FinishedPhase['phase'], string> = {
   long_break: 'Long break',
 };
 
-/** The primary action as a filled primary button; the app's "tinted" surface. */
-const TINTED_SX = {
-  bgcolor: 'action.hover',
-  color: 'primary.main',
-  '&:hover': { bgcolor: 'action.selected' },
-} as const;
+/** The sentinel for "no task" — Radix `Select` cannot hold an empty value. */
+const NO_TASK = 'none';
 
 export default function PomodoroPage() {
   const { toast } = useToast();
+  const confettiRef = useRef<ConfettiHandle>(null);
 
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const settings = bootstrap.data?.settings;
@@ -177,6 +173,8 @@ export default function PomodoroPage() {
   const announce = useCallback(async (finished: FinishedPhase, nextPhaseLabel: string) => {
     const wasFocus = finished.phase === 'focus';
     playChime();
+    // A finished focus session is the one moment on this screen worth a burst.
+    if (wasFocus) confettiRef.current?.fire({ particleCount: 140, origin: { y: 0.65 } });
     void notifyPeriodEnd(
       wasFocus ? 'Focus session complete' : 'Break over',
       wasFocus ? `${nextPhaseLabel} starts when you are ready.` : 'Time to focus again.',
@@ -279,100 +277,97 @@ export default function PomodoroPage() {
   const toLongBreak = focusUntilLongBreak(state, config);
   const loading = !settings;
 
+  const ring = ringGeometry(phaseProgress(state, now));
+  const isFocusPhase = state.phase === 'focus';
+  const phaseLabel = PHASE_LABEL[state.phase];
+
   return (
-    <Box sx={{ pb: 5 }}>
+    <>
       {/* No back control: the focus timer is a top-level destination reached
           from the tab bar's "More" sheet and the sidebar's Tools. */}
-      <AppBar
-        position="sticky"
-        color="default"
-        elevation={0}
-        sx={{
-          bgcolor: 'background.default',
-          backgroundImage: 'none',
-          borderBottom: 1,
-          borderColor: 'divider',
-          // The app paints under the Dynamic Island, so the bar carries the inset.
-          pt: 'env(safe-area-inset-top, 0px)',
-        }}
-      >
-        <Toolbar sx={{ minHeight: 56, px: 1.5 }}>
-          <Typography variant="h6" component="h1" noWrap>
-            Focus
-          </Typography>
-        </Toolbar>
-      </AppBar>
+      <PageHeader title="Focus" />
 
-      {loading ? (
-        <Box sx={{ px: 2, pt: 2 }}>
-          <Skeleton variant="circular" width={200} height={200} sx={{ mx: 'auto' }} />
-        </Box>
-      ) : (
-        <>
-          <Box sx={{ px: 2, pt: 2, pb: 2 }}>
-            <TextField
-              select
-              fullWidth
-              label="Task to focus on"
-              value={taskId}
-              onChange={(event) => setTaskId(event.target.value)}
-            >
-              <MenuItem value="">No task</MenuItem>
-              {(tasks.data ?? []).map((task) => (
-                <MenuItem key={task.id} value={task.id}>
-                  {task.title}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-stack px-gutter py-card">
+        {loading ? (
+          <Skeleton className="mx-auto size-50 rounded-full" />
+        ) : (
+          <>
+            <div className="flex flex-col gap-2">
+              <Label id="focus-task-label">Task to focus on</Label>
+              <Select value={taskId || NO_TASK} onValueChange={(value) => setTaskId(value === NO_TASK ? '' : value)}>
+                <SelectTrigger aria-labelledby="focus-task-label" className="w-full">
+                  <SelectValue placeholder="No task" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_TASK}>No task</SelectItem>
+                  {(tasks.data ?? []).map((task) => (
+                    <SelectItem key={task.id} value={task.id}>
+                      {task.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <Stack sx={{ alignItems: 'center', px: 3 }}>
-            <Typography
-              variant="subtitle1"
-              sx={{ pb: 0.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'text.secondary' }}
-            >
-              {PHASE_LABEL[state.phase]}
-            </Typography>
-            <Typography variant="body2" color="text.disabled" sx={{ pb: 2.5 }}>
-              {state.status === 'paused'
-                ? 'Paused'
-                : state.phase === 'focus'
-                  ? `${toLongBreak} more ${toLongBreak === 1 ? 'session' : 'sessions'} until a long break`
-                  : 'Break time'}
-            </Typography>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">{phaseLabel}</span>
+              <span className="text-sm text-muted-foreground">
+                {state.status === 'paused'
+                  ? 'Paused'
+                  : isFocusPhase
+                    ? `${toLongBreak} more ${toLongBreak === 1 ? 'session' : 'sessions'} until a long break`
+                    : 'Break time'}
+              </span>
+            </div>
 
-            <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-              <CircularProgress
-                variant="determinate"
-                value={phaseProgress(state, now) * 100}
-                size={200}
-                // 8px of stroke on a 200px ring in Material's 44-unit viewBox.
-                thickness={1.76}
-                enableTrackSlot
-                color={state.phase === 'focus' ? 'primary' : 'success'}
-                aria-label={`${remaining} seconds remaining in the ${PHASE_LABEL[state.phase].toLowerCase()}`}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+            {/*
+             * The ring: an SVG, because shadcn has no circular progress and a
+             * linear bar would have lost the shape the whole screen is built
+             * around. Its geometry comes from `./ring` so the arc maths stays
+             * testable; only the paint is here.
+             */}
+            <div className="relative mx-auto flex size-50 items-center justify-center">
+              <svg
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(ring.progress * 100)}
+                aria-label={`${remaining} seconds remaining in the ${phaseLabel.toLowerCase()}`}
+                width={ring.size}
+                height={ring.size}
+                viewBox={`0 0 ${ring.size} ${ring.size}`}
+                className="absolute inset-0 -rotate-90"
               >
-                <Typography
-                  variant="h4"
-                  sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {formatClock(remaining)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {formatClock(state.plannedSeconds)} planned
-                </Typography>
-              </Box>
-            </Box>
+                <circle
+                  cx={ring.center}
+                  cy={ring.center}
+                  r={ring.radius}
+                  fill="none"
+                  strokeWidth={ring.stroke}
+                  className="stroke-muted"
+                />
+                <circle
+                  cx={ring.center}
+                  cy={ring.center}
+                  r={ring.radius}
+                  fill="none"
+                  strokeWidth={ring.stroke}
+                  strokeLinecap="round"
+                  className={isFocusPhase ? 'stroke-primary' : 'stroke-chart-2'}
+                  // A measured arc, not a spacing value: the only inline style
+                  // the ring can have.
+                  style={{
+                    strokeDasharray: ring.dashArray,
+                    strokeDashoffset: ring.dashOffset,
+                    transition: 'stroke-dashoffset 250ms linear',
+                  }}
+                />
+              </svg>
+              <div className="flex flex-col items-center">
+                <span className="text-3xl font-semibold tabular-nums">{formatClock(remaining)}</span>
+                <span className="text-xs text-muted-foreground">{formatClock(state.plannedSeconds)} planned</span>
+              </div>
+            </div>
 
             {/*
              * One row, three equal columns.
@@ -382,135 +377,92 @@ export default function PomodoroPage() {
              * and the group sat left of the ring's centre. Equal columns give
              * them one height, one baseline and one weight.
              */}
-            <Stack direction="row" spacing={1} sx={{ mt: 3.5, width: '100%', maxWidth: 384 }}>
+            <div className="mx-auto flex w-full max-w-sm items-center gap-2">
               {state.status === 'running' ? (
-                <Button
-                  size="large"
-                  variant="contained"
-                  color="inherit"
-                  fullWidth
-                  startIcon={<PauseIcon />}
-                  onClick={onPause}
-                  sx={{ px: 1, minWidth: 0, flex: 1 }}
-                >
+                <Button type="button" size="lg" className="flex-1 gap-2" onClick={onPause}>
+                  <PauseIcon />
                   Pause
                 </Button>
               ) : (
-                <Button
-                  size="large"
-                  variant="contained"
-                  fullWidth
-                  startIcon={<PlayArrowIcon />}
-                  onClick={onStart}
-                  sx={{ px: 1, minWidth: 0, flex: 1 }}
-                >
+                <Button type="button" size="lg" className="flex-1 gap-2" onClick={onStart}>
+                  {state.status === 'paused' ? <ResumeIcon /> : <PlayIcon />}
                   {state.status === 'paused' ? 'Resume' : 'Start'}
                 </Button>
               )}
-              <Button
-                size="large"
-                fullWidth
-                startIcon={<SkipNextIcon />}
-                onClick={onSkip}
-                sx={{ px: 1, minWidth: 0, flex: 1, ...TINTED_SX }}
-              >
+              <Button type="button" size="lg" variant="secondary" className="flex-1 gap-2" onClick={onSkip}>
+                <TrackNextIcon />
                 Skip
               </Button>
-              <Button
-                size="large"
-                variant="contained"
-                color="inherit"
-                fullWidth
-                startIcon={<RestartAltIcon />}
-                onClick={onReset}
-                sx={{ px: 1, minWidth: 0, flex: 1 }}
-              >
+              <Button type="button" size="lg" variant="outline" className="flex-1 gap-2" onClick={onReset}>
+                <ResetIcon />
                 Reset
               </Button>
-            </Stack>
+            </div>
 
             {selectedTask ? (
-              <Typography variant="subtitle1" color="text.secondary" noWrap sx={{ mt: 2, maxWidth: 384 }}>
+              <p className="mx-auto max-w-sm truncate text-center text-base text-muted-foreground">
                 {`Focusing on “${selectedTask.title}”`}
-              </Typography>
+              </p>
             ) : null}
-          </Stack>
 
-          {offer ? (
-            <Paper role="status" variant="outlined" sx={{ mx: 2, mt: 3, p: 2 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Session complete — did you finish the task?
-              </Typography>
-              <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.25 }}>
-                {offer.title}
-              </Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center' }}>
-                <Button
-                  variant="contained"
-                  startIcon={<CheckIcon />}
-                  loading={completeTask.isPending}
-                  onClick={() => void completeTask.run(offer.id)}
-                >
-                  Complete task
-                </Button>
-                <Button onClick={() => setOffer(null)} sx={{ color: 'text.secondary' }}>
-                  Not yet
-                </Button>
-              </Stack>
-            </Paper>
-          ) : null}
+            {offer ? (
+              <div role="status" className="rounded-xl border border-border bg-card p-card text-card-foreground">
+                <p className="text-base font-semibold">Session complete — did you finish the task?</p>
+                <p className="mt-1 truncate text-sm text-muted-foreground">{offer.title}</p>
+                <div className="mt-4 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    className="gap-2"
+                    disabled={completeTask.isPending}
+                    aria-busy={completeTask.isPending}
+                    onClick={() => void completeTask.run(offer.id)}
+                  >
+                    <CheckIcon />
+                    Complete task
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setOffer(null)}>
+                    Not yet
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
-          <Paper
-            variant="outlined"
-            sx={{
-              mx: 2,
-              mt: 3,
-              px: 2,
-              py: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <CheckIcon sx={{ fontSize: 16, color: 'success.main' }} aria-hidden />
-              <Typography variant="body1">Focus sessions today</Typography>
-            </Stack>
-            <Typography variant="body1" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              {focus.data?.completedToday ?? 0}
-            </Typography>
-          </Paper>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between rounded-xl border border-border bg-card px-card py-3 text-card-foreground">
+                <span className="flex items-center gap-2 text-base">
+                  <CheckIcon className="text-chart-2" />
+                  Focus sessions today
+                </span>
+                <span className="font-semibold tabular-nums">{focus.data?.completedToday ?? 0}</span>
+              </div>
 
-          <Paper
-            variant="outlined"
-            sx={{
-              mx: 2,
-              mt: 1,
-              px: 2,
-              py: 1.5,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <TimerOutlinedIcon sx={{ fontSize: 16, color: 'primary.main' }} aria-hidden />
-              <Typography variant="body1">Focus time today</Typography>
-            </Stack>
-            <Typography variant="body1" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              {todayFocusMinutes > 0 ? humanDuration(todayFocusMinutes) : '—'}
-            </Typography>
-          </Paper>
+              <div className="flex items-center justify-between rounded-xl border border-border bg-card px-card py-3 text-card-foreground">
+                <span className="flex items-center gap-2 text-base">
+                  <LapTimerIcon className="text-primary" />
+                  Focus time today
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {todayFocusMinutes > 0 ? humanDuration(todayFocusMinutes) : '—'}
+                </span>
+              </div>
+            </div>
 
-          <Typography variant="body2" color="text.secondary" sx={{ px: 2, pt: 2 }}>
-            {config.focusMinutes} min focus · {config.shortBreakMinutes} min short break · {config.longBreakMinutes} min
-            long break every {config.longBreakEvery} sessions.{' '}
-            <Link component={NextLink} href="/settings/advanced" sx={{ fontWeight: 600 }}>
-              Change in Settings
-            </Link>
-          </Typography>
-        </>
-      )}
-    </Box>
+            <p className="text-sm text-muted-foreground">
+              {config.focusMinutes} min focus · {config.shortBreakMinutes} min short break · {config.longBreakMinutes} min
+              long break every {config.longBreakEvery} sessions.{' '}
+              <NextLink href="/settings/advanced" className="font-semibold text-primary underline-offset-4 hover:underline">
+                Change in Settings
+              </NextLink>
+            </p>
+          </>
+        )}
+      </div>
+
+      {/*
+       * Mounted once and driven imperatively: the burst celebrates a phase that
+       * ended, it is not state the page re-renders over.
+       */}
+      <Confetti ref={confettiRef} />
+    </>
   );
 }

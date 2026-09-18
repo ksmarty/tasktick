@@ -1,18 +1,6 @@
 import type { Metadata, Viewport } from 'next';
-import { THEME_COLOR } from '@/lib/theme-colors';
 import { cookies } from 'next/headers';
 import './globals.css';
-// Roboto, bundled rather than fetched: the build needs no network and the
-// installed PWA keeps its type offline. Latin only — the app ships in English.
-import '@fontsource/roboto/latin-300.css';
-import '@fontsource/roboto/latin-400.css';
-import '@fontsource/roboto/latin-500.css';
-import '@fontsource/roboto/latin-700.css';
-import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter';
-import InitColorSchemeScript from '@mui/material/InitColorSchemeScript';
-import CssBaseline from '@mui/material/CssBaseline';
-import { ThemeProvider } from '@mui/material/styles';
-import theme from '@/theme';
 import { Providers } from './providers';
 import { ACCENT_COLORS } from '@/lib/types';
 
@@ -32,8 +20,8 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: APP_NAME,
-    // `default` keeps the status bar legible against our light chrome; both
-    // appearances are handled by the theme tokens in globals.css.
+    // `default` keeps the status bar legible against the light chrome; both
+    // appearances are handled by the `theme-color` meta below.
     statusBarStyle: 'default',
   },
   formatDetection: { telephone: false, email: false, address: false },
@@ -55,20 +43,25 @@ export const metadata: Metadata = {
 };
 
 /**
+ * GodUI's Celestial Sapphire background, per appearance, for the OS-drawn band.
+ *
+ * These mirror `--background` in `globals.css` (`oklch(1 0 0)` light,
+ * `oklch(0.145 0 0)` dark). They are duplicated as hex because `theme-color`
+ * has to be correct in the very first HTML response — before any CSS is parsed,
+ * and long before a script could read a custom property back out.
+ *
  * The band behind the status bar and the Dynamic Island is painted by the OS
- * from `theme-color` — it is not the page background, which is why giving `html`
- * a background did nothing for it.
- *
- * iOS honours a single `theme-color` and ignores the `media` attribute, taking
- * whichever tag it finds last. Emitting the light/dark pair therefore handed it
- * `#000000` in both appearances, and the band came out black across the top of
- * a light app. So exactly one value is emitted, chosen for the appearance this
- * request will actually use.
- *
- * `system` cannot be resolved on the server, so it starts light and the client
- * corrects it on the first effect (see `providers.tsx`). A wrong value for one
- * frame is invisible; a wrong value for the whole session was the bug.
+ * from this meta; it is not the page background, so giving `html` a background
+ * does nothing for it. iOS honours a single `theme-color` and ignores the
+ * `media` attribute, taking whichever tag it finds last — so exactly one value
+ * is emitted, chosen for the appearance this request will actually use.
+ * Emitting the light/dark pair is what painted the band black over a light app.
  */
+const THEME_COLOR = {
+  light: '#ffffff',
+  dark: '#252525',
+} as const;
+
 export async function generateViewport(): Promise<Viewport> {
   const store = await cookies();
   const preference = store.get('tasktick-theme')?.value;
@@ -77,7 +70,7 @@ export async function generateViewport(): Promise<Viewport> {
     width: 'device-width',
     initialScale: 1,
     // `viewport-fit=cover` is what lets the app paint under the Dynamic Island and
-    // the home indicator; globals.css then insets content with env(safe-area-*).
+    // the home indicator; components inset themselves with env(safe-area-*).
     viewportFit: 'cover',
     // Locking zoom keeps the installed app feeling native. The 16px minimum input
     // font-size (globals.css) is what prevents iOS from zooming on focus.
@@ -117,30 +110,30 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             media={screen.media}
           />
         ))}
-      </head>
-      <body>
         {/*
-         * Applies the colour scheme before first paint. MUI writes the palette
-         * as CSS custom properties and this swaps the class on `<html>`, so a
-         * dark-mode user never sees a white flash — the job the hand-rolled
-         * inline script used to do, now owned by MUI.
-         */}
-        <InitColorSchemeScript attribute="class" defaultMode={themeCookie === 'dark' ? 'dark' : themeCookie === 'light' ? 'light' : 'system'} />
+          Resolves the appearance before first paint so a dark-mode user never
+          sees a white flash. Kept tiny and synchronous, and it must tolerate
+          localStorage being unavailable (Safari private mode).
 
-        {/*
-         * Collects the styles MUI generates on the server and puts them in the
-         * head. Next streams the HTML in chunks, and without this the Emotion
-         * styles land in the body and flash on the first paint.
-         */}
-        <AppRouterCacheProvider options={{ key: 'mui' }}>
-          <ThemeProvider theme={theme} defaultMode={themeCookie === 'dark' ? 'dark' : themeCookie === 'light' ? 'light' : 'system'}>
-            {/* Material's baseline: normalises the document and drives `color-scheme`. */}
-            <CssBaseline enableColorScheme />
-            <Providers initialTheme={themeCookie} initialAccent={accent}>
-              {children}
-            </Providers>
-          </ThemeProvider>
-        </AppRouterCacheProvider>
+          This toggles the `dark` class that GodUI's tokens are keyed on
+          (`@custom-variant dark (&:where(.dark, .dark *))` in globals.css).
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{
+var s=localStorage.getItem('tasktick-theme')||${JSON.stringify(themeCookie)};
+var d=s==='dark'||(s!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+document.documentElement.classList.toggle('dark',d);
+var a=localStorage.getItem('tasktick-accent')||${JSON.stringify(accent)};
+document.documentElement.setAttribute('data-accent',a);
+}catch(e){}})();`,
+          }}
+        />
+      </head>
+      <body className="bg-background text-foreground antialiased">
+        <Providers initialTheme={themeCookie} initialAccent={accent}>
+          {children}
+        </Providers>
       </body>
     </html>
   );

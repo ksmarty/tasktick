@@ -9,20 +9,26 @@
  * received, which is what keeps "what is on screen" equal to "what was asked
  * for". The colour dot is resolved with the calendar's `colorOverride`.
  *
+ * A row is `[dot] [name button] [switch]`: the name is its own button (so
+ * "pin the view to this calendar" and "show this calendar" are two
+ * independently focusable controls rather than one row with a hidden second
+ * action), and the switch carries its own accessible name. The old
+ * `ListItemButton`/`secondaryAction` pair did the same thing with two nested
+ * focus targets, which is exactly the shape MUI's list item made awkward.
+ *
  * It is not mounted by the calendar screen (the shell's sidebar and the filter
  * chip cover the same ground), but it is part of the feature's public surface
- * and is kept on Material like the rest of it.
+ * and is kept on the same primitives as the rest of it.
+ *
+ * The colour dot is painted from `accentHex`, which is a runtime accent lookup
+ * and therefore the one thing here that has to be an inline `style`.
  */
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Check from '@mui/icons-material/Check';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import Switch from '@mui/material/Switch';
-import Typography from '@mui/material/Typography';
-import Add from '@mui/icons-material/Add';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { accentHex, resolveCalendarColor } from '@/lib/colors';
+import { cn } from '@/lib/utils';
 import type { Calendar } from '@/lib/types';
 import type { CalendarFilter } from './types';
 
@@ -48,65 +54,64 @@ export function CalendarSidebar({
   onCreateEvent,
 }: CalendarSidebarProps) {
   return (
-    <Box sx={{ display: 'grid', gap: 2, py: 2 }}>
-      <Box sx={{ mx: 2 }}>
-        <Typography variant="overline" component="h2" color="text.secondary" sx={{ display: 'block', pb: 0.5 }}>
+    <div className="flex flex-col gap-stack py-card">
+      <section className="flex flex-col">
+        <h2 className="px-gutter pb-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           Calendars
-        </Typography>
-        <List disablePadding>
+        </h2>
+
+        <ul className="flex flex-col">
           {calendars.map((calendar) => {
             const color = resolveCalendarColor(calendar.color, calendar.colorOverride);
             const visible = visibility[calendar.id] ?? calendar.isVisible;
             const focused = filter?.id === calendar.id;
 
             return (
-              <ListItem
-                key={calendar.id}
-                disablePadding
-                secondaryAction={
-                  <Switch
-                    size="small"
-                    checked={visible}
-                    onChange={(input) => onToggleVisibility(calendar, input.target.checked)}
-                    slotProps={{ input: { 'aria-label': `Show ${calendar.name}` } }}
-                  />
-                }
-                sx={{ minHeight: 44 }}
-              >
-                <Box
+              <li key={calendar.id} className="flex min-h-11 items-center gap-3 px-gutter">
+                <span
                   aria-hidden
-                  sx={{ width: 10, height: 10, ml: 2, mr: 1.5, flexShrink: 0, borderRadius: '50%', bgcolor: accentHex(color) }}
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: accentHex(color) }}
                 />
-                <ListItemButton
+
+                <button
+                  type="button"
                   onClick={() => (focused ? onClearFilter() : onFocusCalendar(calendar))}
                   aria-pressed={focused}
-                  sx={{ minWidth: 0, borderRadius: 1, pr: 7 }}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-2 text-left text-sm"
                 >
-                  <Typography
-                    variant="body2"
-                    noWrap
-                    sx={{ flex: 1, fontWeight: focused ? 600 : 400, color: focused ? 'primary.main' : 'text.primary' }}
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 truncate',
+                      focused ? 'font-semibold text-primary' : 'text-foreground',
+                    )}
                   >
                     {calendar.name}
-                  </Typography>
-                  {focused ? <Check aria-hidden sx={{ fontSize: 16, color: 'primary.main' }} /> : null}
-                </ListItemButton>
-              </ListItem>
+                  </span>
+                  {focused ? <CheckIcon aria-hidden className="size-4 shrink-0 text-primary" /> : null}
+                </button>
+
+                <Switch
+                  aria-label={`Show ${calendar.name}`}
+                  checked={visible}
+                  onCheckedChange={(checked) => onToggleVisibility(calendar, checked)}
+                />
+              </li>
             );
           })}
-        </List>
-        {calendars.length === 0 ? (
-          <Typography variant="body2" color="text.disabled" sx={{ px: 0.5, py: 1 }}>
-            No calendars yet.
-          </Typography>
-        ) : null}
-      </Box>
+        </ul>
 
-      <Box sx={{ mx: 2 }}>
-        <Button variant="contained" fullWidth startIcon={<Add />} onClick={onCreateEvent}>
+        {calendars.length === 0 ? (
+          <p className="px-gutter py-1 text-sm text-muted-foreground">No calendars yet.</p>
+        ) : null}
+      </section>
+
+      <div className="px-gutter">
+        <Button type="button" className="w-full" onClick={onCreateEvent}>
+          <PlusIcon className="size-4" />
           New event
         </Button>
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 }

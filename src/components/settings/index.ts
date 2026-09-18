@@ -5,7 +5,7 @@
  * `caldav.ts`, `push.ts` and `clipboard.ts`) stay importable but are not part of
  * the barrel.
  */
-export { SettingsGroup, type SettingsGroupProps } from './SettingsGroup';
+export { SettingsGroup, SettingsRow, SETTINGS_ROW_CLASS, type SettingsGroupProps, type SettingsRowProps } from './SettingsGroup';
 export { AccountSettings, type AccountSettingsProps } from './AccountSettings';
 export { AppearanceSettings } from './AppearanceSettings';
 export { DateTimeSettings, listTimeZones, type DateTimeSettingsProps } from './DateTimeSettings';

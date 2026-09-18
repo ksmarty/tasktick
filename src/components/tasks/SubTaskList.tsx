@@ -8,18 +8,13 @@
  * gesture as the inline quick-add.
  */
 import { useState } from 'react';
-import Add from '@mui/icons-material/Add';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Checkbox from '@mui/material/Checkbox';
-import Delete from '@mui/icons-material/Delete';
-import IconButton from '@mui/material/IconButton';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { TrashIcon } from '@svg-animated-icons/react/trash';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import type { SubTask } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 export interface SubTaskListProps {
   subtasks: readonly SubTask[];
@@ -29,6 +24,16 @@ export interface SubTaskListProps {
   onAdd: (title: string) => void | Promise<void>;
   disabled?: boolean;
 }
+
+/**
+ * The shadcn `Input`'s chrome, removed.
+ *
+ * A rename field is a line of text in a row, not a boxed control: the border, the
+ * shadow, the focus ring and the horizontal padding all go, so the row — not the
+ * field — owns the look.
+ */
+const BARE_INPUT_CLASS =
+  'h-auto min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0';
 
 export function SubTaskList({
   subtasks,
@@ -54,29 +59,26 @@ export function SubTaskList({
   }
 
   return (
-    <Box>
+    <div className="flex flex-col">
       {subtasks.length ? (
-        <List sx={{ py: 0, bgcolor: 'background.paper', borderRadius: 1.5 }}>
+        <ul className="overflow-hidden rounded-xl bg-card text-card-foreground">
           {subtasks.map((subtask) => {
             const completed = subtask.status === 'completed';
             return (
-              <ListItem key={subtask.id} sx={{ gap: 1, pr: 0.5, pl: 1 }}>
+              <li key={subtask.id} className="flex min-h-11 items-center gap-2 pr-1 pl-2">
                 <Checkbox
                   checked={completed}
                   disabled={disabled}
-                  onChange={() => onToggle(subtask)}
-                  slotProps={{
-                    input: {
-                      'aria-label': completed ? `Mark ${subtask.title} incomplete` : `Complete ${subtask.title}`,
-                      'aria-checked': completed,
-                    },
-                  }}
+                  onCheckedChange={() => onToggle(subtask)}
+                  aria-label={completed ? `Mark ${subtask.title} incomplete` : `Complete ${subtask.title}`}
+                  aria-checked={completed}
                 />
 
-                <TextField
-                  variant="standard"
+                <Input
                   defaultValue={subtask.title}
                   disabled={disabled}
+                  aria-label={`Rename ${subtask.title}`}
+                  className={cn(BARE_INPUT_CLASS, completed && 'text-muted-foreground line-through')}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault();
@@ -88,48 +90,39 @@ export function SubTaskList({
                     if (next && next !== subtask.title) onRename(subtask, next);
                     else event.target.value = subtask.title;
                   }}
-                  slotProps={{
-                    input: { disableUnderline: true },
-                    htmlInput: { 'aria-label': `Rename ${subtask.title}` },
-                  }}
-                  sx={{
-                    flex: 1,
-                    minWidth: 0,
-                    '& input': {
-                      color: completed ? 'text.secondary' : 'text.primary',
-                      textDecoration: completed ? 'line-through' : 'none',
-                    },
-                  }}
                 />
 
-                <IconButton
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label={`Delete subtask ${subtask.title}`}
-                  color="error"
-                  size="small"
                   disabled={disabled}
                   onClick={() => onDelete(subtask)}
+                  className="text-destructive"
                 >
-                  <Delete sx={{ fontSize: 20 }} />
-                </IconButton>
-              </ListItem>
+                  <span aria-hidden>
+                    <TrashIcon className="size-5" />
+                  </span>
+                </Button>
+              </li>
             );
           })}
-        </List>
+        </ul>
       ) : null}
 
       {adding ? (
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ alignItems: 'center', mt: 1, px: 2, minHeight: 48 }}
-        >
-          <Add sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />
-          <TextField
-            variant="standard"
+        <div className="mt-2 flex min-h-11 items-center gap-2 px-4">
+          <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground" aria-hidden>
+            <PlusIcon className="size-5" />
+          </span>
+          <Input
             autoFocus
             value={draft}
             disabled={disabled}
             placeholder="Subtask"
+            aria-label="New subtask"
+            className={BARE_INPUT_CLASS}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
@@ -142,35 +135,30 @@ export function SubTaskList({
               }
             }}
             onBlur={() => void commitNew()}
-            slotProps={{
-              input: { disableUnderline: true },
-              htmlInput: { 'aria-label': 'New subtask' },
-            }}
-            sx={{ flex: 1, minWidth: 0 }}
           />
-        </Stack>
+        </div>
       ) : (
         <Button
-          fullWidth
+          type="button"
+          variant="ghost"
           disabled={disabled}
           onClick={() => setAdding(true)}
-          startIcon={<Add sx={{ fontSize: 20 }} />}
-          sx={{
-            justifyContent: 'flex-start',
-            mt: subtasks.length ? 1 : 0,
-            px: 2,
-            minHeight: 48,
-            color: 'primary.main',
-          }}
+          className={cn(
+            'min-h-11 w-full justify-start gap-2 rounded-lg text-primary hover:text-primary',
+            subtasks.length ? 'mt-2' : null,
+          )}
         >
+          <span aria-hidden>
+            <PlusIcon className="size-5" />
+          </span>
           Add subtask
           {subtasks.length ? (
-            <Typography variant="caption" sx={{ ml: 'auto', color: 'text.secondary' }}>
+            <span className="ml-auto text-xs text-muted-foreground">
               {done}/{subtasks.length} done
-            </Typography>
+            </span>
           ) : null}
         </Button>
       )}
-    </Box>
+    </div>
   );
 }

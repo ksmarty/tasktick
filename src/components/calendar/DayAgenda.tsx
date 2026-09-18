@@ -17,18 +17,26 @@
  * lands on the time first and the name second.
  *
  * Colour is never the only signal. A task is drawn with a checkbox glyph and a
- * softer leading edge than an event's solid one, so "a to-do I scheduled" is
- * never mistaken for "a meeting I was invited to".
+ * softer card surface than an event's, so "a to-do I scheduled" is never
+ * mistaken for "a meeting I was invited to".
  *
- * The whole row is one focusable `ListItemButton` whose accessible name carries
- * the time, the title and the item's kind, because the visual layout (a gutter,
- * a rule and a two-line card) does not survive as a linear reading order on its
- * own.
+ * The whole row is one real `button` whose accessible name carries the time, the
+ * title and the item's kind, because the visual layout (a gutter, a rule and a
+ * two-line card) does not survive as a linear reading order on its own.
+ *
+ * ## The stripe
+ *
+ * The per-calendar stripe is `border-l-4` in a `--edge-color` custom property
+ * written inline — the colour is a runtime accent lookup, so it is the one thing
+ * here that genuinely cannot be a class. Four pixels rather than the old three
+ * because three is not on Tailwind's scale. It stays a border rather than an
+ * inset shadow so it follows the card's own corner, and the accent is reused for
+ * the range line so stripe and time agree.
  *
  * Dragging a row horizontally moves the item by whole days. It goes through the
  * same `useItemDrag` hook as before, so the lift threshold, the click-swallow
  * and the Escape-to-cancel behaviour are identical everywhere in the calendar.
- * The drag measures `listRef`, so that ref stays on the scrolling `List` node.
+ * The drag measures `listRef`, so that ref stays on the scrolling `<ul>` node.
  *
  * The pane adds no bottom padding of its own. The shell's `main` already
  * reserves the tab band, and the floating action button shares that one row with
@@ -47,17 +55,14 @@
  * screen-reader announcement of the selected day lives in `CalendarToolbar`,
  * where it belongs.
  */
-import { useRef } from 'react';
-import Box from '@mui/material/Box';
-import Divider from '@mui/material/Divider';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import Typography from '@mui/material/Typography';
-import { useColorScheme } from '@mui/material/styles';
-import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
+import { useRef, type CSSProperties } from 'react';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { CheckboxIcon } from '@svg-animated-icons/react/checkbox';
+import { useAppearance } from '@/app/providers';
+import { Separator } from '@/components/ui/separator';
 import { accentHex } from '@/lib/colors';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
+import { cn } from '@/lib/utils';
 import type { CalendarItem } from '@/lib/types';
 import { itemColor } from './colors';
 import { DragGhostLabel } from './DragGhostLabel';
@@ -73,6 +78,9 @@ import type { CalendarInteraction, CalendarLookup, CalendarPrefs, ItemOpenHandle
  * day, and the index sits in the middle so the item can move either way.
  */
 const DRAG_COLUMNS = 7;
+
+/** The gutter column's width; the times are right-aligned inside it. */
+const GUTTER_WIDTH_CLASS = 'w-14';
 
 export interface DayAgendaProps {
   /** `payload.days[date] ?? []`, straight from the server. */
@@ -94,8 +102,7 @@ export function DayAgenda({
 }: DayAgendaProps) {
   const listRef = useRef<HTMLUListElement>(null);
   /** The resolved appearance, so an accent token maps to the right hex. */
-  const { colorScheme } = useColorScheme();
-  const dark = colorScheme === 'dark';
+  const dark = useAppearance().resolvedTheme === 'dark';
 
   const drag = useItemDrag({
     hourHeight: 0,
@@ -120,32 +127,26 @@ export function DayAgenda({
   });
 
   return (
-    <Box sx={{ display: 'flex', minHeight: 0, flex: 1, flexDirection: 'column' }}>
-      <List
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ul
         ref={listRef}
         /*
-         * `touchAction: pan-y` belongs on the scroller, not on the section around
-         * it: touch-action is resolved up to the nearest scrolling element, so a
+         * `touch-pan-y` belongs on the scroller, not on the section around it:
+         * touch-action is resolved up to the nearest scrolling element, so a
          * value on an ancestor of this `ul` is ignored. Without it the browser
          * claims a horizontal touch as a pan and cancels the pointer series,
          * which killed the day-swipe; with it, vertical scrolls still pass
          * through to the list and the horizontal drag stays ours.
+         *
+         * The scrollbar is hidden because the list is a thin column on a phone
+         * and a persistent bar in it reads as a layout defect, not as a
+         * scrollbar.
          */
-        sx={{
-          minHeight: 0,
-          flex: 1,
-          overflowY: 'auto',
-          overscrollBehaviorY: 'contain',
-          touchAction: 'pan-y',
-          px: 1.5,
-          py: 0,
-          pb: 1,
-          scrollbarWidth: 'none',
-          '&::-webkit-scrollbar': { display: 'none' },
-        }}
+        className="flex min-h-0 flex-1 flex-col gap-stack touch-pan-y overflow-y-auto overscroll-contain px-gutter pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {items.map((item) => {
           const color = itemColor(item, calendars);
+          const hex = accentHex(color, dark);
           const isTask = item.kind === 'task';
           const done = Boolean(item.completed);
           // The gutter carries the start of the row; the card carries the range.
@@ -168,8 +169,9 @@ export function DayAgenda({
           const dragging = drag.ghost?.item.key === item.key;
 
           return (
-            <ListItem key={item.key} disablePadding sx={{ mb: 0.75 }}>
-              <ListItemButton
+            <li key={item.key}>
+              <button
+                type="button"
                 data-item-block="true"
                 aria-label={accessibleName}
                 onClick={() => onOpenItem(item)}
@@ -180,145 +182,76 @@ export function DayAgenda({
                     cellIndex: Math.floor(DRAG_COLUMNS / 2),
                   })
                 }
-                sx={[
-                  {
-                    alignItems: 'stretch',
-                    gap: 1,
-                    p: 0,
-                    textAlign: 'left',
-                    bgcolor: 'transparent',
-                    // Tasks are drawn softer than events — together with the
-                    // checkbox glyph it is what keeps the two kinds apart at a
-                    // glance.
-                    opacity: done ? 0.6 : 1,
-                  },
-                  dragging ? { position: 'relative', zIndex: 40 } : null,
-                ]}
+                className={cn(
+                  'flex w-full cursor-pointer items-stretch gap-3 text-left',
+                  // Tasks read softer than events — together with the checkbox
+                  // glyph it is what keeps the two kinds apart at a glance.
+                  done && 'opacity-60',
+                  dragging && 'relative z-40',
+                )}
                 style={dragging ? { transform: `translate3d(${drag.ghost?.offsetX ?? 0}px, 0, 0)` } : undefined}
               >
-                <Typography
-                  variant="caption"
-                  sx={{
-                    width: 56,
-                    flexShrink: 0,
-                    pt: 1,
-                    textAlign: 'right',
-                    color: 'text.secondary',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
+                <span
+                  className={cn(
+                    GUTTER_WIDTH_CLASS,
+                    'shrink-0 pt-2 text-right text-xs text-muted-foreground tabular-nums',
+                  )}
                 >
                   {gutterLabel}
-                </Typography>
+                </span>
 
                 {/* The hairline the times are aligned against. */}
-                <Divider orientation="vertical" flexItem />
+                <Separator orientation="vertical" />
 
-                <Box
-                  sx={{
-                    display: 'flex',
-                    minWidth: 0,
-                    flex: 1,
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    py: 1,
-                    pr: 1.25,
-                    pl: 1.5,
-                    borderRadius: 2,
-                    bgcolor: 'action.hover',
-                    /*
-                     * The leading bar: a 3px stripe the full height of the card,
-                     * so the row's calendar is visible even when it is scrolled
-                     * mostly out of view. Drawn as an inset shadow rather than a
-                     * border so it follows the card's own corner instead of
-                     * arcing away from it.
-                     */
-                    boxShadow: `inset 3px 0 0 0 ${accentHex(color, dark)}`,
-                  }}
+                <span
+                  className="flex min-w-0 flex-1 flex-col justify-center rounded-lg border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2"
+                  style={{ '--edge-color': hex } as CSSProperties}
                 >
                   {/* An all-day row has no range to show; the gutter says it. */}
                   {rangeLabel ? (
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        display: 'block',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 600,
-                        color: accentHex(color, dark),
-                      }}
-                    >
+                    <span className="block truncate text-xs font-semibold" style={{ color: hex }}>
                       {rangeLabel}
-                    </Typography>
+                    </span>
                   ) : null}
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      mt: 0.5,
-                      display: 'block',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      color: 'text.primary',
-                      textDecoration: done ? 'line-through' : 'none',
-                    }}
+
+                  <span
+                    className={cn(
+                      'mt-0.5 block truncate text-sm text-foreground',
+                      done && 'line-through',
+                    )}
                   >
                     {isTask ? (
-                      <Box component="span" aria-hidden sx={{ mr: 0.5 }}>
-                        {done ? '☑' : '☐'}
-                      </Box>
+                      <span
+                        aria-hidden
+                        className={cn('mr-1 inline-flex align-[-0.15em]', done ? 'text-primary' : 'text-muted-foreground')}
+                      >
+                        <CheckboxIcon className="size-3.5 text-sm" disableHover />
+                      </span>
                     ) : null}
                     {item.title}
-                  </Typography>
+                  </span>
+
                   {item.location ? (
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        mt: 0.5,
-                        display: 'block',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        color: 'text.secondary',
-                      }}
-                    >
-                      {item.location}
-                    </Typography>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.location}</span>
                   ) : null}
-                </Box>
-              </ListItemButton>
-            </ListItem>
+                </span>
+              </button>
+            </li>
           );
         })}
 
         {items.length === 0 ? (
-          <ListItem disablePadding>
-            <Box
-              sx={{
-                display: 'flex',
-                width: '100%',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 1,
-                px: 2,
-                py: 4,
-                textAlign: 'center',
-                color: 'text.secondary',
-              }}
-            >
-              <CalendarMonthOutlined aria-hidden sx={{ fontSize: 32, color: 'text.disabled' }} />
-              <Typography variant="subtitle2" color="text.primary">
-                Nothing scheduled
-              </Typography>
-              <Typography variant="body2">
-                This day is clear. Add an event, or drag one here from another day.
-              </Typography>
-            </Box>
-          </ListItem>
+          <li className="flex flex-col items-center gap-2 px-gutter py-8 text-center">
+            <CalendarIcon aria-hidden className="size-8 text-3xl text-muted-foreground" disableHover />
+            <p className="text-sm font-semibold text-foreground">Nothing scheduled</p>
+            <p className="text-sm text-muted-foreground">
+              This day is clear. Add an event, or drag one here from another day.
+            </p>
+          </li>
         ) : null}
-      </List>
+      </ul>
 
       {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}
-    </Box>
+    </div>
   );
 }

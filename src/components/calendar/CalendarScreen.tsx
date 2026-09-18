@@ -20,25 +20,40 @@
  * grid's paging track, so a swipe shows the month it is dragging to. The same
  * two reads are what warm the cache when the swipe commits — paging, or
  * selecting a day just past the month edge, therefore renders from cache instead
- * of flashing a skeleton. The layout is a plain CSS breakpoint rather than a
- * media-query hook: on a phone the grid is a fixed share of the viewport and the
- * agenda takes the rest; on a wide screen the two sit side by side, the agenda a
- * fixed 380px column.
+ * of flashing a skeleton.
  *
- * Material owns the surfaces: the grid is a `Paper`, the agenda a `List`, and
- * the two overlays are `Dialog`s. This file is still only layout and wiring —
- * no data fetching or date arithmetic changed.
+ * ## Layout
+ *
+ * The grid is sized by its own content — six 36px rows — not by a share of the
+ * viewport: a viewport share stretched every row on a phone (~62px of mostly
+ * empty cell) and pushed the agenda down. The agenda takes the rest, and on a
+ * wide screen the two sit side by side with the agenda a fixed column
+ * (`lg:w-96`). The layout is a plain CSS breakpoint rather than a media-query
+ * hook, so there is one source of truth for the two shapes.
+ *
+ * On a phone the grid is inset by the page gutter (`mx-gutter` on the month
+ * card) because the shell deliberately does not apply one — it cannot know which
+ * screens are full-bleed — and the agenda's list carries its own. Both come from
+ * the same token, so the grid's numbers and the agenda's cards share one left
+ * edge. On `lg` the gutter moves out to this container instead, and the card
+ * drops its own (`lg:mx-0`).
+ *
+ * ## Overlays and feedback
+ *
+ * The day sheet is the GodUI `Drawer` (a bottom sheet) and the event editor a
+ * shadcn `Dialog`; both are portalled, so neither disturbs this layout. Write
+ * failures surface through the app's single toast surface (`useToast`) rather
+ * than a screen-local snackbar — a reschedule that fails must say so after the
+ * block has already sprung back, and a save that succeeds must say so after the
+ * dialog that raised it has closed.
  */
 import { usePrimaryAction } from '@/lib/events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Skeleton from '@mui/material/Skeleton';
-import Snackbar from '@mui/material/Snackbar';
-import Typography from '@mui/material/Typography';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
+import { useToast } from '@/components/app/Toast';
+import { Skeleton } from '@/components/ui/skeleton';
 import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
 import {
@@ -84,6 +99,7 @@ export interface CalendarScreenProps {
 export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScreenProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { toast } = useToast();
 
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const settings = bootstrap.data?.settings;
@@ -96,8 +112,6 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const [filterId, setFilterId] = useState<string | null>(initialCalendarId);
   const [daySheetDate, setDaySheetDate] = useState<DateOnly | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; eventId: string | null; defaults: EventDefaults } | null>(null);
-  /** A write that failed, shown the way Material shows transient feedback. */
-  const [notice, setNotice] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
 
   // One mutable gesture record, shared with the grid and the agenda: it is how a
   // paging swipe knows to stand down during a drag, and how a drag swallows the
@@ -330,10 +344,14 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
               ? moveItemInPayload(data, item.key, { startMs: item.startMs, endMs: item.endMs }, prefs.zone)
               : data,
           );
-          setNotice({ message: `Could not reschedule. ${errorMessage(error)}`, severity: 'error' });
+          toast({
+            title: 'Could not reschedule',
+            description: errorMessage(error),
+            variant: 'error',
+          });
         });
     },
-    [resource, payload, prefs],
+    [resource, payload, prefs, toast],
   );
 
   /* ------------------------------------------------------------------ */
@@ -404,37 +422,36 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   return (
     <>
-      <Box sx={{ display: 'flex', height: '100%', minHeight: 0, flexDirection: 'column' }}>
+      <div className="flex min-h-0 flex-1 flex-col">
         <CalendarToolbar
           label={monthLabel}
           selectedLabel={fromDateOnly(selected, prefs.zone).toFormat('cccc d LLLL yyyy')}
         />
 
         {filterCalendar && filterHex ? (
-          <Box sx={{ display: 'flex', flexShrink: 0, alignItems: 'center', px: 2, pb: 0.75 }}>
-            <Chip
-              label={filterCalendar.name}
-              onDelete={() => setFilterId(null)}
+          <div className="flex shrink-0 items-center px-gutter pb-2 lg:px-card">
+            {/*
+              The active calendar filter. One button whose accessible name says
+              what it does — a chip with a delete cross was two controls for one
+              outcome, and the cross was a 16px target.
+            */}
+            <button
+              type="button"
+              onClick={() => setFilterId(null)}
               aria-label={`Stop filtering by ${filterCalendar.name}`}
-              sx={{
-                bgcolor: filterHex,
+              className="inline-flex min-h-8 cursor-pointer items-center gap-2 rounded-full px-3 text-xs font-medium"
+              style={{
+                backgroundColor: filterHex,
                 color: readableTextOn(filterHex) === 'dark' ? '#1c1c1e' : '#ffffff',
-                '& .MuiChip-deleteIcon': { color: 'inherit' },
               }}
-            />
-          </Box>
+            >
+              {filterCalendar.name}
+              <Cross1Icon aria-hidden className="size-3.5 text-base" disableHover />
+            </button>
+          </div>
         ) : null}
 
-        <Box
-          sx={{
-            display: 'flex',
-            minHeight: 0,
-            flex: 1,
-            flexDirection: { xs: 'column', lg: 'row' },
-            gap: { lg: 2 },
-            p: { lg: 1.5 },
-          }}
-        >
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:gap-gutter lg:p-gutter">
           {/*
             Sized by its own content — six 36px rows — not by a share of the
             viewport. A viewport share stretched every row on a phone (~62px of
@@ -442,16 +459,15 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
             surface now, so it only needs the room its numbers and dots occupy.
             Desktop keeps the left column.
           */}
-          <Box
-            component="section"
+          <section
             aria-label="Month"
-            sx={{ display: 'flex', minHeight: 0, flexShrink: 0, flexDirection: 'column', flex: { lg: 1 } }}
+            className="flex min-h-0 shrink-0 flex-col lg:flex-1"
           >
             {!payload ? (
               resource.error ? (
-                <Typography role="alert" variant="body2" color="error" sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                <p role="alert" className="px-gutter py-8 text-center text-sm text-destructive">
                   {resource.error}
-                </Typography>
+                </p>
               ) : (
                 <CalendarSkeleton />
               )
@@ -476,20 +492,12 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
                 onPagePreview={setPagePreview}
               />
             )}
-          </Box>
+          </section>
 
-          <Box
-            component="section"
+          <section
             aria-label="Day agenda"
             {...agendaSwipe}
-            sx={{
-              display: 'flex',
-              minHeight: 0,
-              flex: { xs: 1, lg: 'none' },
-              flexDirection: 'column',
-              height: { lg: 'auto' },
-              width: { lg: 380 },
-            }}
+            className="flex min-h-0 flex-1 flex-col lg:w-96 lg:flex-none"
           >
             <DayAgenda
               items={selectedItems}
@@ -499,9 +507,9 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
               onOpenItem={openItem}
               onReschedule={reschedule}
             />
-          </Box>
-        </Box>
-      </Box>
+          </section>
+        </div>
+      </div>
 
       <DayDetailSheet
         open={Boolean(daySheetDate)}
@@ -537,19 +545,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         prefs={prefs}
         filter={filterCalendar ? { id: filterCalendar.id, name: filterCalendar.name, color: filterCalendar.color } : null}
         onChanged={refresh}
-        onNotice={setNotice}
       />
-
-      <Snackbar
-        open={Boolean(notice)}
-        autoHideDuration={5000}
-        onClose={() => setNotice(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity={notice?.severity ?? 'error'} variant="filled" onClose={() => setNotice(null)}>
-          {notice?.message}
-        </Alert>
-      </Snackbar>
     </>
   );
 }
@@ -654,12 +650,12 @@ function defaultsFor(item: CalendarItem, prefs: CalendarPrefs): EventDefaults {
 /** The first-load placeholder: shapes only, never a fake calendar. */
 function CalendarSkeleton() {
   return (
-    <Box sx={{ display: 'flex', minHeight: 0, flex: 1, flexDirection: 'column', gap: 1, p: 2 }} aria-busy>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
+    <div className="flex min-h-0 flex-1 flex-col gap-1 p-card" aria-busy>
+      <div className="grid grid-cols-7 gap-0.5">
         {Array.from({ length: 42 }, (_, index) => (
-          <Skeleton key={index} variant="rounded" height={40} />
+          <Skeleton key={index} className="h-10 rounded-lg" />
         ))}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 }

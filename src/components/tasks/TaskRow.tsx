@@ -1,15 +1,15 @@
 'use client';
 
 /**
- * The signature list row — Material's `ListItem`, not the old hand-built one.
+ * The signature list row.
  *
- * Leading edge: a real MUI `Checkbox` inside its own touch target. Body: a
- * `ListItemButton` wrapping a `ListItemText` whose primary line carries the
- * title, the pin and the trailing due date, and whose secondary line is the
- * derived meta (`TaskMeta`). Behind the row a swipe-left reveals Complete and
- * Delete, which are MUI `Button`s. A long press either lifts the row for
- * reordering (on touch) or opens a MUI `Menu` of the extra actions (on a mouse)
- * — never both, so a finger drag is never mistaken for a context menu.
+ * Leading edge: a shadcn `Checkbox` inside its own 44px touch target. Body: a
+ * button whose first line carries the title, the pin and the trailing due date,
+ * and whose second line is the derived meta (`TaskMeta`). Behind the row a
+ * swipe-left reveals Complete and Delete. A long press either lifts the row for
+ * reordering (on touch) or — on a pointer that can hover — right-click opens a
+ * shadcn `ContextMenu` of the extra actions; never both, so a finger drag is
+ * never mistaken for a context menu.
  *
  * A pinned task carries a pin glyph beside its title, which is the one mark the
  * row adds to say "this one was pinned deliberately": it belongs on the name,
@@ -17,11 +17,13 @@
  *
  * ## The coloured edge
  *
- * Material has no equivalent of the iOS grouped-list coloured edge, so it is
- * drawn explicitly as a `borderLeft` on the section card (see `TaskListSection`)
- * — three pixels in the colour of the list most of the section's rows belong to,
- * or the theme's error colour for Overdue. The row inherits it by sitting inside
- * the card rather than painting anything of its own.
+ * Material had no equivalent of the iOS grouped-list coloured edge, so it was
+ * drawn as a `borderLeft` on the section card. That is where it still lives — the
+ * card paints it with `border-l-4 border-l-[var(--edge-color)]`, in the colour of
+ * the list most of its rows belong to (see `TaskListSection`), and the row
+ * inherits it by sitting inside the card. Four pixels rather than the old three
+ * because three is not on Tailwind's scale and the conventions are explicit that
+ * a size which is not on the scale is a size the design should not want.
  *
  * ## The drag grip
  *
@@ -29,43 +31,37 @@
  * device has is a capability question, not a width one, so this is a
  * `(hover: hover) and (pointer: fine)` test rather than a breakpoint.
  * Long-press-to-lift still works on touch because that path is driven by
- * `pointerType`, not by the grip.
+ * `pointerType`, not by the grip, and the full-screen action sheet is on a
+ * `ContextMenu` that is only mounted for a pointer that can open it — otherwise
+ * Radix's own touch long-press would race this row's lift.
  */
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
-import { keyframes } from '@emotion/react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Checkbox from '@mui/material/Checkbox';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import BlockIcon from '@mui/icons-material/Block';
-import CheckIcon from '@mui/icons-material/Check';
-import DeleteIcon from '@mui/icons-material/Delete';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import PushPinIcon from '@mui/icons-material/PushPin';
+import { motion, useReducedMotion } from 'framer-motion';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { CrossCircledIcon } from '@svg-animated-icons/react/cross-circled';
+import { DragHandleDots1Icon } from '@svg-animated-icons/react/drag-handle-dots-1';
+import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
+import { useMediaQuery } from '@/lib/store';
 import type { Task } from '@/lib/types';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
 import { DueDateLabel, TaskMeta } from './TaskMeta';
 
-/** Width of the revealed Complete + Delete pair (2 × 76px). */
+/** Width of the revealed Complete + Delete pair (2 × 76px, i.e. `w-38`). */
 export const SWIPE_ACTION_WIDTH = 152;
-/** How long a press must last before it lifts the row or opens the actions. */
+/** How long a press must last before it lifts the row. */
 const LONG_PRESS_MS = 550;
 /** Movement that cancels a long press and decides the gesture axis. */
 const GESTURE_SLOP_PX = 8;
 /** True only on a device whose primary input can hover and point precisely. */
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
-
-/** The tick's little pop. Material has no equivalent; it is a state cue, not decoration. */
-const pop = keyframes`
-  0% { transform: scale(0.82); }
-  55% { transform: scale(1.12); }
-  100% { transform: scale(1); }
-`;
 
 /** Reorder wiring, supplied by `TaskListSection`. */
 export interface TaskRowDrag {
@@ -133,11 +129,11 @@ export function TaskRow({
   const [offsetX, setOffsetX] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const gesture = useRef({ x: 0, y: 0, active: false, axis: null as null | 'x' | 'y', timer: 0, lifted: false });
 
+  const reduceMotion = useReducedMotion();
   const completed = task.status === 'completed';
   const wontDo = task.status === 'wont_do';
   const draggable = Boolean(drag?.draggable) && !selectionMode && !disabled;
@@ -203,10 +199,9 @@ export function TaskRow({
     if (!draggable || !drag) return;
     state.timer = window.setTimeout(() => {
       state.timer = 0;
-      if (event.pointerType === 'mouse') {
-        setAnchorEl(contentRef.current);
-        return;
-      }
+      // The extra actions are the pointer's long press and live on the
+      // `ContextMenu` above; this timer is the touch lift only.
+      if (event.pointerType === 'mouse') return;
       state.lifted = true;
       contentRef.current?.setPointerCapture(event.pointerId);
       drag.onLiftStart(event);
@@ -266,31 +261,132 @@ export function TaskRow({
 
   const lifted = Boolean(drag?.isLifted);
 
-  return (
-    <ListItem
-      ref={ref}
-      disablePadding
-      className={className}
-      sx={{
-        position: 'relative',
-        // The lifted row must paint over its siblings, so the raised z-index has
-        // to live on the list item rather than only on its content.
-        zIndex: lifted ? 20 : undefined,
-        borderRadius: last ? '0 0 8px 8px' : first ? '8px 8px 0 0' : undefined,
-        overflow: 'hidden',
+  const row = (
+    <div
+      ref={contentRef}
+      onDragOver={(event) => drag?.onDragOver(event)}
+      onDrop={(event) => drag?.onDrop(event)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      style={{
+        transform: `translate(${offsetX}px, ${lifted ? (drag?.liftOffset ?? 0) : 0}px)`,
+        transition: gesture.current.axis === 'x' || lifted ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
+        touchAction: 'pan-y',
       }}
+      className={cn(
+        // No background of its own: the card is the surface, so a translucent
+        // one reads as a single grouped list rather than N white slices. The
+        // lifted row needs its own solid paint, since it travels over others.
+        'relative z-10 flex min-h-11 w-full items-center gap-1 px-row',
+        lifted && 'z-20 bg-card shadow-xl',
+        disabled && 'opacity-60',
+      )}
+    >
+      <motion.span
+        className="-ml-3 grid size-11 shrink-0 place-items-center"
+        animate={justCompleted && !reduceMotion ? { scale: [0.82, 1.12, 1] } : { scale: 1 }}
+        transition={{ duration: 0.32, ease: 'easeInOut' }}
+      >
+        <Checkbox
+          checked={wontDo && !completed ? 'indeterminate' : completed}
+          disabled={disabled}
+          aria-label={completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`}
+          // The native `indeterminate` state is announced as mixed, but the
+          // explicit attribute is what the old row exposed; keep it.
+          aria-checked={completed ? true : wontDo ? 'mixed' : false}
+          onCheckedChange={toggle}
+          className={cn('size-5', wontDo && !completed && 'opacity-60')}
+        />
+      </motion.span>
+
+      <button
+        type="button"
+        onClick={() => {
+          if (disabled) return;
+          // A tap on a swiped-open row just puts the actions away, the way iOS does.
+          if (revealed) {
+            closeReveal();
+            return;
+          }
+          if (selectionMode) onSelect?.(task);
+          else onOpen(task);
+        }}
+        aria-pressed={selectionMode ? selected : undefined}
+        aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
+        className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 rounded-md px-1 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {/*
+         * The title, with the due date pinned to the row's trailing edge.
+         *
+         * The date is non-shrinking and the title grows into whatever is left, so
+         * the two share the line whenever the title fits beside the date, and when
+         * it does not, the *date* wraps to its own right-aligned line rather than
+         * the title ellipsising to make room for it.
+         */}
+        <span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-base',
+              completed && 'text-muted-foreground line-through',
+              wontDo && 'text-muted-foreground/70 line-through',
+            )}
+          >
+            {task.title}
+          </span>
+          {task.isPinned ? (
+            <span className="inline-flex shrink-0 items-center text-primary">
+              <DrawingPinIcon className="text-sm" aria-hidden />
+              <span className="sr-only">Pinned</span>
+            </span>
+          ) : null}
+          <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} className="ml-auto" />
+        </span>
+        <TaskMeta task={task} />
+      </button>
+
+      {selectionMode ? (
+        <span
+          aria-hidden
+          className={cn(
+            'grid size-6 shrink-0 place-items-center rounded-md border',
+            selected ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
+          )}
+        >
+          {selected ? <CheckIcon className="text-base" /> : null}
+        </span>
+      ) : gripVisible ? (
+        // The grip is the pointer drag handle: keeping the HTML5 drag here and
+        // not on the whole row leaves the row free for the swipe gesture.
+        <span
+          draggable
+          onDragStart={(event: DragEvent<HTMLElement>) => drag?.onDragStart(event)}
+          onDragEnd={(event: DragEvent<HTMLElement>) => drag?.onDragEnd(event)}
+          aria-hidden
+          className="-mr-2 flex w-8 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/60 active:cursor-grabbing"
+        >
+          <DragHandleDots1Icon className="text-sm" />
+        </span>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <li
+      ref={ref}
+      className={cn(
+        'relative isolate overflow-hidden',
+        first && 'rounded-t-xl',
+        last && 'rounded-b-xl',
+        className,
+      )}
     >
       {drag?.dropEdge === 'before' ? (
-        <Box
-          aria-hidden
-          sx={{ pointerEvents: 'none', position: 'absolute', inset: '0 0 auto 0', zIndex: 30, height: 2, bgcolor: 'primary.main' }}
-        />
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-30 h-0.5 bg-primary" />
       ) : null}
       {drag?.dropEdge === 'after' ? (
-        <Box
-          aria-hidden
-          sx={{ pointerEvents: 'none', position: 'absolute', inset: 'auto 0 0 0', zIndex: 30, height: 2, bgcolor: 'primary.main' }}
-        />
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-0.5 bg-primary" />
       ) : null}
 
       {/*
@@ -302,20 +398,17 @@ export function TaskRow({
        * buttons show through as red and green crescents. So they are translated
        * fully out of the card until the row is actually revealed.
        */}
-      <Box
+      <div
         aria-hidden={!revealed}
-        sx={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          right: 0,
-          display: 'flex',
+        className="absolute inset-y-0 right-0 z-0 flex w-38"
+        style={{
           transform: revealed ? 'translateX(0)' : 'translateX(100%)',
           transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
           pointerEvents: revealed ? 'auto' : 'none',
         }}
       >
-        <Button
+        <button
+          type="button"
           tabIndex={revealed ? 0 : -1}
           disabled={disabled}
           aria-label={`Complete ${task.title}`}
@@ -323,19 +416,13 @@ export function TaskRow({
             closeReveal();
             toggle();
           }}
-          sx={{
-            minWidth: SWIPE_ACTION_WIDTH / 2,
-            borderRadius: 0,
-            bgcolor: 'success.main',
-            color: 'success.contrastText',
-            fontWeight: 600,
-            '&:hover': { bgcolor: 'success.dark' },
-          }}
+          className="flex-1 bg-chart-2 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
         >
           Complete
-        </Button>
+        </button>
         {onDelete ? (
-          <Button
+          <button
+            type="button"
             tabIndex={revealed ? 0 : -1}
             disabled={disabled}
             aria-label={`Delete ${task.title}`}
@@ -343,223 +430,52 @@ export function TaskRow({
               closeReveal();
               onDelete(task);
             }}
-            sx={{
-              minWidth: SWIPE_ACTION_WIDTH / 2,
-              borderRadius: 0,
-              bgcolor: 'error.main',
-              color: 'error.contrastText',
-              fontWeight: 600,
-              '&:hover': { bgcolor: 'error.dark' },
-            }}
+            className="flex-1 bg-destructive text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
           >
             Delete
-          </Button>
+          </button>
         ) : null}
-      </Box>
+      </div>
 
-      <Box
-        ref={contentRef}
-        onDragOver={(event) => drag?.onDragOver(event)}
-        onDrop={(event) => drag?.onDrop(event)}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        style={{
-          transform: `translate(${offsetX}px, ${lifted ? (drag?.liftOffset ?? 0) : 0}px)`,
-          transition: gesture.current.axis === 'x' || lifted ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
-          touchAction: 'pan-y',
-        }}
-        sx={{
-          // No background of its own: the card is the surface, so a translucent
-          // one reads as a single grouped list rather than N white slices. The
-          // lifted row needs its own solid paint, since it travels over others.
-          position: 'relative',
-          zIndex: lifted ? 20 : 10,
-          display: 'flex',
-          minHeight: 44,
-          width: '100%',
-          alignItems: 'center',
-          gap: 1.5,
-          px: 1.5,
-          ...(lifted ? { bgcolor: 'background.paper', boxShadow: 6 } : {}),
-          ...(disabled ? { opacity: 0.6 } : {}),
-        }}
-      >
-        <Checkbox
-          checked={completed}
-          indeterminate={wontDo && !completed}
-          disabled={disabled}
-          onChange={toggle}
-          slotProps={{
-            input: {
-              'aria-label': completed ? `Mark ${task.title} incomplete` : `Complete ${task.title}`,
-              // The native `indeterminate` state is announced as mixed, but the
-              // explicit attribute is what the old row exposed; keep it.
-              'aria-checked': completed ? true : wontDo ? 'mixed' : false,
-            },
-          }}
-          sx={{
-            p: 1.25,
-            ml: -1.25,
-            flexShrink: 0,
-            '& .MuiSvgIcon-root': { fontSize: 24 },
-            ...(wontDo && !completed ? { color: 'text.disabled' } : {}),
-            ...(justCompleted ? { animation: `${pop} 320ms ease` } : {}),
-          }}
-        />
-
-        <ListItemButton
-          onClick={() => {
-            if (disabled) return;
-            // A tap on a swiped-open row just puts the actions away, the way iOS does.
-            if (revealed) {
-              closeReveal();
-              return;
-            }
-            if (selectionMode) onSelect?.(task);
-            else onOpen(task);
-          }}
-          aria-pressed={selectionMode ? selected : undefined}
-          aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
-          sx={{ flex: 1, minWidth: 0, borderRadius: 1, px: 0.5, py: 0.75 }}
-        >
-          <ListItemText
-            slotProps={{
-              primary: { component: 'div', sx: { margin: 0 } },
-              secondary: { component: 'div', sx: { margin: 0 } },
-            }}
-            primary={
-              /*
-               * The title, with the due date pinned to the row's trailing edge.
-               *
-               * The date is `flexShrink: 0` and the title grows into whatever is
-               * left, so the two share the line whenever the title fits beside
-               * the date, and when it does not, the *date* wraps to its own
-               * right-aligned line rather than the title ellipsising to make
-               * room for it.
-               */
-              <Box sx={{ display: 'flex', width: '100%', minWidth: 0, flexWrap: 'wrap', alignItems: 'center', columnGap: 1.5, rowGap: 0.25 }}>
-                <Box
-                  component="span"
-                  sx={{
-                    minWidth: 0,
-                    flexGrow: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    typography: 'body1',
-                    ...(completed ? { color: 'text.secondary', textDecoration: 'line-through' } : {}),
-                    ...(wontDo ? { color: 'text.disabled', textDecoration: 'line-through' } : {}),
-                  }}
-                >
-                  {task.title}
-                </Box>
-                {task.isPinned ? (
-                  <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0, alignItems: 'center', color: 'primary.main' }}>
-                    <PushPinIcon sx={{ fontSize: 14 }} aria-hidden />
-                    <Box component="span" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-                      Pinned
-                    </Box>
-                  </Box>
-                ) : null}
-                <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} sx={{ ml: 'auto' }} />
-              </Box>
-            }
-            secondary={<TaskMeta task={task} />}
-          />
-        </ListItemButton>
-
-        {selectionMode ? (
-          <Box
-            aria-hidden
-            sx={{
-              display: 'flex',
-              width: 24,
-              height: 24,
-              flexShrink: 0,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 1,
-              border: 1.5,
-              borderColor: selected ? 'primary.main' : 'divider',
-              bgcolor: selected ? 'primary.main' : 'transparent',
-              color: 'primary.contrastText',
-            }}
-          >
-            {selected ? <CheckIcon sx={{ fontSize: 16 }} /> : null}
-          </Box>
-        ) : gripVisible ? (
-          // The grip is the pointer drag handle: keeping the HTML5 drag here and
-          // not on the whole row leaves the row free for the swipe gesture.
-          <Box
-            component="span"
-            draggable
-            onDragStart={(event: DragEvent<HTMLElement>) => drag?.onDragStart(event)}
-            onDragEnd={(event: DragEvent<HTMLElement>) => drag?.onDragEnd(event)}
-            aria-hidden
-            sx={{
-              mr: -1,
-              display: 'flex',
-              width: 32,
-              flexShrink: 0,
-              cursor: 'grab',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'text.disabled',
-              '&:active': { cursor: 'grabbing' },
-            }}
-          >
-            <DragIndicatorIcon sx={{ fontSize: 16 }} />
-          </Box>
-        ) : null}
-      </Box>
-
-      <Menu
-        open={anchorEl !== null}
-        anchorEl={anchorEl}
-        onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      >
-        <MenuItem
-          onClick={() => {
-            setAnchorEl(null);
-            onToggle(task);
-          }}
-        >
-          <ListItemIcon>
-            {completed ? <BlockIcon fontSize="small" /> : <CheckIcon fontSize="small" />}
-          </ListItemIcon>
-          <ListItemText>{completed ? 'Mark as not done' : 'Complete'}</ListItemText>
-        </MenuItem>
-        {onWontDo && !wontDo ? (
-          <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              onWontDo(task);
-            }}
-          >
-            <ListItemIcon>
-              <BlockIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Mark as won&apos;t do</ListItemText>
-          </MenuItem>
-        ) : null}
-        {onDelete ? (
-          <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              onDelete(task);
-            }}
-            sx={{ color: 'error.main' }}
-          >
-            <ListItemIcon>
-              <DeleteIcon fontSize="small" sx={{ color: 'error.main' }} />
-            </ListItemIcon>
-            <ListItemText>Delete</ListItemText>
-          </MenuItem>
-        ) : null}
-      </Menu>
-    </ListItem>
+      {/*
+       * The extra actions, on the desktop's own gesture. Radix opens this on the
+       * `contextmenu` event, which a mouse reaches with a right click and a
+       * keyboard reaches with the context-menu key or Shift+F10 — so the row's
+       * actions are finally keyboard-reachable, which the MUI long-press menu
+       * never was. Mounted only for a pointer that can hover: on touch the long
+       * press is the lift gesture, and Radix's own touch long-press would race it.
+       */}
+      {finePointer ? (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => onToggle(task)}>
+              {completed ? (
+                <CrossCircledIcon className="text-sm" aria-hidden />
+              ) : (
+                <CheckIcon className="text-sm" aria-hidden />
+              )}
+              {completed ? 'Mark as not done' : 'Complete'}
+            </ContextMenuItem>
+            {onWontDo && !wontDo ? (
+              <ContextMenuItem onSelect={() => onWontDo(task)}>
+                <CrossCircledIcon className="text-sm" aria-hidden />
+                Mark as won&apos;t do
+              </ContextMenuItem>
+            ) : null}
+            {onDelete ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onSelect={() => onDelete(task)}>
+                  Delete
+                </ContextMenuItem>
+              </>
+            ) : null}
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        row
+      )}
+    </li>
   );
 }

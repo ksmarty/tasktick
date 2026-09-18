@@ -1,11 +1,8 @@
 import NextLink from 'next/link';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Link from '@mui/material/Link';
-import Stack from '@mui/material/Stack';
-import Typography from '@mui/material/Typography';
-import CloudOffIcon from '@mui/icons-material/CloudOff';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import { CloudOff } from 'lucide-react';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 export const metadata = { title: 'Offline' };
 export const dynamic = 'force-static';
@@ -17,71 +14,50 @@ export const dynamic = 'force-static';
  * app shell could answer. It is intentionally a static route with no data
  * dependencies so that it can be precached and always render — a fallback page
  * that itself needs the network is not a fallback. The service worker precaches
- * this document together with the assets it references, which is what keeps the
- * Material components below renderable with no connection.
+ * this document together with the assets it references, which is what keeps this
+ * page renderable with no connection, so it stays deliberately thin: layout
+ * utilities, one glyph, and no component that would pull in more script than the
+ * document itself.
+ *
+ * The button is an anchor styled with `buttonVariants()` rather than a shadcn
+ * `Button asChild`: `asChild` renders Radix's `Slot`, which uses React hooks and
+ * so cannot run in a server component — and this page must stay a server
+ * component to remain static.
  */
 export default function OfflinePage() {
   return (
-    <Box
-      component="main"
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 2.5,
-        minHeight: '100dvh',
-        textAlign: 'center',
-        bgcolor: 'background.default',
-        pl: 'calc(env(safe-area-inset-left, 0px) + 2rem)',
-        pr: 'calc(env(safe-area-inset-right, 0px) + 2rem)',
-        pt: 'calc(env(safe-area-inset-top, 0px) + 3rem)',
-        pb: 'calc(env(safe-area-inset-bottom, 0px) + 3rem)',
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 64,
-          height: 64,
-          borderRadius: 4,
-          bgcolor: 'action.hover',
-          color: 'text.secondary',
-        }}
-      >
-        <CloudOffIcon sx={{ fontSize: 32 }} aria-hidden />
-      </Box>
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-background pt-[env(safe-area-inset-top,0px)] pr-[env(safe-area-inset-right,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)]">
+      <div className="flex flex-col items-center gap-5 px-gutter py-12 text-center">
+        <div className="flex size-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+          <CloudOff aria-hidden className="size-8" />
+        </div>
 
-      <Stack spacing={1}>
-        <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
-          You are offline
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
-          TaskTick could not reach the server. Anything you already loaded is still available, and your changes
-          will sync once you are back online.
-        </Typography>
-      </Stack>
+        <div className="flex flex-col gap-2">
+          <h1 className="text-xl font-semibold">You are offline</h1>
+          <p className="max-w-xs text-sm text-muted-foreground">
+            TaskTick could not reach the server. Anything you already loaded is still available, and
+            your changes will sync once you are back online.
+          </p>
+        </div>
 
-      {/*
-        A plain anchor, not next/link: a client-side navigation would be handled by
-        the router and could fail the same way this page was reached. A MUI
-        `Button` with `href` renders an `<a>` and does exactly that.
-      */}
-      <Button
-        href="/today"
-        variant="contained"
-        size="large"
-        startIcon={<RefreshIcon aria-hidden />}
-        sx={{ textTransform: 'none' }}
-      >
-        Try again
-      </Button>
+        {/*
+          A plain anchor, not next/link: a client-side navigation would be handled by
+          the router and could fail the same way this page was reached.
+        */}
+        <a href="/today" className={cn(buttonVariants({ size: 'lg' }), 'h-11')}>
+          <span aria-hidden className="inline-flex text-base">
+            <ReloadIcon />
+          </span>
+          Try again
+        </a>
 
-      <Link component={NextLink} href="/settings" variant="body2" color="text.secondary" underline="always">
-        Go to settings
-      </Link>
-    </Box>
+        <NextLink
+          href="/settings"
+          className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+        >
+          Go to settings
+        </NextLink>
+      </div>
+    </main>
   );
 }

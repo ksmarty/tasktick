@@ -10,46 +10,31 @@
  * is what makes iOS hand the URL to Calendar instead of printing it), and lets it
  * be revoked when it leaks. A revoked URL stops working immediately, which is why
  * revocation asks for confirmation.
+ *
+ * The freshly minted URL renders as one more `SettingsGroup` rather than a
+ * bespoke paper: it is a card with a caption and a one-time warning, which is
+ * exactly what the group already is, so it lines up with the cards above it
+ * instead of inventing a second surface.
  */
 import { useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import ListItem from '@mui/material/ListItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Paper from '@mui/material/Paper';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import AddIcon from '@mui/icons-material/Add';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import DeleteIcon from '@mui/icons-material/Delete';
-import LinkIcon from '@mui/icons-material/Link';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { ClipboardCopyIcon } from '@svg-animated-icons/react/clipboard-copy';
+import { Link1Icon } from '@svg-animated-icons/react/link-1';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { TrashIcon } from '@svg-animated-icons/react/trash';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { copyText, toWebcal } from './clipboard';
-import { SettingsGroup } from './SettingsGroup';
+import { MONO_URL_BOX_CLASS } from './styles';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { IcalTokenPayload } from '@/lib/view-types';
-
-/** The box a subscription URL is shown in: monospace, selectable, wrapping. */
-const URL_BOX = {
-  p: 1.5,
-  borderRadius: 1,
-  bgcolor: 'action.hover',
-  fontFamily: 'monospace',
-  fontSize: 12,
-  color: 'text.secondary',
-  wordBreak: 'break-all',
-} as const;
 
 export function IcalSubscriptionCard() {
   const { toast } = useToast();
@@ -113,85 +98,72 @@ export function IcalSubscriptionCard() {
         footer="A subscription is read-only: the other app pulls from TaskTick and can never write back. Revoke a URL here if it was shared by mistake."
       >
         {tokens.isInitialLoading ? (
-          <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-            <Skeleton variant="rounded" height={40} />
-          </ListItem>
+          <SettingsRow>
+            <Skeleton className="h-10 w-full" />
+          </SettingsRow>
         ) : list.length === 0 ? (
-          <ListItem>
-            <ListItemText primary="No subscriptions yet" secondary="Create one to publish a read-only feed." />
-          </ListItem>
+          <SettingsRow>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm">No subscriptions yet</span>
+              <span className="block text-xs text-muted-foreground">Create one to publish a read-only feed.</span>
+            </span>
+          </SettingsRow>
         ) : (
           list.map((token) => (
-            <ListItem key={token.id} sx={{ display: 'block', px: 2, py: 1.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <ListItemIcon sx={{ minWidth: 40 }}>
-                  <Box
-                    aria-hidden
-                    sx={{
-                      display: 'grid',
-                      placeItems: 'center',
-                      width: 32,
-                      height: 32,
-                      borderRadius: 1,
-                      bgcolor: 'action.hover',
-                      color: 'primary.main',
-                    }}
-                  >
-                    <LinkIcon fontSize="small" />
-                  </Box>
-                </ListItemIcon>
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography variant="body1" noWrap>
-                    {token.name || 'Calendar feed'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
+            <SettingsRow key={token.id} stacked>
+              <div className="flex items-center gap-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                  <Link1Icon />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">{token.name || 'Calendar feed'}</p>
+                  <p className="text-xs text-muted-foreground">
                     {[token.includeTasks ? 'tasks' : null, token.includeEvents ? 'events' : null].filter(Boolean).join(' and ') ||
                       'tasks'}
                     {token.lastUsedAtMs ? ' · used recently' : ' · never used yet'}
-                  </Typography>
-                </Box>
+                  </p>
+                </div>
                 <Button
-                  size="small"
-                  variant="text"
-                  color="error"
-                  startIcon={<DeleteIcon aria-hidden />}
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
                   aria-label={`Revoke ${token.name || 'calendar feed'}`}
                   onClick={() => setRevokeTarget(token)}
                 >
+                  <TrashIcon />
                   Revoke
                 </Button>
-              </Box>
+              </div>
 
               {token.url ? (
-                <Box sx={{ pt: 1.5, pl: 6.5 }}>
-                  <Box sx={URL_BOX}>{token.url}</Box>
-                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, pt: 1.5 }}>
+                <div className="flex flex-col gap-2 sm:pl-11">
+                  <p className={MONO_URL_BOX_CLASS}>{token.url}</p>
+                  <div className="flex flex-wrap gap-2">
                     <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<ContentCopyIcon aria-hidden />}
+                      size="sm"
+                      variant="outline"
                       onClick={() => void copy(token.url!, 'Subscription URL')}
                     >
+                      <ClipboardCopyIcon />
                       Copy URL
                     </Button>
                     <Button
-                      size="small"
-                      variant="text"
-                      color="inherit"
-                      startIcon={<CalendarMonthIcon aria-hidden />}
+                      size="sm"
+                      variant="ghost"
                       onClick={() => void copy(toWebcal(token.url!), 'webcal:// URL')}
                     >
+                      <CalendarIcon />
                       Copy for Apple Calendar
                     </Button>
-                  </Stack>
-                </Box>
+                  </div>
+                </div>
               ) : (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pt: 1.5, pl: 6.5 }}>
+                <p className="text-xs text-muted-foreground sm:pl-11">
                   This subscription was already used, so its link is no longer shown. Create a new one if you need the URL
                   again.
-                </Typography>
+                </p>
               )}
-            </ListItem>
+            </SettingsRow>
           ))
         )}
       </SettingsGroup>
@@ -200,113 +172,106 @@ export function IcalSubscriptionCard() {
         title="New subscription"
         footer="How to add it — Apple Calendar: File ▸ New Calendar Subscription, or on iOS Settings ▸ Calendar ▸ Accounts ▸ Add Account ▸ Other ▸ Add Subscribed Calendar. Google Calendar: Other calendars ▸ From URL."
       >
-        <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-          <Stack spacing={2}>
-            <TextField
-              fullWidth
-              label="Name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Phone calendar"
-              autoComplete="off"
-              slotProps={{ htmlInput: { maxLength: 120 } }}
+        <SettingsRow stacked>
+          <Label htmlFor="ical-name">Name</Label>
+          <Input
+            id="ical-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Phone calendar"
+            autoComplete="off"
+            maxLength={120}
+          />
+
+          <div className="flex items-center gap-3">
+            <Label htmlFor="ical-tasks" className="min-w-0 flex-1">
+              Include tasks
+            </Label>
+            <Switch
+              id="ical-tasks"
+              aria-label="Include tasks"
+              checked={includeTasks}
+              onCheckedChange={setIncludeTasks}
             />
-            <FormControlLabel
-              sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
-              labelPlacement="start"
-              label="Include tasks"
-              control={
-                <Switch
-                  checked={includeTasks}
-                  onChange={(_event, next) => setIncludeTasks(next)}
-                  slotProps={{ input: { 'aria-label': 'Include tasks' } }}
-                />
-              }
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Label htmlFor="ical-events" className="min-w-0 flex-1">
+              Include calendar events
+            </Label>
+            <Switch
+              id="ical-events"
+              aria-label="Include calendar events"
+              checked={includeEvents}
+              onCheckedChange={setIncludeEvents}
             />
-            <FormControlLabel
-              sx={{ m: 0, display: 'flex', width: '100%', justifyContent: 'space-between' }}
-              labelPlacement="start"
-              label="Include calendar events"
-              control={
-                <Switch
-                  checked={includeEvents}
-                  onChange={(_event, next) => setIncludeEvents(next)}
-                  slotProps={{ input: { 'aria-label': 'Include calendar events' } }}
-                />
-              }
-            />
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<AddIcon aria-hidden />}
-              loading={create.isPending}
-              disabled={!includeTasks && !includeEvents}
-              onClick={() => void create.run()}
-            >
-              Create subscription
-            </Button>
-            {!includeTasks && !includeEvents ? (
-              <Typography variant="caption" color="error.main">
-                Choose at least one thing to publish.
-              </Typography>
-            ) : null}
-          </Stack>
-        </ListItem>
+          </div>
+
+          <Button
+            className="w-full"
+            aria-busy={create.isPending || undefined}
+            disabled={create.isPending || (!includeTasks && !includeEvents)}
+            onClick={() => void create.run()}
+          >
+            <PlusIcon />
+            Create subscription
+          </Button>
+
+          {!includeTasks && !includeEvents ? (
+            <p className="text-xs text-destructive">Choose at least one thing to publish.</p>
+          ) : null}
+        </SettingsRow>
       </SettingsGroup>
 
       {freshUrl ? (
-        <Paper variant="outlined" sx={{ borderRadius: 3, mx: 2, mt: 2, p: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Your new subscription URL
-          </Typography>
-          <Box sx={{ ...URL_BOX, mt: 0.5 }}>{freshUrl}</Box>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, pt: 1.5 }}>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<ContentCopyIcon aria-hidden />}
-              onClick={() => void copy(freshUrl, 'Subscription URL')}
-            >
-              Copy URL
-            </Button>
-            <Button
-              size="small"
-              variant="text"
-              color="inherit"
-              startIcon={<CalendarMonthIcon aria-hidden />}
-              onClick={() => void copy(toWebcal(freshUrl), 'webcal:// URL')}
-            >
-              Copy for Apple Calendar
-            </Button>
-          </Stack>
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pt: 1 }}>
-            Copy it now — it is shown in full only once, and anyone holding it can read your feed.
-          </Typography>
-        </Paper>
+        <SettingsGroup
+          title="Your new subscription URL"
+          footer="Copy it now — it is shown in full only once, and anyone holding it can read your feed."
+        >
+          <SettingsRow stacked>
+            <p className={MONO_URL_BOX_CLASS}>{freshUrl}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void copy(freshUrl, 'Subscription URL')}>
+                <ClipboardCopyIcon />
+                Copy URL
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void copy(toWebcal(freshUrl), 'webcal:// URL')}>
+                <CalendarIcon />
+                Copy for Apple Calendar
+              </Button>
+            </div>
+          </SettingsRow>
+        </SettingsGroup>
       ) : null}
 
-      <Dialog open={revokeTarget !== null} onClose={() => setRevokeTarget(null)}>
-        <DialogTitle>Revoke this subscription?</DialogTitle>
+      <Dialog
+        open={revokeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevokeTarget(null);
+        }}
+      >
         <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            The URL stops working immediately. Any calendar app that uses it will stop updating.
-          </Typography>
+          <DialogHeader>
+            <DialogTitle>Revoke this subscription?</DialogTitle>
+            <DialogDescription>
+              The URL stops working immediately. Any calendar app that uses it will stop updating.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRevokeTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (revokeTarget) void revoke.run(revokeTarget);
+                setRevokeTarget(null);
+              }}
+            >
+              Revoke
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions>
-          <Button variant="text" onClick={() => setRevokeTarget(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => {
-              if (revokeTarget) void revoke.run(revokeTarget);
-              setRevokeTarget(null);
-            }}
-          >
-            Revoke
-          </Button>
-        </DialogActions>
       </Dialog>
     </>
   );

@@ -13,29 +13,33 @@
  * Portalling it to `document.body` puts it back in the viewport's coordinate
  * space, where `fixed` means what it says. The portal is client-only and appears
  * as soon as the view mounts, so nothing about it is server-rendered.
+ *
+ * Positioning is the caller's: `fixed`, the insets and the stacking order arrive
+ * as a `className` (`z-modal` is a token from `globals.css`), because the same
+ * component docks a bulk bar above the tab bar on mobile and near the bottom edge
+ * on a desktop.
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import Box from '@mui/material/Box';
-import type { SxProps, Theme } from '@mui/material/styles';
+import { cn } from '@/lib/utils';
 
 export interface ViewportDockProps {
-  /** Positioning: `position: fixed`, the insets and the z-index belong here. */
-  sx?: SxProps<Theme>;
+  /** Positioning: `fixed`, the insets and the z-index belong here. */
+  className?: string;
   style?: CSSProperties;
   children: ReactNode;
 }
 
-export function ViewportDock({ sx, style, children }: ViewportDockProps) {
+export function ViewportDock({ className, style, children }: ViewportDockProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
   if (!mounted) return null;
   return createPortal(
-    <Box sx={sx} style={style}>
+    <div className={cn(className)} style={style}>
       {children}
-    </Box>,
+    </div>,
     document.body,
   );
 }

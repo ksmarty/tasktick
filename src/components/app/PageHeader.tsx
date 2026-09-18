@@ -3,35 +3,43 @@
 /**
  * Publishing a screen's header into the shell.
  *
- * The shell owns the single `AppBar` (see `./AppShell`): one header for the app
- * rather than one per screen, which is what keeps the safe-area inset, the
- * elevation and the title position identical everywhere. A screen that needs a
+ * The shell owns the single top app bar (see `./AppShell`): one header for the
+ * app rather than one per screen, which is what keeps the safe-area inset, the
+ * border and the title position identical everywhere. A screen that needs a
  * title, a leading control or a set of actions drops this component at the top
  * of its tree:
  *
  * ```tsx
  * <PageHeader
  *   title="Tasks"
- *   actions={<IconButton aria-label="Add a task" onClick={openQuickAdd}><Add /></IconButton>}
+ *   actions={<Button aria-label="Add a task" onClick={openQuickAdd}><PlusIcon /></Button>}
  * />
  * ```
  *
- * It renders nothing itself — the content appears in the shell's bar. Screens
- * that publish nothing get the shell's route-derived title instead, so a route
- * is never headless.
+ * It renders nothing itself — the content appears in the shell's bar. When no
+ * screen publishes, the shell renders no bar at all: several screens carry a
+ * header of their own (the task lists, the focus timer), and a route-derived
+ * fallback up there would stack a second title on top of theirs. A screen does
+ * one or the other.
  *
  * Outside the shell (the chrome-less auth layout) there is nothing to publish
  * into, and this component renders nothing — pass the header to the page itself
  * in that case.
+ *
+ * The implementation is unchanged across the GodUI migration and deliberately
+ * so: `CalendarToolbar` and the settings pages are rendered by screens that are
+ * being converted in parallel, and the contract they depend on is the exported
+ * `PageHeader` / `PageHeaderContext` / `PageHeaderContent` triple plus the
+ * publish-on-mount, clear-on-unmount behaviour below.
  */
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
 
 export interface PageHeaderContent {
-  /** Replaces the route-derived title. */
+  /** The heading the shell renders in its top app bar. */
   title?: ReactNode;
-  /** Leading slot. Replaces the shell's back control when given. */
+  /** Leading slot, before the title. */
   leading?: ReactNode;
-  /** Trailing slot: an `IconButton`, a `Button`, anything. */
+  /** Trailing slot: an icon `Button`, a `Button`, anything. */
   actions?: ReactNode;
   /**
    * A row rendered under the title row, inside the bar — how the task lists

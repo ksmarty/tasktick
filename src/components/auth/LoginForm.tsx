@@ -3,44 +3,46 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import NextLink from 'next/link';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import Divider from '@mui/material/Divider';
-import InputAdornment from '@mui/material/InputAdornment';
-import Link from '@mui/material/Link';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Paper from '@mui/material/Paper';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import ChecklistIcon from '@mui/icons-material/Checklist';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import LockIcon from '@mui/icons-material/Lock';
-import MailIcon from '@mui/icons-material/Mail';
-import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import { ArrowRightIcon } from '@svg-animated-icons/react/arrow-right';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { ChevronRightIcon } from '@svg-animated-icons/react/chevron-right';
+import { EnvelopeClosedIcon } from '@svg-animated-icons/react/envelope-closed';
+import { EyeClosedIcon } from '@svg-animated-icons/react/eye-closed';
+import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
+import { IdCardIcon } from '@svg-animated-icons/react/id-card';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
+import { LoaderCircle } from 'lucide-react';
+import { AuroraText } from '@/components/godui/aurora-text';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { AUTH_AURORA_COLORS } from './aurora-colors';
 import { signIn, startOidcSignIn } from '@/lib/auth-client';
+
+/**
+ * Positions a decorative field glyph inside a `relative` input wrapper.
+ *
+ * A class string rather than a component: the glyph is an `<span aria-hidden>`
+ * (the animated icons forward a `className` but no ARIA props), so wrapping it
+ * in anything would be a wrapper for the sake of a wrapper.
+ */
+const GLYPH =
+  'pointer-events-none absolute top-1/2 left-3 inline-flex -translate-y-1/2 text-base text-muted-foreground';
 
 /**
  * Sign-in form.
  *
  * Uses better-auth's own client rather than posting to the API by hand, so
- * CSRF, the session cookie and error shaping are all handled by the library.
- *
- * Presentation is Material: outlined `TextField`s with the glyph as a start
- * adornment (the label is pinned open, `shrink`, so it never collides with the
- * adornment), an `Alert` for the error, and a MUI `Link` wrapping `next/link`
- * for the switch to registration.
+ * CSRF, the session cookie and error shaping are all handled by the library —
+ * none of that logic changed in the move off Material; only the presentation did.
  */
 export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oidcName: string }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -65,130 +67,134 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
   }
 
   return (
-    <Stack spacing={3}>
-      <Stack spacing={1.5} sx={{ alignItems: 'center', textAlign: 'center' }}>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 64,
-            height: 64,
-            borderRadius: 3,
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-          }}
-        >
-          <ChecklistIcon sx={{ fontSize: 36 }} aria-hidden />
-        </Box>
-        <Box>
-          <Typography variant="h4" component="h1" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
-            TaskTick
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Sign in to your tasks, calendar and habits.
-          </Typography>
-        </Box>
-      </Stack>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col items-center gap-3 text-center">
+        <div className="flex size-16 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <span aria-hidden className="inline-flex text-4xl">
+            <CheckIcon />
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold tracking-tight">
+            <AuroraText colors={AUTH_AURORA_COLORS}>TaskTick</AuroraText>
+          </h1>
+          <p className="text-sm text-muted-foreground">Sign in to your tasks, calendar and habits.</p>
+        </div>
+      </header>
 
-      <Stack component="form" spacing={2} onSubmit={onSubmit} noValidate>
-        <TextField
-          fullWidth
-          label="Email"
-          type="email"
-          name="email"
-          inputMode="email"
-          autoComplete="username"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-          slotProps={{
-            inputLabel: { shrink: true },
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <MailIcon aria-hidden />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-        <TextField
-          fullWidth
-          label="Password"
-          type="password"
-          name="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="••••••••"
-          slotProps={{
-            inputLabel: { shrink: true },
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <LockIcon aria-hidden />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
+      <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="email">Email</Label>
+          <div className="relative">
+            <span aria-hidden className={GLYPH}>
+              <EnvelopeClosedIcon />
+            </span>
+            <Input
+              id="email"
+              type="email"
+              name="email"
+              inputMode="email"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              className="h-11 pl-9"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="password">Password</Label>
+          <div className="relative">
+            <span aria-hidden className={GLYPH}>
+              <LockClosedIcon />
+            </span>
+            <Input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
+              className="h-11 pr-10 pl-9"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              className="absolute top-1/2 right-2 inline-flex -translate-y-1/2 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span aria-hidden className="inline-flex text-base">
+                {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
+              </span>
+            </button>
+          </div>
+        </div>
 
         {error ? (
-          <Alert severity="error" role="alert">
+          <Alert variant="destructive" role="alert">
             {error}
           </Alert>
         ) : null}
 
         <Button
           type="submit"
-          variant="contained"
-          size="large"
-          fullWidth
+          size="lg"
+          className="h-11 w-full"
           disabled={!email || !password}
-          startIcon={busy ? <CircularProgress size={18} color="inherit" /> : undefined}
         >
           Sign in
+          <span aria-hidden className="inline-flex">
+            {busy ? <LoaderCircle className="animate-spin" /> : <ArrowRightIcon />}
+          </span>
         </Button>
-      </Stack>
+      </form>
 
       {oidcEnabled ? (
         <>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', color: 'text.secondary' }}>
-            <Divider sx={{ flex: 1 }} />
-            <Typography variant="caption">or</Typography>
-            <Divider sx={{ flex: 1 }} />
-          </Stack>
-          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-            <List disablePadding>
-              <ListItem disablePadding>
-                <ListItemButton
-                  onClick={() => void startOidcSignIn('/tasks')}
-                  sx={{ gap: 1.5, py: 1.25 }}
-                >
-                  <ListItemIcon sx={{ minWidth: 0, color: 'primary.main' }}>
-                    <VerifiedUserIcon aria-hidden />
-                  </ListItemIcon>
-                  <ListItemText primary={oidcName} secondary="Continue with your identity provider" />
-                  <ChevronRightIcon sx={{ color: 'text.disabled', flexShrink: 0 }} aria-hidden />
-                </ListItemButton>
-              </ListItem>
-            </List>
-          </Paper>
+          <div className="flex items-center gap-3">
+            <Separator className="flex-1" />
+            <span className="text-xs text-muted-foreground">or</span>
+            <Separator className="flex-1" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="h-auto w-full justify-start gap-3 px-row py-3 text-left whitespace-normal"
+            onClick={() => void startOidcSignIn('/tasks')}
+          >
+            <span aria-hidden className="inline-flex text-lg text-primary">
+              <IdCardIcon />
+            </span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-sm font-medium">{oidcName}</span>
+              <span className="text-xs text-muted-foreground">
+                Continue with your identity provider
+              </span>
+            </span>
+            <span aria-hidden className="ml-auto inline-flex text-muted-foreground">
+              <ChevronRightIcon />
+            </span>
+          </Button>
         </>
       ) : null}
 
-      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+      <p className="text-center text-sm text-muted-foreground">
         Need an account?{' '}
-        <Link component={NextLink} href="/register" underline="hover">
+        <NextLink
+          href="/register"
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+        >
           Create one
-        </Link>
-      </Typography>
-    </Stack>
+        </NextLink>
+      </p>
+    </div>
   );
 }

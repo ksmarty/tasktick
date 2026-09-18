@@ -1,12 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import WifiOffIcon from '@mui/icons-material/WifiOff';
+import { WifiOff } from 'lucide-react';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 /**
  * Persistent offline indicator.
@@ -18,9 +17,12 @@ import WifiOffIcon from '@mui/icons-material/WifiOff';
  * "Retry" action actively re-checks the network instead of waiting for the
  * browser's `online` event, which is unreliable on captive portals.
  *
- * Material `Alert` for the surface — it already carries the right severity
- * colour, icon slot and action slot, so the hand-rolled banner is gone. The
- * detection and retry logic below is unchanged.
+ * The detection and retry logic below is byte-identical to the Material version.
+ * What changed is the surface, and one deliberate omission: Material's
+ * `warning` severity carried an amber accent, and Celestial Sapphire is a
+ * monochrome palette — so severity is stated with the weight of the leading rail
+ * (`border-l-foreground`) and the `WifiOff` glyph rather than with a hue that
+ * does not exist here.
  */
 
 type Probe = 'idle' | 'checking' | 'failed';
@@ -63,49 +65,39 @@ export function OfflineBanner() {
   if (!offline) return null;
 
   return (
-    <Box
-      sx={{
-        position: 'fixed',
-        left: 12,
-        right: 12,
-        top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)',
-        zIndex: 'snackbar',
-        display: 'flex',
-      }}
+    <div
+      className={cn(
+        'fixed inset-x-3 z-toast flex',
+        // The safe-area inset is a dynamic value, so it is the one thing that
+        // cannot come from a class on its own; `0.5rem` is still the scale's.
+        'top-[calc(env(safe-area-inset-top,0px)_+_0.5rem)]',
+      )}
     >
       <Alert
-        severity="warning"
         role="status"
         aria-live="polite"
-        icon={<WifiOffIcon aria-hidden />}
-        action={
-          <Button
-            color="inherit"
-            size="small"
-            onClick={() => void retry()}
-            disabled={probe === 'checking'}
-            startIcon={
-              probe === 'checking' ? (
-                <CircularProgress size={16} color="inherit" />
-              ) : (
-                <RefreshIcon aria-hidden />
-              )
-            }
-            sx={{ textTransform: 'none' }}
-          >
-            Retry
-          </Button>
-        }
-        sx={{ width: '100%', alignItems: 'center', boxShadow: 4 }}
+        className="flex w-full items-center gap-3 border-l-4 border-l-foreground shadow-lg"
       >
-        You&rsquo;re offline. Changes are kept on this device and will sync when you reconnect.
-        {probe === 'failed' && (
-          <Box component="span" sx={{ color: 'text.secondary' }}>
-            {' '}
-            Still no connection.
-          </Box>
-        )}
+        <WifiOff aria-hidden className="size-5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0">
+          You&rsquo;re offline. Changes are kept on this device and will sync when you reconnect.
+          {probe === 'failed' && (
+            <span className="text-muted-foreground"> Still no connection.</span>
+          )}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto shrink-0"
+          onClick={() => void retry()}
+          disabled={probe === 'checking'}
+        >
+          <span aria-hidden className="inline-flex text-base">
+            <ReloadIcon className={probe === 'checking' ? 'animate-spin' : undefined} />
+          </span>
+          Retry
+        </Button>
       </Alert>
-    </Box>
+    </div>
   );
 }

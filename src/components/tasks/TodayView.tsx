@@ -6,34 +6,31 @@
  *
  * Data comes from the bootstrap agenda (already bucketed server-side), and every
  * checkbox tick publishes an optimistic agenda, so the row moves immediately and
- * the cache revalidates behind it. MUI owns the chrome: an `AppBar` header, a
- * `Paper` progress card with a determinate `CircularProgress`, and the same
- * `TaskListSection` the list screen uses.
+ * the cache revalidates behind it.
+ *
+ * The progress ring is the one place a shadcn primitive does not fit: `Progress`
+ * is a bar, and this is a ring with the fraction sitting inside it, so the ring is
+ * drawn here as two SVG circles. `pathLength={100}` makes the circumference
+ * exactly 100 units, so the arc is the percentage and the dash length is a
+ * computed value — the case inline `style` is allowed for.
  */
 import { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import AppBar from '@mui/material/AppBar';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import Paper from '@mui/material/Paper';
-import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
-import AddIcon from '@mui/icons-material/Add';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
-import SearchIcon from '@mui/icons-material/Search';
+import { ExclamationCircledIcon } from '@svg-animated-icons/react/exclamation-circled';
+import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
 import type { AgendaBuckets } from '@/lib/agenda-types';
 import { formatFullDate } from '@/lib/dates';
+import { usePrimaryAction } from '@/lib/events';
 import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyTasks } from './EmptyTasks';
 import { HeaderActionButton } from './HeaderActionButton';
 import { QuickAddBar } from './QuickAddBar';
-import { usePrimaryAction } from '@/lib/events';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
 import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
@@ -59,7 +56,7 @@ export function TodayView() {
   /**
    * Opens quick add *inside* the gesture that asked for it — see `TasksView` for
    * why: iOS raises the keyboard only for a `focus()` in the task that handled
-   * the tap, and the dialog's panel is a couple of renders away otherwise.
+   * the tap, and the sheet's panel is a couple of renders away otherwise.
    */
   function openQuickAdd() {
     flushSync(() => setQuickAddOpen(true));
@@ -128,27 +125,13 @@ export function TodayView() {
   const ratio = progress.total === 0 ? 0 : Math.round(progress.value * 100);
 
   return (
-    <Box>
-      <AppBar
-        position="sticky"
-        color="default"
-        elevation={0}
-        sx={{
-          bgcolor: 'background.default',
-          backgroundImage: 'none',
-          borderBottom: 1,
-          borderColor: 'divider',
-          // The app paints under the Dynamic Island, so the bar carries the inset.
-          pt: 'env(safe-area-inset-top, 0px)',
-        }}
-      >
-        <Toolbar sx={{ gap: 0.75, minHeight: 56, px: 1.5 }}>
-          <Typography variant="h6" component="h1" noWrap sx={{ flex: 1 }}>
-            Today
-          </Typography>
+    <div className="flex flex-col">
+      <header className="sticky top-0 z-appbar border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
+        <div className="flex min-h-14 items-center gap-2 px-gutter">
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">Today</h1>
           <HeaderActionButton
             aria-label="Search everything"
-            icon={SearchIcon}
+            icon={MagnifyingGlassIcon}
             onClick={() => router.push('/search')}
           />
           {/*
@@ -158,88 +141,89 @@ export function TodayView() {
            */}
           <HeaderActionButton
             aria-label="Add a task"
-            icon={AddIcon}
+            icon={PlusIcon}
             onClick={openQuickAdd}
-            sx={{ display: { xs: 'none', lg: 'inline-flex' } }}
+            className="hidden lg:inline-flex"
           />
-        </Toolbar>
-      </AppBar>
+        </div>
+      </header>
 
       {data ? (
-        <Box sx={{ px: 1, pt: 0.5, pb: 1 }}>
+        <div className="px-gutter pt-2 pb-1">
           {/*
            * The ring and the copy are one block, so they share one surface. The
            * fraction is absolutely positioned inside the ring, so it reads as the
            * ring's own label rather than as a datum beside it.
            */}
-          <Paper
-            variant="outlined"
-            sx={{ display: 'flex', alignItems: 'center', gap: 1.75, px: 2, py: 1.5, borderRadius: 3 }}
-          >
-            <Box
-              sx={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}
+          <div className="flex items-center gap-4 rounded-xl border border-border p-card">
+            <div
+              className="relative grid size-14 shrink-0 place-items-center"
               role="progressbar"
               aria-valuenow={ratio}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-label={`${progress.completed} of ${progress.total} tasks done today`}
             >
-              <CircularProgress variant="determinate" value={ratio} size={54} thickness={5} />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Typography variant="caption" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                  {progress.completed}/{progress.total}
-                </Typography>
-              </Box>
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
+              <svg viewBox="0 0 36 36" className="size-14 -rotate-90" aria-hidden>
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15.9155"
+                  fill="none"
+                  strokeWidth="3"
+                  className="stroke-muted"
+                />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15.9155"
+                  fill="none"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  pathLength={100}
+                  className="stroke-primary"
+                  style={{ strokeDasharray: `${ratio} 100` }}
+                />
+              </svg>
+              <span className="absolute text-xs font-semibold tabular-nums">
+                {progress.completed}/{progress.total}
+              </span>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold">
                 {remaining === 0 ? 'Nothing left for today' : `${remaining} task${remaining === 1 ? '' : 's'} left`}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap component="p">
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
                 {formatFullDate(Date.now(), { zone, timeFormat, weekStartsOn })}
-              </Typography>
-            </Box>
-          </Paper>
-        </Box>
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
-        <Box sx={{ px: 1, pt: 1, pb: 1.5 }}>
-          <Skeleton variant="rounded" height={80} />
-        </Box>
+        <div className="px-gutter pt-3 pb-2">
+          <Skeleton className="h-20 w-full rounded-xl" />
+        </div>
       )}
 
       {!actions.online ? (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pb: 1 }}>
-          {actions.offlineNotice}
-        </Typography>
+        <p className="px-gutter pb-2 text-xs text-muted-foreground">{actions.offlineNotice}</p>
       ) : null}
 
       {bootstrap.error && !data ? (
-        <Stack spacing={1} sx={{ alignItems: 'center', px: 4, py: 6, textAlign: 'center' }}>
-          <ErrorOutlineIcon sx={{ fontSize: 40, color: 'text.disabled' }} aria-hidden />
-          <Typography variant="subtitle1" component="h2">
-            Couldn&apos;t load today
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {bootstrap.error}
-          </Typography>
-          <Button variant="outlined" onClick={refresh} sx={{ mt: 1 }}>
+        <div className="flex flex-col items-center gap-3 px-gutter py-6 text-center">
+          <ExclamationCircledIcon className="text-4xl text-muted-foreground" aria-hidden />
+          <h2 className="text-base font-medium">Couldn&apos;t load today</h2>
+          <p className="text-sm text-muted-foreground">{bootstrap.error}</p>
+          <Button type="button" variant="outline" className="mt-1" onClick={refresh}>
             Try again
           </Button>
-        </Stack>
+        </div>
       ) : loading ? (
-        <Stack spacing={1} sx={{ px: 2, py: 2 }}>
+        <div className="flex flex-col gap-2 px-gutter py-3">
           {Array.from({ length: 6 }).map((_, index) => (
-            <Skeleton key={index} variant="text" height={28} />
+            <Skeleton key={index} className="h-7 w-full" />
           ))}
-        </Stack>
+        </div>
       ) : sections.length === 0 ? (
         <EmptyTasks
           title="Today is clear"
@@ -247,7 +231,7 @@ export function TodayView() {
           onAdd={openQuickAdd}
         />
       ) : (
-        <Box>
+        <div className="flex flex-col gap-stack px-gutter py-3">
           {sections.map((section) => (
             <TaskListSection
               key={section.id}
@@ -263,7 +247,7 @@ export function TodayView() {
               disabled={!actions.online}
             />
           ))}
-        </Box>
+        </div>
       )}
 
       <QuickAddBar open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
@@ -273,6 +257,6 @@ export function TodayView() {
         onSaved={refresh}
         onOpenChange={(open) => setEditor((current) => ({ ...current, open }))}
       />
-    </Box>
+    </div>
   );
 }

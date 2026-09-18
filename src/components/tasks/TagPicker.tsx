@@ -7,22 +7,14 @@
  * tag invented mid-edit is immediately a real tag everywhere else.
  */
 import { useState } from 'react';
-import Add from '@mui/icons-material/Add';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Check from '@mui/icons-material/Check';
-import Drawer from '@mui/material/Drawer';
-import IconButton from '@mui/material/IconButton';
-import InputAdornment from '@mui/material/InputAdornment';
-import Label from '@mui/icons-material/Label';
-import List from '@mui/material/List';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { Tag as TagIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import type { Tag } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 export interface TagPickerProps {
   open: boolean;
@@ -70,106 +62,88 @@ export function TagPicker({
   }
 
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={() => onOpenChange(false)}
-      slotProps={{
-        paper: {
-          role: 'dialog',
-          'aria-modal': true,
-          'aria-label': title,
-          sx: { borderTopLeftRadius: 3, borderTopRightRadius: 3, maxHeight: '90dvh' },
-        },
-      }}
-    >
-      <Box
-        sx={{
-          borderTopLeftRadius: 3,
-          borderTopRightRadius: 3,
-          pb: 2,
-          maxHeight: '90dvh',
-          overflowY: 'auto',
-        }}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        aria-label={title}
+        aria-modal={true}
+        className="max-h-[90vh] gap-0 overflow-y-auto rounded-t-2xl p-card pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       >
-        <Typography variant="h6" sx={{ px: 2, pt: 2, pb: 1 }}>
-          {title}
-        </Typography>
+        <SheetTitle className="sr-only">{title}</SheetTitle>
 
-        {tags.length ? (
-          <List sx={{ py: 0, mb: 2 }}>
-            {tags.map((tag) => {
-              const selected = value.includes(tag.id);
-              return (
-                <ListItemButton
-                  key={tag.id}
-                  role="checkbox"
-                  aria-checked={selected}
-                  onClick={() => toggle(tag.id)}
-                >
-                  <ListItemIcon sx={{ minWidth: 32 }}>
-                    <Label sx={{ fontSize: 20, color: 'text.secondary' }} aria-hidden />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={tag.name}
-                    slotProps={{
-                      primary: { noWrap: true, sx: { color: selected ? 'primary.main' : 'text.primary' } },
-                    }}
-                  />
-                  {selected ? <Check sx={{ fontSize: 20, color: 'primary.main' }} aria-hidden /> : null}
-                </ListItemButton>
-              );
-            })}
-          </List>
-        ) : (
-          <Typography variant="caption" sx={{ display: 'block', px: 2, pb: 2, color: 'text.secondary' }}>
-            No tags yet — create the first one below.
-          </Typography>
-        )}
+        <div className="flex flex-col gap-stack">
+          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
 
-        {onCreate ? (
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-end', px: 2 }}>
-            <TextField
-              label="New tag"
-              value={draft}
-              placeholder="Name"
-              disabled={disabled || creating}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  void create();
-                }
-              }}
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Label sx={{ fontSize: 20 }} aria-hidden />
-                    </InputAdornment>
-                  ),
-                },
-              }}
-              sx={{ flex: 1 }}
-            />
-            <IconButton
-              aria-label="Create tag"
-              color="primary"
-              loading={creating}
-              disabled={disabled || creating || !draft.trim()}
-              onClick={() => void create()}
-            >
-              <Add sx={{ fontSize: 20 }} />
-            </IconButton>
-          </Stack>
-        ) : null}
+          {tags.length ? (
+            <div>
+              {tags.map((tag) => {
+                const selected = value.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={selected}
+                    onClick={() => toggle(tag.id)}
+                    className={cn(
+                      'flex min-h-11 w-full items-center gap-3 rounded-lg px-row py-2 text-left',
+                      selected ? 'text-primary' : 'text-foreground',
+                    )}
+                  >
+                    <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                      <TagIcon className="size-5 text-muted-foreground" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                    {selected ? (
+                      <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+                        <CheckIcon className="size-5" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No tags yet — create the first one below.</p>
+          )}
 
-        <Box sx={{ pt: 2, px: 2 }}>
-          <Button variant="contained" fullWidth onClick={() => onOpenChange(false)}>
+          {onCreate ? (
+            <div className="flex items-end gap-2">
+              <Input
+                aria-label="New tag"
+                value={draft}
+                placeholder="Name"
+                disabled={disabled || creating}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void create();
+                  }
+                }}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Create tag"
+                disabled={disabled || creating || !draft.trim()}
+                onClick={() => void create()}
+                className="text-primary hover:text-primary"
+              >
+                <span aria-hidden>
+                  <PlusIcon className="size-5" />
+                </span>
+              </Button>
+            </div>
+          ) : null}
+
+          <Button type="button" className="w-full" onClick={() => onOpenChange(false)}>
             Done
           </Button>
-        </Box>
-      </Box>
-    </Drawer>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

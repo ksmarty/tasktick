@@ -1,66 +1,68 @@
 'use client';
 
 /**
- * Appearance: theme and accent, applied the instant they are touched.
+ * Appearance: the theme, and the accent preference that no longer has anything
+ * to recolour.
  *
- * ## The colour scheme belongs to MUI
+ * ## The colour scheme
  *
- * The theme is read and written through `useColorScheme()` — never by reading
- * the `tasktick-theme` cookie or toggling a `dark` class. MUI owns the
- * preference, persists it, and swaps the palette class on `<html>`; the
- * `Providers` wrapper mirrors the resolved value into the cookie purely so the
- * next request can paint the right `theme-color` before any script runs.
+ * The theme is read and written through `useAppearance()` — never by reading the
+ * `tasktick-theme` cookie or toggling a `dark` class here. That hook owns the
+ * preference, persists it and mirrors the resolved value into the cookie so the
+ * next request can paint the right `theme-color` before any script runs; the
+ * `dark` class on `<html>` is the only rendering input the palette reads. This
+ * screen only chooses among the three values and PATCHes the same value to
+ * `/api/settings` so the choice survives on another device.
  *
- * The two halves deliberately differ in when they "take". `setMode`/`setAccent`
- * apply immediately — that instant feedback is the whole point of a theme picker
- * — while the PATCH to `/api/settings` is what makes the choice survive on
- * another device. If that PATCH fails, the toast says so and the preference stays
- * applied locally rather than snapping back.
+ * The two halves deliberately differ in when they "take". Choosing a theme
+ * applies immediately — that instant feedback is the whole point of a theme
+ * picker — while the PATCH is what makes it stick. If that PATCH fails, the
+ * toast says so and the preference stays applied locally rather than snapping
+ * back.
  *
- * ## The accent is now a stored preference only
+ * ## The accent is a stored preference with nothing to drive
  *
- * Since the app adopted Material's palette, `accent` no longer drives the colour
- * of the UI — every control takes its colour from the theme. The control is kept
- * rather than deleted because the value is still a real stored preference that
- * other surfaces read (calendar/list colours are user data chosen from the same
- * palette), and silently removing a user-facing setting is not a migration step.
- * It is labelled as what it is so it cannot be mistaken for a live theme control.
+ * Since the app adopted GodUI's palette, `accent` no longer colours the UI: the
+ * Celestial Sapphire palette is monochrome, so there is no accent hue — `primary`
+ * is near-black in light mode and near-white in dark. The control is therefore
+ * rendered **disabled** with a one-line explanation. It is deliberately neither
+ * deleted (the value is still a real stored preference that other surfaces read,
+ * and silently removing a user-facing setting is not a migration step) nor left
+ * live and dead (a swatch that highlights and recolours nothing is indistinguishable
+ * from a broken control).
+ *
+ * The storage path is left intact: `setAccent` still writes the preference to the
+ * client store and the cookie, and the mutation below still accepts `accent`, so
+ * re-enabling the picker is one prop and no plumbing.
  */
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import ListItem from '@mui/material/ListItem';
-import Typography from '@mui/material/Typography';
-import { useColorScheme } from '@mui/material/styles';
-import CheckIcon from '@mui/icons-material/Check';
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import LightModeIcon from '@mui/icons-material/LightMode';
-import MonitorIcon from '@mui/icons-material/Monitor';
+import { ColorWheelIcon } from '@svg-animated-icons/react/color-wheel';
+import { DesktopIcon } from '@svg-animated-icons/react/desktop';
+import { MoonIcon } from '@svg-animated-icons/react/moon';
+import { SunIcon } from '@svg-animated-icons/react/sun';
+import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
-import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { useAppearance } from '@/app/providers';
-import { ACCENT_COLORS, type AccentColor, type UserSettings } from '@/lib/types';
-import { SettingsGroup } from './SettingsGroup';
-import { SWATCH_GROUP_SX, swatchSx } from './swatches';
+import type { AccentColor, UserSettings } from '@/lib/types';
+import { SettingsGroup, SettingsRow } from './SettingsGroup';
+import { AccentSwatches } from './swatches';
 
 type ThemePreference = 'light' | 'dark' | 'system';
 
-const THEME_OPTIONS: { value: ThemePreference; label: string; Icon: typeof LightModeIcon }[] = [
-  { value: 'light', label: 'Light', Icon: LightModeIcon },
-  { value: 'dark', label: 'Dark', Icon: DarkModeIcon },
-  { value: 'system', label: 'Auto', Icon: MonitorIcon },
+const THEME_OPTIONS: SegmentedOption[] = [
+  { value: 'light', label: 'Light', icon: <SunIcon /> },
+  { value: 'dark', label: 'Dark', icon: <MoonIcon /> },
+  { value: 'system', label: 'Auto', icon: <DesktopIcon /> },
 ];
 
 export function AppearanceSettings() {
-  const { mode, colorScheme, setMode } = useColorScheme();
-  const { accent, setAccent } = useAppearance();
+  const { theme, resolvedTheme, accent, setTheme, setAccent } = useAppearance();
   const { toast } = useToast();
 
-  // MUI's `mode` is the preference; `colorScheme` is the resolved appearance
-  // after the system preference has been folded in. They differ only for "Auto".
-  const theme: ThemePreference = mode === 'light' || mode === 'dark' ? mode : 'system';
-  const dark = colorScheme === 'dark';
+  // `resolvedTheme` is the appearance after the system preference has been folded
+  // in; the two differ only for "Auto".
+  const dark = resolvedTheme === 'dark';
 
   const persist = useMutation(
     async (patch: { theme?: ThemePreference; accent?: AccentColor }) =>
@@ -76,72 +78,62 @@ export function AppearanceSettings() {
     },
   );
 
-  return (
-    <SettingsGroup title="Appearance" footer="The theme follows Material Design; Auto tracks your device's light or dark setting.">
-      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-        <ToggleButtonGroup
-          exclusive
-          fullWidth
-          size="small"
-          value={theme}
-          onChange={(_event, next: ThemePreference | null) => {
-            if (!next) return;
-            setMode(next);
-            void persist.run({ theme: next });
-          }}
-          aria-label="Theme"
-        >
-          {THEME_OPTIONS.map(({ value, label, Icon }) => (
-            <ToggleButton key={value} value={value} sx={{ gap: 0.75 }}>
-              <Icon fontSize="small" aria-hidden />
-              {label}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+  /**
+   * Kept whole so the accent preference can still be stored. The picker below is
+   * disabled, so this never runs today — see the file header.
+   */
+  function chooseAccent(next: AccentColor) {
+    setAccent(next);
+    void persist.run({ accent: next });
+  }
 
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1, pt: 0.75 }}>
+  return (
+    <SettingsGroup
+      title="Appearance"
+      footer="Auto follows your device's light or dark setting. The palette itself is fixed."
+    >
+      <SettingsRow stacked>
+        <SegmentedControl
+          aria-label="Theme"
+          className="w-full [&>button]:flex-1"
+          options={THEME_OPTIONS}
+          value={theme}
+          onChange={(next) => {
+            setTheme(next as ThemePreference);
+            void persist.run({ theme: next as ThemePreference });
+          }}
+        />
+
+        <p className="text-xs text-muted-foreground">
           {theme === 'system'
             ? `Following the system: ${dark ? 'dark' : 'light'}.`
             : `${dark ? 'Dark' : 'Light'} appearance.`}
-        </Typography>
-      </ListItem>
+        </p>
+      </SettingsRow>
 
-      <ListItem sx={{ display: 'block', px: 2, py: 1.5 }}>
-        <Typography variant="body1" id="accent-colour-label" sx={{ px: 1, pb: 1 }}>
+      <SettingsRow stacked>
+        <p id="accent-colour-label" className="flex items-center gap-2 text-sm font-medium">
+          <ColorWheelIcon className="text-muted-foreground" />
           Accent colour
-        </Typography>
+        </p>
 
         {/*
-         * Retained as a stored preference: the app takes Material's palette now,
-         * so this no longer recolours the app's controls. It is kept because the
-         * value is persisted and read elsewhere; see the file header.
+         * Disabled on purpose: the palette is monochrome, so this cannot recolour
+         * anything. The stored value is still shown so it is clear what is saved.
          */}
-        <ToggleButtonGroup
-          exclusive
+        <AccentSwatches
           value={accent}
-          onChange={(_event, next: AccentColor | null) => {
-            if (!next) return;
-            setAccent(next);
-            void persist.run({ accent: next });
-          }}
-          aria-labelledby="accent-colour-label"
-          sx={[SWATCH_GROUP_SX, { px: 1 }]}
-        >
-          {ACCENT_COLORS.map((color) => {
-            const swatch = accentHex(color, dark);
-            return (
-              <ToggleButton key={color} value={color} aria-label={ACCENT_LABEL[color]} sx={swatchSx(swatch)}>
-                {color === accent ? <CheckIcon fontSize="small" aria-hidden /> : null}
-              </ToggleButton>
-            );
-          })}
-        </ToggleButtonGroup>
+          onChange={chooseAccent}
+          disabled
+          dark={dark}
+          labelledBy="accent-colour-label"
+        />
 
-        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', px: 1, pt: 1 }}>
-          Remembered for you and kept in sync across devices. The app itself now uses Material&rsquo;s palette, so
-          this no longer changes the colour of buttons or highlights.
-        </Typography>
-      </ListItem>
+        <p className="text-xs text-muted-foreground">
+          Fixed palette: this app uses Celestial Sapphire, which is monochrome and has no accent hue, so this no
+          longer changes anything. Your saved value is kept for the things that still read it.
+        </p>
+      </SettingsRow>
     </SettingsGroup>
   );
 }
