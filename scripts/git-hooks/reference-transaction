@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# Refuse ref changes while sub-agents are running.
+#
+# ## Why a hook and not an extension
+#
+# The obvious mechanism was a pi extension with a `tool_call` hook that blocks
+# `git commit|tag|push`. It was written, installed, and tested three times, and
+# it never fired:
+#
+#   * A project-local `.pi/extensions` entry is a resource that requires project
+#     trust, and a sub-agent is spawned as `pi --mode json -p --no-session`. In
+#     non-interactive mode the default `defaultProjectTrust: "ask"` ignores
+#     project resources, so it was never loaded. The first sub-agent tested
+#     against it duly cut a commit and a tag.
+#   * A *global* extension has no trust requirement, but a diagnostic version
+#     that logged every bash call wrote nothing when a sub-agent ran — so it is
+#     not loading in those processes either, and a session cannot reload
+#     extensions without a restart, so it could not be verified from inside the
+#     session that installed it.
+#
+# Rather than ship a guard on faith, this uses git's own hook mechanism, which
+# is verifiable in one command (see below) and does not depend on how a
+# sub-agent process is launched.
+#
+# ## How it works
+#
+# `reference-transaction` fires for every ref update — commits, tags, resets,
+# branch moves — so one hook covers all of them, including `git tag`, which has
+# no dedicated hook. `pre-commit` is belt-and-braces for the commit case.
+#
+# Both refuse while `.git/AGENT-LOCK` exists. The main agent creates that file
+# before spawning sub-agents and removes it afterwards, so the window during
+# which nobody may cut a release is exactly the window in which agents are
+# working.
+#
+# This is a guard against the *accidental* case, which is what actually
+# happened: an agent finishing its work and helpfully committing and tagging it.
+# It is not a sandbox — an agent that knew about the lock could remove it. It is
+# deliberately not documented in any brief for that reason.
+#
+# ## Verifying
+#
+#   touch .git/AGENT-LOCK
+#   git commit --allow-empty -m x     # must fail
+#   git tag test-tag                  # must fail
+#   rm .git/AGENT-LOCK
+#   git commit --allow-empty -m x     # must succeed
+
+if [ -f "$(git rev-parse --git-dir)/AGENT-LOCK" ]; then
+  echo "refusing: sub-agents are running." >&2
+  echo "Releases are cut by the main agent. Remove .git/AGENT-LOCK to override." >&2
+  exit 1
+fi
+
+exit 0
