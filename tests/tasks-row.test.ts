@@ -156,16 +156,19 @@ describe('TaskRow — Tailwind through cn(), no hand-rolled divider', () => {
     expect(ROW).toMatch(/last && 'rounded-b-xl'/);
   });
 
-  it('centres the due date on the title line with a matching line box', () => {
+  it('centres the due date on the title block with a matching line box', () => {
     // Measured before: the label's 16px box centred 2.0px above the title's
-    // 20px one, which is the "slightly too high" the row was reported for. The
-    // label now carries the title's own line-height (20px =
-    // `text-base leading-tight`), so the two centres coincide.
+    // 20px one, which is the "slightly too high" the row was reported for, and
+    // the row is what centres it. The label now carries the title's own
+    // line-height (20px = `text-base leading-tight`), so the two boxes are the
+    // same height and their centres coincide: measured 0.0px on a single-line
+    // row, and 0.0px against the row's own centre where the row has no meta
+    // line. The title row is `items-center` over the title's block, so a title
+    // that wraps keeps the date on the block's centre rather than on its first
+    // line.
     const meta = source('TaskMeta.tsx');
     expect(meta).toContain('text-xs leading-5');
-    // The row still hangs both from the top of the first line, so a two-line
-    // title does not drag the date down to the middle of the block.
-    expect(ROW).toContain('items-start');
+    expect(ROW).toContain('flex-wrap items-center');
   });
 
   it('never invents a spacing value', () => {

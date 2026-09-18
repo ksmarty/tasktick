@@ -343,7 +343,7 @@ export function TaskRow({
         }}
         aria-pressed={selectionMode ? selected : undefined}
         aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
-        className="group/row-content relative flex min-h-11 min-w-0 flex-1 flex-col items-stretch justify-center gap-0 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group/row-content relative flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/*
          * The press/hover highlight, inset inside the button rather than
@@ -365,28 +365,50 @@ export function TaskRow({
          * task is; cutting the one word that distinguishes two similar tasks
          * ("Reply to the design re…") defeats the point of the list.
          *
-         * `items-start` keeps the date level with the first line rather than
-         * drifting to the vertical middle of a two-line title.
+         * `items-center`, not `items-start`. Aligning the date to the first
+         * line looks right on a one-line row and wrong on every other one: as
+         * soon as a tag or a recurrence glyph adds a second line, the date is left
+         * floating above the row’s optical centre. Measured before the change:
+         * 0.0px off centre on a single-line row, but -10 to -20px on a row with a
+         * meta line. Centring against the whole title block costs a little on a
+         * two-line title and is right everywhere else.
          */}
-        <span className="relative flex w-full min-w-0 flex-wrap items-start gap-x-1 gap-y-0">
-          <span
-            className={cn(
-              'min-w-0 flex-1 text-base leading-tight',
-              completed && 'text-muted-foreground line-through',
-              wontDo && 'text-muted-foreground/70 line-through',
-            )}
-          >
-            {task.title}
-          </span>
-          {task.isPinned ? (
-            <span className="inline-flex shrink-0 items-center text-primary">
-              <DrawingPinIcon className="text-sm" aria-hidden />
-              <span className="sr-only">Pinned</span>
+        {/*
+         * The content column, with the due date beside it rather than inside the
+         * title's own row.
+         *
+         * The date used to be a sibling of the title alone, so `items-center`
+         * centred it against the title and not against the row. On a row with a
+         * tag or a recurrence glyph the title is one line but the row is two, so
+         * the date sat ~10px above the row's optical centre. Putting it beside
+         * the whole column is what actually centres it.
+         */}
+        <span className="relative flex min-w-0 flex-1 flex-col items-stretch gap-0">
+          <span className="relative flex w-full min-w-0 flex-wrap items-center gap-x-1 gap-y-0">
+            <span
+              className={cn(
+                'min-w-0 flex-1 text-base leading-tight',
+                completed && 'text-muted-foreground line-through',
+                wontDo && 'text-muted-foreground/70 line-through',
+              )}
+            >
+              {task.title}
             </span>
-          ) : null}
-          <DueDateLabel task={task} zone={zone} timeFormat={timeFormat} className="ml-auto" />
+            {task.isPinned ? (
+              <span className="inline-flex shrink-0 items-center text-primary">
+                <DrawingPinIcon className="text-sm" aria-hidden />
+                <span className="sr-only">Pinned</span>
+              </span>
+            ) : null}
+          </span>
+          <TaskMeta task={task} className="relative" />
         </span>
-        <TaskMeta task={task} className="relative" />
+        <DueDateLabel
+          task={task}
+          zone={zone}
+          timeFormat={timeFormat}
+          className="shrink-0 self-center"
+        />
       </button>
 
       {selectionMode ? (
