@@ -49,12 +49,31 @@
  *     `paint()`. The React-rendered `style` here is the settled base the hook
  *     re-bases to; it must keep writing the same value or the two will disagree.
  *   · `gridRef` must stay on the live panel, because the drag geometry divides
- *     that element's rect by columns and rows. A panel therefore also carries no
- *     padding — the padding that insets the numbers lives on the surface, one
- *     level above the clip.
+ *     that element's rect by columns and rows. The inset that gives two months a
+ *     visible boundary lives on the panel *wrapper* around this element, never
+ *     on it: the element the drag measures is the day lattice alone, so its
+ *     width is exactly seven cells.
  *
  * Those four nodes and their nesting are load-bearing; this file only decides
  * how the cells inside them are painted.
+ *
+ * ## The page gap
+ *
+ * The three months used to meet edge to edge, which read as one continuous wall
+ * of numbers mid-drag. They now get a visible gap — but by insetting each
+ * panel's *content*, not by putting a flex `gap` between the panels. A flex gap
+ * would have widened the stride between two settled pages from the clip width
+ * to clip-plus-gap, and the hook computes every offset (`-width`, the `-2·width`
+ * clamp, the commit fraction) from the measured clip. Insets leave the panel
+ * boxes exactly one-third of the track and the stride exactly one clip wide, so
+ * the paging maths is untouched — the settled transform is still `-100% / 3` and
+ * a drag still moves the track one-to-one.
+ *
+ * The inset is `px-2` on each panel wrapper, and the `px-2` the surface used to
+ * carry moved onto the header and each panel instead. That keeps the settled
+ * month's content exactly where it was (0.5rem from the screen edge) while the
+ * space between two adjacent panels becomes 1rem of whitespace, centred on the
+ * seam and legible the moment the drag starts.
  *
  * ## Paging is a track, not a swap
  *
@@ -83,8 +102,10 @@
  * outlined box around the grid read as a distinct surface against the page, and
  * the days are already separated by whitespace and a dimmed number alone. What
  * is left is a bare `flex flex-col` whose only jobs are to hold the two
- * gestures' nodes in the right nesting and to carry the screen's horizontal
- * inset (`px-2`). The lattice, the day disc and the dot lane are plain elements
+ * gestures' nodes in the right nesting; the screen's horizontal inset (`px-2`)
+ * now lives on the weekday header and on each panel wrapper, so the clip itself
+ * stays the full width the paging gesture measures one page against. The
+ * lattice, the day disc and the dot lane are plain elements
  * with Tailwind utilities — shadcn has no month calendar and react-day-picker is
  * a date *picker*, which would cost both the dots and the paging. Item colours
  * come from the server as accent tokens and are resolved to hex through
@@ -382,15 +403,20 @@ export function MonthGrid({
        * inside it stays padding-free: padding on the clip would move the page
        * width the gesture measures.
        */
-      className="flex min-h-0 shrink-0 touch-none flex-col overflow-hidden px-2"
+      className="flex min-h-0 shrink-0 touch-none flex-col overflow-hidden"
       {...handlers}
     >
       {/*
         Chrome, not content: the captions never slide with the lattice, and they
         are hidden from assistive tech because every day button already carries
         its full date name. No rule — the month is separated by whitespace.
+
+        The captions carry the screen's horizontal inset (`px-2`) directly now
+        that the surface no longer does: the inset moved down onto the header and
+        each panel so the clip can stay full width and the space between two
+        panels becomes the visible page gap. See `MonthPanel`.
       */}
-      <div aria-hidden className="grid shrink-0 grid-cols-7 pt-card pb-0.5">
+      <div aria-hidden className="grid shrink-0 grid-cols-7 px-2 pt-card pb-0.5">
         {headers.map((label, index) => (
           <span key={`${label}-${index}`} className="text-center text-xs leading-none text-muted-foreground/60">
             {label}
@@ -537,128 +563,131 @@ interface MonthPanelProps {
  * only difference is that its days are not controls. `buildMonthRows` did the
  * chunking, so a panel never decides for itself which days it holds.
  *
- * The panel is `w-1/3` of the track and carries no padding: the drag divides its
- * rect by the columns and rows, so padding here would inflate every cell.
+ * The panel is `w-1/3` of the track and its inner lattice is the element the
+ * drag measures. The panel *wrapper* carries the horizontal `px-2` that keeps
+ * the cells off the seam; that padding is deliberately outside `gridRef`, so the
+ * rect the drag divides by seven is the day lattice and not padding inflated.
  */
 function MonthPanel({ panel, page, selectedDate, today, prefs, calendars, dark, live, gridRef }: MonthPanelProps) {
   const rows = useMemo(() => buildMonthRows(page.days, page.anchor), [page.days, page.anchor]);
 
   return (
-    <div
-      ref={gridRef}
-      role={live ? 'grid' : undefined}
-      aria-label={live ? (live.collapsed ? 'Week' : 'Month') : undefined}
-      aria-hidden={live ? undefined : true}
-      data-month-panel={panel}
-      onKeyDown={live?.onKeyDown}
-      className="grid w-1/3 shrink-0 grid-cols-7 select-none"
-      style={{ height: MONTH_EXPANDED_PX, gridTemplateRows: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))` }}
-    >
-      {rows.map((row, rowIndex) => (
-        <div key={rowIndex} role={live ? 'row' : undefined} className="contents">
-          {row.map((cell, columnIndex) => {
-            const dayItems = page.payload.days[cell.date] ?? [];
-            const isSelected = cell.date === selectedDate;
-            const isToday = cell.date === today;
-            const cellIndex = rowIndex * MONTH_COLUMNS + columnIndex;
+    <div data-month-panel={panel} className="w-1/3 shrink-0 select-none px-2">
+      <div
+        ref={gridRef}
+        role={live ? 'grid' : undefined}
+        aria-label={live ? (live.collapsed ? 'Week' : 'Month') : undefined}
+        aria-hidden={live ? undefined : true}
+        onKeyDown={live?.onKeyDown}
+        className="grid w-full grid-cols-7"
+        style={{ height: MONTH_EXPANDED_PX, gridTemplateRows: `repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))` }}
+      >
+        {rows.map((row, rowIndex) => (
+          <div key={rowIndex} role={live ? 'row' : undefined} className="contents">
+            {row.map((cell, columnIndex) => {
+              const dayItems = page.payload.days[cell.date] ?? [];
+              const isSelected = cell.date === selectedDate;
+              const isToday = cell.date === today;
+              const cellIndex = rowIndex * MONTH_COLUMNS + columnIndex;
 
-            /*
-              A plain surface, never a boxed cell: the days are separated by
-              whitespace and a day from a neighbouring month is told apart by
-              its dimmed number alone. A per-cell tint was tried and removed
-              — wherever the backdrop made it visible it read as exactly the
-              boxed cell this change exists to delete.
-            */
-            return (
-              <div
-                key={cell.date}
-                role={live ? 'gridcell' : undefined}
-                aria-selected={live ? isSelected : undefined}
-                data-date={cell.date}
-                onClick={live ? () => live.onSelectDate(cell.date) : undefined}
-                className="relative flex min-h-0 flex-col items-center"
-              >
-                {live ? (
-                  <DayNumber
-                    date={cell.date}
-                    inMonth={cell.inMonth}
-                    isSelected={isSelected}
-                    isToday={isToday}
-                    itemCount={dayItems.length}
-                    fullLabel={fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy')}
-                    tabIndex={live.focusDate === cell.date ? 0 : -1}
-                    registerRef={(node) => live.registerDay(cell.date, node)}
-                    activate={() => {
-                      // Tapping the day already selected reveals the whole day.
-                      if (isSelected) live.onOpenDay(cell.date);
-                      else live.onSelectDate(cell.date);
-                    }}
-                  />
-                ) : (
-                  // The disc alone: same size, same states, same centring rule.
-                  <span className={DAY_STACK_CLASS}>
-                    <DayNumberFace date={cell.date} inMonth={cell.inMonth} isSelected={isSelected} isToday={isToday} />
-                  </span>
-                )}
-
-                {/*
-                  Fixed height, absolutely placed so it adds no height to
-                  the row and every number sits on the same line. The lane is one
-                  of the two measured boxes in the lattice (the strip's height is
-                  the other), so its top edge and height stay inline pixel values:
-                  21 is not on Tailwind's scale, and an arbitrary-value class is
-                  exactly what this migration exists to delete.
-
-                  The lane sits just below the centred day number, and still
-                  inside the 36px circle: the number's ink ends 5px under the
-                  disc's centre, so the dots start at 6px and the whole cluster
-                  stays within the curve (the outermost dot's corner reaches
-                  17.7px of the disc's 18px radius). Any lower and the selected
-                  circle would stop containing its own dots; any higher and the
-                  dots cross the digits' baseline.
-
-                  `pointer-events-none` on the lane itself is what keeps the
-                  day's hit box honest: only the dots are handles, so a tap
-                  beside them falls through to the day button underneath
-                  rather than stopping at an invisible strip.
-                */}
-                <span
-                  className="pointer-events-none absolute inset-x-0 flex items-center justify-center"
-                  style={{ top: DOT_LANE_TOP_PX, height: DOT_LANE_HEIGHT_PX }}
+              /*
+                A plain surface, never a boxed cell: the days are separated by
+                whitespace and a day from a neighbouring month is told apart by
+                its dimmed number alone. A per-cell tint was tried and removed
+                — wherever the backdrop made it visible it read as exactly the
+                boxed cell this change exists to delete.
+              */
+              return (
+                <div
+                  key={cell.date}
+                  role={live ? 'gridcell' : undefined}
+                  aria-selected={live ? isSelected : undefined}
+                  data-date={cell.date}
+                  onClick={live ? () => live.onSelectDate(cell.date) : undefined}
+                  className="relative flex min-h-0 flex-col items-center"
                 >
-                  {dayItems.slice(0, MAX_DOTS).map((item) =>
-                    live ? (
-                      <DayDot
-                        key={item.key}
-                        item={item}
-                        prefs={prefs}
-                        calendars={calendars}
-                        dark={dark}
-                        drag={live.drag?.item.key === item.key ? live.drag : null}
-                        onOpen={live.onOpenItem}
-                        onPointerDown={(event) =>
-                          live.onDotPointerDown(item, event, {
-                            // `hourHeight` is 0 for the month, so this value is
-                            // carried straight through to the drop: it keeps a
-                            // timed item's clock time instead of zeroing it.
-                            startMinute: item.isAllDay ? 0 : minuteOfDay(item.startMs, prefs.zone),
-                            durationMinutes: 0,
-                            cellIndex,
-                          })
-                        }
-                      />
-                    ) : (
-                      <span key={item.key} className="flex size-2.5 items-center justify-center">
-                        <DotMark item={item} calendars={calendars} dark={dark} />
-                      </span>
-                    ),
+                  {live ? (
+                    <DayNumber
+                      date={cell.date}
+                      inMonth={cell.inMonth}
+                      isSelected={isSelected}
+                      isToday={isToday}
+                      itemCount={dayItems.length}
+                      fullLabel={fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy')}
+                      tabIndex={live.focusDate === cell.date ? 0 : -1}
+                      registerRef={(node) => live.registerDay(cell.date, node)}
+                      activate={() => {
+                        // Tapping the day already selected reveals the whole day.
+                        if (isSelected) live.onOpenDay(cell.date);
+                        else live.onSelectDate(cell.date);
+                      }}
+                    />
+                  ) : (
+                    // The disc alone: same size, same states, same centring rule.
+                    <span className={DAY_STACK_CLASS}>
+                      <DayNumberFace date={cell.date} inMonth={cell.inMonth} isSelected={isSelected} isToday={isToday} />
+                    </span>
                   )}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+
+                  {/*
+                    Fixed height, absolutely placed so it adds no height to
+                    the row and every number sits on the same line. The lane is one
+                    of the two measured boxes in the lattice (the strip's height is
+                    the other), so its top edge and height stay inline pixel values:
+                    21 is not on Tailwind's scale, and an arbitrary-value class is
+                    exactly what this migration exists to delete.
+
+                    The lane sits just below the centred day number, and still
+                    inside the 36px circle: the number's ink ends 5px under the
+                    disc's centre, so the dots start at 6px and the whole cluster
+                    stays within the curve (the outermost dot's corner reaches
+                    17.7px of the disc's 18px radius). Any lower and the selected
+                    circle would stop containing its own dots; any higher and the
+                    dots cross the digits' baseline.
+
+                    `pointer-events-none` on the lane itself is what keeps the
+                    day's hit box honest: only the dots are handles, so a tap
+                    beside them falls through to the day button underneath
+                    rather than stopping at an invisible strip.
+                  */}
+                  <span
+                    className="pointer-events-none absolute inset-x-0 flex items-center justify-center"
+                    style={{ top: DOT_LANE_TOP_PX, height: DOT_LANE_HEIGHT_PX }}
+                  >
+                    {dayItems.slice(0, MAX_DOTS).map((item) =>
+                      live ? (
+                        <DayDot
+                          key={item.key}
+                          item={item}
+                          prefs={prefs}
+                          calendars={calendars}
+                          dark={dark}
+                          drag={live.drag?.item.key === item.key ? live.drag : null}
+                          onOpen={live.onOpenItem}
+                          onPointerDown={(event) =>
+                            live.onDotPointerDown(item, event, {
+                              // `hourHeight` is 0 for the month, so this value is
+                              // carried straight through to the drop: it keeps a
+                              // timed item's clock time instead of zeroing it.
+                              startMinute: item.isAllDay ? 0 : minuteOfDay(item.startMs, prefs.zone),
+                              durationMinutes: 0,
+                              cellIndex,
+                            })
+                          }
+                        />
+                      ) : (
+                        <span key={item.key} className="flex size-2.5 items-center justify-center">
+                          <DotMark item={item} calendars={calendars} dark={dark} />
+                        </span>
+                      ),
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

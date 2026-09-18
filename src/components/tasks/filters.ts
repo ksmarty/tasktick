@@ -6,10 +6,19 @@
  * (`/api/tasks?...`) is derived from something the user can see.
  *
  * Pure, so the mapping is unit-tested in `tests/tasks-filters.test.ts`.
+ *
+ * ## Sort direction
+ *
+ * The order a list is shown in is a two-axis choice now: which key (`sort`) and
+ * which way (`sortDir`). The API takes no direction parameter, so `desc` is
+ * applied to the fetched page here, by `sortTasks` — a presentation reversal
+ * rather than a second query. Only the sorts where a reverse is meaningful carry
+ * a direction; see `DIRECTIONAL_SORTS`.
  */
-import type { Priority } from '@/lib/types';
+import type { Priority, Task } from '@/lib/types';
 
 export type TaskSort = 'smart' | 'due' | 'created' | 'updated' | 'priority' | 'title' | 'manual';
+export type TaskSortDir = 'asc' | 'desc';
 export type TaskWindow = 'today' | 'next7days' | 'all' | 'completed' | 'overdue' | 'noDate';
 
 export interface TaskViewState {
@@ -18,6 +27,8 @@ export interface TaskViewState {
   window: TaskWindow;
   q: string;
   sort: TaskSort;
+  /** Which way `sort` runs. Ignored by the sorts that cannot be reversed. */
+  sortDir: TaskSortDir;
   priority: Priority | null;
 }
 
@@ -46,11 +57,42 @@ export const DEFAULT_TASK_VIEW: TaskViewState = {
   window: 'all',
   q: '',
   sort: 'smart',
+  sortDir: 'asc',
   priority: null,
 };
 
+/**
+ * The sorts for which a reverse order means something.
+ *
+ * `smart` is a ranking, `manual` is a stored order and `updated` is a recency
+ * feed — reversing any of them would be a different sort, not the same one read
+ * backwards. Everything else has a natural first-to-last axis.
+ */
+export const DIRECTIONAL_SORTS: readonly TaskSort[] = ['due', 'priority', 'title', 'created'];
+
+/** Whether the sort carries a user-selectable direction. */
+export function isDirectionalSort(sort: TaskSort): boolean {
+  return DIRECTIONAL_SORTS.includes(sort);
+}
+
+/**
+ * The direction a sort starts in: the server's own default order, so an old
+ * link without a `dir` keeps reading exactly as it did before.
+ */
+export function defaultSortDir(sort: TaskSort): TaskSortDir {
+  // The server orders `created` newest-first; every other directional sort is
+  // ascending (soonest / highest / A→Z).
+  return sort === 'created' ? 'desc' : 'asc';
+}
+
+/** Human phrase for the direction, for the trigger's accessible name. */
+export function sortDirLabel(dir: TaskSortDir): string {
+  return dir === 'asc' ? 'ascending' : 'descending';
+}
+
 const WINDOW_VALUES = TASK_WINDOWS.map((item) => item.value);
 const SORT_VALUES = TASK_SORTS.map((item) => item.value);
+const SORT_DIR_VALUES: readonly TaskSortDir[] = ['asc', 'desc'];
 const PRIORITY_VALUES: readonly Priority[] = ['none', 'low', 'medium', 'high'];
 
 function isWindow(value: string | null): value is TaskWindow {
@@ -59,6 +101,10 @@ function isWindow(value: string | null): value is TaskWindow {
 
 function isSort(value: string | null): value is TaskSort {
   return value !== null && (SORT_VALUES as readonly string[]).includes(value);
+}
+
+function isSortDir(value: string | null): value is TaskSortDir {
+  return value !== null && (SORT_DIR_VALUES as readonly string[]).includes(value);
 }
 
 function isPriority(value: string | null): value is Priority {
@@ -71,13 +117,20 @@ export function parseTaskView(search: string): TaskViewState {
   const window = params.get('window');
   const sort = params.get('sort');
   const priority = params.get('priority');
+  const dir = params.get('dir');
+
+  const parsedSort = isSort(sort) ? sort : DEFAULT_TASK_VIEW.sort;
 
   return {
     listId: params.get('list') || null,
     tagId: params.get('tag') || null,
     window: isWindow(window) ? window : DEFAULT_TASK_VIEW.window,
     q: params.get('q') ?? '',
-    sort: isSort(sort) ? sort : DEFAULT_TASK_VIEW.sort,
+    sort: parsedSort,
+    // A direction only means something for a directional sort; elsewhere it is
+    // dropped so the state can never claim a reversal a `smart` order cannot do.
+    sortDir:
+      isDirectionalSort(parsedSort) && isSortDir(dir) ? dir : defaultSortDir(parsedSort),
     priority: isPriority(priority) ? priority : null,
   };
 }
@@ -90,6 +143,11 @@ export function serializeTaskView(state: TaskViewState): string {
   if (state.window !== DEFAULT_TASK_VIEW.window) params.set('window', state.window);
   if (state.q.trim()) params.set('q', state.q.trim());
   if (state.sort !== DEFAULT_TASK_VIEW.sort) params.set('sort', state.sort);
+  // Additive: `dir` only appears when it differs from the sort's own default, so
+  // links written before direction existed still parse and re-serialise cleanly.
+  if (isDirectionalSort(state.sort) && state.sortDir !== defaultSortDir(state.sort)) {
+    params.set('dir', state.sortDir);
+  }
   if (state.priority) params.set('priority', state.priority);
   return params.toString();
 }
@@ -139,6 +197,60 @@ export function taskQuery(state: TaskViewState): Record<string, string | number 
   }
 
   return query;
+}
+
+/** Priority rank for sorting: high first, `none` last. */
+const PRIORITY_RANK: Record<Priority, number> = { high: 0, medium: 1, low: 2, none: 3 };
+
+/** The instant a task is due — its `dueAtMs`, else its floating day at UTC midnight. */
+function dueSortInstant(task: Task): number | null {
+  if (task.dueAtMs !== null) return task.dueAtMs;
+  if (task.dueDate) return Date.parse(`${task.dueDate}T00:00:00Z`);
+  return null;
+}
+
+function compareTasks(a: Task, b: Task, sort: TaskSort, dir: TaskSortDir): number {
+  const sign = dir === 'asc' ? 1 : -1;
+  switch (sort) {
+    case 'title':
+      return sign * a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+    case 'created':
+      return sign * (a.createdAt - b.createdAt);
+    case 'priority': {
+      // An unset priority is the absence of a value, not the far end of the
+      // scale, so it stays last whichever way the sort runs — its ordering is
+      // deliberately outside the `sign`.
+      if (a.priority === 'none' || b.priority === 'none') {
+        if (a.priority === 'none' && b.priority === 'none') return 0;
+        return a.priority === 'none' ? 1 : -1;
+      }
+      return sign * (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
+    }
+    case 'due': {
+      const ad = dueSortInstant(a);
+      const bd = dueSortInstant(b);
+      if (ad === null || bd === null) {
+        if (ad === null && bd === null) return 0;
+        return ad === null ? 1 : -1;
+      }
+      return sign * (ad - bd);
+    }
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Applies the chosen direction to an already-fetched page.
+ *
+ * The API sorts but takes no direction parameter, so a descending order is this
+ * reversal rather than a second request. Non-directional sorts (`smart`,
+ * `updated`, `manual`) keep the server's order untouched, and undated / unset
+ * rows stay last in both directions.
+ */
+export function sortTasks(tasks: readonly Task[], sort: TaskSort, dir: TaskSortDir): Task[] {
+  if (!isDirectionalSort(sort)) return [...tasks];
+  return [...tasks].sort((a, b) => compareTasks(a, b, sort, dir));
 }
 
 export interface FilterLookups {

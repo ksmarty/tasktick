@@ -42,7 +42,7 @@ import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass'
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { Folder } from 'lucide-react';
-import { Flag, Tag } from 'lucide-react';
+import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide, Flag, Tag } from 'lucide-react';
 import { accentHex } from '@/lib/colors';
 import { todayIn } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
@@ -76,8 +76,12 @@ import { TaskListSection } from './TaskListSection';
 import { ViewportDock } from './ViewportDock';
 import {
   activeFilters,
+  DEFAULT_TASK_VIEW,
+  isDirectionalSort,
   parseTaskView,
   serializeTaskView,
+  sortDirLabel,
+  sortTasks,
   taskQuery,
   taskViewTitle,
   updateTaskView,
@@ -171,13 +175,26 @@ export function TasksView() {
   const title = taskViewTitle(state, lookups);
   const activeList = state.listId ? (lists.find((list) => list.id === state.listId) ?? null) : null;
   const activeSort = TASK_SORTS.find((sort) => sort.value === state.sort) ?? TASK_SORTS[0];
+  const directionalSort = isDirectionalSort(state.sort);
+  const SortIcon = directionalSort
+    ? state.sortDir === 'asc'
+      ? ArrowUpNarrowWide
+      : ArrowDownWideNarrow
+    : ArrowUpDown;
 
   /** The search field is visible on demand, and always while a query is applied. */
   const searchVisible = searchOpen || state.q.trim().length > 0;
 
+  // The API takes no direction parameter, so `desc` is applied to the fetched
+  // page here; see `sortTasks`. Non-directional sorts keep the server's order.
+  const sortedTasks = useMemo(
+    () => sortTasks(tasks, state.sort, state.sortDir),
+    [tasks, state.sort, state.sortDir],
+  );
+
   const sections = useMemo(
-    () => buildListSections(tasks, { zone, today: todayIn(zone) }),
-    [tasks, zone],
+    () => buildListSections(sortedTasks, { zone, today: todayIn(zone) }),
+    [sortedTasks, zone],
   );
 
   function toggleSelect(task: Task) {
@@ -294,20 +311,23 @@ export function TasksView() {
             <h1 className="min-w-0 truncate text-lg font-semibold">{title}</h1>
           </div>
           {/*
-           * The active sort, as a quiet label rather than a control of its own:
-           * it answers "what order is this list in?" without opening anything,
-           * and tapping it opens the sort menu.
+           * The sort, as its own icon button beside search and filter. The glyph
+           * carries the direction (narrow-wide up or down) so the current order
+           * is readable without opening the menu; the drawer holds the key list
+           * and the ascending/descending toggle. It fills while a non-default
+           * sort is applied, the way the filter button fills for active filters.
            */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
+          <HeaderActionButton
+            aria-label={
+              directionalSort
+                ? `Sort: ${activeSort.label}, ${sortDirLabel(state.sortDir)}. Change the sort`
+                : `Sort: ${activeSort.label}. Change the sort`
+            }
+            icon={SortIcon}
+            iconClassName="size-5"
+            variant={state.sort === DEFAULT_TASK_VIEW.sort ? 'tinted' : 'filled'}
             onClick={() => setSortOpen(true)}
-            aria-label={`Sort: ${activeSort.label}. Change the sort`}
-            className="shrink-0 px-1.5 text-xs font-normal text-muted-foreground"
-          >
-            {activeSort.label}
-          </Button>
+          />
           <HeaderActionButton
             aria-label={searchVisible ? 'Hide search' : 'Show search'}
             icon={MagnifyingGlassIcon}

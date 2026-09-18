@@ -21,7 +21,7 @@
  * |---|---|---|
  * | a row is a list row with a checkbox and a name | `ListItem`/`ListItemText` | `<li>` + shadcn `Checkbox` + a `<button>` named `Open …` |
  * | row actions | MUI long-press `Menu` | shadcn `ContextMenu` |
- * | the coloured leading edge carries meaning | `borderLeft: 3px solid` | `border-l-4` + a `--edge-color` custom property |
+ * | the coloured leading edge carries meaning | `borderLeft: 3px solid` | an 8px list-colour dot in the section header |
  * | section collapse + expanded state | MUI `ListSubheader` + `Collapse` | GodUI `Accordion` (asserted in the vendored file, where it now lives) |
  * | quick-add focus in the tap's own task | MUI Dialog + `transitionDuration={0}` | shadcn Dialog + `useLayoutEffect` + `duration-0`/`animate-none` |
  *
@@ -144,10 +144,15 @@ describe('TaskRow — Tailwind through cn(), no hand-rolled divider', () => {
 });
 
 describe('TaskListSection — GodUI Accordion grouping', () => {
-  it('groups the rows with the GodUI Accordion', () => {
+  it('groups the rows with the GodUI Accordion inside a GodUI glass card', () => {
     expect(SECTION).toContain("from '@/components/godui/accordion'");
     expect(SECTION).toContain('<Accordion');
     expect(SECTION).toContain('items={[');
+    // The section surface is GodUI's glass card; the Accordion's own border and
+    // radius are neutralised so the card is the only card.
+    expect(SECTION).toContain("from '@/components/godui/liquid-glass-card'");
+    expect(SECTION).toContain('<LiquidGlassCard');
+    expect(SECTION).toContain('rounded-none border-0 bg-transparent');
   });
 
   it('animates through the Accordion rather than a grid-rows track', () => {
@@ -168,15 +173,18 @@ describe('TaskListSection — GodUI Accordion grouping', () => {
     expect(SECTION).toContain('${section.tasks.length} task${section.tasks.length === 1 ? ');
   });
 
-  it('marks only Overdue in the destructive colour', () => {
+  it('marks Overdue by contrast rather than hue in the header', () => {
     expect(SECTION).toContain("section.tone === 'danger'");
-    expect(SECTION).toContain("'text-destructive' : 'text-foreground'");
+    expect(SECTION).toContain("'text-foreground' : 'text-muted-foreground'");
   });
 
-  it('paints the deliberate leading edge with a border', () => {
-    expect(SECTION).toContain('border-l-4');
-    expect(SECTION).toContain('border-l-[var(--edge-color)]');
-    expect(SECTION).toContain("'--edge-color': edgeColorFor(section, listColors)");
+  it('keeps the list/priority signal as one header dot, not a coloured stripe', () => {
+    // The full-height 4px coloured edge is gone; the same information survives
+    // as a single dot in the section header, so the palette stays achromatic.
+    expect(SECTION).not.toContain('border-l-4');
+    expect(SECTION).not.toContain('--edge-color');
+    expect(SECTION).toContain('rounded-full');
+    expect(SECTION).toContain('edgeColorFor(section, listColors)');
   });
 
   it('keeps the row inset coming from the layout token', () => {

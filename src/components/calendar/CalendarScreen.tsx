@@ -39,10 +39,12 @@
  *
  * The horizontal inset is `px-2`, not `px-gutter`: the grid and the agenda are
  * the two things this screen is for, and the old 1rem page gutter plus the
- * card's own 1rem inset pushed the numbers a long way from the edges. Both the
- * month surface and the agenda list carry the same `px-2`, so they still share
- * one left edge. The month grid owns its own gutter because the clip it measures
- * for "one page" must carry no padding of its own — see `MonthGrid`.
+ * card's own 1rem inset pushed the numbers a long way from the edges. The month
+ * grid and the agenda list both carry the same `px-2`, so they still share one
+ * left edge. The month grid's inset sits on its weekday header and on each of the
+ * three paging panels rather than on the surface, because the clip it measures
+ * for "one page" must carry no padding of its own and because the inset doubles
+ * as the visible gap between months — see `MonthGrid`.
  *
  * Because the shell's pane no longer scrolls in this mode, the pane's own
  * bottom reservation for the tab band is gone with it; the agenda's list
@@ -83,6 +85,7 @@ import {
 import { invalidate, useResource } from '@/lib/store';
 import type { CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
+import { AgendaTaskEditor } from './AgendaTaskEditor';
 import { CalendarToolbar } from './CalendarToolbar';
 import { DayAgenda } from './DayAgenda';
 import { DayDetailSheet, DEFAULT_EVENT_START_MINUTE } from './DayDetailSheet';
@@ -128,6 +131,17 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const [filterId, setFilterId] = useState<string | null>(initialCalendarId);
   const [daySheetDate, setDaySheetDate] = useState<DateOnly | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; eventId: string | null; defaults: EventDefaults } | null>(null);
+  /*
+   * The task tapped in the agenda. Unlike an event, an agenda row does not carry
+   * the whole record the task editor needs, so this holds only the id and the
+   * editor fetches the full task — see `AgendaTaskEditor`. The `open` flag is
+   * kept beside the id, rather than clearing the id on close, so the editor
+   * stays mounted to flush a debounced save as it does on the tasks screen.
+   */
+  const [taskEditor, setTaskEditor] = useState<{ open: boolean; taskId: string | null }>({
+    open: false,
+    taskId: null,
+  });
 
   // One mutable gesture record, shared with the grid and the agenda: it is how a
   // paging swipe knows to stand down during a drag, and how a drag swallows the
@@ -406,9 +420,11 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         setEditor({ open: true, eventId: item.id, defaults: defaultsFor(item, prefs) });
         return;
       }
-      router.push(`/tasks?task=${encodeURIComponent(item.id)}`);
+      // A task opens the tasks screen's editor in place. Its full record does not
+      // travel in the agenda's `CalendarItem`, so the id is all we can pass.
+      setTaskEditor({ open: true, taskId: item.id });
     },
-    [interaction, prefs, router],
+    [interaction, prefs],
   );
 
   const createAt = useCallback(
@@ -591,6 +607,13 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         prefs={prefs}
         filter={filterCalendar ? { id: filterCalendar.id, name: filterCalendar.name, color: filterCalendar.color } : null}
         onChanged={refresh}
+      />
+
+      <AgendaTaskEditor
+        taskId={taskEditor.taskId}
+        open={taskEditor.open}
+        onOpenChange={(open) => setTaskEditor((current) => ({ ...current, open }))}
+        onSaved={refresh}
       />
     </>
   );

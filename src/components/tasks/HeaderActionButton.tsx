@@ -26,6 +26,8 @@ export interface HeaderActionButtonProps {
   /** Accessible name. Required: this control is icon-only. */
   'aria-label': string;
   icon: ComponentType<{ className?: string }>;
+  /** Size/utility classes for the glyph. Defaults to the font-size scale. */
+  iconClassName?: string;
   onClick?: () => void;
   disabled?: boolean;
   /** `tinted` is the quiet default; `filled` marks an engaged state. */
@@ -35,6 +37,7 @@ export interface HeaderActionButtonProps {
 
 export function HeaderActionButton({
   icon: Icon,
+  iconClassName,
   variant = 'tinted',
   className,
   ...rest
@@ -51,7 +54,9 @@ export function HeaderActionButton({
       )}
       {...rest}
     >
-      <Icon className="text-lg" />
+      {/* Animated icons size themselves from the font size; lucide icons need
+          an explicit `size-*`, so the caller may supply one. */}
+      <Icon className={iconClassName ?? 'text-lg'} />
     </Button>
   );
 }

@@ -28,9 +28,11 @@
  * size (`text-sm`, Tailwind's scale) — which is also why one class switches the
  * whole line's glyphs at once.
  *
- * Colours come from `priority.ts` (a Tailwind class per priority) and from the
- * theme's muted foreground. Tag colours are user data rather than theme tokens, so
- * they are the one thing set inline, via `accentHex`.
+ * Colours come from `priority.ts` (a monochrome class per priority) and from the
+ * theme's muted foreground. Tag colours are user data rather than theme tokens,
+ * so they survive as a small dot inside an otherwise monochrome chip: the tag's
+ * name is its identity, and spending a full coloured pill and border on it made
+ * the meta line busier than the title above it.
  */
 import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
@@ -170,9 +172,14 @@ export function TaskMeta({ task, className }: TaskMetaProps) {
         <Badge
           key={tag.id}
           variant="outline"
-          className="h-5 shrink-0 px-1.5 text-xs"
-          style={{ color: accentHex(tag.color), borderColor: accentHex(tag.color) }}
+          className="h-5 shrink-0 gap-1 border-border px-1.5 text-xs text-muted-foreground"
         >
+          {/* The one place a tag's colour survives: a dot, not the whole chip. */}
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: accentHex(tag.color) }}
+          />
           {`#${tag.name}`}
         </Badge>
       ))}

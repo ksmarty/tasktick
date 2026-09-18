@@ -24,17 +24,12 @@
  * top gutter so the first group does not sit flush against the app bar — the
  * specific complaint that the Account section "has no margin".
  */
-import { DashboardIcon } from '@svg-animated-icons/react/dashboard';
-import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
-import { StopwatchIcon } from '@svg-animated-icons/react/stopwatch';
 import { PageHeader } from '@/components/app/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { AccountSettings } from '@/components/settings/AccountSettings';
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
 import { DateTimeSettings } from '@/components/settings/DateTimeSettings';
-import { SectionLink } from '@/components/settings/SectionLink';
-import { SettingsGroup } from '@/components/settings/SettingsGroup';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { BootstrapPayload } from '@/lib/view-types';
 
@@ -63,24 +58,6 @@ export default function SettingsPage() {
           </>
         )}
       </SettingsTabs>
-
-      {/*
-       * Tools is app navigation, not a preference, so it deliberately sits
-       * outside the tab panels — but it has to sit somewhere. On a phone it is
-       * the only door to the matrix, the focus timer and search: they used to
-       * live behind the tab bar's "More" sheet, which is gone, and the desktop
-       * sidebar is not on a phone. Keep it on the settings landing screen.
-       */}
-      <SettingsGroup title="Tools" footer="Also in the desktop sidebar.">
-        <SectionLink
-          href="/matrix"
-          icon={<DashboardIcon />}
-          title="Priority matrix"
-          subtitle="Urgent and important, at a glance"
-        />
-        <SectionLink href="/pomodoro" icon={<StopwatchIcon />} title="Focus timer" subtitle="Pomodoro sessions" />
-        <SectionLink href="/search" icon={<MagnifyingGlassIcon />} title="Search" subtitle="Tasks, events and habits" />
-      </SettingsGroup>
     </div>
   );
 }

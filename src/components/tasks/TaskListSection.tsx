@@ -3,17 +3,24 @@
 /**
  * One collapsible group of task rows, with drag reordering.
  *
- * The section header is the card's first row: one card per section, starting with
- * `Pinned  4  ⌄` and followed by the rows, rather than a caption floating above a
- * separate card. Each card paints a stripe down its leading edge in the colour of
- * the list most of its rows belong to — Material had no equivalent of the iOS
- * grouped-list edge, so it is drawn explicitly, which is what makes a long scroll
- * scannable (see `edgeColorFor`).
+ * The section is a GodUI `LiquidGlassCard` — a frosted, monochrome panel with a
+ * soft elevation — and the GodUI `Accordion` provides the disclosure inside it
+ * (its own `border`/`rounded-xl` are neutralised so the glass card is the only
+ * surface). That keeps the spring height animation and rotating chevron the
+ * Accordion already owns, and lets the card be the thing that reads as GodUI.
  *
- * Material's `List`/`ListSubheader`/`Collapse` trio is replaced by the GodUI
- * `Accordion`, which already owns a spring height animation and rotating chevron —
- * so there is no hand-rolled grid-rows track, and a collapsed section is unmounted
- * at rest (which matters for `Completed`, which can hold hundreds of rows).
+ * ## The colour: one dot, not a stripe
+ *
+ * The card used to paint a 4px full-height stripe down its leading edge in the
+ * colour of the list most of its rows belong to. Celestial Sapphire is
+ * achromatic, and a red / green / purple stripe per section was the loudest
+ * colour on the screen — but the colour is *data* (which list), so dropping it
+ * outright would lose information. It survives as a single 8px dot in the
+ * section header: the same signal, a fraction of the coloured area, on a card
+ * that is otherwise pure contrast. Overdue keeps the theme's destructive dot,
+ * which is the one urgency the palette lets colour carry; its label is also the
+ * only one at full `text-foreground` contrast, so the meaning does not depend on
+ * hue alone.
  *
  * ## The three places this file compensates for the vendored Accordion
  *
@@ -29,15 +36,9 @@
  *    rows. A negative margin rather than an override, because `tailwind-merge`
  *    cannot be relied on to resolve a token class against a vendored one.
  *  - the panel paints `text-sm text-muted-foreground`, which the row track resets
- *    with an explicit `text-base text-foreground`.
- *
- * ## The coloured edge
- *
- * `border-l-4` rather than the old 3px: three is not on Tailwind's scale, and the
- * conventions are explicit that a size which is not on the scale is a size the
- * design should not want. The colour is per-section and therefore a CSS custom
- * property written inline (`--edge-color`), which is the one thing about the edge
- * that genuinely cannot be a class.
+ *    with an explicit `text-base text-foreground`. The track also carries the
+ *    hairline under the header and between rows, which is what gives the denser
+ *    list its rhythm without a background per row.
  *
  * ## Reordering
  *
@@ -51,17 +52,18 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Accordion } from '@/components/godui/accordion';
+import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import { accentHex } from '@/lib/colors';
 import type { AccentColor, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { canReorder, reorderIds, reorderableIds } from './optimistic';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
 import type { TaskSection } from './sections';
+import { GLASS_TINT } from './surface';
 
 interface DragState {
   id: string;
@@ -239,60 +241,88 @@ export function TaskListSection({
   const danger = section.tone === 'danger';
 
   return (
-    <Accordion
-      type="single"
-      collapsible
-      // A section that starts collapsed is the one the caller marked as such —
-      // "Completed" holds work the user has finished with, so it arrives closed.
-      defaultValue={section.defaultCollapsed ? [] : [section.id]}
-      className="border-l-4 border-l-[var(--edge-color)]"
-      style={{ '--edge-color': edgeColorFor(section, listColors) } as CSSProperties}
-      items={[
-        {
-          value: section.id,
-          title: (
-            <span className="-mx-1 flex min-w-0 flex-1 items-center gap-2">
-              {/* The section title is the loudest thing on the line. */}
-              <span
-                className={cn('truncate text-sm font-semibold', danger ? 'text-destructive' : 'text-foreground')}
-              >
-                {section.title}
-              </span>
-              <span className="ml-auto flex shrink-0 items-center gap-2 text-xs tabular-nums">
-                {section.tasks.length}
-                <span className="sr-only">{`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}</span>
-              </span>
-            </span>
-          ),
-          content: (
-            <ul className="-mx-5 -mb-4 flex flex-col text-base text-foreground">
-              {section.tasks.map((task, index) => (
-                <TaskRow
-                  key={task.id}
-                  ref={(node) => {
-                    if (node) rowRefs.current.set(task.id, node);
-                    else rowRefs.current.delete(task.id);
-                  }}
-                  task={task}
-                  zone={zone}
-                  timeFormat={timeFormat}
-                  onToggle={onToggle}
-                  onOpen={onOpen}
-                  onDelete={onDelete}
-                  onWontDo={onWontDo}
-                  disabled={disabled}
-                  selectionMode={selectionMode}
-                  selected={selectedIds?.has(task.id) ?? false}
-                  onSelect={onSelect}
-                  drag={dragPropsFor(task)}
-                  first={index === 0}
-                  last={index === section.tasks.length - 1}
+    /*
+     * `strength={0}`: the refraction would have nothing to bend on the flat page
+     * background, so the card keeps the tint, frost, sheen and elevation without
+     * paying for the displacement filter on every section of an everyday list.
+     */
+    <LiquidGlassCard
+      radius={16}
+      strength={0}
+      sheen={0.3}
+      tint={GLASS_TINT}
+      className="border-border shadow-sm"
+    >
+      <Accordion
+        type="single"
+        collapsible
+        // A section that starts collapsed is the one the caller marked as such —
+        // "Completed" holds work the user has finished with, so it arrives closed.
+        defaultValue={section.defaultCollapsed ? [] : [section.id]}
+        // Neutralise the Accordion's own surface so the glass card is the card.
+        className="rounded-none border-0 bg-transparent"
+        items={[
+          {
+            value: section.id,
+            title: (
+              <span className="-mx-1 flex min-w-0 flex-1 items-center gap-2">
+                {/*
+                 * The list's colour, reduced to a single dot. The dot is the
+                 * section's leading edge now; see the file comment.
+                 */}
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: edgeColorFor(section, listColors) }}
                 />
-              ))}
-            </ul>
-          ),
-        },
-      ]}
-    />
+                <span
+                  className={cn(
+                    'truncate text-xs font-semibold tracking-wider uppercase',
+                    // Contrast, not hue, marks the urgent section: Overdue is
+                    // the only header at full foreground.
+                    danger ? 'text-foreground' : 'text-muted-foreground',
+                  )}
+                >
+                  {section.title}
+                </span>
+                <span className="ml-auto flex shrink-0 items-center gap-2">
+                  <span className="rounded-full border border-border px-2 text-xs tabular-nums text-muted-foreground">
+                    {section.tasks.length}
+                  </span>
+                  <span className="sr-only">{`${section.tasks.length} task${section.tasks.length === 1 ? '' : 's'}`}</span>
+                </span>
+              </span>
+            ),
+            content: (
+              <ul className="-mx-5 -mb-4 flex flex-col divide-y divide-border/70 border-t border-border/70 text-base text-foreground">
+                {section.tasks.map((task, index) => (
+                  <TaskRow
+                    key={task.id}
+                    ref={(node) => {
+                      if (node) rowRefs.current.set(task.id, node);
+                      else rowRefs.current.delete(task.id);
+                    }}
+                    task={task}
+                    zone={zone}
+                    timeFormat={timeFormat}
+                    onToggle={onToggle}
+                    onOpen={onOpen}
+                    onDelete={onDelete}
+                    onWontDo={onWontDo}
+                    disabled={disabled}
+                    selectionMode={selectionMode}
+                    selected={selectedIds?.has(task.id) ?? false}
+                    onSelect={onSelect}
+                    drag={dragPropsFor(task)}
+                    first={index === 0}
+                    last={index === section.tasks.length - 1}
+                  />
+                ))}
+              </ul>
+            ),
+          },
+        ]}
+      />
+    </LiquidGlassCard>
   );
 }

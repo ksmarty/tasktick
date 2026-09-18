@@ -28,6 +28,7 @@ import type { Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import { EmptyTasks } from './EmptyTasks';
 import { HeaderActionButton } from './HeaderActionButton';
 import { QuickAddBar } from './QuickAddBar';
@@ -35,6 +36,7 @@ import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
 import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
 import { buildTodaySections, countRemaining, todayProgress, type TaskSection } from './sections';
+import { GLASS_TINT } from './surface';
 import { useTaskActions } from './useTaskActions';
 
 export function TodayView() {
@@ -151,53 +153,62 @@ export function TodayView() {
       {data ? (
         <div className="px-gutter pt-2 pb-1">
           {/*
-           * The ring and the copy are one block, so they share one surface. The
-           * fraction is absolutely positioned inside the ring, so it reads as the
-           * ring's own label rather than as a datum beside it.
+           * The ring and the copy are one block, so they share one surface —
+           * the same GodUI glass panel the list sections use. The fraction is
+           * absolutely positioned inside the ring, so it reads as the ring's own
+           * label rather than as a datum beside it.
            */}
-          <div className="flex items-center gap-4 rounded-xl border border-border p-card">
-            <div
-              className="relative grid size-14 shrink-0 place-items-center"
-              role="progressbar"
-              aria-valuenow={ratio}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${progress.completed} of ${progress.total} tasks done today`}
-            >
-              <svg viewBox="0 0 36 36" className="size-14 -rotate-90" aria-hidden>
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.9155"
-                  fill="none"
-                  strokeWidth="3"
-                  className="stroke-muted"
-                />
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.9155"
-                  fill="none"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  pathLength={100}
-                  className="stroke-primary"
-                  style={{ strokeDasharray: `${ratio} 100` }}
-                />
-              </svg>
-              <span className="absolute text-xs font-semibold tabular-nums">
-                {progress.completed}/{progress.total}
-              </span>
+          <LiquidGlassCard
+            radius={16}
+            strength={0}
+            sheen={0.3}
+            tint={GLASS_TINT}
+            className="border-border shadow-sm"
+          >
+            <div className="flex items-center gap-4 p-card">
+              <div
+                className="relative grid size-14 shrink-0 place-items-center"
+                role="progressbar"
+                aria-valuenow={ratio}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`${progress.completed} of ${progress.total} tasks done today`}
+              >
+                <svg viewBox="0 0 36 36" className="size-14 -rotate-90" aria-hidden>
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    strokeWidth="3"
+                    className="stroke-muted"
+                  />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    pathLength={100}
+                    className="stroke-primary"
+                    style={{ strokeDasharray: `${ratio} 100` }}
+                  />
+                </svg>
+                <span className="absolute text-xs font-semibold tabular-nums">
+                  {progress.completed}/{progress.total}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold">
+                  {remaining === 0 ? 'Nothing left for today' : `${remaining} task${remaining === 1 ? '' : 's'} left`}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {formatFullDate(Date.now(), { zone, timeFormat, weekStartsOn })}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold">
-                {remaining === 0 ? 'Nothing left for today' : `${remaining} task${remaining === 1 ? '' : 's'} left`}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {formatFullDate(Date.now(), { zone, timeFormat, weekStartsOn })}
-              </p>
-            </div>
-          </div>
+          </LiquidGlassCard>
         </div>
       ) : (
         <div className="px-gutter pt-3 pb-2">

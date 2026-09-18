@@ -61,10 +61,21 @@ describe('filter and sort are two menus', () => {
 
   it('puts a trigger for each menu in the header', () => {
     expect(VIEW).toContain('aria-label="Filter tasks"');
-    expect(VIEW).toContain('`Sort: ${activeSort.label}. Change the sort`');
+    expect(VIEW).toContain('`Sort: ${activeSort.label}');
+    // The sort is an icon button now, and its glyph carries the direction.
+    expect(VIEW).toContain('icon={SortIcon}');
+    expect(VIEW).toContain('sortDirLabel(state.sortDir)');
     expect(VIEW).toContain('<TaskFilterMenu');
     expect(VIEW).toContain('<TaskSortMenu');
     expect(VIEW).not.toContain('TaskFilterSheet');
+  });
+
+  it('exposes the sort direction as a labelled toggle, only where it applies', () => {
+    expect(SORT).toContain('aria-label="Sort direction"');
+    expect(SORT).toContain('isDirectionalSort(state.sort)');
+    for (const label of ['Ascending', 'Descending']) expect(SORT).toContain(label);
+    // Choosing a key starts it in its own natural direction.
+    expect(SORT).toContain('defaultSortDir(sort)');
   });
 });
 

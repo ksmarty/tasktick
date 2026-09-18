@@ -28,7 +28,7 @@
  * The pickers for repeat, reminders, priority, list and tags are the shared
  * drawers in this folder.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from 'react';
 import { DateTime } from 'luxon';
 
 import { BellIcon } from '@svg-animated-icons/react/bell';
@@ -86,6 +86,53 @@ export interface TaskEditorSheetProps {
    * collection it does not own.
    */
   onSaved?: () => void;
+}
+
+/**
+ * A textarea that grows with its content and never collapses below `minRows`.
+ *
+ * The title field was a single line of `text-xl`, so a title long enough to need
+ * a second line was unreadable while it was being typed. The shadcn `Textarea`
+ * ships `field-sizing-content`, which does this natively where it is supported,
+ * but not in every browser this app targets — so the height is measured here
+ * instead: reset to `auto`, read `scrollHeight`, and floor it at `minRows`
+ * line-heights plus the field's own vertical padding. That explicit height is a
+ * measured value, which is exactly what the spacing rules allow inline `style`
+ * for.
+ */
+function AutoGrowTextarea({
+  minRows,
+  value,
+  className,
+  ...props
+}: ComponentProps<typeof Textarea> & { minRows: number }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Measure the content, not the height the last measurement left behind.
+    el.style.height = 'auto';
+    const styles = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(styles.lineHeight) || 0;
+    const padding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+    const floor = lineHeight * minRows + padding;
+    el.style.height = `${Math.max(el.scrollHeight, floor)}px`;
+  }, [value, minRows]);
+
+  return (
+    <Textarea
+      ref={ref}
+      rows={minRows}
+      value={value}
+      // `shrink-0`: the editor body is a flex column, and a flex item may shrink
+      // below its content when the column runs out of room. Without this the
+      // measured height is silently compressed back to the textarea's
+      // `min-h-16` and the text clips — the exact bug this component fixes.
+      className={cn('field-sizing-fixed shrink-0 resize-none overflow-hidden', className)}
+      {...props}
+    />
+  );
 }
 
 /** One tappable field row: icon, label, current value, chevron. */
@@ -289,10 +336,10 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col gap-stack overflow-y-auto px-gutter py-card">
-            <Textarea
+            <AutoGrowTextarea
               aria-label="Title"
               placeholder="Title"
-              rows={1}
+              minRows={2}
               value={title}
               disabled={disabled}
               onChange={(event) => edit({ title: event.target.value })}
@@ -303,19 +350,18 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                   event.currentTarget.blur();
                 }
               }}
-              className="min-h-0 resize-none text-xl font-semibold"
+              className="text-xl font-semibold"
             />
 
             <Separator />
 
-            <Textarea
+            <AutoGrowTextarea
               aria-label="Notes"
               placeholder="Notes"
-              rows={2}
+              minRows={3}
               value={notes}
               disabled={disabled}
               onChange={(event) => edit({ notes: event.target.value })}
-              className="resize-none"
             />
 
             <Separator />

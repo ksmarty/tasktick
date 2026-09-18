@@ -13,10 +13,15 @@
  * design one — which is why it appears as a utility rather than in the layout
  * scale.
  *
- * `min-h-dvh` rather than `min-h-screen`: on iOS `100vh` is the height the
- * viewport would have with the browser chrome collapsed, so a `100vh` box is
- * always taller than the screen and the page scrolls a few pixels for no reason.
- * `dvh` is the height it actually has.
+ * `h-full` + `overflow-y-auto` rather than `min-h-dvh`: the document is no
+ * longer a scroller (see `globals.css`), so a layout that can outgrow the screen
+ * has to own its own scrolling or its content becomes unreachable. The frame is
+ * the scroller here, which also means the safe-area insets stay outside it and
+ * the content never slides under the notch.
+ *
+ * `overscroll-contain` so a drag past the end of this pane stops at the pane
+ * instead of being handed to the (locked) root — the same wall every other
+ * scroll container in the app presents.
  *
  * `className` is merged with `cn()`, so a caller that wants to override the
  * height or the inset on one edge can.
@@ -33,7 +38,7 @@ export function SafeAreaFrame({
   return (
     <div
       className={cn(
-        'min-h-dvh pt-[env(safe-area-inset-top,0px)] pr-[env(safe-area-inset-right,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)]',
+        'h-full overflow-y-auto overscroll-contain pt-[env(safe-area-inset-top,0px)] pr-[env(safe-area-inset-right,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)]',
         className,
       )}
     >

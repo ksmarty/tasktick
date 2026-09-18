@@ -272,19 +272,33 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    /*
+     * The document is not a scroller. Only the panes inside it are.
+     *
+     * This is the fix for the whole viewport lurching and springing back on a
+     * drag. `overscroll-behavior` on `body` alone does not stop it, because on
+     * iOS the thing that bounces is the *root* scroller, and a drag that a pane
+     * cannot consume is handed up to it — so the entire screen moves and snaps
+     * back, which reads as the app being broken rather than as the end of a list.
+     *
+     * Locking `html` and `body` to the viewport leaves nothing above the panes
+     * to scroll, so overscroll has nowhere to chain to. Every scroll container
+     * then states its own `overscroll-contain` (see the shell's pane and each
+     * screen's list), which is what makes the boundary feel like a wall instead
+     * of a rubber band.
+     */
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   body {
     @apply bg-background text-foreground;
-    /*
-     * Kill the rubber-band overscroll. In an installed PWA a downward drag at
-     * the top of a list otherwise pulls the whole web view and exposes the
-     * browser chrome behind it.
-     */
-    overscroll-behavior-y: none;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    min-height: 100dvh;
   }
 
   /*

@@ -10,7 +10,9 @@
  */
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import { Button } from '@/components/ui/button';
+import { GLASS_TINT } from './surface';
 
 export interface EmptyTasksProps {
   onAdd: () => void;
@@ -24,19 +26,31 @@ export function EmptyTasks({
   description = 'Nothing is due. Add a task now, or enjoy the quiet.',
 }: EmptyTasksProps) {
   return (
-    <div className="flex flex-col items-center gap-3 px-gutter py-6 text-center">
-      <span
-        aria-hidden
-        className="grid size-14 place-items-center rounded-full bg-muted text-muted-foreground"
+    /* The empty state is a GodUI glass panel, the same surface the sections use,
+       so “nothing here” reads as part of the screen rather than a bare page. */
+    <div className="px-gutter py-3">
+      <LiquidGlassCard
+        radius={16}
+        strength={0}
+        sheen={0.3}
+        tint={GLASS_TINT}
+        className="border-border shadow-sm"
       >
-        <CheckCircledIcon className="text-2xl" />
-      </span>
-      <h2 className="text-base font-medium text-foreground">{title}</h2>
-      <p className="max-w-72 text-sm text-muted-foreground">{description}</p>
-      <Button type="button" className="mt-1" onClick={onAdd}>
-        <PlusIcon className="text-base" aria-hidden />
-        Add a task
-      </Button>
+        <div className="flex flex-col items-center gap-3 px-card py-8 text-center">
+          <span
+            aria-hidden
+            className="grid size-14 place-items-center rounded-full border border-border bg-background/60 text-muted-foreground"
+          >
+            <CheckCircledIcon className="text-2xl" />
+          </span>
+          <h2 className="text-base font-medium text-foreground">{title}</h2>
+          <p className="max-w-72 text-sm text-muted-foreground">{description}</p>
+          <Button type="button" className="mt-1" onClick={onAdd}>
+            <PlusIcon className="text-base" aria-hidden />
+            Add a task
+          </Button>
+        </div>
+      </LiquidGlassCard>
     </div>
   );
 }

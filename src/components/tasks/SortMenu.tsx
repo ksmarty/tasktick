@@ -3,23 +3,39 @@
 /**
  * The sort menu: in what order the list is shown.
  *
- * The sort used to be the last section of the combined Filter & Sort sheet. It
- * is its own control now, driven by the header's sort label (the quiet
- * `Smart` / `Due date` / … button), so the answer to "what order is this list
- * in?" is both visible without opening anything and changeable in one tap.
+ * The sort used to be the last section of the combined Filter & Sort sheet, then
+ * a quiet `Smart` / `Due date` / … text label in the header. It is an icon
+ * button now, matching search and filter (see `TasksView`), and this drawer is
+ * what that button opens.
+ *
+ * ## Where the direction lives
+ *
+ * The order has two axes: the key (`Due date`) and the way (`ascending` /
+ * `descending`). The key is the radio list; the way is the two-button radiogroup
+ * under it, shown only when the selected key can actually be reversed. Putting it
+ * here — rather than on a hidden second tap of the trigger — is the discoverable
+ * option: both states are named, both are ordinary focusable buttons, and the
+ * choice is visible the moment the menu opens. The trigger still shows the
+ * direction at a glance (its arrow flips), so the menu is not the only place to
+ * read it. Toggling a direction leaves the menu open, because the point is to
+ * watch the list behind it reorder.
  *
  * The overlay is the same GodUI `Drawer` the filter menu uses — content-height,
  * swipe-down to dismiss, scrim, scroll lock, Escape — so the two halves read as
  * one system.
- *
- * The sort is a single choice out of a fixed set, so picking a row applies it
- * and closes the menu, exactly as a filter row does.
  */
 import { CheckIcon } from '@svg-animated-icons/react/check';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
 import { cn } from '@/lib/utils';
-import { TASK_SORTS, type TaskViewState } from './filters';
+import {
+  defaultSortDir,
+  isDirectionalSort,
+  TASK_SORTS,
+  type TaskSort,
+  type TaskSortDir,
+  type TaskViewState,
+} from './filters';
 
 export interface TaskSortMenuProps {
   open: boolean;
@@ -28,9 +44,22 @@ export interface TaskSortMenuProps {
   onChange: (patch: Partial<TaskViewState>) => void;
 }
 
+const DIRECTION_OPTIONS: readonly {
+  value: TaskSortDir;
+  label: string;
+  icon: typeof ArrowUpNarrowWide;
+}[] = [
+  { value: 'asc', label: 'Ascending', icon: ArrowUpNarrowWide },
+  { value: 'desc', label: 'Descending', icon: ArrowDownWideNarrow },
+];
+
 export function TaskSortMenu({ open, onOpenChange, state, onChange }: TaskSortMenuProps) {
-  function choose(sort: TaskViewState['sort']) {
-    onChange({ sort });
+  const directional = isDirectionalSort(state.sort);
+
+  function choose(sort: TaskSort) {
+    // A new key starts in its own natural direction, rather than inheriting the
+    // previous key's reversal — picking `Title` should not silently give Z→A.
+    onChange({ sort, sortDir: defaultSortDir(sort) });
     onOpenChange(false);
   }
 
@@ -70,6 +99,37 @@ export function TaskSortMenu({ open, onOpenChange, state, onChange }: TaskSortMe
           );
         })}
       </div>
+
+      {directional ? (
+        <div className="mt-2 border-t border-border pt-4">
+          <h3 className="pb-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            Order
+          </h3>
+          <div role="radiogroup" aria-label="Sort direction" className="grid grid-cols-2 gap-2">
+            {DIRECTION_OPTIONS.map(({ value, label, icon: Icon }) => {
+              const selected = state.sortDir === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onChange({ sortDir: value })}
+                  className={cn(
+                    'flex min-h-11 items-center justify-center gap-2 rounded-lg border px-2 text-sm',
+                    selected
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'border-border text-muted-foreground',
+                  )}
+                >
+                  <Icon className="size-4" aria-hidden />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </Drawer>
   );
 }

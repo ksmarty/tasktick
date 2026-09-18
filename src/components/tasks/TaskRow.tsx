@@ -15,15 +15,12 @@
  * row adds to say "this one was pinned deliberately": it belongs on the name,
  * not down in the meta line where the derived facts live.
  *
- * ## The coloured edge
+ * ## The list colour
  *
- * Material had no equivalent of the iOS grouped-list coloured edge, so it was
- * drawn as a `borderLeft` on the section card. That is where it still lives — the
- * card paints it with `border-l-4 border-l-[var(--edge-color)]`, in the colour of
- * the list most of its rows belong to (see `TaskListSection`), and the row
- * inherits it by sitting inside the card. Four pixels rather than the old three
- * because three is not on Tailwind's scale and the conventions are explicit that
- * a size which is not on the scale is a size the design should not want.
+ * The section used to paint a 4px coloured stripe down its leading edge. It is
+ * an 8px dot in the section header now (see `TaskListSection`): the same "which
+ * list" signal, on a card that is otherwise pure contrast, which is what lets
+ * Celestial Sapphire be the monochrome palette it is.
  *
  * ## The drag grip
  *
@@ -297,7 +294,7 @@ export function TaskRow({
           // explicit attribute is what the old row exposed; keep it.
           aria-checked={completed ? true : wontDo ? 'mixed' : false}
           onCheckedChange={toggle}
-          className={cn('size-5', wontDo && !completed && 'opacity-60')}
+          className={cn('size-5 border-foreground/25', wontDo && !completed && 'opacity-60')}
         />
       </motion.span>
 
@@ -315,7 +312,7 @@ export function TaskRow({
         }}
         aria-pressed={selectionMode ? selected : undefined}
         aria-label={selectionMode ? `${selected ? 'Deselect' : 'Select'} ${task.title}` : `Open ${task.title}`}
-        className="flex min-h-11 min-w-0 flex-1 flex-col items-stretch gap-0 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-h-11 min-w-0 flex-1 flex-col items-stretch gap-0 rounded-md px-1 py-0.5 text-left outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/*
          * The title, with the due date pinned to the row's trailing edge.
