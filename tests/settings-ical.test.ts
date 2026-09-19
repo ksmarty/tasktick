@@ -66,3 +66,28 @@ describe('a mirrored calendar can still be renamed', () => {
     expect(EDITOR).toMatch(/\{ isVisible, showInTasks \}/);
   });
 });
+
+/*
+ * A row must let a long value shrink.
+ *
+ * A non-stacked `SettingsRow` is a flex row, so its children are flex items with
+ * the default `min-width: auto` and refuse to shrink below their content. A feed
+ * URL therefore never truncated: it kept its full width and pushed the row's
+ * trailing buttons past the card, clipping the last one off the screen. The fix
+ * lives on the row rather than on one child, so a row added later with long text
+ * inherits it.
+ */
+const GROUP = readFileSync(
+  new URL('../src/components/settings/SettingsGroup.tsx', import.meta.url),
+  'utf8',
+);
+
+describe('a settings row lets its content shrink', () => {
+  it('applies min-width: 0 to the children of a row', () => {
+    expect(GROUP).toContain("export const SETTINGS_ROW_CHILDREN_CLASS = '[&>*]:min-w-0'");
+  });
+
+  it('uses it for the non-stacked row, where the overflow happened', () => {
+    expect(GROUP).toMatch(/flex items-center gap-3', SETTINGS_ROW_CHILDREN_CLASS/);
+  });
+});

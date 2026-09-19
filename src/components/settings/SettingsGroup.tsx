@@ -34,6 +34,24 @@ import { cn } from '@/lib/utils';
  */
 export const SETTINGS_ROW_CLASS = 'px-row py-3';
 
+/**
+ * Makes a row's direct children able to shrink.
+ *
+ * A non-stacked `SettingsRow` is a flex row, so each child is a flex item and gets
+ * the default `min-width: auto` — which refuses to shrink below its content. A row
+ * holding a long feed URL therefore never truncated it: the text kept its full
+ * width and pushed the row's trailing buttons past the card, clipping the last one
+ * off the screen entirely.
+ *
+ * Fixing it one row at a time is a bug that comes back the next time somebody adds
+ * a row with long text, so it is fixed here instead. `min-width: 0` is the
+ * correct default for items in a row layout — a control with an explicit size does
+ * not care, and a text block gets to truncate as its own `truncate` class intends.
+ *
+ * Scoped to direct children, so a nested list inside a row is untouched.
+ */
+export const SETTINGS_ROW_CHILDREN_CLASS = '[&>*]:min-w-0';
+
 export interface SettingsGroupProps {
   /** Caption above the card, e.g. `Calendars`. */
   title: ReactNode;
@@ -103,7 +121,11 @@ export interface SettingsRowProps extends HTMLAttributes<HTMLDivElement> {
 export function SettingsRow({ stacked = false, className, ...props }: SettingsRowProps) {
   return (
     <div
-      className={cn(SETTINGS_ROW_CLASS, stacked ? 'flex flex-col gap-2' : 'flex items-center gap-3', className)}
+      className={cn(
+        SETTINGS_ROW_CLASS,
+        stacked ? 'flex flex-col gap-2' : cn('flex items-center gap-3', SETTINGS_ROW_CHILDREN_CLASS),
+        className,
+      )}
       {...props}
     />
   );

@@ -183,7 +183,17 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
         ) : (
           subs.map((calendar) => (
             <SettingsRow key={calendar.id}>
-              <div className="flex items-start gap-3">
+              {/*
+                   * `min-w-0 flex-1` is load-bearing, not tidiness.
+                   *
+                   * `SettingsRow` is a flex container, so this div is a flex item
+                   * and gets the default `min-width: auto` — it refuses to shrink
+                   * below its content. A long feed URL therefore never truncated:
+                   * it kept its full width and pushed the row's buttons past the
+                   * card, clipping the last one off the screen. With `min-w-0`
+                   * the truncation below actually takes effect.
+                   */}
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
                 {/*
                  * The row's own colour, custom `#rrggbb` included: `calendarColorHex`
                  * is the same resolver the calendar screen paints with.
