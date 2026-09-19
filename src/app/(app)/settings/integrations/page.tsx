@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { CalDavAccountRow } from '@/components/settings/CalDavAccountRow';
+import { IcalSubscribeSection } from '@/components/settings/IcalSubscribeSection';
 import { CalDavAccountSheet } from '@/components/settings/CalDavAccountSheet';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
@@ -75,6 +76,14 @@ export default function IntegrationsSettingsPage() {
             )}
           </SettingsGroup>
         )}
+
+        {/*
+         * The inbound half of calendar integrations: pulling somebody else's
+         * feed in. It sits beside CalDAV because both answer "where do my
+         * events come from", and it is separate from the outgoing feed card on
+         * the Calendars tab because that one publishes rather than subscribes.
+         */}
+        <IcalSubscribeSection onChanged={() => void accounts.refresh()} />
       </SettingsTabs>
 
       <CalDavAccountSheet

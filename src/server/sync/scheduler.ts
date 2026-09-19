@@ -19,6 +19,7 @@ import type { SyncResult } from '@/lib/types';
 import { caldavAccounts } from '@/server/db/schema';
 import { describeError, openSyncDb, syncAccount, zeroCounters } from './engine';
 import { isAccountInFlight } from './locks';
+import { syncDueIcalSubscriptions } from '@/server/services/ical-subscription';
 
 /** Consecutive failures after which the interval starts doubling. */
 export const FAILURE_BACKOFF_THRESHOLD = 3;
@@ -91,6 +92,25 @@ export async function runSchedulerTick(now: number = Date.now()): Promise<SyncRe
   if (ticking) return [];
   ticking = true;
   try {
+    /*
+     * Calendar subscriptions ride the same ticker as CalDAV.
+     *
+     * They are a different kind of sync — one-way and read-only — but they want
+     * the same thing from a scheduler: run periodically, back off when the
+     * remote is down, and never block anything else. Giving them a second timer
+     * would mean two unref'd intervals and two sets of failure semantics to keep
+     * in step.
+     *
+     * Failures are swallowed here on purpose. A feed that is unreachable records
+     * the error on its own calendar row, which is what the settings screen
+     * shows; letting it throw would take the CalDAV tick down with it over a
+     * URL somebody else typed.
+     */
+    try {
+      await syncDueIcalSubscriptions(now);
+    } catch (error) {
+      console.error(`[ical] subscription refresh failed: ${describeError(error)}`);
+    }
     return await syncAllDueAccounts(now);
   } finally {
     ticking = false;

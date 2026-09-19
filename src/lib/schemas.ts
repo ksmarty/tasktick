@@ -359,6 +359,24 @@ export const pushSubscribeSchema = z
   })
   .strict();
 
+/**
+ * A calendar subscription.
+ *
+ * The URL is validated for shape only. Whether it is reachable, whether it is a
+ * *private* address, and whether it actually returns a calendar are all decided
+ * by the fetch itself (`ical-fetch.ts`), because those are properties of the
+ * network and the response rather than of the string — and the address check has
+ * to run against the resolved host anyway, not the text the user typed.
+ */
+export const icalSubscribeSchema = z
+  .object({
+    url: z.string().trim().min(1).max(2000),
+    name: z.string().trim().max(120).optional(),
+    color: z.enum(ACCENT_COLORS).optional(),
+    timezone: z.string().trim().max(64).optional(),
+  })
+  .strict();
+
 export const pushUnsubscribeSchema = z.object({ endpoint: z.string().url().max(2000) }).strict();
 
 export const createInviteSchema = z

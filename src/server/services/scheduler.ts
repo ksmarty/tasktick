@@ -18,7 +18,7 @@
  */
 import { and, eq, isNull } from 'drizzle-orm';
 import { getDb } from '../db';
-import { caldavAccounts } from '../db/schema';
+import { caldavAccounts, calendars } from '../db/schema';
 import { getEnv } from '@/lib/env';
 
 let started = false;
@@ -34,6 +34,17 @@ export async function hasSyncableAccount(): Promise<boolean> {
   return Boolean(row);
 }
 
+/** True when at least one iCal subscription is not soft-deleted. */
+export async function hasSubscribedCalendar(): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: calendars.id })
+    .from(calendars)
+    .where(and(eq(calendars.provider, 'ical'), isNull(calendars.deletedAtMs)))
+    .limit(1);
+  return Boolean(row);
+}
+
 /**
  * Starts the background scheduler if there is anything to sync.
  *
@@ -44,8 +55,17 @@ export async function ensureSyncScheduler(): Promise<void> {
   if (started) return;
   if (!getEnv().SYNC_ENABLED) return;
 
-  // Cheap check first — no CalDAV code is loaded to perform it.
-  if (!(await hasSyncableAccount())) return;
+  /*
+   * Cheap checks first — neither loads the CalDAV stack.
+   *
+   * Subscriptions count. The refresh runs on this same ticker, so gating the
+   * whole scheduler on "is there a CalDAV account" meant a user whose only
+   * calendar integration was a feed got a scheduler that never started and a
+   * feed that never refreshed — silently, because there is nothing to show an
+   * error on.
+   */
+  const [account, subscription] = await Promise.all([hasSyncableAccount(), hasSubscribedCalendar()]);
+  if (!account && !subscription) return;
 
   const { startSyncScheduler } = await import('../sync');
   startSyncScheduler();

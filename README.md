@@ -237,6 +237,31 @@ OIDC_PROVIDER_NAME=Single sign-on
 OIDC_ALLOWED_DOMAINS=example.com     # optional allowlist
 ```
 
+### Calendar subscriptions (iCal)
+
+Pull a remote `.ics` feed into a read-only calendar, next to the CalDAV
+integration. **Settings → Integrations → Subscribed calendars → Add feed.** Any
+`https://…/calendar.ics` or `webcal://…` link works; a subscription named
+without a name takes the feed's own.
+
+The mirror is one-way. Nothing is ever written back, the calendar is read-only,
+and events the feed drops are removed here too. Feeds are refreshed hourly, and
+the refresh rides the same scheduler as CalDAV — so it also runs for an instance
+whose only integration is a feed.
+
+A feed that cannot be used says so while you are still looking at the form —
+the URL is wrong, it is not a calendar, or it is unreachable.
+
+> **Server-side fetching.** Subscriptions make the server fetch a URL you type,
+> which is worth being deliberate about: it is why `http://` and `https://` are
+> the only accepted schemes, why credentials in the URL are refused, and why the
+> host is **resolved** and every address checked against loopback, private,
+> link-local (including `169.254.169.254`), CGNAT and IPv6 equivalents — with
+> each redirect hop re-checked. If you expose this instance to the internet and
+> do not want it reaching anything on your LAN, this is the feature to think
+> about; the guard is in `src/server/services/ical-fetch.ts` and its behaviour is
+> pinned by `tests/ical-fetch.test.ts`.
+
 ### Web Push (optional)
 
 Notifications need a **VAPID key pair**: a public key the

@@ -221,9 +221,9 @@ export interface SavedFilter {
 /* calendar                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export type SyncProvider = 'local' | 'caldav';
+export type SyncProvider = 'local' | 'caldav' | 'ical';
 export type SyncState = 'synced' | 'dirty' | 'pending_delete' | 'conflict';
-export type CalendarProvider = 'local' | 'caldav';
+export type CalendarProvider = 'local' | 'caldav' | 'ical';
 export type EventStatus = 'confirmed' | 'tentative' | 'cancelled';
 export type EventTransparency = 'opaque' | 'transparent';
 
