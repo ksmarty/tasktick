@@ -25,6 +25,12 @@ export { DragGhostLabel } from './DragGhostLabel';
 export { itemColor, itemHex, calendarColorHex, customCalendarHex } from './colors';
 export { allDayDateLabel } from './item-labels';
 export { moveItemInPayload, type MovedInstants } from './optimistic';
+export {
+  SECTION_RETAP_EVENT,
+  requestSectionReset,
+  useSectionReset,
+  type SectionTab,
+} from './section-reset';
 export { useItemDrag, type DragGhost, type DragInit, type ItemDragConfig } from './use-item-drag';
 export {
   useMonthGestures,

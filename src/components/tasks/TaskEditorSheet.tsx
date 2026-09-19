@@ -41,7 +41,28 @@
  * All three fields are `h-9` with the same type scale — 16px on a phone, 14px
  * from `md` up — and share one equal-width grid, so the date is the same size as
  * the times beside it instead of the narrow space left over by their wide native
- * intrinsic width. Each field carries its own clear control.
+ * intrinsic width.
+ *
+ * ## The clear control, and the room it needs
+ *
+ * Each field carries its own clear control (see `ClearFieldButton`). The control
+ * is 16px wide, absolutely placed 4px from the field's trailing edge, so it
+ * occupies the last 20px of the field. The value therefore has to *stop* 20px
+ * short of that edge or it runs underneath the button — which is what a long
+ * value did: the date's value box reached 12.0px into the button's 16px, so the
+ * truncation ellipsis and the tail of the label were painted under the cross.
+ * The fix is trailing padding, not a moved button: the date button and the time
+ * inputs carry `pr-6` (24px) — 20px for the control plus a 4px gap — so the
+ * value's box now ends 4.0px clear of the control. Padding rather than a
+ * reserved flex column because the field is a third of a 390px row (116.7px),
+ * and a column would take that 20px out of the *value* anyway while also
+ * changing the button's hit area; `pr-6` is on Tailwind's scale, so no value is
+ * invented. Measured at 390px with a long label in the date field: the value's
+ * box ended at 123.7px against a button starting at 111.7px (12.0px of
+ * overlap, `scrollWidth` 86 against a 75px box, i.e. the ellipsis itself was
+ * hidden); with `pr-6` the box ends at 107.7px against a button at 111.7px,
+ * 4.0px clear. The same 24px trailing padding is on both time inputs, so a
+ * 12-hour value cannot reach its cross either.
  *
  * ## Specifying a date, a start and an end
  *
@@ -54,14 +75,33 @@
  * invented on the wire. The end field is enabled once a start exists; a task with
  * an estimate but no date keeps that estimate and shows a blank range.
  *
- * ## One horizontal axis under the date row
+ * ## One horizontal axis for every field's content
  *
- * Every row below the schedule row is `px-3`, the same inner padding the shadcn
- * `Input`/`Textarea`/`Button` use, so the icons and labels land on the text axis
- * of the fields above them (measured: 29.0px from the panel's padding edge for the
- * date field's own content, 28.0px for the rows below — the 1px is the field's own
- * border). They used to be `px-row` (16px), which put them at 32.0px — 3px past
- * the axis, close enough to look like a mistake rather than a choice.
+ * The editor's body is `px-gutter` (16px), so every field's *box* starts at
+ * 16.0px. What a reader's eye actually tracks is the content inside those boxes,
+ * and a bordered shadcn control puts its content 13px in (1px border + 12px
+ * `px-3`) while a plain row button puts it 12px in (`px-3`, no border). That 1px
+ * is invisible on its own but it is not the whole story here: the date field's
+ * button had its own `px-2`, so its glyph sat at 25.0px — 4px left of the row
+ * icons at 28.0px — and the time inputs sat at 29.0px. Three axes.
+ *
+ * Measured at 390px (panel gutter at 16px), content-box left of every field:
+ * title text 29.0, notes text 29.0, date glyph 25.0, date value 49.0, start time
+ * text 145.7, end time text 266.3, and the Repeat/Reminder/Priority/List/Tags/
+ * Estimated/Link/Pin rows 28.0, the Subtasks heading 28.0. So the rows were not
+ * *inset*: they sat 1.0px left of the title's text and 3.0px right of the date
+ * field's glyph — the first from the field's border, the second from the date
+ * button's smaller padding. Both are removed: the date button and the time
+ * inputs now use `pl-3` (content at 29.0, date glyph 29.0, date value 53.0) and
+ * every row below carries a 1px transparent border beside its `px-3`, which
+ * lifts its content from 28.0 to 29.0. One axis, 29.0px, for all of them.
+ *
+ * The transparent border is the whole trick: an input draws its 1px frame inside
+ * the box, a button does not, so the rows would otherwise be a pixel out. A
+ * transparent border is layout-identical to the input's visible one and costs no
+ * token value (`border` + `border-transparent` are both on Tailwind's scale).
+ * `bg-clip: border-box` — the default — means a row's hover fill still covers
+ * the same rounded rectangle it always did.
  *
  * ## Why the full-screen shape keeps a close button
  *
@@ -69,6 +109,23 @@
  * — an explicit close control is the only pointer affordance that survives, and
  * the shadcn `DialogContent` close button is it. The delete confirmation, which
  * is never full-screen, keeps its labelled Cancel instead.
+ *
+ * ## The footer, and where Delete went
+ *
+ * The footer is the sheet's action row: **Cancel** on the left, **Save** on the
+ * right. Save keeps the filled default variant and takes the whole remaining
+ * width (`flex-1`), while Cancel is an outlined button sized to its label — so
+ * the primary action is the dominant one by colour *and* by area, and the row
+ * reads left-to-right as "leave" then "commit". Cancel closes the sheet exactly
+ * the way Escape and the backdrop do, through `handleOpenChange`, so the close
+ * still flushes the debounced draft: nothing typed is thrown away, because
+ * "closing never loses a change" is the editor's contract for every exit.
+ *
+ * Delete is no longer in the action row at all. It is a destructive row at the
+ * very bottom of the form's content, below the subtasks: the last thing in the
+ * scroll is then the action that removes the task, not something sitting beside
+ * Save where a mis-tap was one row away from committing. It keeps the same label
+ * and the same confirmation dialog — only its position changed.
  *
  * The pickers for repeat, reminders, priority, list and tags are the shared
  * drawers in this folder.
@@ -227,6 +284,10 @@ function EditorRow({
       onClick={onClick}
       className={cn(
         'flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm',
+        // A 1px transparent border, so this borderless button's content sits on
+        // the same 13px axis as the shadcn `Input`/`Textarea` above it. See the
+        // file doc; it is layout-identical to the inputs' visible border.
+        'border border-transparent',
         'hover:bg-accent hover:text-accent-foreground',
         'disabled:pointer-events-none disabled:opacity-50',
       )}
@@ -245,9 +306,11 @@ function EditorRow({
  * A small clear control that lives inside a field's trailing edge.
  *
  * Absolute rather than a flex sibling: each field is a third of the schedule row
- * and there is no room to spend on a button, but the value is left-aligned and
- * the field already keeps trailing padding the text never reaches. The `after:`
- * pseudo-element grows the tap target without widening the visible dot.
+ * and there is no room to spend on a button, so the control is placed over the
+ * field's own trailing padding instead — which the value must therefore stay
+ * clear of (see the file doc). It is 16px wide at `right-1`, i.e. the last 20px
+ * of the field, and every field that carries one reserves `pr-6` for it. The
+ * `after:` pseudo-element grows the tap target without widening the visible dot.
  */
 function ClearFieldButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -307,7 +370,10 @@ function TimeField({
         onBlur={() => setFocused(false)}
         onChange={(event) => onChange(event.target.value)}
         className={cn(
-          'h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-base outline-none md:text-sm',
+          // `pl-3`: the field's content sits on the editor's one axis (16px
+          // gutter + 1px border + 12px). `pr-6`: 20px of clear control plus a
+          // 4px gap, so a 12-hour value can never run under the cross.
+          'h-full min-w-0 flex-1 border-0 bg-transparent pl-3 pr-6 text-base outline-none md:text-sm',
           'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
           // The native control's own empty glyph is not a placeholder; hiding it
           // is what lets the overlay label read as one. The desktop clock glyph
@@ -319,7 +385,7 @@ function TimeField({
       {empty && !focused ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-base text-muted-foreground md:text-sm"
+          className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted-foreground md:text-sm"
         >
           {label}
         </span>
@@ -644,7 +710,10 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                       type="button"
                       disabled={disabled}
                       className={cn(
-                        'flex h-full min-w-0 flex-1 items-center gap-2 px-2 justify-start text-base md:text-sm',
+                        // `pl-3` puts the calendar glyph on the editor's content
+                        // axis; `pr-6` reserves the clear control's 20px plus a
+                        // 4px gap so a long date label stops before it.
+                        'flex h-full min-w-0 flex-1 items-center gap-2 pl-3 pr-6 justify-start text-base md:text-sm',
                         'outline-none disabled:pointer-events-none disabled:opacity-50',
                       )}
                     >
@@ -792,7 +861,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 onClick={() => setPicker('tags')}
               />
 
-              <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
+              <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm border border-transparent">
                 <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
                   <TimerIcon />
                 </span>
@@ -827,7 +896,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 px-3 py-2">
+              <div className="flex items-center gap-3 px-3 py-2 border border-transparent">
                 <Link aria-hidden className="size-5 shrink-0 text-muted-foreground" />
                 <Input
                   aria-label="Link"
@@ -839,7 +908,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 />
               </div>
 
-              <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
+              <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm border border-transparent">
                 <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
                   <DrawingPinIcon />
                 </span>
@@ -860,7 +929,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
             <Separator />
 
-            <h3 className="px-3 text-sm font-medium">Subtasks</h3>
+            <h3 className="px-3 text-sm font-medium border border-transparent">Subtasks</h3>
             <SubTaskList
               subtasks={subtasks}
               disabled={disabled}
@@ -885,6 +954,27 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 if (created) onSaved?.();
               }}
             />
+
+            <Separator />
+
+            {/*
+             * Delete, at the very bottom of the form's content rather than in
+             * the footer's action row. It is a row like the ones above it —
+             * icon, label, `min-h-12`, the same 29px content axis (hence the
+             * transparent border) — but painted with the destructive colour so
+             * it cannot be mistaken for a value. The confirmation dialog below
+             * is unchanged.
+             */}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={disabled || !task}
+              onClick={() => setConfirmOpen(true)}
+              className="min-h-12 w-full justify-start gap-3 rounded-md px-3 text-destructive hover:bg-destructive/10 hover:text-destructive border border-transparent"
+            >
+              <TrashIcon className="size-4 text-base" />
+              Delete task
+            </Button>
           </div>
 
           <div className="flex shrink-0 flex-col gap-stack border-t px-gutter pt-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
@@ -895,14 +985,24 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
               </Alert>
             ) : null}
             {/*
-             * Save is the deliberate action and Delete is the destructive one, so
-             * they share a row: Save takes the space and the default fill, Delete
-             * keeps its own label and does not shrink. Save is enabled even when
-             * nothing has been edited — a deliberate "file it away" — and then
-             * closes the sheet; it is disabled only while a write is in flight,
-             * so it can never send a double PATCH.
+             * Cancel on the left, Save on the right. Save keeps the filled
+             * default variant and takes the whole remaining width (`flex-1`),
+             * while Cancel is outlined and sized to its label, so the primary
+             * action is the dominant one by colour and by area and the row reads
+             * as "leave" then "commit".
+             *
+             * Cancel goes through `handleOpenChange`, the same close path Escape
+             * and the backdrop take, so it flushes the debounced draft —
+             * cancelling means "dismiss", never "throw away what I typed".
+             *
+             * Save is enabled even when nothing has been edited — a deliberate
+             * "file it away" — and then closes the sheet; it is disabled only
+             * while a write is in flight, so it can never send a double PATCH.
              */}
             <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+                Cancel
+              </Button>
               <Button
                 type="button"
                 className="flex-1"
@@ -918,15 +1018,6 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 ) : (
                   'Save'
                 )}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={disabled || !task}
-                onClick={() => setConfirmOpen(true)}
-              >
-                <TrashIcon className="size-4 text-base" />
-                Delete task
               </Button>
             </div>
           </div>

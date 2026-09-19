@@ -340,6 +340,8 @@ export interface CalendarItem {
   calendarId: string | null;
   calendarName?: string;
   location?: string | null;
+  /** The item's link, projected so the detail sheet can preview it. */
+  url?: string | null;
   /** Tasks only. */
   completed?: boolean;
   priority?: Priority;

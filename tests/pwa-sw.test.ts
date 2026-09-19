@@ -126,6 +126,8 @@ interface Harness {
   navigation(url: string, route: Route): Promise<FakeResponse | undefined>;
   get(url: string, route: Route, init?: { mode?: string; headers?: Record<string, string> }): Promise<FakeResponse | undefined>;
   request(url: string, init?: { method?: string }): Promise<FakeResponse | undefined>;
+  /** Point the fake network at a route without dispatching anything. */
+  setRoute(route: Route): void;
   /** Deliver a `message` event from the page (session scope, sign-out, …). */
   message(data: unknown): Promise<void>;
 }
@@ -279,6 +281,9 @@ function createHarness(): Harness {
     },
     async request(url, init = {}) {
       return dispatch('fetch', makeEvent(new FakeRequest(url, init)));
+    },
+    setRoute(next) {
+      route = next;
     },
     async message(data) {
       const waits: Promise<unknown>[] = [];
@@ -672,6 +677,89 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(elsewhere?.status).toBe(302);
     const offline = await harness.navigation(`${ORIGIN}/offline`, () => new Error('offline'));
     expect(offline?.body).toBe('<html>offline</html>');
+  });
+});
+
+describe('the page can have its own document cached', () => {
+  /*
+   * On a first visit the document that booted the app was fetched before the
+   * worker was controlling, so the navigation strategy never saw it. From then
+   * on only client-side navigations populated the cache, and a fresh offline
+   * open had no document for its URL — it fell through to `/offline`. The page
+   * is the only thing that knows which URL that document belongs to, so it says
+   * so over the same channel it uses for the session scope.
+   */
+  const DOC = `${ORIGIN}/tasks`;
+
+  it('stores the page’s document at its exact URL, and serves it there offline', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    harness.setRoute(() => html('<html>tasks</html>'));
+
+    await harness.message({ type: 'cache-document', url: DOC });
+    expect(harness.writes).toEqual([`${API_CACHE} ${DOC}`]);
+
+    // Which is exactly what makes a cold open at that URL render offline.
+    const cold = await harness.navigation(DOC, () => new Error('offline'));
+    expect(cold?.status).toBe(200);
+    expect(cold?.body).toBe('<html>tasks</html>');
+  });
+
+  it('keeps the document in the session cache, and only for that session', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    harness.setRoute(() => html('<html>tasks</html>'));
+    await harness.message({ type: 'cache-document', url: DOC });
+    expect(harness.caches.get(RUNTIME)?.size ?? 0).toBe(0);
+
+    await announce(harness, 's2');
+    const other = await harness.navigation(DOC, () => new Error('offline'));
+    expect(other?.status).toBe(302);
+  });
+
+  it('stores nothing before the worker knows which session it is caching for', async () => {
+    const harness = await installedHarness();
+    harness.setRoute(() => html('<html>tasks</html>'));
+    await harness.message({ type: 'cache-document', url: DOC });
+    // Caching before the session is known is the leak the whole design avoids.
+    expect(harness.writes).toEqual([]);
+  });
+
+  it('does not re-fetch a document it already has', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    // A navigation that passed through the worker already cached it.
+    await harness.navigation(DOC, () => html('<html>tasks</html>'));
+    harness.fetchCalls.length = 0;
+    harness.writes.length = 0;
+
+    await harness.message({ type: 'cache-document', url: DOC });
+    expect(harness.fetchCalls).toEqual([]);
+    expect(harness.writes).toEqual([]);
+  });
+
+  it('refuses another origin, and never stores a non-document', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    harness.setRoute(() => html('<html>whatever</html>'));
+
+    await harness.message({ type: 'cache-document', url: 'https://evil.example/tasks' });
+    await harness.message({ type: 'cache-document', url: `${ORIGIN}/api/tasks` });
+    await harness.message({ type: 'cache-document', url: `${ORIGIN}/_next/static/chunks/x.js` });
+
+    expect(harness.writes.filter((write) => write.startsWith('api-'))).toEqual([]);
+  });
+
+  it('never stores the login redirect a signed-out visit produces', async () => {
+    const harness = createHarness();
+    await harness.install((url) => {
+      if (url.endsWith('/') || url.endsWith('/offline')) return html('<html>app</html>');
+      return new FakeResponse('<html>login</html>', { redirected: true });
+    });
+    await announce(harness, 's1');
+
+    await harness.message({ type: 'cache-document', url: `${ORIGIN}/tasks` });
+    expect(harness.writes.filter((write) => write.startsWith('api-'))).toEqual([]);
   });
 });
 

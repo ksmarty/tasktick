@@ -68,9 +68,11 @@ import { SunIcon } from '@svg-animated-icons/react/sun';
 import { TimerIcon } from '@svg-animated-icons/react/timer';
 
 import { TabBar } from '@/components/godui/tab-bar';
+import { useServiceWorkerControl } from '@/components/pwa/useServiceWorkerControl';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { accentHex } from '@/lib/colors';
+import { whenScopeReady } from '@/lib/session-scope';
 import { useResource } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
@@ -195,16 +197,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pendingTab, routeTab]);
 
   /*
-   * Prefetch every tab once the shell mounts.
+   * Prefetch every tab, but only once the worker can keep the payload.
    *
    * The bar used to call `router.push` with nothing prefetched, so every tap was a
    * cold server render — the dynamic route, the session lookup and the RSC
    * payload all had to come back before anything moved. Warm them up and the
    * switch is immediate.
+   *
+   * Where the warm-up happens is load-bearing for offline, though. The prefetch
+   * request is what lets the worker store a route's RSC payload, and the worker
+   * stores nothing until it (a) is controlling this page and (b) knows which
+   * session the payload belongs to. Run on mount, as this used to, and both are
+   * usually still false: the page starts before the worker claims it, and the
+   * session is only announced after `/api/auth/get-session` answers. The
+   * prefetches then go straight through the network without ever being cached,
+   * and a tab tap with no signal has no payload to render — the URL changes and
+   * the old screen stays.
+   *
+   * So the prefetch waits for `useServiceWorkerControl()` and `whenScopeReady()`,
+   * and is deliberately NOT also run on mount: Next keeps a prefetch in its
+   * router cache and a second `router.prefetch` of a fresh entry is a no-op, so
+   * an early one would poison the cache and the later, cacheable prefetch would
+   * never happen. It still runs at most once per control change.
    */
+  const workerControlled = useServiceWorkerControl();
   useEffect(() => {
-    for (const href of Object.values(TAB_ROUTES)) router.prefetch(href);
-  }, [router]);
+    if (!workerControlled) return;
+    let cancelled = false;
+    void whenScopeReady().then(() => {
+      if (cancelled) return;
+      for (const href of Object.values(TAB_ROUTES)) router.prefetch(href);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workerControlled, router]);
 
   function onTabChange(value: string) {
     const next = value as TabValue;

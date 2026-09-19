@@ -25,18 +25,22 @@
  * server's `entries` map; a weekly/monthly habit keeps the server's period
  * total, because its period spans days and only the server can aggregate it.
  *
- * The satisfying bit is deliberately tiny: the tick pops each time the habit
- * becomes done, which is enough feedback without a layout-thrashing animation.
- * The pop used to be an Emotion keyframe; it is a one-shot framer-motion scale
- * on a wrapper keyed by the flip, which is the same "remount replays it" trick
- * without the CSS-in-JS dependency.
+ * The satisfying bit is deliberately tiny: the tick pops each time the user
+ * checks in, which is enough feedback without a layout-thrashing animation. The
+ * pop used to be an Emotion keyframe, then a framer-motion scale on a wrapper
+ * keyed by the flip. The key was the bug: keying on the state replayed the
+ * animation on every mount, so opening the habits tab popped every habit on the
+ * screen at once. It is now a one-shot scale started from the check handler —
+ * the same keyframes, fired by the actual toggle instead of by a remount, so
+ * first render and a date change animate nothing.
  */
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, useAnimationControls } from 'framer-motion';
 import { MinusIcon } from '@svg-animated-icons/react/minus';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
+import { useReducedMotion } from '@/lib/motion';
 import { habitDoneOn, habitProgressView, longDateLabel, type CheckInChange } from './period';
 import type { DateOnly, Habit } from '@/lib/types';
 
@@ -54,6 +58,17 @@ export interface CheckInControlProps {
 
 export function CheckInControl({ habit, date, today, onCheckIn, pending = false, className }: CheckInControlProps) {
   const reduceMotion = useReducedMotion();
+  /*
+   * The pop, driven imperatively.
+   *
+   * Not a `key` on the wrapper: a keyed element replays its `initial` animation
+   * every time it mounts, and every habit's control mounts when the list first
+   * paints — so entering the tab popped the whole list. Starting the keyframes
+   * from `onCheckedChange` fires them on the one thing that should cause them,
+   * the user's toggle, and on nothing else — not the first render, not a
+   * re-render, not a change of the selected day.
+   */
+  const pop = useAnimationControls();
   const view = habitProgressView(habit, today);
   const done = habitDoneOn(habit, date, today);
   const when = date === today ? 'today' : longDateLabel(date);
@@ -64,13 +79,10 @@ export function CheckInControl({ habit, date, today, onCheckIn, pending = false,
         className={cn('flex shrink-0 items-center', className)}
         data-checked={done ? 'true' : 'false'}
       >
-        {/* Remounting on the flip replays the pop, which is the whole animation. */}
         <motion.span
-          key={done ? 'checked' : 'open'}
           className="inline-flex"
-          initial={reduceMotion ? false : { scale: 0.82 }}
-          animate={reduceMotion ? { scale: 1 } : { scale: [0.82, 1.12, 1] }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
+          initial={false}
+          animate={pop}
         >
           <Checkbox
             checked={done}
@@ -86,7 +98,12 @@ export function CheckInControl({ habit, date, today, onCheckIn, pending = false,
             // stepper's two buttons use the same `after:-inset-1.5` (32 + 6 + 6
             // = 44px) so both shapes share one target size.
             className="relative size-8 rounded-full border-2 after:absolute after:-inset-1.5 after:content-[''] [&_svg]:size-4"
-            onCheckedChange={(checked) => onCheckIn({ date, count: checked === true ? 1 : null })}
+            onCheckedChange={(checked) => {
+              if (!reduceMotion) {
+                void pop.start({ scale: [0.82, 1.12, 1] }, { duration: 0.3, ease: 'easeOut' });
+              }
+              onCheckIn({ date, count: checked === true ? 1 : null });
+            }}
           />
         </motion.span>
       </span>

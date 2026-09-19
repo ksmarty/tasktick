@@ -289,6 +289,40 @@ describe('Pin/Unpin — the swipe action is wired to the mutation path', () => {
   });
 });
 
+describe('the pin marker lives on the Pinned section header', () => {
+  it('draws the glyph once, on the header, and not beside every title', () => {
+    // The header states it once, to the left of the section title.
+    expect(SECTION).toContain("section.id === 'pinned'");
+    expect(SECTION).toContain('<DrawingPinIcon className="size-4" />');
+    expect(SECTION).toContain('<span aria-hidden className="inline-flex shrink-0 text-primary">');
+    // The per-row glyph is gone — the old title-side block is what disappeared,
+    // not the swipe/context glyphs, which still name Pin/Unpin.
+    expect(ROW).not.toContain('inline-flex shrink-0 items-center text-primary');
+    expect(ROW).toContain('`Unpin ${task.title}`');
+  });
+
+  it('keeps a pinned row identifiable to a screen reader without the glyph', () => {
+    // The marker that stays is text, and it sits *outside* the `Open …` button:
+    // that button carries an `aria-label`, which overrides its contents in the
+    // accessible-name computation, so an `sr-only` marker inside it is announced
+    // to nobody. Its accessible name is therefore untouched.
+    expect(ROW).toContain('{task.isPinned ? <span className="sr-only">Pinned</span> : null}');
+    expect(ROW.match(/sr-only">Pinned/g)?.length).toBe(1);
+    expect(ROW).toContain('aria-label={`Open ${task.title}`}');
+  });
+
+  it('keeps the header\'s own accessible name and expanded state', () => {
+    // The glyph is decorative, so the name still comes from `section.title`
+    // ("Pinned") via the Accordion trigger's `aria-labelledby`, and `aria-expanded`
+    // is untouched. The icon is inside the header's existing `-mx-1` span, so the
+    // title's left axis does not move.
+    expect(SECTION).toContain('<span aria-hidden className="inline-flex shrink-0 text-primary">');
+    expect(SECTION).toContain('{section.title}');
+    expect(SECTION).toContain('className="-mx-1 flex min-w-0 flex-1 items-center gap-2"');
+    expect(ACCORDION).toContain('aria-expanded={isOpen}');
+  });
+});
+
 describe('the task screens own their own scroll', () => {
   it('declares the full-height pane and pins the header above a scroller', () => {
     for (const view of [VIEW, TODAY]) {
@@ -416,19 +450,82 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('onClear={() => edit({ estimateMinutes: null })}');
   });
 
-  it('puts every row below the schedule row on the controls\' own inset', () => {
-    // Measured content insets from the editor's padding edge: the date field's
-    // own content 29.0px, the rows below 32.0px (`px-row`) — 3px of extra margin
-    // on everything under the date row. They are now `px-3`, the same inner
-    // padding the shadcn controls use (28.0px), and the subtask block follows.
+  it('puts every field and every row on one content axis', () => {
+    // Measured at 390px from the panel's 16px gutter, content-box left:
+    // title/notes text 29.0px, date glyph 25.0px, date value 49.0px, start time
+    // text 145.7px, and the Repeat/Reminder/Priority/List/Tags/Estimated/Link/
+    // Pin rows plus the Subtasks heading 28.0px. So the rows were **not** inset:
+    // they sat 1.0px *left* of the title's text (the inputs' own 1px border) and
+    // 3.0px right of the date field's glyph (the date button's smaller `px-2`).
+    // All three axes are now one 29.0px line: `pl-3` on the date button and the
+    // time inputs, and a 1px *transparent* border beside each borderless row's
+    // `px-3`, which lifts 28.0 to 29.0 exactly the way an input's visible border
+    // already does.
     expect(EDITOR).not.toContain('px-row py-2');
     expect(EDITOR).not.toContain('className="px-row');
     expect(EDITOR).toContain('rounded-md px-3 py-2 text-left text-sm');
-    expect(EDITOR).toContain('<h3 className="px-3 text-sm font-medium">Subtasks</h3>');
+    // The transparent frame that makes a borderless button match a bordered input.
+    expect(EDITOR).toContain('border border-transparent');
+    // The date button and the time inputs carry `pl-3`, not the old `px-2`.
+    expect(EDITOR).toContain('gap-2 pl-3 pr-6 justify-start text-base md:text-sm');
+    expect(EDITOR).toContain('border-0 bg-transparent pl-3 pr-6 text-base outline-none md:text-sm');
+    expect(EDITOR).not.toContain('items-center gap-2 px-2 justify-start');
+    expect(EDITOR).not.toContain('bg-transparent px-2 text-base outline-none');
+    // The overlay label of the empty time fields sits on the same axis.
+    expect(EDITOR).toContain('absolute inset-y-0 left-3 flex items-center');
+    expect(EDITOR).toContain('<h3 className="px-3 text-sm font-medium border border-transparent">Subtasks</h3>');
     const subtasks = source('SubTaskList.tsx');
     expect(subtasks).toContain('pr-1 pl-3');
     expect(subtasks).toContain('gap-2 px-3');
     expect(subtasks).toContain('rounded-lg px-3 text-primary');
+    expect(subtasks).toContain('border border-transparent');
+  });
+
+  it('reserves the clear control\'s 20px so a long value cannot run under the cross', () => {
+    // Measured at 390px with "Wed 30 Sep" in the date field: the value's box
+    // ended at 123.7px against a clear button starting at 111.7px — 12.0px of
+    // overlap, and `scrollWidth` 86 against a 75px box, so the ellipsis itself
+    // was painted under the glyph. The control is 16px at `right-1`, i.e. the
+    // last 20px of the field; the date button and both time inputs now reserve
+    // `pr-6` (24px = the 20px control + a 4px gap), putting the value's box 4.0px
+    // clear of it. Padding, not a moved button or a reserved flex column: the
+    // field is 116.7px wide at 390px and a column would spend the same 20px out
+    // of the value anyway.
+    expect(EDITOR).toMatch(/pl-3 pr-6/);
+    expect(EDITOR).toContain(
+      "'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full'",
+    );
+    // Both the shared `TimeField` and the date button carry it, so neither field
+    // shape can reach its cross.
+    expect(EDITOR.match(/pl-3 pr-6/g)?.length).toBe(2);
+  });
+
+  it('moves Delete to the bottom of the form and puts Cancel in the footer', () => {
+    // The footer is Cancel (left, outlined) + Save (right, filled, `flex-1`), so
+    // Save stays the dominant action by colour *and* by area. Delete is the last
+    // row of the scrollable content, below the subtasks, and keeps the same
+    // confirmation dialog.
+    expect(EDITOR).toContain(
+      '<Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>',
+    );
+    expect(EDITOR).toContain('min-h-12 w-full justify-start gap-3 rounded-md px-3 text-destructive');
+    expect(EDITOR).toContain('<HoldConfirmButton');
+    // Cancel comes before Save in the footer, and Save keeps `flex-1`.
+    expect(EDITOR.indexOf('>\n                Cancel')).toBeLessThan(EDITOR.indexOf("'Save'"));
+    expect(EDITOR).toContain('className="flex-1"');
+    // The destructive trigger is inside the scroller, before the footer's border.
+    expect(EDITOR.indexOf('Delete task')).toBeLessThan(
+      EDITOR.indexOf('border-t px-gutter pt-stack'),
+    );
+    // The footer's own action row holds the two buttons and nothing destructive.
+    const footer = EDITOR.slice(
+      EDITOR.indexOf('border-t px-gutter pt-stack'),
+      EDITOR.indexOf('</DialogContent>'),
+    );
+    expect(footer).toContain('Cancel');
+    expect(footer).toContain("'Save'");
+    expect(footer).not.toContain('Delete task');
+    expect(footer).not.toContain('<HoldConfirmButton');
   });
 
   it('builds the schedule row from a date, a start and an end, deriving the duration', () => {
@@ -585,6 +682,26 @@ describe('a11y parity with the MUI implementation', () => {
 describe('search — the scroll-reveal hook is gone', () => {
   it('is not referenced anywhere in the tasks feature', () => {
     expect(() => source('useScrollReveal.ts')).toThrow();
+  });
+});
+
+describe('the search field draws no focus ring', () => {
+  it('scopes the override to this one Input and leaves the primitive alone', () => {
+    // Scoped through `className` on this single `Input`, which `cn()` merges over
+    // the primitive's own `focus-visible:ring-[3px]` — same tailwind-merge group,
+    // so it wins here and nowhere else. No global `focus-visible` rule is touched.
+    expect(VIEW).toContain('className="pr-10 pl-9 focus-visible:ring-0"');
+    const input = read('components/ui/input.tsx');
+    expect(input).toContain('focus-visible:ring-[3px]');
+  });
+
+  it('keeps the field visibly focused and named', () => {
+    // The primitive's own `focus-visible:border-ring` is left in place, so focus
+    // still repaints the border (plus the caret) — only the ring is suppressed,
+    // never the border. The accessible name is intact.
+    expect(VIEW).toContain('aria-label="Search tasks"');
+    expect(VIEW).not.toContain('focus-visible:border-0');
+    expect(VIEW).not.toContain('outline-transparent');
   });
 });
 

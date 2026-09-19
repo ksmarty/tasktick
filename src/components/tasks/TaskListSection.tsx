@@ -20,6 +20,20 @@
  * by contrast alone: Overdue is the only one at full `text-foreground`, the rest
  * sit at `text-muted-foreground`.
  *
+ * ## The pin marker, once, on the section header
+ *
+ * Every pinned row used to carry the pin glyph beside its title — the same mark
+ * repeated on every row of the group that already says "Pinned" above them. It
+ * now sits once, immediately left of the "Pinned" header's text, where it marks
+ * the group instead of each member. The header's accessible name is unchanged:
+ * the glyph is `aria-hidden`, and the name still comes from `section.title`
+ * ("Pinned") through the Accordion trigger's `aria-labelledby`, so a screen
+ * reader hears "Pinned" exactly as before. The rows keep an `sr-only` "Pinned"
+ * marker of their own (see `TaskRow`), so a pinned task is still identifiable
+ * without the glyph. The icon is inside the header's existing `-mx-1` span, so
+ * the title's own left axis (the `px-row` line) is untouched — the glyph simply
+ * takes the place the title used to start in, and the title follows it.
+ *
  * ## Events share the list
  *
  * A section renders its tasks and then its events. Events are `CalendarItem`s
@@ -88,6 +102,7 @@ import {
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
 import { Accordion } from '@/components/godui/accordion';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import type { CalendarLookup } from '@/components/calendar/types';
@@ -301,6 +316,19 @@ export function TaskListSection({
             value: section.id,
             title: (
               <span className="-mx-1 flex min-w-0 flex-1 items-center gap-2">
+                {/*
+                 * The pin glyph belongs to the group, not to each row. It is
+                 * decorative, so it is wrapped in `aria-hidden` — the vendored
+                 * icon spreads only `className` (its `<style>` rides along as a
+                 * sibling), and hiding the wrapper keeps the header's
+                 * accessible name reading "Pinned …" rather than anything the
+                 * injected stylesheet could contribute.
+                 */}
+                {section.id === 'pinned' ? (
+                  <span aria-hidden className="inline-flex shrink-0 text-primary">
+                    <DrawingPinIcon className="size-4" />
+                  </span>
+                ) : null}
                 <span
                   className={cn(
                     'truncate text-xs font-semibold tracking-wider uppercase',

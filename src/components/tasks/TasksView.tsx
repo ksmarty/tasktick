@@ -25,6 +25,15 @@
  * `?priority=` — so a filtered view can be linked, bookmarked and reloaded, and
  * the resource cache key follows from it automatically.
  *
+ * The field draws no focus ring. It is the one place the user is deliberately
+ * typing into a search, and the ring read as a second border around a field that
+ * already has one; the override is applied to this single `Input` via
+ * `focus-visible:ring-0` in `className`, which is enough because `cn()` merges
+ * it over the primitive's own `ring-[3px]` — no global `focus-visible` style is
+ * touched, so every other control keeps its ring. Focus stays visible through the
+ * primitive's `focus-visible:border-ring`, which repaints the border in the ring
+ * colour, plus the caret.
+ *
  * ## Layout
  *
  * The page is `flex flex-col gap-stack px-gutter`: the vertical rhythm between
@@ -565,7 +574,18 @@ export function TasksView() {
                     placeholder="Search"
                     aria-label="Search tasks"
                     onChange={(event) => setSearchDraft(event.target.value)}
-                    className="pr-10 pl-9"
+                    /*
+                     * No focus ring on this field, scoped to this one `Input`
+                     * through `className` rather than globally: `cn()` runs the
+                     * primitive's own classes first, so `focus-visible:ring-0`
+                     * (same tailwind-merge group as the shadcn `ring-[3px]`)
+                     * replaces that ring here and nowhere else. The field stays
+                     * obviously focused: the primitive's
+                     * `focus-visible:border-ring` still paints the border in the
+                     * ring colour, and the caret sits in it. Every other control
+                     * keeps the app-wide focus-visible affordance.
+                     */
+                    className="pr-10 pl-9 focus-visible:ring-0"
                   />
                   {searchDraft ? (
                     <Button

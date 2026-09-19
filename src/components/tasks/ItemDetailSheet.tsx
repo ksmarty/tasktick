@@ -31,20 +31,34 @@
  *
  * Every field is an icon, a muted label and a value against the trailing edge.
  * The title is the drawer's own heading. A task shows its due date/time, list,
- * priority, tags, notes and subtasks; an event shows its time range, calendar
- * and location. A field with nothing in it is omitted rather than shown blank.
+ * priority, tags, notes, link/place and subtasks; an event shows its time range,
+ * calendar, location and link/place. A field with nothing in it is omitted
+ * rather than shown blank.
+ *
+ * ## Link and place previews
+ *
+ * A stored URL is shown as its readable host + path, not the raw string, and a
+ * Google/Apple Maps link is parsed locally (`@/lib/links`) into the place name
+ * and coordinates the long form carries. The anchor is always the plain
+ * `https://` URL: on iOS that is a universal link, which the OS routes to the
+ * installed maps app and to the web otherwise, and it works the same on Android
+ * and desktop. A short `maps.app.goo.gl` link carries no readable data — the id
+ * is a redirect — so it still renders and opens, but with no parsed place beside
+ * it. A field with nothing to show is omitted entirely.
  */
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { ClockIcon } from '@svg-animated-icons/react/clock';
 import { DotIcon } from '@svg-animated-icons/react/dot';
 import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
+import { Link1Icon } from '@svg-animated-icons/react/link-1';
 import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { Folder, MapPin } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
 import { formatTime, relativeDayLabel, toDateOnly } from '@/lib/dates';
+import { isHttpUrl, linkPreview } from '@/lib/links';
 import type { AccentColor, CalendarItem, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { priorityColor, priorityLabel } from './priority';
@@ -93,6 +107,48 @@ function Field({
       </span>
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="ml-auto min-w-0 truncate text-right text-foreground">{children}</span>
+    </div>
+  );
+}
+
+/**
+ * A stored URL: a readable label that is a real link, plus the place parsed out
+ * of a maps link. Renders nothing when the value is not a usable http(s) link.
+ *
+ * The place name leads when the link carries one ("Eiffel Tower"), otherwise the
+ * readable host + path does. Coordinates sit on their own muted line — a second
+ * line, not a second row, so the sheet stays a detail sheet and not a link dump.
+ */
+function LinkField({ url }: { url: string }) {
+  const preview = linkPreview(url);
+  if (!preview) return null;
+
+  const { href, display, place } = preview;
+  const coordinates =
+    place && place.latitude !== null && place.longitude !== null
+      ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`
+      : null;
+  // A short maps link parses to a provider but no place, so it stays a plain
+  // "Link": claiming a Place we could not read would be a lie.
+  const isPlace = Boolean(place && (place.name || coordinates));
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-3 text-sm">
+        <span aria-hidden className="inline-flex shrink-0 text-lg text-muted-foreground">
+          {isPlace ? <MapPin className="size-4" /> : <Link1Icon className="size-4" />}
+        </span>
+        <span className="shrink-0 text-muted-foreground">{isPlace ? 'Place' : 'Link'}</span>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto min-w-0 truncate text-right text-foreground underline-offset-2 hover:underline"
+        >
+          {display}
+        </a>
+      </div>
+      {coordinates ? <p className="pl-7 text-xs text-muted-foreground tabular-nums">{coordinates}</p> : null}
     </div>
   );
 }
@@ -148,6 +204,8 @@ function TaskDetails({
       <Field icon={<LightningBoltIcon className={cn('text-base', priorityColor(task.priority))} />} label="Priority">
         {priorityLabel(task.priority)}
       </Field>
+
+      {task.url ? <LinkField url={task.url} /> : null}
 
       {tags.length ? (
         <Block label="Tags">
@@ -251,11 +309,19 @@ function EventDetails({
         </Field>
       ) : null}
 
-      {event.location ? (
+      {event.location && !isHttpUrl(event.location) ? (
         <Field icon={<MapPin className="size-4" />} label="Location">
           {event.location}
         </Field>
       ) : null}
+
+      {/*
+       * A location can itself be a URL (Google Calendar invites routinely put a
+       * maps link in LOCATION), so it is previewed as a link when it is one and
+       * shown as plain text when it is a place name.
+       */}
+      {event.location && isHttpUrl(event.location) ? <LinkField url={event.location} /> : null}
+      {event.url ? <LinkField url={event.url} /> : null}
     </>
   );
 }

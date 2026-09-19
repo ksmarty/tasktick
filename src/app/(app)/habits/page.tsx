@@ -39,6 +39,7 @@ import { DotsHorizontalIcon } from '@svg-animated-icons/react/dots-horizontal';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { PageHeader } from '@/components/app/PageHeader';
 import { useShellPane } from '@/components/app/ShellPane';
+import { useSectionReset } from '@/components/calendar/section-reset';
 import { Confetti, type ConfettiHandle } from '@/components/godui/confetti';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -171,6 +172,23 @@ export default function HabitsPage() {
       fromDateOnly(date, zone).plus({ months: delta }).toFormat(DATE_FORMAT),
     [zone],
   );
+
+  /**
+   * Returns the screen to today.
+   *
+   * Habits has no "today" in its route — there is no query parameter to push —
+   * so the equivalent is the screen's own two pieces of date state: the day the
+   * cards are scoped to and the month the grid shows. They both default to
+   * `null` ("today"), so clearing them is the reset. That is the same state a
+   * fresh entry to the tab starts from, which is what a re-tap should mean.
+   */
+  const resetToToday = useCallback(() => {
+    setSelectedDay(null);
+    setAnchor(null);
+  }, []);
+
+  /* A re-tap of the Habits tab returns the grid and the list to today. */
+  useSectionReset('habits', resetToToday);
 
   /** Pages the shown month, taking the selection along. */
   const pageMonth = useCallback(

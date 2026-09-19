@@ -96,6 +96,7 @@ import { EventEditorSheet, type EventDefaults } from './EventEditorSheet';
 import { MonthGrid, type MonthPage } from './MonthGrid';
 import { SWIPE_PAGE_PX, minuteToTime, readableTextOn, timeToMinute } from './geometry';
 import { moveItemInPayload } from './optimistic';
+import { useSectionReset } from './section-reset';
 import { createInteraction } from './types';
 import type { CalendarInteraction, CalendarLookup, CalendarPrefs, RescheduleTarget } from './types';
 
@@ -183,28 +184,40 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const today = todayIn(zone);
 
-  /*
-   * Re-tapping the Calendar tab pushes the bare `/calendar` route, so the
-   * server hands this screen `initialDate = null` — the page's own documented
-   * "no `?date=`, fall back to today". The two states above are initialised
-   * once, so without this the prop change would be ignored and the tab would
-   * look dead. Adopting it makes a re-tap the calendar's "go to the start of
-   * this section": today. It reuses the `?date=` channel the page and the URL
-   * mirror below already own rather than inventing a second signal — and it is
-   * exactly what re-entering the tab from another destination already does,
-   * since the screen remounts there and defaults to today.
+  /**
+   * Returns the window to today.
    *
-   * Gated on `null` on purpose: a non-null `initialDate` is only ever the URL
-   * mirror's own echo of the current selection, so adopting it would fight the
-   * mirror. `zone` is a dependency so the reset uses the final timezone once it
-   * resolves — a no-op when it does not, and harmless when it does.
+   * The one operation behind two triggers: a fresh entry to the route (the
+   * `?date=` channel the page hands down as `null`) and a re-tap of the Calendar
+   * tab, which the shell announces through `useSectionReset`. Sharing it keeps
+   * the two from drifting — the tab re-tap is the same "start of this section"
+   * the route default already meant.
    */
-  useEffect(() => {
-    if (initialDate !== null) return;
+  const resetToToday = useCallback(() => {
     const target = todayIn(zone);
     setAnchor(target);
     setSelectedDate(target);
-  }, [initialDate, zone]);
+  }, [zone]);
+
+  /* A re-tap of the Calendar tab returns the grid and the agenda to today. */
+  useSectionReset('calendar', resetToToday);
+
+  /*
+   * The `?date=` channel: the page hands this screen `null` when the route
+   * carries no date (a bare `/calendar`), which is the page's own documented
+   * "fall back to today". The two date states above are initialised once, so
+   * without this the prop change would be ignored. A re-tap of the tab is
+   * answered by `useSectionReset` above; this covers an actual navigation.
+   *
+   * Gated on `null` on purpose: a non-null `initialDate` is only ever the URL
+   * mirror's own echo of the current selection, so adopting it would fight the
+   * mirror. `zone` is folded into `resetToToday` so the reset uses the final
+   * timezone once it resolves — a no-op when it does not.
+   */
+  useEffect(() => {
+    if (initialDate !== null) return;
+    resetToToday();
+  }, [initialDate, resetToToday]);
 
   const activeDate = anchor ?? today;
   const selected = selectedDate ?? today;

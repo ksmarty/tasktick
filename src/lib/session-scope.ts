@@ -142,29 +142,67 @@ async function reTagUnverified(next: string): Promise<void> {
  * Hands the scope to the service worker so it can key (and purge) its API cache.
  *
  * `controller` is the worker that owns this page; when there is none the worker
- * is not running yet, and it will ask again on the next load. `ready` is not
- * used here because it resolves even when a worker is registered but not yet
- * controlling this document — messaging a controller-less worker is a no-op and
- * would silently leave the worker without a scope.
+ * has not claimed the page yet. `ready` is not used directly because it resolves
+ * even when a worker is registered but not yet controlling this document —
+ * messaging a controller-less worker is a no-op and would silently leave the
+ * worker without a scope. Instead the message is queued behind
+ * `postToServiceWorker`, which waits for the controller (or for `ready` when
+ * one is still installing) rather than dropping the message.
  */
 export function announceScopeToServiceWorker(next: string | null): void {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  void postToServiceWorker(next === null ? { type: 'sign-out' } : { type: 'session', scope: next });
+}
 
-  const send = (target: ServiceWorker | null) => {
+/**
+ * Asks the worker to keep THIS page's document.
+ *
+ * The worker can only cache a document it sees a request for, and the document
+ * that boots a first visit was fetched before the worker was controlling — so
+ * it was never stored, and a cold offline open had nothing to serve. The page is
+ * the only thing that knows which URL that document belongs to, so it says so,
+ * once, on the same channel as the session scope.
+ *
+ * Deliberately not called on navigation: the worker stores every document that
+ * passes through it already, and this only covers the one that could not.
+ */
+export function requestDocumentCache(url?: string): void {
+  if (typeof window === 'undefined') return;
+  void postToServiceWorker({ type: 'cache-document', url: url ?? window.location.href });
+}
+
+/**
+ * Serialises messages to the worker and delivers them in the order they were
+ * queued.
+ *
+ * Order matters: the worker refuses to cache anything until it knows which
+ * session the data belongs to, so the `session` message must land before a
+ * `cache-document` that depends on it. Queueing also handles the first load,
+ * where `navigator.serviceWorker.controller` is null until the newly installed
+ * worker claims the page: the messages wait for `ready` instead of being
+ * dropped, which is what previously left the worker scopeless for a whole
+ * session.
+ */
+let postQueue: Promise<void> = Promise.resolve();
+
+function postToServiceWorker(message: unknown): Promise<void> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return Promise.resolve();
+
+  const deliver = async (): Promise<void> => {
+    let target = navigator.serviceWorker.controller;
+    if (!target) {
+      const registration = await navigator.serviceWorker.ready.catch(() => null);
+      target = navigator.serviceWorker.controller ?? registration?.active ?? null;
+    }
     if (!target) return;
     try {
-      target.postMessage(next === null ? { type: 'sign-out' } : { type: 'session', scope: next });
+      target.postMessage(message);
     } catch (error) {
-      console.warn('[offline] could not tell the service worker about the session', error);
+      console.warn('[offline] could not message the service worker', error);
     }
   };
 
-  send(navigator.serviceWorker.controller);
-  // On the very first load the worker is still installing; once it claims the
-  // page it must be told too, or it would run with no scope for a whole session.
-  if (!navigator.serviceWorker.controller) {
-    void navigator.serviceWorker.ready.then(() => send(navigator.serviceWorker.controller)).catch(() => undefined);
-  }
+  postQueue = postQueue.then(deliver, deliver);
+  return postQueue;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -213,6 +251,16 @@ async function runInit(): Promise<void> {
       announceScopeToServiceWorker(live);
       emit({ type: 'resolved', scope: live });
     }
+
+    /*
+     * Ask the worker to keep the document that booted this page.
+     *
+     * It is queued after the scope message above, so the worker always knows
+     * which session the document belongs to before it is stored. A document
+     * that DID pass through the worker was already cached by the navigation
+     * strategy; this only covers the first-visit case that could not.
+     */
+    requestDocumentCache();
   } else {
     // No live session: either signed out (no stored scope either) or offline
     // with a session we cannot verify. In both cases the stored scope is what

@@ -70,10 +70,12 @@ describe('the gutter timeline', () => {
   });
 
   it('trims the rule to the first and last nodes so it does not dangle', () => {
-    // First row starts at its node, last row stops at its node, and a single
-    // item (both first and last) draws no rule at all.
-    expect(AGENDA).toContain("index === 0 ? 'top-4' : 'top-0'");
-    expect(AGENDA).toContain("index === items.length - 1 ? 'h-4' : '-bottom-3'");
+    // First row starts its rule at the node's centre, last row stops there, and
+    // a single item (both first and last) draws no rule at all. Fractions of the
+    // row, not fixed pixels: the entry's vertical padding moved, and a fixed
+    // offset tuned to the old height left the rule short of the node.
+    expect(AGENDA).toContain("index === 0 ? 'top-1/2' : 'top-0'");
+    expect(AGENDA).toContain("index === items.length - 1 ? 'h-1/2' : '-bottom-3'");
     expect(AGENDA).toContain('items.length > 1 ? (');
   });
 });
@@ -88,6 +90,26 @@ describe('the agenda entry radius', () => {
     expect(AGENDA).toContain('rounded-r-sm border-l-4');
     expect(AGENDA).not.toContain('rounded-sm border-l-4');
     expect(AGENDA).not.toContain('rounded-lg border-l-4');
+  });
+});
+
+describe('the agenda entry’s padding', () => {
+  it('gives the entry more vertical air and brings the text in from the stripe', () => {
+    /*
+     * `py-3` (0.75rem) up from `py-2`, and `pl-3` (0.75rem) down from `px-row`
+     * (1rem) so the text starts closer to the 4px colour stripe without
+     * crowding it. The right edge keeps the row token.
+     */
+    expect(AGENDA).toContain('bg-accent py-3 pr-row pl-3');
+    expect(AGENDA).not.toContain('px-row py-2');
+  });
+
+  it('keeps the entry classes out of a comment string', () => {
+    // A block comment inside the `className` string compiled (a string is a
+    // string) but made the class list `/* … */ 'flex …'`, so `'flex` and
+    // `py-2'` never matched and the entry lost its padding and its flex box.
+    expect(AGENDA).not.toContain('className="/*');
+    expect(AGENDA).toContain('className="flex min-w-0 flex-1 flex-col justify-center');
   });
 });
 

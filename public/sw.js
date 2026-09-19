@@ -104,6 +104,23 @@
  * as well (`purgeSession()` in `src/lib/session-scope.ts`), so the same guarantee
  * holds even if the message never arrives.
  *
+ * ---
+ *
+ *   `{ type: 'cache-document', url }`
+ *       the page asking for its OWN document to be kept. This exists because the
+ *       very first controlled load cannot cache itself: on a first visit the
+ *       page starts before `clients.claim()`, so its navigation request never
+ *       reached this worker. The worker only ever caches a document when a
+ *       request passes through it, which is why a cold offline open had nothing
+ *       to serve and fell through to `/offline`. The page therefore says "this
+ *       is my URL, keep it" after the worker is in control — see
+ *       `requestDocumentCache()` in `src/lib/session-scope.ts`, which rides the
+ *       same message channel as the session scope.
+ *
+ *       It is sent once per page load, never per navigation. The document is
+ *       stored under its exact URL in the session cache, exactly like one that
+ *       passed through `fetch`, so it can only ever be served at that URL.
+ *
  * ---------------------------------------------------------------------------
  * BUMP `VERSION` ON EVERY DEPLOY THAT CHANGES A PRECACHED FILE
  * ---------------------------------------------------------------------------
@@ -120,7 +137,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v5';
+const VERSION = 'tasktick-v6';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -300,7 +317,9 @@ self.addEventListener('message', (event) => {
       ? setSessionScope(data.scope)
       : data.type === 'sign-out'
         ? clearSessionScope()
-        : null;
+        : data.type === 'cache-document' && typeof data.url === 'string' && data.url
+          ? cacheCurrentDocument(data.url)
+          : null;
 
   if (work && typeof event.waitUntil === 'function') event.waitUntil(work);
 });
@@ -637,6 +656,39 @@ async function sessionRead(request, event) {
   // request that is still in flight so the entry is fresh next time.
   event.waitUntil(network);
   return cached;
+}
+
+/**
+ * Stores the page's own document in its session cache, at its exact URL.
+ *
+ * This is the request the worker could not observe for itself. On a first visit
+ * the document that booted the app was fetched before the worker was
+ * controlling, so the navigation strategy never saw it and nothing was stored;
+ * from then on only client-side navigations (which do go through the worker)
+ * populated the cache. A fresh offline open therefore had no document for its
+ * URL and fell through to `/offline`.
+ *
+ * Only this worker's own origin is accepted, and only a real HTML document is
+ * kept (`primeDocument` applies the same `isDocumentCacheable` gate as a
+ * navigation), so a login redirect or an API path can never be stored. With no
+ * session known nothing is stored either — that is the same per-session rule
+ * every other write follows; the page retries on its next load.
+ */
+async function cacheCurrentDocument(rawUrl) {
+  let target;
+  try {
+    target = new URL(rawUrl, self.location.origin);
+  } catch (error) {
+    return;
+  }
+  if (target.origin !== self.location.origin) return;
+  if (target.pathname.startsWith(API_PREFIX) || target.pathname.startsWith('/_next/')) return;
+
+  const scope = await readSessionScope();
+  if (!scope) return;
+
+  const cache = await caches.open(apiCacheName(scope));
+  await primeDocument(cache, target.href);
 }
 
 /** Fetches and stores one route's document, unless this session already has it. */

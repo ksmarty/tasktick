@@ -18,6 +18,7 @@
  */
 export { ServiceWorkerRegistrar } from './ServiceWorkerRegistrar';
 export { OfflineBanner } from './OfflineBanner';
+export { useServiceWorkerControl } from './useServiceWorkerControl';
 export { InstallPrompt } from './InstallPrompt';
 export { IosInstallHint } from './IosInstallHint';
 export { isIos, isStandalone, isIosSafari } from './platform';

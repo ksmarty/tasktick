@@ -42,9 +42,16 @@
  * fighting: the axis lock at `GESTURE_SLOP_PX` decides once, a vertical gesture
  * hands the row back to the scroller, and the lift keeps the pointer captured.
  *
- * A pinned task carries a pin glyph beside its title, which is the one mark the
- * row adds to say "this one was pinned deliberately": it belongs on the name,
- * not down in the meta line where the derived facts live.
+ * ## The pin marker is on the section header now
+ *
+ * A pinned task used to carry a pin glyph beside its title. It was one glyph per
+ * row saying the same thing every time, so it moved to the "Pinned" section
+ * header, where it is stated once (see `TaskListSection`). What stays on the row
+ * is the accessible half: an `sr-only` "Pinned", placed *outside* the `Open …`
+ * button because that button's `aria-label` overrides its contents in the
+ * accessible-name computation — a marker inside it would be announced to nobody.
+ * A pinned row is therefore still identifiable to a screen reader without the
+ * glyph, and the swipe/context actions still name themselves Pin/Unpin.
  *
  * ## The list colour
  *
@@ -434,12 +441,6 @@ export function TaskRow({
             >
               {task.title}
             </span>
-            {task.isPinned ? (
-              <span className="inline-flex shrink-0 items-center text-primary">
-                <DrawingPinIcon className="text-sm" aria-hidden />
-                <span className="sr-only">Pinned</span>
-              </span>
-            ) : null}
           </span>
           <TaskMeta task={task} className="relative" />
         </span>
@@ -451,6 +452,16 @@ export function TaskRow({
           className="shrink-0 self-center"
         />
       </button>
+
+      {/*
+       * The pin marker as text, not the glyph: the glyph now lives once, on the
+       * "Pinned" section header (see `TaskListSection`), while this keeps a
+       * pinned row identifiable to a screen reader. It is deliberately outside
+       * the `Open …` button — that button's `aria-label` overrides its contents
+       * in the accessible-name computation, so a marker inside it is announced
+       * to nobody; out here it is exposed in reading order.
+       */}
+      {task.isPinned ? <span className="sr-only">Pinned</span> : null}
 
       {gripVisible ? (
         // The grip is the pointer drag handle: keeping the HTML5 drag here and

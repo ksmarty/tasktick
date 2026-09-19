@@ -248,19 +248,23 @@ export function DayAgenda({
                  * keeps the line continuous through every circle.
                  *
                  * First and last are trimmed to their nodes rather than the row
-                 * edges: the first row starts its rule at its node (`top-4`) and
-                 * the last stops there (`h-4`, no bridge), so nothing dangles
-                 * above the first entry or past the final one. A single-item day
-                 * is both first and last and draws no rule at all, only its
-                 * node.
+                 * edges: the first row starts its rule at its node's centre
+                 * (`top-1/2`, exactly where the node is drawn) and the last stops
+                 * there (`h-1/2`, no bridge), so nothing dangles above the first
+                 * entry or past the final one. Both are fractions of the row
+                 * rather than fixed pixels, so they keep meeting the node at any
+                 * row height — the entry's vertical padding changes, and a fixed
+                 * offset tuned to one height leaves the line short of the node at
+                 * another. A single-item day is both first and last and draws no
+                 * rule at all, only its node.
                  */}
                 <span aria-hidden className="relative w-px shrink-0 self-stretch">
                   {items.length > 1 ? (
                     <span
                       className={cn(
                         'absolute left-0 w-px bg-border',
-                        index === 0 ? 'top-4' : 'top-0',
-                        index === items.length - 1 ? 'h-4' : '-bottom-3',
+                        index === 0 ? 'top-1/2' : 'top-0',
+                        index === items.length - 1 ? 'h-1/2' : '-bottom-3',
                       )}
                     />
                   ) : null}
@@ -285,17 +289,24 @@ export function DayAgenda({
                   />
                 </span>
 
+                {/*
+                 * `rounded-r-sm`, not `rounded-sm`.
+                 *
+                 * A radius on the left corners curves the 4px colour stripe with
+                 * them, so the strip ends up with rounded ends instead of being
+                 * the clean bar it is meant to be. Squaring the left and
+                 * rounding only the right keeps the stripe a rectangle and the
+                 * card's outer corner soft.
+                 *
+                 * The padding is asymmetric on purpose. `py-3` gives an entry
+                 * more vertical air than the old `py-2`; `pl-3` (0.75rem) brings
+                 * the text in from the old `px-row` (1rem) so it starts closer to
+                 * the stripe, while still clearing the 4px border. The right edge
+                 * keeps `pr-row` — it is the far side of the reading line and had
+                 * no reason to move.
+                 */}
                 <span
-                  className="/*
-                     * `rounded-r-sm`, not `rounded-sm`.
-                     *
-                     * A radius on the left corners curves the 4px colour stripe with
-                     * them, so the strip ends up with rounded ends instead of being
-                     * the clean bar it is meant to be. Squaring the left and
-                     * rounding only the right keeps the stripe a rectangle and the
-                     * card's outer corner soft.
-                     */
-                    'flex min-w-0 flex-1 flex-col justify-center rounded-r-sm border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2'"
+                  className="flex min-w-0 flex-1 flex-col justify-center rounded-r-sm border-l-4 border-l-[var(--edge-color)] bg-accent py-3 pr-row pl-3"
                   style={{ '--edge-color': hex } as CSSProperties}
                 >
                   {/* An all-day row has no range to show; the gutter says it. */}
