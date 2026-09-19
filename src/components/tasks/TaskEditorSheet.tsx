@@ -39,9 +39,15 @@
  * for it — so the field that names which half of the range it is carries a real
  * overlay label shown while it is empty, not a dead attribute (see `TimeField`).
  * All three fields are `h-9` with the same type scale — 16px on a phone, 14px
- * from `md` up — and share one equal-width grid, so the date is the same size as
- * the times beside it instead of the narrow space left over by their wide native
- * intrinsic width.
+ * from `md` up — and share one grid sized `5fr 4fr 4fr`: the date column is a
+ * quarter wider than each time column. Equal thirds gave the date no more room
+ * than a native time field, and a time field never needs a full third — its
+ * value is at most `07:30 AM`. The narrower time column has to keep that value
+ * whole, so the two time inputs carry `pl-2` (their text still lands within
+ * 1.5px of the date glyph's axis, because the native control adds 2.5px of its
+ * own leading) and the date's glyph sits 4px from its label rather than 8px.
+ * Measured at 390px: date 134.6, times 107.7 each, with the whole of
+ * "Sat 10 Oct" and the whole of "07:30 AM" inside them.
  *
  * ## The clear control, and the room it needs
  *
@@ -54,14 +60,14 @@
  * The fix is trailing padding, not a moved button: the date button and the time
  * inputs carry `pr-6` (24px) — 20px for the control plus a 4px gap — so the
  * value's box now ends 4.0px clear of the control. Padding rather than a
- * reserved flex column because the field is a third of a 390px row (116.7px),
- * and a column would take that 20px out of the *value* anyway while also
- * changing the button's hit area; `pr-6` is on Tailwind's scale, so no value is
- * invented. Measured at 390px with a long label in the date field: the value's
- * box ended at 123.7px against a button starting at 111.7px (12.0px of
- * overlap, `scrollWidth` 86 against a 75px box, i.e. the ellipsis itself was
- * hidden); with `pr-6` the box ends at 107.7px against a button at 111.7px,
- * 4.0px clear. The same 24px trailing padding is on both time inputs, so a
+ * reserved flex column because a time field is four thirteenths of a 390px row
+ * (107.7px since the date column was widened and the time columns narrowed), and a column would take that 20px
+ * out of the *value* anyway while also changing the button's hit area; `pr-6` is
+ * on Tailwind's scale, so no value is invented. Measured at 390px with a long
+ * label in the date field: the value's box ended at 123.7px against a button
+ * starting at 111.7px (12.0px of overlap, `scrollWidth` 86 against a 75px box,
+ * i.e. the ellipsis itself was hidden); with `pr-6` the box ends 4.0px clear of
+ * the control. The same 24px trailing padding is on both time inputs, so a
  * 12-hour value cannot reach its cross either.
  *
  * ## Specifying a date, a start and an end
@@ -95,6 +101,15 @@
  * inputs now use `pl-3` (content at 29.0, date glyph 29.0, date value 53.0) and
  * every row below carries a 1px transparent border beside its `px-3`, which
  * lifts its content from 28.0 to 29.0. One axis, 29.0px, for all of them.
+ *
+ * The schedule row keeps that axis with one measured qualification, because the
+ * date column now needs the room: the date glyph still starts at 29.0px, its
+ * label at 49.0px (`gap-1` where there used to be 8px of gap), and the time
+ * fields' text at 27.5px — `pl-2` plus the 2.5px of leading the native time
+ * control adds of its own. That is 1.5px off the axis; the old `pl-3` put the
+ * same glyphs at 31.5px, 2.5px off it, because that native leading was never
+ * part of the `pl-3` = 29.0px arithmetic. So the narrowed time fields are nearer
+ * the one axis than the wide ones were, not further from it.
  *
  * The transparent border is the whole trick: an input draws its 1px frame inside
  * the box, a button does not, so the rows would otherwise be a pixel out. A
@@ -305,8 +320,8 @@ function EditorRow({
 /**
  * A small clear control that lives inside a field's trailing edge.
  *
- * Absolute rather than a flex sibling: each field is a third of the schedule row
- * and there is no room to spend on a button, so the control is placed over the
+ * Absolute rather than a flex sibling: each field is a third or less of the
+ * schedule row and there is no room to spend on a button, so the control is placed over the
  * field's own trailing padding instead — which the value must therefore stay
  * clear of (see the file doc). It is 16px wide at `right-1`, i.e. the last 20px
  * of the field, and every field that carries one reserves `pr-6` for it. The
@@ -370,10 +385,14 @@ function TimeField({
         onBlur={() => setFocused(false)}
         onChange={(event) => onChange(event.target.value)}
         className={cn(
-          // `pl-3`: the field's content sits on the editor's one axis (16px
-          // gutter + 1px border + 12px). `pr-6`: 20px of clear control plus a
-          // 4px gap, so a 12-hour value can never run under the cross.
-          'h-full min-w-0 flex-1 border-0 bg-transparent pl-3 pr-6 text-base outline-none md:text-sm',
+          // `pl-2`: the field's value sits on the editor's one axis — 16px
+          // gutter + 1px border + 8px, plus the 2.5px of leading the native
+          // time control adds of its own, lands the glyphs at 27.5px against the
+          // 29.0px axis every other row uses. The wider `pl-3` the date button
+          // keeps would put them at 31.5px, further *off* that axis, and this
+          // row cannot spare the 4px. `pr-6`: 20px of clear control plus a 4px
+          // gap, so a 12-hour value can never run under the cross.
+          'h-full min-w-0 flex-1 border-0 bg-transparent pl-2 pr-6 text-base outline-none md:text-sm',
           'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
           // The native control's own empty glyph is not a placeholder; hiding it
           // is what lets the overlay label read as one. The desktop clock glyph
@@ -690,11 +709,22 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
              * so the two controls cannot disagree. The end field is available only
              * once there is a start; an end with no beginning is not a range.
              *
-             * The three fields share one equal-width grid. The two time inputs
-             * have a wide native intrinsic width, so in the old flex row — where
-             * they were the fixed ones and the date took the remainder — the date
-             * came out narrower than either time field. Equal tracks make the date
-             * the same width as the times beside it at every viewport.
+             * The three fields share one grid sized `5fr 4fr 4fr`, so the date
+             * takes a quarter more than a time field does. Equal thirds made the
+             * date the same width as the times beside it — and a native time
+             * input needs less than a date label does, so `Sat 10 Oct`
+             * ellipsised while the two time fields sat in room they never use.
+             * The times are narrower and the date correspondingly wider, and
+             * neither is a fixed width: the ratio holds at every viewport.
+             *
+             * Narrower times only work if the value inside them still fits, and
+             * a 12-hour one is `07:30 AM` — 70px of glyphs in a field that also
+             * reserves 20px for its clear control. So the two inputs give up 4px
+             * of leading air (`pl-2`) rather than any of the value's room, and
+             * the date's glyph sits 4px from its label (`gap-1`) instead of 8px.
+             * Measured at 390px: date 134.6px, times 107.7px each; the value's
+             * glyphs end 82.7px into a time field whose value box ends at
+             * 82.7px, and `Sat 10 Oct` fits its 76.6px label box whole.
              *
              * The time fields are native `input[type=time]`, so they render in the
              * user's own 12h/24h convention and emit `HH:mm` either way. Each
@@ -702,7 +732,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
              * date has its own clear control inside the field as well as the
              * calendar popover's Clear.
              */}
-            <div className="grid grid-cols-3 items-center gap-1">
+            <div className="grid grid-cols-[5fr_4fr_4fr] items-center gap-1">
               <div className="relative flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30">
                 <Popover open={dateOpen} onOpenChange={setDateOpen}>
                   <PopoverTrigger asChild>
@@ -711,9 +741,11 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                       disabled={disabled}
                       className={cn(
                         // `pl-3` puts the calendar glyph on the editor's content
-                        // axis; `pr-6` reserves the clear control's 20px plus a
-                        // 4px gap so a long date label stops before it.
-                        'flex h-full min-w-0 flex-1 items-center gap-2 pl-3 pr-6 justify-start text-base md:text-sm',
+                        // axis; `gap-1` (not `gap-2`) buys the label 4px of the
+                        // room this row's widening is for; `pr-6` reserves the
+                        // clear control's 20px plus a 4px gap so a long date
+                        // label stops before it.
+                        'flex h-full min-w-0 flex-1 items-center gap-1 pl-3 pr-6 justify-start text-base md:text-sm',
                         'outline-none disabled:pointer-events-none disabled:opacity-50',
                       )}
                     >

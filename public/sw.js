@@ -137,7 +137,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v6';
+const VERSION = 'tasktick-v7';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -154,6 +154,31 @@ const SESSION_KEY = '/__session';
  * has already failed as far as the person holding the phone is concerned.
  */
 const API_TIMEOUT_MS = 6000;
+
+/**
+ * How long a *navigation* waits for the network before falling back to cache.
+ *
+ * Navigations had no timeout at all, so on a connection that hangs rather than
+ * refuses — which is what a weak signal does — the browser's own timeout decided
+ * and the user watched a frozen screen for tens of seconds. A hard ceiling here
+ * is what turns "everything froze, then it switched" into a screen that appears.
+ */
+const NAVIGATION_TIMEOUT_MS = 3000;
+
+/**
+ * Whether the page currently believes it has a network.
+ *
+ * A service worker has no `navigator.onLine`, so the page tells us: it posts on
+ * `online`/`offline` and once on registration. Before we hear anything the
+ * assumption is online, because guessing "offline" on a good connection would
+ * serve stale data to everyone.
+ *
+ * This is the difference between "offline mode works" and "offline mode is
+ * usable". Network-first with six seconds of patience is right on a working
+ * connection and wrong on a broken one: every read and every navigation paid the
+ * full timeout before falling back to data already on the device.
+ */
+let networkOnline = true;
 /** Older entries are dropped once the API cache grows past this many reads. */
 const API_CACHE_MAX_ENTRIES = 120;
 
@@ -312,6 +337,11 @@ self.addEventListener('message', (event) => {
     return;
   }
 
+    if (data.type === 'connectivity') {
+      networkOnline = data.online !== false;
+      return;
+    }
+
   const work =
     data.type === 'session' && typeof data.scope === 'string' && data.scope
       ? setSessionScope(data.scope)
@@ -449,8 +479,33 @@ async function navigationNetworkFirst(event) {
   const key = new Request(request.url, { method: 'GET' });
 
   try {
+    /*
+     * Offline, or the network is hanging: answer from the cache first.
+     *
+     * Without this the handler awaited a fetch with no ceiling, so a weak
+     * signal meant the screen froze until the browser gave up. The cache is
+     * consulted first when the page has told us there is no network, and the
+     * fetch is raced against a ceiling otherwise — a cached screen now or a
+     * fresh one shortly, never neither.
+     */
+    if (!networkOnline && cache) {
+      const offlineCopy = await cache.match(key);
+      if (offlineCopy) return offlineCopy;
+    }
     const preloaded = await event.preloadResponse;
-    const response = preloaded || (await fetch(request));
+    /*
+     * Raced against a ceiling. A fetch that hangs is worse than one that fails:
+     * it holds the screen. The `catch` below already knows how to answer from
+     * the cache, so a timeout simply takes that path a few seconds sooner.
+     */
+    const response =
+      preloaded ||
+      (await Promise.race([
+        fetch(request),
+        delay(NAVIGATION_TIMEOUT_MS).then(() => {
+          throw new Error('navigation-timeout');
+        }),
+      ]));
     if (cache && isDocumentCacheable(response)) {
       try {
         await cache.put(key, response.clone());
@@ -643,6 +698,18 @@ async function sessionRead(request, event) {
       return response;
     })
     .catch(() => undefined);
+
+    /*
+     * Offline: the cache is the answer, and a miss is an answer too.
+     *
+     * `network` is already in flight above and stores whatever it gets, so a
+     * connection that returns mid-request still warms the entry. What must not
+     * happen is the *page* waiting for it — that wait is the freeze.
+     */
+    if (!networkOnline) {
+      if (cached) return cached;
+      return (await network) || offlineResponse();
+    }
 
   if (!cached) {
     const fresh = await network;

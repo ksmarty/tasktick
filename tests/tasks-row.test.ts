@@ -425,16 +425,19 @@ describe('the converted screens', () => {
 
   it('names the time fields with an in-field label and keeps the date on the same scale', () => {
     // The start and end time inputs and the date button are all `h-9`, i.e.
-    // 36.0px, and sit in one equal-width grid, so the three read as one row. A
-    // native time input ignores `placeholder`, so the field's name is an overlay
-    // label shown while it is empty, not an attribute nothing renders. The date
-    // button keeps the inputs' own `text-base md:text-sm` scale.
+    // 36.0px, and sit in one `5fr 4fr 4fr` grid, so the three read as one row
+    // while the date gets a quarter more room than a time field — the times are
+    // narrower, the date correspondingly wider, and a long date label is no
+    // longer ellipsised. A native time input ignores `placeholder`, so the
+    // field's name is an overlay label shown while it is empty, not an attribute
+    // nothing renders. The date button keeps the inputs' own `text-base
+    // md:text-sm` scale.
     expect(EDITOR).toContain('type="time"');
     expect(EDITOR).toContain('aria-label={`${label} time`}');
     expect(EDITOR).toContain('{label}');
     expect(EDITOR).not.toContain('placeholder="Start"');
     expect(EDITOR).not.toContain('placeholder="End"');
-    expect(EDITOR).toContain('grid grid-cols-3 items-center gap-1');
+    expect(EDITOR).toContain('grid grid-cols-[5fr_4fr_4fr] items-center gap-1');
     expect(EDITOR).toContain('justify-start text-base md:text-sm');
   });
 
@@ -466,9 +469,12 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('rounded-md px-3 py-2 text-left text-sm');
     // The transparent frame that makes a borderless button match a bordered input.
     expect(EDITOR).toContain('border border-transparent');
-    // The date button and the time inputs carry `pl-3`, not the old `px-2`.
-    expect(EDITOR).toContain('gap-2 pl-3 pr-6 justify-start text-base md:text-sm');
-    expect(EDITOR).toContain('border-0 bg-transparent pl-3 pr-6 text-base outline-none md:text-sm');
+    // The date button carries `pl-3` and the time inputs `pl-2`, both not the
+    // old `px-2`: the native time control adds 2.5px of leading of its own, so
+    // `pl-2` lands the value nearer the 29.0px axis than `pl-3` did, and the
+    // narrowed time column needs the 4px.
+    expect(EDITOR).toContain('gap-1 pl-3 pr-6 justify-start text-base md:text-sm');
+    expect(EDITOR).toContain('border-0 bg-transparent pl-2 pr-6 text-base outline-none md:text-sm');
     expect(EDITOR).not.toContain('items-center gap-2 px-2 justify-start');
     expect(EDITOR).not.toContain('bg-transparent px-2 text-base outline-none');
     // The overlay label of the empty time fields sits on the same axis.
@@ -488,16 +494,17 @@ describe('the converted screens', () => {
     // was painted under the glyph. The control is 16px at `right-1`, i.e. the
     // last 20px of the field; the date button and both time inputs now reserve
     // `pr-6` (24px = the 20px control + a 4px gap), putting the value's box 4.0px
-    // clear of it. Padding, not a moved button or a reserved flex column: the
-    // field is 116.7px wide at 390px and a column would spend the same 20px out
+    // clear of it. Padding, not a moved button or a reserved flex column: a time
+    // field is 107.7px wide at 390px and a column would spend the same 20px out
     // of the value anyway.
     expect(EDITOR).toMatch(/pl-3 pr-6/);
     expect(EDITOR).toContain(
       "'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full'",
     );
-    // Both the shared `TimeField` and the date button carry it, so neither field
-    // shape can reach its cross.
-    expect(EDITOR.match(/pl-3 pr-6/g)?.length).toBe(2);
+    // Both field shapes carry it — the date button with its own `pl-3`, the two
+    // time inputs through the shared `TimeField` — so neither can reach its cross.
+    expect(EDITOR.match(/pl-3 pr-6/g)?.length).toBe(1);
+    expect(EDITOR.match(/pl-2 pr-6/g)?.length).toBe(1);
   });
 
   it('moves Delete to the bottom of the form and puts Cancel in the footer', () => {

@@ -27,7 +27,7 @@
  * The `className` still carries the box geometry (`size-9`) and any layout the
  * caller wants.
  *
- * ## It draws itself on, and off
+ * ## It draws itself on, and off — but only when the day changes
  *
  * A ring appearing and vanishing between two renders of the month reads as a
  * flicker, so each arc sweeps on — a `pathLength` draw from nothing to the full
@@ -36,7 +36,11 @@
  * component is **kept mounted on every day**, with an empty colour list on the
  * days that have no ring (see `HabitMonthGrid`): an element that the parent has
  * already removed from the tree has nothing left to animate, so the day the
- * user unchecks would otherwise pop out. `memo` is what keeps that affordable —
+ * user unchecks would otherwise pop out.
+ *
+ * The entrance is for a *change*, not for the first paint: a day that already
+ * has a ring when the screen loads mounts finished, so the whole month does not
+ * draw itself at once (see `paintedRef`). `memo` is what keeps that affordable —
  * the colours are a stable array per day, so a re-render of the grid (a paging
  * drag, a selection) skips every ring whose day did not change.
  *
@@ -67,11 +71,12 @@
  * the arcs. See `./HabitMonthGrid` for the colours and `./ring` for the geometry,
  * and `MonthGrid` for the seam itself.
  */
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { memo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { memo, useEffect, useRef } from 'react';
 
 import { useAppearance } from '@/app/providers';
 import { accentHex } from '@/lib/colors';
+import { useReducedMotion } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import type { AccentColor } from '@/lib/types';
 import { RING_BOX_PX, RING_CENTRE_PX, RING_RADIUS_PX, RING_STROKE_PX, ringArcPath, ringArcs } from './ring';
@@ -102,18 +107,44 @@ function HabitDayRingBase({ colours, className }: HabitDayRingProps) {
   const arcs = ringArcs(colours.length);
 
   /*
+   * Whether this ring has already painted once.
+   *
+   * The sweep is a mount animation, and every completed day's ring mounts when
+   * the month first renders — so without this the whole calendar draws itself on
+   * load, one arc per completed habit. The flag is **per ring**: this component
+   * is mounted once per day (the grid renders one marker per cell), so "first
+   * paint" is that day's, not the screen's. It flips once, after the first
+   * commit, and then stays true — so a day whose colours change later (the check
+   * the user just made, or a refresh that adds one) mounts fresh arcs that *do*
+   * animate, while the days around it sit still. A module- or parent-level flag
+   * would be wrong for exactly that later case: a ring that mounts after the
+   * first render would inherit "already seen" from a sibling and silently lose
+   * its own first-paint skip.
+   *
+   * `AnimatePresence initial={false}` is not the tool here: it blocks the
+   * entrance of children that mount *later* as well, which is the toggle this
+   * animation exists for.
+   */
+  const paintedRef = useRef(false);
+  useEffect(() => {
+    paintedRef.current = true;
+  }, []);
+
+  /*
    * The draw-on, as four props both arc shapes share.
    *
    * Under `prefers-reduced-motion` the arc is simply *there*: `initial` and
    * `exit` are the finished state and the duration is zero, so nothing animates
    * in or out and the ring costs the user nothing — the global clamp in
    * `globals.css` would only shorten a `pathLength` sweep, which still reads as
-   * an animation. Otherwise the arc sweeps from zero length to full (and back),
-   * staggered so a multi-habit day draws as strokes rather than one pulse, with
-   * the stagger capped so a long ring is not still drawing a second later.
+   * an animation. Otherwise an arc that mounts *after* this ring's first paint
+   * sweeps from zero length to full (and back), staggered so a multi-habit day
+   * draws as strokes rather than one pulse, with the stagger capped so a long
+   * ring is not still drawing a second later. The first paint takes the
+   * finished state instead, so loading the month animates nothing.
    */
   const sweep = (index: number) => ({
-    initial: { pathLength: reduceMotion ? 1 : 0 },
+    initial: { pathLength: reduceMotion || !paintedRef.current ? 1 : 0 },
     animate: { pathLength: 1 },
     exit: { pathLength: reduceMotion ? 1 : 0 },
     transition: reduceMotion

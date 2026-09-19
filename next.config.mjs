@@ -7,11 +7,25 @@
  * every cold start. Nothing here needs types.
  */
 
+import { createRequire } from 'node:module';
+
+/**
+ * The version the user can read back in Settings.
+ *
+ * Read from `package.json` here and inlined by `env`, rather than read at
+ * runtime: the standalone bundle does not ship `package.json`, so a runtime read
+ * would work in development and fail in the image — the one place the question
+ * "which version am I running" is actually asked.
+ */
+const require = createRequire(import.meta.url);
+const { version: APP_VERSION } = require('./package.json');
+
 /** Set by the Docker build. Only the container consumes standalone output. */
 const wantsStandalone = process.env.BUILD_STANDALONE === '1';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: { APP_VERSION },
   /*
    * Standalone output is gated on an env var.
    *

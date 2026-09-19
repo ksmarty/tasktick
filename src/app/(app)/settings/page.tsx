@@ -19,6 +19,7 @@
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { AccountSettings } from '@/components/settings/AccountSettings';
+import { AboutRow } from '@/components/settings/AboutRow';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { BootstrapPayload } from '@/lib/view-types';
 
@@ -35,7 +36,12 @@ export default function SettingsPage() {
             <Skeleton className="h-32 w-full" />
           </>
         ) : (
+          <>
           <AccountSettings user={data.user} />
+
+          {/* Last, not first: a fact to look up, not a setting. */}
+          <AboutRow />
+          </>
         )}
       </SettingsTabs>
     </div>

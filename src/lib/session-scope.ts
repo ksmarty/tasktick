@@ -271,9 +271,36 @@ async function runInit(): Promise<void> {
 
   startQueuePump();
   resumeQueue();
+  /*
+   * Started here rather than by a component: everything the worker does when
+   * the network drops depends on it knowing that it dropped.
+   */
+  trackConnectivity();
 }
 
 /** Resolves the session scope and starts the offline machinery. Idempotent. */
+/**
+ * Keeps the worker's idea of connectivity in step with the browser's.
+ *
+ * A service worker has no \`navigator.onLine\`. Without this it could not tell a
+ * slow connection from a dead one, so every read and every navigation spent its
+ * full timeout waiting for a network that was not coming — which is what made
+ * offline mode unusable rather than merely limited. The page knows, so it says.
+ *
+ * Called once, and it removes its own listeners when the app unmounts.
+ */
+export function trackConnectivity(): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const send = () => postToServiceWorker({ type: 'connectivity', online: navigator.onLine });
+  send();
+  window.addEventListener('online', send);
+  window.addEventListener('offline', send);
+  return () => {
+    window.removeEventListener('online', send);
+    window.removeEventListener('offline', send);
+  };
+}
+
 export function ensureOfflineSupport(): Promise<void> {
   if (!initialised) initialised = runInit().catch((error) => console.warn('[offline] init failed', error));
   return initialised;

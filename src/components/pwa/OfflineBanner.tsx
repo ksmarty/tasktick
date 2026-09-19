@@ -87,48 +87,62 @@ export function OfflineBanner() {
     probeFailed: probe === 'failed',
   });
 
+  /*
+   * A small mark in the corner, not a banner across the top.
+   *
+   * A persistent alert is the loudest thing on the screen and it reports a
+   * condition the user can do nothing about — and now that the offline layer
+   * works, most of what it said ("anything you change will be kept") is simply
+   * what the app does. It also sat over the content it was describing.
+   *
+   * So: a dot. Glanceable, out of the way, and it still carries the whole message
+   * for anyone who looks or listens — `role="status"` and an `aria-label` announce
+   * it without a single pixel of layout.
+   *
+   * The glow is the one bit of decoration: a small grey dot meaning "your changes
+   * are being held" should not look like a small grey dot meaning nothing.
+   */
   return (
     <div
       className={cn(
-        'fixed inset-x-3 z-toast flex',
-        // The safe-area inset is a dynamic value, so it is the one thing that
-        // cannot come from a class on its own; `0.5rem` is still the scale's.
-        'top-[calc(env(safe-area-inset-top,0px)_+_0.5rem)]',
+        'fixed right-3 z-toast',
+        // Clear of the tab bar, which is where a thumb rests and where the action
+        // button lives.
+        'bottom-[calc(env(safe-area-inset-bottom,0px)_+_5.5rem)]',
       )}
     >
-      <Alert
+      <button
+        type="button"
         role="status"
         aria-live="polite"
-        className="flex w-full items-center gap-3 border-l-4 border-l-foreground shadow-lg"
+        /* `message` is a ReactNode; these two attributes are strings. */
+        aria-label={String(message)}
+        title={String(message)}
+        onClick={() => void retry()}
+        className={cn(
+          'relative inline-flex size-8 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground shadow-sm backdrop-blur-md outline-none transition focus-visible:ring-2 focus-visible:ring-ring',
+          online && 'opacity-0',
+          failures > 0 && 'text-destructive',
+        )}
       >
         {online ? (
-          <span aria-hidden className="inline-flex shrink-0 text-base text-muted-foreground">
-            <ReloadIcon className={syncing === '1' ? 'animate-spin' : undefined} />
-          </span>
+          <ReloadIcon className={syncing === '1' ? 'animate-spin' : undefined} />
         ) : (
-          <WifiOff aria-hidden className="size-5 shrink-0 text-muted-foreground" />
+          <WifiOff aria-hidden className="size-4 shrink-0" />
         )}
-        <span className="min-w-0">{message}</span>
+        {(!online || failures > 0) && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -z-10 rounded-full bg-destructive/25 blur-md"
+          />
+        )}
         {failures > 0 && (
-          <Button variant="ghost" size="sm" className="ml-auto shrink-0" onClick={() => dismissFailures()}>
-            Dismiss
-          </Button>
+          <span
+            aria-hidden
+            className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-destructive ring-2 ring-background"
+          />
         )}
-        {!online && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto shrink-0"
-            onClick={() => void retry()}
-            disabled={probe === 'checking'}
-          >
-            <span aria-hidden className="inline-flex text-base">
-              <ReloadIcon className={probe === 'checking' ? 'animate-spin' : undefined} />
-            </span>
-            Retry
-          </Button>
-        )}
-      </Alert>
+      </button>
     </div>
   );
 }
