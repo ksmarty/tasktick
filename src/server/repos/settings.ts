@@ -6,7 +6,7 @@ import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { focusSessions, icalTokens, pushSubscriptions, taskCompletions, tasks, userSettings } from '../db/schema';
 import { newId, randomToken, encryptField, decryptField } from '../crypto';
-import { asAccentColor } from '@/lib/colors';
+import { asAccentPreference } from '@/lib/colors';
 import { getEnv } from '@/lib/env';
 import { todayIn } from '@/lib/dates';
 import type { FocusKind, FocusSession, ProductivityStats, ReducedMotionPreference, UserSettings } from '@/lib/types';
@@ -48,7 +48,7 @@ function rowToSettings(row: typeof userSettings.$inferSelect): UserSettings {
     timezone: row.timezone,
     weekStartsOn: row.weekStartsOn,
     theme: (row.theme as UserSettings['theme']) ?? 'system',
-    accent: asAccentColor(row.accent),
+    accent: asAccentPreference(row.accent),
     timeFormat: row.timeFormat === '12h' ? '12h' : '24h',
     defaultListId: row.defaultListId,
     smartListOrder: row.smartListOrder,

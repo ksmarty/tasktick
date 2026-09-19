@@ -5,10 +5,22 @@
  * always a payload the server accepts. Zod 4.
  */
 import { z } from 'zod';
-import { ACCENT_COLORS } from './types';
+import { ACCENT_COLORS, ACCENT_PREFERENCE } from './types';
 
 /** Derived from the single source of truth in `./types`, so it cannot drift. */
 export const accentColor = z.enum(ACCENT_COLORS);
+
+/**
+ * The accent *preference*, which is one value wider than a calendar's colour.
+ *
+ * The settings payload used `accentColor`, so "default" — the neutral that keeps
+ * the app monochrome — was rejected with a 422 while the picker happily showed it
+ * as selected. The UI recoloured from local state and the write failed, which is
+ * the worst version of this bug: it looks like it worked until you reload.
+ *
+ * `accentColor` stays as it is: a calendar or a habit must have a colour.
+ */
+export const accentPreference = z.enum(ACCENT_PREFERENCE);
 
 /**
  * A literal colour in the `#rgb`/`#rrggbb` form the calendar's `colorOverride`
@@ -295,7 +307,7 @@ export const updateSettingsSchema = z
     timezone: z.string().max(64).optional(),
     weekStartsOn: z.union([z.literal(0), z.literal(1)]).optional(),
     theme: z.enum(['light', 'dark', 'system']).optional(),
-    accent: accentColor.optional(),
+    accent: accentPreference.optional(),
     timeFormat: z.enum(['12h', '24h']).optional(),
     defaultListId: z.string().nullable().optional(),
     smartListOrder: z.array(z.string()).max(40).nullable().optional(),

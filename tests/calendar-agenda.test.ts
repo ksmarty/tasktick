@@ -52,7 +52,16 @@ describe('the gutter timeline', () => {
     // The node sits over the rule in the same full-height column, so the rule
     // is never split around it — the line connects through rather than stopping
     // at each circle.
-    expect(AGENDA).toContain('absolute top-3 left-1/2 size-2.5 -translate-x-1/2 rounded-full');
+    /*
+     * Centred on the row, not pinned to a fixed offset from the top. A two-line
+     * entry is taller than a one-line entry, so `top-3` put the node, the time
+     * and the item in three different places on exactly the rows where they most
+     * need to agree.
+     */
+    expect(AGENDA).toContain(
+      'absolute top-1/2 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
+    );
+    expect(AGENDA).toContain('flex shrink-0 items-center justify-end text-right');
     expect(AGENDA).toContain('style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}');
   });
 
@@ -71,7 +80,13 @@ describe('the gutter timeline', () => {
 
 describe('the agenda entry radius', () => {
   it('is a step on the radius scale, below the card radius', () => {
-    expect(AGENDA).toContain('rounded-sm border-l-4');
+    /*
+     * `rounded-r-sm`: a radius on the left corners curves the 4px colour stripe
+     * with them, so the strip ends up with rounded ends rather than being the
+     * clean bar it is meant to be.
+     */
+    expect(AGENDA).toContain('rounded-r-sm border-l-4');
+    expect(AGENDA).not.toContain('rounded-sm border-l-4');
     expect(AGENDA).not.toContain('rounded-lg border-l-4');
   });
 });

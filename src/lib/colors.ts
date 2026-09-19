@@ -9,7 +9,7 @@
  * These maps exist for the places CSS classes cannot reach: canvas rendering,
  * inline `style` for dynamic chart colours, and `<meta name="theme-color">`.
  */
-import type { AccentColor } from './types';
+import type { AccentColor, AccentPreference } from './types';
 
 /** Light-appearance values, matching `globals.css`. */
 export const ACCENT_HEX_LIGHT: Record<AccentColor, string> = {
@@ -84,6 +84,22 @@ export function colorForName(name: string, palette: readonly AccentColor[]): Acc
 export function asAccentColor(value: string | null | undefined, fallback: AccentColor = 'blue'): AccentColor {
   return value && value in ACCENT_HEX_LIGHT ? (value as AccentColor) : fallback;
 }
+/**
+ * The same narrowing, for the *accent preference*.
+ *
+ * `asAccentColor` cannot be used for this: `default` is not in the palette, so it
+ * falls back — silently turning a chosen neutral back into blue the next time the
+ * settings are read, which is exactly the kind of bug that looks like the setting
+ * "not sticking".
+ */
+export function asAccentPreference(
+  value: string | null | undefined,
+  fallback: AccentPreference = 'default',
+): AccentPreference {
+  if (value === 'default') return 'default';
+  return value && value in ACCENT_HEX_LIGHT ? (value as AccentPreference) : fallback;
+}
+
 
 /**
  * The list colour shown on the calendar, in priority order:

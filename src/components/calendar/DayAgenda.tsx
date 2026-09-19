@@ -85,7 +85,6 @@
  */
 import { useRef, type CSSProperties } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
-import { CheckboxIcon } from '@svg-animated-icons/react/checkbox';
 import { useAppearance } from '@/app/providers';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
@@ -228,7 +227,7 @@ export function DayAgenda({
                 <span
                   className={cn(
                     GUTTER_WIDTH_CLASS,
-                    'shrink-0 pt-2 text-right text-[0.6875rem] text-muted-foreground tabular-nums',
+                    'flex shrink-0 items-center justify-end text-right text-[0.6875rem] text-muted-foreground tabular-nums',
                   )}
                 >
                   {gutterLabel}
@@ -266,6 +265,11 @@ export function DayAgenda({
                     />
                   ) : null}
                   {/*
+                   * Centred on the row, like the gutter label, rather than pinned to
+                   * the top. A row with two lines is taller than one with a single
+                   * line, so a fixed offset put the node, the time and the item in
+                   * three different places on exactly the rows that matter most.
+                   *
                    * The circle on the line. A timed item is a filled disc in
                    * the item's own colour; an all-day item is a hollow ring of
                    * the same colour, because it has no moment to point at. The
@@ -274,7 +278,7 @@ export function DayAgenda({
                    */}
                   <span
                     className={cn(
-                      'absolute top-3 left-1/2 size-2.5 -translate-x-1/2 rounded-full',
+                      'absolute top-1/2 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
                       item.isAllDay && 'border-2 bg-background',
                     )}
                     style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}
@@ -282,7 +286,16 @@ export function DayAgenda({
                 </span>
 
                 <span
-                  className="flex min-w-0 flex-1 flex-col justify-center rounded-sm border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2"
+                  className="/*
+                     * `rounded-r-sm`, not `rounded-sm`.
+                     *
+                     * A radius on the left corners curves the 4px colour stripe with
+                     * them, so the strip ends up with rounded ends instead of being
+                     * the clean bar it is meant to be. Squaring the left and
+                     * rounding only the right keeps the stripe a rectangle and the
+                     * card's outer corner soft.
+                     */
+                    'flex min-w-0 flex-1 flex-col justify-center rounded-r-sm border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2'"
                   style={{ '--edge-color': hex } as CSSProperties}
                 >
                   {/* An all-day row has no range to show; the gutter says it. */}
@@ -303,14 +316,12 @@ export function DayAgenda({
                       done && 'line-through',
                     )}
                   >
-                    {isTask ? (
-                      <span
-                        aria-hidden
-                        className={cn('mr-1 inline-flex align-[-0.15em]', done ? 'text-primary' : 'text-muted-foreground')}
-                      >
-                        <CheckboxIcon className="size-3.5 text-sm" disableHover />
-                      </span>
-                    ) : null}
+                    {/*
+                     * No checkbox here. The agenda is a calendar, and a calendar shows what is
+                     * happening and when — a checkbox on this screen asks you to act on a task
+                     * from a view that exists to read the day. The task list is one tap away and
+                     * is where completing belongs.
+                     */}
                     {item.title}
                   </span>
 

@@ -482,7 +482,8 @@ export interface UserSettings {
   timezone: string;
   weekStartsOn: number;
   theme: 'light' | 'dark' | 'system';
-  accent: AccentColor;
+  /** May be `default`, which means no accent — see `AccentPreference`. */
+  accent: AccentPreference;
   timeFormat: '12h' | '24h';
   defaultListId: string | null;
   smartListOrder: string[] | null;
