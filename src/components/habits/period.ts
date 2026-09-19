@@ -405,6 +405,26 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+/**
+ * Whether a check-in is the one that *completes* the habit for its period.
+ *
+ * The celebration is for the tap that fills the goal, so this is deliberately a
+ * crossing test rather than a "is the goal met" test: incrementing an
+ * already-complete counted habit, or decrementing one, is not a completion, and
+ * un-checking a boolean is not either. A daily habit reads the day's own entry;
+ * a weekly or monthly habit reads the server's period total, because only the
+ * server can aggregate a period that spans days. Kept here, beside
+ * `habitProgressView`, so the rule is unit-tested rather than buried in the page.
+ */
+export function checkInCompletes(habit: Habit, change: CheckInChange, today: DateOnly): boolean {
+  const view = habitProgressView(habit, today);
+  if (habit.goalType === 'boolean') return change.count === 1;
+  const periodic = habit.frequency === 'weekly' || habit.frequency === 'monthly';
+  const logged = periodic ? view.logged : habit.entries?.[change.date] ?? 0;
+  const next = change.delta !== undefined ? logged + change.delta : change.count ?? 0;
+  return logged < view.target && next >= view.target;
+}
+
 /** `day` / `week` / `month`, for the streak badge. */
 export function streakUnit(frequency: HabitFrequency): string {
   if (frequency === 'weekly') return 'week';

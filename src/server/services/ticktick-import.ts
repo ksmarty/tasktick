@@ -36,6 +36,8 @@ export interface TickTickApplySummary {
   listsReused: number;
   tasksCreated: number;
   subtasksCreated: number;
+  /** Individual task reminders written (a task can carry several). */
+  remindersCreated: number;
   /** Rows the source key says were imported by an earlier run. */
   skippedExisting: number;
 }
@@ -76,6 +78,7 @@ export async function applyTickTickImport(options: {
     let listsReused = 0;
     let tasksCreated = 0;
     let subtasksCreated = 0;
+    let remindersCreated = 0;
     let skippedExisting = 0;
 
     const keyRows = await db
@@ -152,6 +155,7 @@ export async function applyTickTickImport(options: {
           timezone: task.timezone ?? zone,
           recurrenceRule: task.recurrenceRule,
           tagNames: task.tags,
+          reminders: task.reminders.map((offsetMinutes) => ({ offsetMinutes })),
         },
         zone,
         db,
@@ -159,10 +163,11 @@ export async function applyTickTickImport(options: {
 
       taskIdByKey.set(task.key, created.id);
       await recordKey(db, userId, task.key, 'task', created.id);
+      remindersCreated += task.reminders.length;
       if (task.parentKey) subtasksCreated += 1;
       else tasksCreated += 1;
     }
 
-    return { listsCreated, listsReused, tasksCreated, subtasksCreated, skippedExisting };
+    return { listsCreated, listsReused, tasksCreated, subtasksCreated, remindersCreated, skippedExisting };
   });
 }

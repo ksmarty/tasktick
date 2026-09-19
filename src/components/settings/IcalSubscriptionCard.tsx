@@ -11,10 +11,21 @@
  * be revoked when it leaks. A revoked URL stops working immediately, which is why
  * revocation asks for confirmation.
  *
- * The freshly minted URL renders as one more `SettingsGroup` rather than a
- * bespoke paper: it is a card with a caption and a one-time warning, which is
- * exactly what the group already is, so it lines up with the cards above it
- * instead of inventing a second surface.
+ * ## One section, not two
+ *
+ * This used to be two sibling cards — a "Calendar subscriptions" list and a
+ * separate "New subscription" form — that were really two halves of one job.
+ * Reading them apart, the empty state told you to "create one" and then the
+ * creation form lived in a different card below, as if it were another feature.
+ * They are now one `SettingsGroup`: the existing feeds sit at the top and the
+ * form to add another follows in the same card (divided by the group's own row
+ * hairlines), with the freshly minted URL appearing there too. Nothing about the
+ * outward behaviour changes — same endpoints, same copy buttons, same revoke
+ * confirmation — only the surface they are grouped under.
+ *
+ * The freshly minted URL renders as one more row in the group rather than a
+ * bespoke paper: it is a caption and a one-time warning, which is exactly what
+ * the group already is, so it lines up with the rows above it.
  */
 import { useState } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
@@ -95,7 +106,7 @@ export function IcalSubscriptionCard() {
     <>
       <SettingsGroup
         title="Calendar subscriptions"
-        footer="A subscription is read-only: the other app pulls from TaskTick and can never write back. Revoke a URL here if it was shared by mistake."
+        footer="A subscription is read-only: the other app pulls from TaskTick and can never write back. Revoke a URL here if it was shared by mistake. To add one — Apple Calendar: File ▸ New Calendar Subscription, or on iOS Settings ▸ Calendar ▸ Accounts ▸ Add Account ▸ Other ▸ Add Subscribed Calendar. Google Calendar: Other calendars ▸ From URL."
       >
         {tokens.isInitialLoading ? (
           <SettingsRow>
@@ -166,13 +177,15 @@ export function IcalSubscriptionCard() {
             </SettingsRow>
           ))
         )}
-      </SettingsGroup>
 
-      <SettingsGroup
-        title="New subscription"
-        footer="How to add it — Apple Calendar: File ▸ New Calendar Subscription, or on iOS Settings ▸ Calendar ▸ Accounts ▸ Add Account ▸ Other ▸ Add Subscribed Calendar. Google Calendar: Other calendars ▸ From URL."
-      >
+        {/*
+         * The add half of the same job. It used to be its own card; keeping it as
+         * a row of this group is what makes "the feeds I have" and "make another"
+         * read as one section.
+         */}
         <SettingsRow stacked>
+          <h3 className="text-sm font-medium">New subscription</h3>
+
           <Label htmlFor="ical-name">Name</Label>
           <Input
             id="ical-name"
@@ -221,15 +234,14 @@ export function IcalSubscriptionCard() {
             <p className="text-xs text-destructive">Choose at least one thing to publish.</p>
           ) : null}
         </SettingsRow>
-      </SettingsGroup>
 
-      {freshUrl ? (
-        <SettingsGroup
-          title="Your new subscription URL"
-          footer="Copy it now — it is shown in full only once, and anyone holding it can read your feed."
-        >
+        {freshUrl ? (
           <SettingsRow stacked>
+            <h3 className="text-sm font-medium">Your new subscription URL</h3>
             <p className={MONO_URL_BOX_CLASS}>{freshUrl}</p>
+            <p className="text-xs text-muted-foreground">
+              Copy it now — it is shown in full only once, and anyone holding it can read your feed.
+            </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={() => void copy(freshUrl, 'Subscription URL')}>
                 <ClipboardCopyIcon />
@@ -241,8 +253,8 @@ export function IcalSubscriptionCard() {
               </Button>
             </div>
           </SettingsRow>
-        </SettingsGroup>
-      ) : null}
+        ) : null}
+      </SettingsGroup>
 
       <Dialog
         open={revokeTarget !== null}

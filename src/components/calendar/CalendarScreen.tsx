@@ -53,9 +53,11 @@
  *
  * ## Overlays and feedback
  *
- * The day sheet is the GodUI `Drawer` (a bottom sheet) and the event editor a
- * shadcn `Dialog`; both are portalled, so neither disturbs this layout. Write
- * failures surface through the app's single toast surface (`useToast`) rather
+ * A tap on an item opens the read-only preview (`AgendaItemPreview`, the shared
+ * `ItemDetailSheet`); its Edit action is what opens the event editor or the task
+ * editor. The day sheet is the GodUI `Drawer` (a bottom sheet) and the event
+ * editor a shadcn `Dialog`; all are portalled, so none disturbs this layout.
+ * Write failures surface through the app's single toast surface (`useToast`) rather
  * than a screen-local snackbar — a reschedule that fails must say so after the
  * block has already sprung back, and a save that succeeds must say so after the
  * dialog that raised it has closed.
@@ -84,6 +86,7 @@ import {
 import { invalidate, useResource } from '@/lib/store';
 import type { CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
+import { AgendaItemPreview } from './AgendaItemPreview';
 import { AgendaTaskEditor } from './AgendaTaskEditor';
 import { CalendarToolbar } from './CalendarToolbar';
 import { calendarColorHex } from './colors';
@@ -142,6 +145,14 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     open: false,
     taskId: null,
   });
+  /*
+   * The item whose read-only preview is open.
+   *
+   * A tap on an agenda (or day-sheet) row fills this instead of opening an
+   * editor: the preview is the read step, and its Edit action opens whichever
+   * editor the item kind needs. Exactly one item is held at a time.
+   */
+  const [detail, setDetail] = useState<CalendarItem | null>(null);
 
   // One mutable gesture record, shared with the grid and the agenda: it is how a
   // paging swipe knows to stand down during a drag, and how a drag swallows the
@@ -212,6 +223,8 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const calendars = bootstrap.data?.calendars ?? [];
   const calendarLookup: CalendarLookup = useMemo(() => new Map(calendars.map((c) => [c.id, c])), [calendars]);
+  const lists = bootstrap.data?.lists ?? [];
+  const listLookup = useMemo(() => new Map(lists.map((list) => [list.id, list])), [lists]);
   const filterCalendar = filterId ? (calendarLookup.get(filterId) ?? null) : null;
 
   /**
@@ -434,22 +447,36 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const openItem = useCallback(
     (item: CalendarItem) => {
-      // The click that follows a drag must not also open the editor.
+      // The click that follows a drag must not also open the sheet.
       if (interaction.suppressClick) {
         interaction.suppressClick = false;
         return;
       }
 
-      if (item.kind === 'event') {
-        setEditor({ open: true, eventId: item.id, defaults: defaultsFor(item, prefs) });
-        return;
-      }
-      // A task opens the tasks screen's editor in place. Its full record does not
-      // travel in the agenda's `CalendarItem`, so the id is all we can pass.
-      setTaskEditor({ open: true, taskId: item.id });
+      // A tap reads the item first; the preview's own Edit action is the way on
+      // to the editor, so reading never means opening a form.
+      setDetail(item);
     },
-    [interaction, prefs],
+    [interaction],
   );
+
+  /**
+   * The preview's Edit action.
+   *
+   * An event opens the event editor directly. A task opens the tasks screen's
+   * editor, which fetches the full record the calendar's thin `CalendarItem`
+   * cannot carry — see `AgendaTaskEditor`.
+   */
+  const editDetail = useCallback(() => {
+    const item = detail;
+    setDetail(null);
+    if (!item) return;
+    if (item.kind === 'event') {
+      setEditor({ open: true, eventId: item.id, defaults: defaultsFor(item, prefs) });
+      return;
+    }
+    setTaskEditor({ open: true, taskId: item.id });
+  }, [detail, prefs]);
 
   const createAt = useCallback(
     (date: DateOnly, startMinute: number) => {
@@ -613,6 +640,22 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         onCreateAt={createAt}
       />
 
+      <AgendaItemPreview
+        open={detail !== null}
+        item={detail}
+        onOpenChange={(open) => {
+          if (!open) setDetail(null);
+        }}
+        zone={zone}
+        timeFormat={timeFormat}
+        calendarName={
+          detail?.calendarName ?? (detail?.calendarId ? (calendarLookup.get(detail.calendarId)?.name ?? null) : null)
+        }
+        listName={detail?.listId ? (listLookup.get(detail.listId)?.name ?? null) : null}
+        listColor={detail?.listId ? (listLookup.get(detail.listId)?.color ?? null) : null}
+        onEdit={editDetail}
+      />
+
       <EventEditorSheet
         open={Boolean(editor?.open)}
         onOpenChange={(open) => {
@@ -724,7 +767,7 @@ function planMove(item: CalendarItem, target: RescheduleTarget, prefs: CalendarP
   };
 }
 
-/** Prefill for the editor when an existing block is tapped. */
+/** Prefill for the editor when the preview's Edit action opens it. */
 function defaultsFor(item: CalendarItem, prefs: CalendarPrefs): EventDefaults {
   const startMinute = item.isAllDay
     ? DEFAULT_EVENT_START_MINUTE

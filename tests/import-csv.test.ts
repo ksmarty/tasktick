@@ -94,4 +94,36 @@ describe('parseCsv', () => {
     const { rows } = parseCsv('"a,b"\n"c,d,e"\n');
     expect(rows).toEqual([['a,b'], ['c,d,e']]);
   });
+
+  it('keeps a quoted field that spans embedded CRLF lines as one record', () => {
+    const { rows, unclosedQuote } = parseCsv(
+      '"Status: \r\n0 Normal\r\n-1 Abandoned \r\n2 Completed"\r\n"Title","List Name"\r\n"a","b"\r\n',
+    );
+    expect(unclosedQuote).toBe(false);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual(['Status: \r\n0 Normal\r\n-1 Abandoned \r\n2 Completed']);
+    expect(rows[1]).toEqual(['Title', 'List Name']);
+    expect(rows[2]).toEqual(['a', 'b']);
+  });
+
+  it('treats a bare CR inside a quoted field as data, not a record break', () => {
+    const { rows } = parseCsv('"a","line1\rline2"\n"b","c"\n');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual(['a', 'line1\rline2']);
+    expect(rows[1]).toEqual(['b', 'c']);
+  });
+
+  it('reads a BOM + CRLF + quoted multi-line preamble as one record', () => {
+    const text =
+      '\ufeff"Date: 2026-09-19+0000"\r\n"Version: 7.2"\r\n' +
+      '"Status: \n0 Normal\n-1 Abandoned \n2 Completed"\r\n"Title","List Name"\r\n"x","y"\r\n';
+    const { rows, unclosedQuote } = parseCsv(text);
+    expect(unclosedQuote).toBe(false);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]).toEqual(['Date: 2026-09-19+0000']);
+    expect(rows[1]).toEqual(['Version: 7.2']);
+    expect(rows[2]).toEqual(['Status: \n0 Normal\n-1 Abandoned \n2 Completed']);
+    expect(rows[3]).toEqual(['Title', 'List Name']);
+    expect(rows[4]).toEqual(['x', 'y']);
+  });
 });

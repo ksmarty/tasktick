@@ -389,17 +389,31 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)');
   });
 
-  it('gives the time fields a placeholder and the date field the same type scale', () => {
+  it('names the time fields with an in-field label and keeps the date on the same scale', () => {
     // The start and end time inputs and the date button are all `h-9`, i.e.
-    // 36.0px, so the three read as one row. Each time field carries a placeholder
-    // that names which half of the range it is; the date button keeps the
-    // inputs' own `text-base md:text-sm` scale.
+    // 36.0px, and sit in one equal-width grid, so the three read as one row. A
+    // native time input ignores `placeholder`, so the field's name is an overlay
+    // label shown while it is empty, not an attribute nothing renders. The date
+    // button keeps the inputs' own `text-base md:text-sm` scale.
     expect(EDITOR).toContain('type="time"');
-    expect(EDITOR).toContain('aria-label="Start time"');
-    expect(EDITOR).toContain('placeholder="Start"');
-    expect(EDITOR).toContain('aria-label="End time"');
-    expect(EDITOR).toContain('placeholder="End"');
+    expect(EDITOR).toContain('aria-label={`${label} time`}');
+    expect(EDITOR).toContain('{label}');
+    expect(EDITOR).not.toContain('placeholder="Start"');
+    expect(EDITOR).not.toContain('placeholder="End"');
+    expect(EDITOR).toContain('grid grid-cols-3 items-center gap-1');
     expect(EDITOR).toContain('justify-start text-base md:text-sm');
+  });
+
+  it('gives every schedule field a clear control', () => {
+    // The date has its own clear inside the field (plus the popover's Clear); the
+    // time fields' clear is what makes an empty state reachable without fighting
+    // the native picker's segments.
+    expect(EDITOR).toContain('<ClearFieldButton');
+    expect(EDITOR).toContain('label="Clear due date"');
+    expect(EDITOR).toContain('label={`Clear ${label.toLowerCase()} time`}');
+    expect(EDITOR).toContain('onClick={() => edit({ clearDue: true, dueDate: null, dueTime: null })}');
+    expect(EDITOR).toContain('onClear={() => edit({ dueTime: null, clearDue: false })}');
+    expect(EDITOR).toContain('onClear={() => edit({ estimateMinutes: null })}');
   });
 
   it('puts every row below the schedule row on the controls\' own inset', () => {
@@ -423,8 +437,8 @@ describe('the converted screens', () => {
     // `estimateMinutes` — the field the record already has and the stepper below
     // already edits. The record has no end-time column, so the end is derived
     // from `dueTime + estimateMinutes` (`addMinutesToTime`) and never stored.
-    expect(EDITOR).toContain('aria-label="Start time"');
-    expect(EDITOR).toContain('aria-label="End time"');
+    expect(EDITOR).toContain('label="Start"');
+    expect(EDITOR).toContain('label="End"');
     expect(EDITOR).toContain('minutesBetweenTimes');
     expect(EDITOR).toContain('addMinutesToTime');
     expect(EDITOR).toContain('edit({ estimateMinutes: diff > 0 ? diff : null })');

@@ -337,6 +337,25 @@ describe('visibleEvents — a filter that cannot apply excludes the event', () =
     ]);
   });
 
+  it('keeps a far event for All but trims it out of Next 7 days', () => {
+    // The list now reads events out to the Later horizon, so `visibleEvents` is
+    // the only thing stopping a far event from leaking into a Next 7 days view
+    // and being grouped under Later — a later item in a list that asked for seven
+    // days. All is the window that means "everything", Later included.
+    const far = makeEvent('far', {
+      startMs: Date.parse('2025-06-20T09:00:00Z'),
+      key: 'event:far',
+    });
+    const rows = [...events, far];
+
+    expect(visibleEvents(rows, parseTaskView(''), context).map((e) => e.id)).toContain('far');
+    expect(visibleEvents(rows, parseTaskView('window=next7days'), context).map((e) => e.id)).toEqual([
+      'today',
+      'tomorrow',
+      'dentist',
+    ]);
+  });
+
   it('excludes events for list, tag and priority filters, which they cannot satisfy', () => {
     // An event belongs to a calendar, not a list; it has no tags and no priority,
     // so a filter naming one must not silently keep it.

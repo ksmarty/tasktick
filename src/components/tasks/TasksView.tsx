@@ -82,12 +82,23 @@ import {
   type TaskViewState,
 } from './filters';
 import { patchById, removeByIds, reorderList, setStatusByIds } from './optimistic';
-import { buildListSections, NEXT_7_DAYS_SPAN, visibleTasks, type TaskSection } from './sections';
+import { buildListSections, visibleTasks, type TaskSection } from './sections';
 import { taskAccentLookup } from './row-colors';
 import { useTaskActions } from './useTaskActions';
 
 /** Debounce for the search field, so typing does not fire a request per key. */
 const SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * How far ahead the list reads calendar events.
+ *
+ * The task list's Later group is unbounded — it holds every open task past the
+ * Next 7 days horizon — so an event has to be fetched past that horizon too or
+ * it has nowhere to appear. A year sits under the `/api/calendar/items` 400-day
+ * range guard and covers every event a personal list actually holds; a longer
+ * window only buys more recurring expansion for events nobody scrolls to.
+ */
+const EVENT_HORIZON_DAYS = 365;
 
 /** Minutes since midnight for an `HH:mm` wall-clock time. */
 function minuteOfTime(time: string): number {
@@ -266,15 +277,20 @@ export function TasksView() {
   const today = useMemo(() => todayIn(zone), [zone]);
 
   /*
-   * Events for the window the list groups: today through the end of the "Next 7
-   * days" horizon. `/api/calendar/items` is the one read endpoint that expands
-   * recurring events and projects both kinds into `CalendarItem`. Its task rows
-   * are dropped here because `/api/tasks` already owns them, and the endpoint has
-   * no "events only" switch (see the report).
+   * Events for the window the list groups: today out to the Later horizon.
+   * `/api/calendar/items` is the one read endpoint that expands recurring events
+   * and projects both kinds into `CalendarItem`. Its task rows are dropped here
+   * because `/api/tasks` already owns them, and the endpoint has no "events only"
+   * switch (see the report).
+   *
+   * The window runs to `EVENT_HORIZON_DAYS`, not to the Next 7 days edge: an
+   * event past that edge belongs to the Later group, and reading only to the edge
+   * made it invisible (`visibleEvents` then trims the day groups to the selected
+   * window, so this wider read cannot leak a far event into Next 7 days).
    */
   const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', {
     startMs: fromDateOnly(today, zone).toMillis(),
-    endMs: fromDateOnly(addDaysToDateOnly(today, NEXT_7_DAYS_SPAN + 1, zone), zone).toMillis(),
+    endMs: fromDateOnly(addDaysToDateOnly(today, EVENT_HORIZON_DAYS, zone), zone).toMillis(),
   });
   const events = useMemo(
     () => (calendarItems.data?.items ?? []).filter((item) => item.kind === 'event'),

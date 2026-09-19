@@ -34,10 +34,14 @@
  *
  * The due time is a native `<input type="time">` that stores `HH:mm`: a native
  * control renders in the user's own 12h/24h convention and emits `HH:mm` either
- * way, so the `timeFormat` setting has nothing to do here. It carries a
- * placeholder for the engines that honour one on a time field. Both halves of the
- * pair are `h-9` with the same type scale — 16px on a phone, 14px from `md` up —
- * so they read as one control.
+ * way, so the `timeFormat` setting has nothing to do here. A native time field
+ * ignores `placeholder` — iOS and desktop Chrome both render no placeholder text
+ * for it — so the field that names which half of the range it is carries a real
+ * overlay label shown while it is empty, not a dead attribute (see `TimeField`).
+ * All three fields are `h-9` with the same type scale — 16px on a phone, 14px
+ * from `md` up — and share one equal-width grid, so the date is the same size as
+ * the times beside it instead of the narrow space left over by their wide native
+ * intrinsic width. Each field carries its own clear control.
  *
  * ## Specifying a date, a start and an end
  *
@@ -74,6 +78,7 @@ import { DateTime } from 'luxon';
 
 import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { MinusIcon } from '@svg-animated-icons/react/minus';
@@ -233,6 +238,96 @@ function EditorRow({
       <span className="max-w-[45%] shrink-0 truncate text-sm text-muted-foreground">{value}</span>
       <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground/60" />
     </button>
+  );
+}
+
+/**
+ * A small clear control that lives inside a field's trailing edge.
+ *
+ * Absolute rather than a flex sibling: each field is a third of the schedule row
+ * and there is no room to spend on a button, but the value is left-aligned and
+ * the field already keeps trailing padding the text never reaches. The `after:`
+ * pseudo-element grows the tap target without widening the visible dot.
+ */
+function ClearFieldButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className={cn(
+        'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full',
+        'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+        "after:absolute after:-inset-1 after:content-['']",
+      )}
+    >
+      <Cross1Icon className="size-3" />
+    </button>
+  );
+}
+
+/**
+ * One half of the time range: a native `input[type=time]` in the same field
+ * chrome the date button uses.
+ *
+ * A native time input ignores `placeholder` — on iOS and desktop Chrome the
+ * attribute is not rendered at all — so an empty half would read as a bare
+ * "--:--", identical for both halves. The label is therefore a real overlay:
+ * while the field is empty, and not focused, the native text is made transparent
+ * and the label shows in its place. Focus (and a set value) restores the native
+ * text, so a typist is never typing into hidden segments. The same field carries
+ * the clear control, so every value the schedule row can hold has one obvious
+ * way out.
+ */
+function TimeField({
+  label,
+  value,
+  disabled,
+  onChange,
+  onClear,
+}: {
+  /** Overlay text and the accessible name's first word, e.g. "Start". */
+  label: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  onClear: () => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const empty = value === '';
+
+  return (
+    <div className="relative flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30">
+      <input
+        type="time"
+        aria-label={`${label} time`}
+        value={value}
+        disabled={disabled}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(event) => onChange(event.target.value)}
+        className={cn(
+          'h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-base outline-none md:text-sm',
+          'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+          // The native control's own empty glyph is not a placeholder; hiding it
+          // is what lets the overlay label read as one. The desktop clock glyph
+          // goes too, so the value clears the clear control's corner.
+          '[&::-webkit-calendar-picker-indicator]:hidden',
+          empty && !focused && 'text-transparent',
+        )}
+      />
+      {empty && !focused ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-base text-muted-foreground md:text-sm"
+        >
+          {label}
+        </span>
+      ) : null}
+      {!empty ? (
+        <ClearFieldButton label={`Clear ${label.toLowerCase()} time`} onClick={onClear} />
+      ) : null}
+    </div>
   );
 }
 
@@ -520,33 +615,42 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             {/*
              * The schedule row: a date, then a start and an end time.
              *
-             * Duration is no longer a fixed preset list — it is derived from the
-             * range the user picks, exactly as it is on an event. The task record
-             * has no end-time field (see the report), so the end is never stored:
-             * the start goes to `dueDate`/`dueTime` and the derived span goes to
-             * `estimateMinutes`, the field the "Estimated time" stepper below
-             * reads and writes too, so the two controls cannot disagree.
+             * Duration is derived from the range (`estimateMinutes` = end −
+             * start) rather than picked from a preset list, so a task is
+             * scheduled the way an event is. The task record has no end-time
+             * column, so the end is never stored: the start goes to
+             * `dueDate`/`dueTime` and the derived span goes to `estimateMinutes`,
+             * the field the "Estimated time" stepper below reads and writes too,
+             * so the two controls cannot disagree. The end field is available only
+             * once there is a start; an end with no beginning is not a range.
              *
-             * The end field is available only once there is a start; an end with
-             * no beginning is not a range. Both time fields are native
-             * `input[type=time]`, so they render in the user's own 12h/24h
-             * convention and emit `HH:mm` either way.
+             * The three fields share one equal-width grid. The two time inputs
+             * have a wide native intrinsic width, so in the old flex row — where
+             * they were the fixed ones and the date took the remainder — the date
+             * came out narrower than either time field. Equal tracks make the date
+             * the same width as the times beside it at every viewport.
+             *
+             * The time fields are native `input[type=time]`, so they render in the
+             * user's own 12h/24h convention and emit `HH:mm` either way. Each
+             * carries an overlaid label and a clear control (see `TimeField`); the
+             * date has its own clear control inside the field as well as the
+             * calendar popover's Clear.
              */}
-            <div className="flex items-center gap-stack">
+            <div className="grid grid-cols-3 items-center gap-1">
+              <div className="relative flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30">
                 <Popover open={dateOpen} onOpenChange={setDateOpen}>
                   <PopoverTrigger asChild>
-                    <Button
+                    <button
                       type="button"
-                      variant="outline"
-                      // `text-base md:text-sm` is the same type scale the shadcn
-                      // `Input` uses, so the date button and the time field read as
-                      // one pair (both `h-9`, both 16px on a phone).
-                      className="min-w-0 flex-1 justify-start text-base md:text-sm"
                       disabled={disabled}
+                      className={cn(
+                        'flex h-full min-w-0 flex-1 items-center gap-2 px-2 justify-start text-base md:text-sm',
+                        'outline-none disabled:pointer-events-none disabled:opacity-50',
+                      )}
                     >
                       <CalendarIcon className="size-4 text-base" />
                       <span className="truncate">{dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}</span>
-                    </Button>
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-auto p-0">
                     {/*
@@ -608,49 +712,43 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                     ) : null}
                   </PopoverContent>
                 </Popover>
-
-                {/*
-                 * The start time, and — once there is one — the end. Both are
-                 * `h-9` from the shadcn `Input`, the same height as the date
-                 * button beside them, and each carries a placeholder that names
-                 * it. The end has no editable draft of its own: it is recomputed
-                 * from the start and the derived `estimateMinutes`.
-                 */}
-                <Input
-                  type="time"
-                  aria-label="Start time"
-                  placeholder="Start"
-                  className="w-auto"
-                  value={dueTime ?? ''}
-                  disabled={disabled || !dueDate}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (!value) {
-                      edit({ dueTime: null, clearDue: false });
-                      return;
-                    }
-                    edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
-                  }}
-                />
-
-                <Input
-                  type="time"
-                  aria-label="End time"
-                  placeholder="End"
-                  className="w-auto"
-                  value={endTime}
-                  disabled={disabled || !dueDate || !dueTime}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (!value || !dueTime) {
-                      edit({ estimateMinutes: null });
-                      return;
-                    }
-                    const diff = minutesBetweenTimes(dueTime, value);
-                    edit({ estimateMinutes: diff > 0 ? diff : null });
-                  }}
-                />
+                {dueDate ? (
+                  <ClearFieldButton
+                    label="Clear due date"
+                    onClick={() => edit({ clearDue: true, dueDate: null, dueTime: null })}
+                  />
+                ) : null}
               </div>
+
+              <TimeField
+                label="Start"
+                value={dueTime ?? ''}
+                disabled={disabled || !dueDate}
+                onChange={(value) => {
+                  if (!value) {
+                    edit({ dueTime: null, clearDue: false });
+                    return;
+                  }
+                  edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
+                }}
+                onClear={() => edit({ dueTime: null, clearDue: false })}
+              />
+
+              <TimeField
+                label="End"
+                value={endTime}
+                disabled={disabled || !dueDate || !dueTime}
+                onChange={(value) => {
+                  if (!value || !dueTime) {
+                    edit({ estimateMinutes: null });
+                    return;
+                  }
+                  const diff = minutesBetweenTimes(dueTime, value);
+                  edit({ estimateMinutes: diff > 0 ? diff : null });
+                }}
+                onClear={() => edit({ estimateMinutes: null })}
+              />
+            </div>
 
             <div className="flex flex-col">
               <EditorRow

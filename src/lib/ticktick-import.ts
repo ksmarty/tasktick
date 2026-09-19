@@ -5,40 +5,54 @@
  *
  * TickTick has no public personal API. Its only documented way out is the web
  * app's **Settings → Backup → Generate Backup**, which downloads a **CSV** (the
- * same file "Import Backup" reads back). The column shape below is therefore
- * taken from the export as described by two independent third-party importers
- * that were written against real backups; it is *not* an official TickTick
- * schema, and there is no versioned contract. That is exactly why this parser
- * never assumes a fixed preamble length (see `findHeaderRow`) and reports every
- * column it does not recognise instead of dropping it.
+ * same file "Import Backup" reads back). The shape below was verified against a
+ * real **Version: 7.2** backup (2,550 data rows, 25 columns): TickTick writes a
+ * short metadata preamble, then the header, then the rows.
  *
- * Recognised header:
+ * The preamble is *not* a fixed number of lines. Line 1 is `"Date: <iso>"`,
+ * line 2 is `"Version: 7.2"`, and the status legend is a **single quoted field
+ * containing embedded newlines**:
+ *
+ *   "Status: \n0 Normal\n-1 Abandoned \n2 Completed"
+ *
+ * The header is therefore located by the columns it carries (see
+ * `findHeaderRow`), never assumed at line 1, and the reader is a full RFC 4180
+ * parser so the quoted multi-line legend is one field, not three rows.
+ *
+ * Verified header (25 columns, in order):
  *
  *   Folder Name, List Name, Title, Kind, Tags, Content, Is Check list,
  *   Start Date, Due Date, Reminder, Repeat, Priority, Status, Created Time,
  *   Completed Time, Order, Timezone, Is All Day, Is Floating, Column Name,
- *   Column Order, View Mode, taskId, parentId
+ *   Column Order, View Mode, taskId, parentId, projectKind
  *
  * Fields that are mapped: title, list, tags, notes/content, completion status,
- * priority, due/start dates, recurrence, subtask parents, checklist items and
- * the created timestamp. Fields that are *not* mapped are collected in
- * `preview.unmappedColumns` (and `preview.issues` for individual rows) so the
+ * priority, due/start dates, recurrence, reminders, subtask parents, checklist
+ * items and the created timestamp. Fields that are *not* mapped are collected
+ * in `preview.unmappedColumns` (and `preview.issues` for individual rows) so the
  * UI can tell the user rather than silently discard data.
  *
  * Mapping rules, all unit-tested in `tests/import-ticktick.test.ts`:
  *
  *  - **Priority** is TickTick's `0/1/3/5` scale → `none/low/medium/high`.
  *    Anything else is mapped by threshold and reported.
- *  - **Status** is `0` normal / `1` completed / `2` archived; both `1` and `2`
- *    mean completed, and a non-empty `Completed Time` is also treated as
- *    completed. Unknown codes are reported.
+ *  - **Status** is `0` normal / `-1` abandoned / `2` completed (the file's own
+ *    legend). `1` is also accepted as completed for older exports. The explicit
+ *    code wins: a `Completed Time` on a non-completed row is reported rather
+ *    than silently flipping it. The `-1` code maps to `wont_do`.
  *  - **Dates** keep their *literal wall-clock* text. TickTick writes the task's
  *    own local time with a numeric offset (`2026-06-12T12:00:00+0000`, note the
  *    missing colon), so the instant is reconstructed later from the row's
  *    `Timezone` column by `createTask`, which is the layer that owns timezone
  *    maths. A date-only cell becomes an all-day task.
- *  - **Repeat** is already an RFC 5545 RRULE body. It is accepted only when it
- *    looks like one; anything else is reported.
+ *  - **Repeat** carries a bare RFC 5545 RRULE body (`FREQ=MONTHLY;…`), never an
+ *    ISO-8601 duration. (The `PT0S`-style durations live in `Reminder`, not
+ *    here.) It is accepted only when it looks like a rule; anything else is
+ *    reported.
+ *  - **Reminder** is one or more ISO-8601 durations, newline-separated, encoded
+ *    as the offset from the due instant (`-P0DT15H0M0S` = 15 h before,
+ *    `-PT1440M` = 1 day before, `PT0S` = on time). Each becomes a TaskTick
+ *    reminder offset in minutes; an unparseable part is reported.
  *  - **Subtasks** come from `parentId` (flattened to TaskTick's two-level tree,
  *    with a report when a deeper nest is flattened) and from checklist lines
  *    (`▫` / `▪`) when `Kind`/`Is Check list` says the content is a checklist.
@@ -90,6 +104,8 @@ export interface TickTickTaskPlan {
   timezone: string | null;
   recurrenceRule: string | null;
   tags: string[];
+  /** `Reminder` offsets in minutes, relative to the due instant. */
+  reminders: number[];
 }
 
 export interface TickTickRowIssue {
@@ -112,6 +128,10 @@ export interface TickTickPreview {
   tags: string[];
   completed: number;
   recurring: number;
+  /** Reminder rows that will be created (one row can carry several). */
+  reminders: number;
+  /** Tasks whose status is TickTick's `-1` ("Abandoned"). */
+  wontDo: number;
   /** Rows skipped because they had no title. */
   skippedRows: number;
   /** Header columns this importer does not consume. */
@@ -164,6 +184,8 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   order: ['order'],
   kind: ['kind'],
   checkList: ['is check list', 'is checklist'],
+  reminder: ['reminder', 'reminders'],
+  projectKind: ['projectkind', 'project kind'],
 };
 
 /** Canonical alias → internal name, and the set of every accepted spelling. */
@@ -212,6 +234,16 @@ function cell(row: string[], header: Header, column: string): string {
   return (row[i] ?? '').trim();
 }
 
+/**
+ * TickTick's `Order` is a signed 64-bit integer (e.g. `-8070452868711186464`),
+ * which is past `Number.MAX_SAFE_INTEGER`; decoding it as a float collapses
+ * distinct values and shuffles task order. Keep it exact as a `bigint`.
+ */
+function parseOrderKey(value: string): bigint | null {
+  const trimmed = value.trim();
+  return /^[+-]?\d+$/.test(trimmed) ? BigInt(trimmed) : null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* field mapping                                                              */
 /* -------------------------------------------------------------------------- */
@@ -236,19 +268,34 @@ export function mapTickTickPriority(value: string): { priority: Priority; unexpe
   return { priority: 'none', unexpected: numeric !== 0 };
 }
 
-/** Maps TickTick's 0/1/2 status codes. `1` completed and `2` archived both mean done. */
+/**
+ * Maps TickTick's own status legend: `0` normal, `-1` abandoned, `2` completed.
+ * `1` is also accepted as completed for older exports. The explicit code wins —
+ * a `Completed Time` on a row whose status is not completed is surfaced by the
+ * caller (`conflict`) instead of quietly flipping the task. Only an empty code
+ * falls back to the completion timestamp.
+ */
 export function mapTickTickStatus(
   value: string,
   completedAtMs: number | null,
-): { status: TaskStatus; unknown: boolean } {
+): { status: TaskStatus; unknown: boolean; conflict: boolean } {
   const trimmed = value.trim();
-  if (completedAtMs !== null) return { status: 'completed', unknown: false };
-  if (!trimmed) return { status: 'todo', unknown: false };
+  if (!trimmed) {
+    return { status: completedAtMs !== null ? 'completed' : 'todo', unknown: false, conflict: false };
+  }
   const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed)) return { status: 'todo', unknown: true };
-  if (parsed === 0) return { status: 'todo', unknown: false };
-  if (parsed === 1 || parsed === 2) return { status: 'completed', unknown: false };
-  return { status: 'todo', unknown: true };
+  if (!Number.isFinite(parsed)) return { status: 'todo', unknown: true, conflict: false };
+  switch (Math.trunc(parsed)) {
+    case -1:
+      return { status: 'wont_do', unknown: false, conflict: false };
+    case 0:
+      return { status: 'todo', unknown: false, conflict: completedAtMs !== null };
+    case 1:
+    case 2:
+      return { status: 'completed', unknown: false, conflict: false };
+    default:
+      return { status: 'todo', unknown: true, conflict: false };
+  }
 }
 
 /** Parses a TickTick date/time cell, keeping the literal wall-clock text. */
@@ -291,6 +338,44 @@ export function mapTickTickRecurrence(value: string): string | null {
     : null;
 }
 
+/**
+ * Parses the `Reminder` cell.
+ *
+ * Real backups store one or more ISO-8601 durations, newline-separated, as the
+ * offset from the due instant — negative is before the due time
+ * (`-P0DT15H0M0S` = 15 hours before, `-PT1440M` = 1 day before); `PT0S` and
+ * `-PT0S` mean "on time". Each value is returned as whole minutes so it maps
+ * onto TaskTick's `offsetMinutes`. A part that is not a duration is handed back
+ * so the caller can report it rather than drop it.
+ */
+export function mapTickTickReminders(value: string): { offsetMinutes: number[]; unparsed: string[] } {
+  const offsetMinutes: number[] = [];
+  const unparsed: string[] = [];
+  const duration = /^([+-])?P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+
+  for (const raw of value.split(/\r?\n/)) {
+    const part = raw.trim();
+    if (!part) continue;
+    const match = duration.exec(part);
+    const hasUnit =
+      match !== null &&
+      (match[2] !== undefined || match[3] !== undefined || match[4] !== undefined || match[5] !== undefined);
+    if (!match || !hasUnit) {
+      unparsed.push(part);
+      continue;
+    }
+    const sign = match[1] === '-' ? -1 : 1;
+    const minutes =
+      Number(match[2] ?? 0) * 1440 +
+      Number(match[3] ?? 0) * 60 +
+      Number(match[4] ?? 0) +
+      Number(match[5] ?? 0) / 60;
+    offsetMinutes.push(Math.round(sign * minutes));
+  }
+
+  return { offsetMinutes, unparsed };
+}
+
 /** Splits TickTick's `#work, focus` tag cell. Comma or semicolon separated. */
 export function mapTickTickTags(value: string): string[] {
   const seen = new Set<string>();
@@ -315,12 +400,15 @@ function validZone(value: string): string | null {
 interface ChecklistSplit {
   notes: string | null;
   items: { title: string; completed: boolean }[];
+  /** Marker lines with no text after the marker; they cannot become a subtask. */
+  emptyItems: number;
 }
 
 /** Splits `▫Passport\n▪Tickets` into checklist items plus remaining prose. */
 export function splitTickTickChecklist(content: string): ChecklistSplit {
   const items: { title: string; completed: boolean }[] = [];
   const notes: string[] = [];
+  let emptyItems = 0;
   for (const rawLine of content.replace(/\r\n?/g, '\n').split('\n')) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -329,12 +417,13 @@ export function splitTickTickChecklist(content: string): ChecklistSplit {
     if (checked || unchecked) {
       const title = line.slice(1).trim();
       if (title) items.push({ title, completed: checked });
+      else emptyItems += 1;
       continue;
     }
     notes.push(line);
   }
   const joined = notes.join('\n').trim();
-  return { notes: joined ? joined : null, items };
+  return { notes: joined ? joined : null, items, emptyItems };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -344,7 +433,7 @@ export function splitTickTickChecklist(content: string): ChecklistSplit {
 interface RawRecord {
   row: number;
   sortIndex: number;
-  order: number;
+  order: bigint | null;
   taskId: string;
   parentId: string;
   title: string;
@@ -361,6 +450,7 @@ interface RawRecord {
   start: { date: DateOnly; time: string | null } | null;
   timezone: string | null;
   recurrenceRule: string | null;
+  reminders: number[];
 }
 
 export interface ParseTickTickOptions {
@@ -453,6 +543,14 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
         message: 'Unrecognised status value; imported as not completed.',
       });
     }
+    if (statusResult.conflict) {
+      report({
+        row: rowNumber,
+        column: 'Status',
+        value: cell(row, header, 'status'),
+        message: 'A completion time is present but the status says the task is not completed; imported as not completed.',
+      });
+    }
 
     const dueText = cell(row, header, 'due');
     const due = mapTickTickDateTime(dueText, isAllDay);
@@ -476,16 +574,47 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
       });
     }
 
+    const reminderResult = mapTickTickReminders(cell(row, header, 'reminder'));
+    for (const part of reminderResult.unparsed) {
+      report({
+        row: rowNumber,
+        column: 'Reminder',
+        value: part,
+        message: 'Reminder is not an ISO-8601 duration and was not imported.',
+      });
+    }
+
+    const projectKind = cell(row, header, 'projectKind').toUpperCase();
+    if (projectKind && projectKind !== 'TASK') {
+      report({
+        row: rowNumber,
+        column: 'projectKind',
+        value: projectKind,
+        message: 'Non-task project imported as a task list.',
+      });
+    }
+
     const kind = cell(row, header, 'kind').toUpperCase();
     const isChecklist = isTruthy(cell(row, header, 'checkList')) || kind === 'CHECKLIST';
     if (kind && !['TEXT', 'NOTE', 'CHECKLIST', 'CHECK'].includes(kind)) {
       report({ row: rowNumber, column: 'Kind', value: kind, message: 'Unrecognised task kind.' });
     }
-    const content = cell(row, header, 'content');
-    const checklist = isChecklist ? splitTickTickChecklist(content) : { notes: content || null, items: [] };
+    // Real exports separate `Content` lines with a bare CR, not LF; normalise so
+    // notes and checklist items read the same everywhere downstream.
+    const content = cell(row, header, 'content').replace(/\r\n?/g, '\n');
+    const checklist = isChecklist
+      ? splitTickTickChecklist(content)
+      : { notes: content || null, items: [], emptyItems: 0 };
+    if (checklist.emptyItems > 0) {
+      report({
+        row: rowNumber,
+        column: 'Content',
+        value: null,
+        message: `${checklist.emptyItems} empty checklist item(s) were ignored.`,
+      });
+    }
 
-    const orderText = cell(row, header, 'order');
-    const order = Number.isFinite(Number(orderText)) && orderText !== '' ? Number(orderText) : Number.POSITIVE_INFINITY;
+    const order = parseOrderKey(cell(row, header, 'order'));
 
     records.push({
       row: rowNumber,
@@ -507,13 +636,25 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
       start,
       timezone,
       recurrenceRule,
+      reminders: reminderResult.offsetMinutes,
     });
   });
 
   /* ---- keys, parents and the two-level tree ---------------------------- */
 
-  // Stable order: TickTick's own order column, then file order.
-  records.sort((a, b) => a.order - b.order || a.sortIndex - b.sortIndex);
+  // Stable order: TickTick's own 64-bit order column (exact, via BigInt), then
+  // file order. A row without an order sorts after the ones that have one.
+  records.sort((a, b) => {
+    if (a.order !== null && b.order !== null) {
+      if (a.order < b.order) return -1;
+      if (a.order > b.order) return 1;
+    } else if (a.order === null && b.order !== null) {
+      return 1;
+    } else if (a.order !== null && b.order === null) {
+      return -1;
+    }
+    return a.sortIndex - b.sortIndex;
+  });
 
   const keyByRecord = new Map<RawRecord, string>();
   const usedKeys = new Set<string>();
@@ -612,6 +753,7 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
       timezone: record.timezone,
       recurrenceRule: record.recurrenceRule,
       tags: record.tags,
+      reminders: record.reminders,
     });
   }
 
@@ -619,11 +761,15 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
   // rather than as opaque notes.
   let checklistItems = 0;
   for (const record of records) {
-    const parentKey = keyByRecord.get(record)!;
+    const recordKey = keyByRecord.get(record)!;
+    // A checklist on a subtask would be a third level, which the task UI does
+    // not hydrate; its items are attached to the same top-level ancestor as the
+    // task itself so they stay visible.
+    const parentKey = parentKeyByRecord.get(record) ?? recordKey;
     record.checklist.forEach((item, i) => {
       checklistItems += 1;
       tasks.push({
-        key: `${parentKey}#check:${i + 1}`,
+        key: `${recordKey}#check:${i + 1}`,
         parentKey,
         listKey: listKeyFor(record),
         title: item.title,
@@ -639,6 +785,7 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
         timezone: record.timezone,
         recurrenceRule: null,
         tags: [],
+        reminders: [],
       });
     });
   }
@@ -675,6 +822,8 @@ export function parseTickTickCsv(text: string, options: ParseTickTickOptions = {
     tags,
     completed: tasks.filter((task) => task.status === 'completed').length,
     recurring: tasks.filter((task) => task.recurrenceRule !== null).length,
+    reminders: tasks.reduce((sum, task) => sum + task.reminders.length, 0),
+    wontDo: tasks.filter((task) => task.status === 'wont_do').length,
     skippedRows: skippedRows.length,
     unmappedColumns,
     issues,

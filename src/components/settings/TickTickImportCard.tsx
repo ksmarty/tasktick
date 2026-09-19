@@ -38,6 +38,7 @@ interface TickTickSummary {
   listsReused: number;
   tasksCreated: number;
   subtasksCreated: number;
+  remindersCreated: number;
   skippedExisting: number;
 }
 
@@ -141,7 +142,7 @@ export function TickTickImportCard() {
       invalidate('/api/bootstrap');
       toast({
         title: 'Import complete',
-        description: `Added ${result.summary?.tasksCreated ?? 0} tasks and ${result.summary?.subtasksCreated ?? 0} subtasks.`,
+        description: `Added ${result.summary?.tasksCreated ?? 0} tasks, ${result.summary?.subtasksCreated ?? 0} subtasks and ${result.summary?.remindersCreated ?? 0} reminders.`,
         variant: 'success',
       });
     } catch (cause) {
@@ -229,8 +230,10 @@ export function TickTickImportCard() {
             <Stat label="Tasks" value={preview.tasks} />
             <Stat label="Subtasks" value={preview.subtasks} />
             <Stat label="Tags" value={preview.tags.length} />
+            <Stat label="Reminders" value={preview.reminders} />
             <Stat label="Completed" value={preview.completed} />
             <Stat label="Repeating" value={preview.recurring} />
+            {preview.wontDo > 0 ? <Stat label="Won't do" value={preview.wontDo} /> : null}
             {preview.skippedRows > 0 ? <Stat label="Rows skipped (no title)" value={preview.skippedRows} /> : null}
           </div>
 

@@ -16,7 +16,8 @@
  * a direction; see `DIRECTIONAL_SORTS`.
  */
 import type { CalendarItem, DateOnly, Priority, Task } from '@/lib/types';
-import { toDateOnly } from '@/lib/dates';
+import { addDaysToDateOnly, toDateOnly } from '@/lib/dates';
+import { NEXT_7_DAYS_SPAN } from './sections';
 
 export type TaskSort = 'smart' | 'due' | 'created' | 'updated' | 'priority' | 'title' | 'manual';
 export type TaskSortDir = 'asc' | 'desc';
@@ -335,6 +336,12 @@ export interface EventFilterContext {
  * location (it is free text, just like a task's), and the window trims the day
  * groups. Everything else — a named list, a tag, a priority, or a task status —
  * is a property an event does not have, so an event is excluded while one is set.
+ *
+ * The window trim is not optional now that the list fetches events out to the
+ * Later horizon: without it a "Next 7 days" view would keep a far-future event,
+ * and the grouping would file it under Later — a later item in a list that asked
+ * for the next seven days. `today` is exactly today, `next7days` is today
+ * through the shared horizon, and `all` keeps everything (Later included).
  */
 export function visibleEvents(
   events: readonly CalendarItem[],
@@ -347,10 +354,13 @@ export function visibleEvents(
     return [];
   }
 
+  const horizon = addDaysToDateOnly(today, NEXT_7_DAYS_SPAN, zone);
   const query = state.q.trim().toLowerCase();
 
   return events.filter((event) => {
-    if (state.window === 'today' && toDateOnly(event.startMs, zone) !== today) return false;
+    const day = toDateOnly(event.startMs, zone);
+    if (state.window === 'today' && day !== today) return false;
+    if (state.window === 'next7days' && day > horizon) return false;
     if (query) {
       const haystack = `${event.title} ${event.location ?? ''}`.toLowerCase();
       if (!haystack.includes(query)) return false;

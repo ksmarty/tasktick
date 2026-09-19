@@ -11,6 +11,7 @@ import {
   MAX_IMPORT_ROWS,
   mapTickTickPriority,
   mapTickTickRecurrence,
+  mapTickTickReminders,
   mapTickTickStatus,
   mapTickTickTags,
   parseTickTickCsv,
@@ -42,6 +43,7 @@ const HEADER = [
   'View Mode',
   'taskId',
   'parentId',
+  'projectKind',
 ];
 
 const CSV_ROW = (cells: string[]) => cells.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',');
@@ -57,6 +59,7 @@ function tickTickRow(overrides: RowOverrides = {}): string {
   cells[1] = 'Launch';
   cells[2] = 'A task';
   cells[3] = 'TEXT';
+  cells[24] = 'TASK';
   for (const [index, value] of Object.entries(overrides)) cells[Number(index)] = value;
   return CSV_ROW(cells);
 }
@@ -67,7 +70,7 @@ function buildCsv(rows: string[], preamble: string[] = defaultPreamble()): strin
 }
 
 function defaultPreamble(): string[] {
-  return ['"Date: 2026-06-17+0000"', '"Version: 7.1"', '"Status:\n0 Normal\n1 Completed\n2 Archived"'];
+  return ['"Date: 2026-09-19+0000"', '"Version: 7.2"', '"Status: \n0 Normal\n-1 Abandoned \n2 Completed"'];
 }
 
 describe('TickTick header handling', () => {
@@ -160,12 +163,19 @@ describe('TickTick field mapping', () => {
     expect(mapTickTickPriority('urgent')).toEqual({ priority: 'none', unexpected: true });
   });
 
-  it('maps the status codes 0/1/2 and treats a completion time as completed', () => {
-    expect(mapTickTickStatus('0', null).status).toBe('todo');
+  it("maps the file's real status legend: 0 normal, -1 abandoned, 2 completed", () => {
+    expect(mapTickTickStatus('0', null)).toEqual({ status: 'todo', unknown: false, conflict: false });
+    expect(mapTickTickStatus('-1', null)).toEqual({ status: 'wont_do', unknown: false, conflict: false });
     expect(mapTickTickStatus('1', null).status).toBe('completed');
     expect(mapTickTickStatus('2', null).status).toBe('completed');
     expect(mapTickTickStatus('9', null).unknown).toBe(true);
-    expect(mapTickTickStatus('0', Date.parse('2026-01-01T00:00:00Z')).status).toBe('completed');
+    // An explicit "normal" code wins over a stale completion time, and the
+    // contradiction is reported rather than silently flipping the task.
+    const conflict = mapTickTickStatus('0', Date.parse('2026-01-01T00:00:00Z'));
+    expect(conflict.status).toBe('todo');
+    expect(conflict.conflict).toBe(true);
+    // Only a missing code falls back to the timestamp.
+    expect(mapTickTickStatus('', Date.parse('2026-01-01T00:00:00Z')).status).toBe('completed');
   });
 
   it('keeps an all-day due date as a date with no time', () => {
@@ -219,7 +229,7 @@ describe('TickTick columns and rows we cannot map', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.plan.preview.unmappedColumns.sort()).toEqual(
-      ['Column Name', 'Column Order', 'Is Floating', 'Reminder', 'View Mode'].sort(),
+      ['Column Name', 'Column Order', 'Is Floating', 'View Mode'].sort(),
     );
   });
 
@@ -311,7 +321,104 @@ describe('TickTick subtasks and checklists', () => {
         { title: 'two', completed: true },
       ],
       notes: 'plain',
+      emptyItems: 0,
     });
+  });
+
+  it('counts marker lines with no text instead of dropping them', () => {
+    expect(splitTickTickChecklist('▫\r▪\r▪Keep')).toEqual({
+      items: [{ title: 'Keep', completed: true }],
+      notes: null,
+      emptyItems: 2,
+    });
+  });
+});
+
+describe('TickTick 7.2 backup shape (verified against a real export)', () => {
+  const REAL_PREAMBLE = [
+    '"Date: 2026-09-19+0000"',
+    '"Version: 7.2"',
+    '"Status: \n0 Normal\n-1 Abandoned \n2 Completed"',
+  ];
+
+  it('locates the header after a quoted multi-line legend', () => {
+    const csv = [...REAL_PREAMBLE, CSV_ROW(HEADER), tickTickRow({ 22: 't1' })].join('\n');
+    const result = parseTickTickCsv(csv, { fileName: 'backup.csv' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.preview).toMatchObject({ dataRows: 1, tasks: 1 });
+  });
+
+  it('decodes a BOM, CRLF and the quoted multi-line legend', () => {
+    const cells = new Array<string>(HEADER.length).fill('');
+    cells[1] = 'Inbox';
+    cells[2] = 'Hello';
+    cells[22] = 't1';
+    cells[24] = 'TASK';
+    const csv = `\ufeff${[...REAL_PREAMBLE, CSV_ROW(HEADER), CSV_ROW(cells)].join('\r\n')}\r\n`;
+    const result = parseTickTickCsv(csv);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.preview.tasks).toBe(1);
+    expect(result.plan.preview.unmappedColumns).not.toContain('projectKind');
+  });
+
+  it('reads CR-separated Content as separate checklist items', () => {
+    const row = tickTickRow({ 3: 'CHECKLIST', 5: '▫Passport\r▪Tickets\r▫', 6: 'Y', 22: 'ch1' });
+    const result = parseTickTickCsv(buildCsv([row]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const subtasks = result.plan.tasks.filter((task) => task.parentKey === 'task:ch1');
+    expect(subtasks.map((task) => [task.title, task.status])).toEqual([
+      ['Passport', 'todo'],
+      ['Tickets', 'completed'],
+    ]);
+    expect(result.plan.preview.issues.some((issue) => issue.message.includes('empty checklist'))).toBe(true);
+  });
+
+  it('normalises CR in notes so the text is not one long line', () => {
+    const row = tickTickRow({ 5: 'first\rsecond', 22: 'n1' });
+    const result = parseTickTickCsv(buildCsv([row]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.tasks[0]?.notes).toBe('first\nsecond');
+  });
+
+  it('treats projectKind as a known column and reports a non-TASK project', () => {
+    const row = tickTickRow({ 24: 'NOTE', 22: 'n2' });
+    const result = parseTickTickCsv(buildCsv([row]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.preview.unmappedColumns).not.toContain('projectKind');
+    expect(result.plan.preview.issues.some((issue) => issue.column === 'projectKind')).toBe(true);
+  });
+
+  it('keeps two 64-bit order values apart that collide as floats', () => {
+    // These two exact orders share a double; float sorting would keep file order.
+    const low = tickTickRow({ 2: 'Lower order', 15: '-8070451219442696192', 22: 'o1' });
+    const high = tickTickRow({ 2: 'Higher order', 15: '-8070451219442696000', 22: 'o2' });
+    const result = parseTickTickCsv(buildCsv([high, low]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.tasks.map((task) => task.title)).toEqual(['Lower order', 'Higher order']);
+  });
+
+  it('parses each Reminder duration into minutes before the due time', () => {
+    expect(mapTickTickReminders('-P0DT15H0M0S').offsetMinutes).toEqual([-900]);
+    expect(mapTickTickReminders('-PT1440M').offsetMinutes).toEqual([-1440]);
+    expect(mapTickTickReminders('PT0S').offsetMinutes).toEqual([0]);
+    expect(mapTickTickReminders('P0DT9H0M0S').offsetMinutes).toEqual([540]);
+    expect(mapTickTickReminders('-PT60M\n-PT1440M').offsetMinutes).toEqual([-60, -1440]);
+    expect(mapTickTickReminders('every monday')).toEqual({ offsetMinutes: [], unparsed: ['every monday'] });
+  });
+
+  it('maps a reminder row onto the task plan and counts it in the preview', () => {
+    const row = tickTickRow({ 8: '2026-06-18T09:30:00+0000', 9: '-PT15M\n-PT1440M', 22: 'r1' });
+    const result = parseTickTickCsv(buildCsv([row]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.tasks[0]?.reminders).toEqual([-15, -1440]);
+    expect(result.plan.preview.reminders).toBe(2);
   });
 });
 

@@ -16,6 +16,7 @@ export { StreakCount, type StreakCountProps } from './StreakCount';
 export {
   HABIT_WINDOWS,
   applyCheckInOptimistically,
+  checkInCompletes,
   completionLabel,
   frequencySummary,
   goalSummary,

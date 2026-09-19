@@ -164,13 +164,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    */
   const contentKey = pathname.startsWith('/settings') ? '/settings' : pathname;
 
-  const activeTab: TabValue = pathname.startsWith('/calendar')
+  const routeTab: TabValue = pathname.startsWith('/calendar')
     ? 'calendar'
     : pathname.startsWith('/habits')
       ? 'habits'
       : pathname.startsWith('/settings')
         ? 'settings'
         : 'tasks';
+
+  /*
+   * The tab responds to the tap, not to the route.
+   *
+   * The bar derived its active tab purely from `pathname`, so pressing a tab
+   * produced *no* visible change until the navigation committed — the blob, the
+   * label and the action button all moved together a beat after the press.
+   * Measured locally that beat is 33-90ms; on a phone over a real network it is
+   * several times that, and an interface that acknowledges a press late reads as
+   * broken however fast the navigation underneath actually is.
+   *
+   * So a tap records the tab it asked for and the bar renders *that* until the
+   * route catches up, at which point the pending value is dropped and the
+   * pathname is the only source of truth again. It cannot drift: the pending
+   * value is only ever the tab whose route has not committed yet.
+   */
+  const [pendingTab, setPendingTab] = useState<TabValue | null>(null);
+  const activeTab: TabValue = pendingTab ?? routeTab;
+
+  useEffect(() => {
+    if (pendingTab && routeTab === pendingTab) setPendingTab(null);
+  }, [pendingTab, routeTab]);
 
   /*
    * Prefetch every tab once the shell mounts.
@@ -185,7 +207,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   function onTabChange(value: string) {
-    router.push(TAB_ROUTES[value as TabValue]);
+    const next = value as TabValue;
+    // Already there: nothing to navigate, and no pending state to record.
+    if (next === routeTab) return;
+    setPendingTab(next);
+    router.push(TAB_ROUTES[next]);
   }
 
   /*

@@ -18,7 +18,7 @@ import { resetEnvCache } from '@/lib/env';
 import { resetDialectCache } from '@/server/db/dialect';
 import { closeDb, getDb } from '@/server/db';
 import { withTransaction } from '@/server/db/transaction';
-import { importKeys, lists, tags, taskTags, tasks, user } from '@/server/db/schema';
+import { importKeys, lists, tags, taskReminders, taskTags, tasks, user } from '@/server/db/schema';
 import { createList } from '@/server/repos/lists';
 import { applyTickTickImport } from '@/server/services/ticktick-import';
 import { parseTickTickCsv, type TickTickPlan } from '@/lib/ticktick-import';
@@ -51,6 +51,7 @@ const HEADER = [
   'View Mode',
   'taskId',
   'parentId',
+  'projectKind',
 ];
 
 const csvRow = (cells: string[]) => cells.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',');
@@ -60,6 +61,7 @@ function tickTickRow(overrides: Record<number, string> = {}): string {
   cells[1] = 'Launch';
   cells[2] = 'A task';
   cells[3] = 'TEXT';
+  cells[24] = 'TASK';
   for (const [index, value] of Object.entries(overrides)) cells[Number(index)] = value;
   return csvRow(cells);
 }
@@ -128,6 +130,7 @@ describe('applyTickTickImport', () => {
       listsReused: 0,
       tasksCreated: 2,
       subtasksCreated: 1,
+      remindersCreated: 0,
       skippedExisting: 0,
     });
     expect(await listNames()).toEqual(['Errands', 'Launch']);
@@ -175,6 +178,21 @@ describe('applyTickTickImport', () => {
       completedAtMs: Date.parse('2026-06-15T12:00:00Z'),
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
     });
+  });
+
+  it('writes reminder rows relative to the due instant', async () => {
+    const csv = buildCsv([
+      tickTickRow({ 2: 'Remind me', 8: '2026-06-18T09:30:00+0000', 9: '-PT15M\n-PT1440M', 16: 'UTC', 22: 'rm1' }),
+    ]);
+    const summary = await applyTickTickImport({ userId: USER_ID, zone: 'UTC', plan: planFor(csv) });
+    expect(summary.remindersCreated).toBe(2);
+
+    const rows = await getDb().select().from(taskReminders).where(eq(taskReminders.userId, USER_ID));
+    expect(rows.map((row) => row.offsetMinutes).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([-1440, -15]);
+    expect(rows.map((row) => row.fireAtMs).sort((a, b) => a - b)).toEqual([
+      Date.parse('2026-06-17T09:30:00Z'),
+      Date.parse('2026-06-18T09:15:00Z'),
+    ]);
   });
 
   it('is idempotent: a second import creates nothing, even after a rename', async () => {

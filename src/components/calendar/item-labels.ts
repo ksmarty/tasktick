@@ -1,22 +1,24 @@
 /**
- * Visible labels for a calendar item where a clock time would otherwise go.
+ * The date span of an all-day item, for the accessible name where a clock time
+ * would otherwise go.
  *
  * An all-day item has no meaningful time — its `startMs`/`endMs` are whole
- * days — so a detail sheet or an agenda gutter that shows a clock range, or the
- * words "All day" in the time slot, is noise. The one piece of information such
- * an item does carry is its date, and that is what this produces: the day for a
- * one-day item, the span for a multi-day one. No instant is derived: the
- * floating day comes out of `lib/dates`, exactly as everywhere else in the
- * calendar.
+ * days — so neither surface prints a clock range: both read `all day` where the
+ * range would go, and the date is the day the agenda is grouped under. What
+ * still has to reach a screen reader is the exact span: sighted users can see
+ * that an item covers three cells, and a name that only said "all day" would not
+ * say which days. This produces that span — the day for a one-day item, the
+ * range for a multi-day one. No instant is derived: the floating day comes out
+ * of `lib/dates`, exactly as everywhere else in the calendar.
  *
- * Kept in one place rather than in either sheet so the day-detail sheet and the
- * agenda gutter cannot drift apart about what an all-day item reads as.
+ * Kept in one place rather than in a sheet so the surfaces cannot drift apart
+ * about what an all-day item's span is.
  */
 import { fromDateOnly, toDateOnly } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 
 /**
- * The date an all-day item covers, as a short label.
+ * The date an all-day item covers, as a short label for its accessible name.
  *
  * `18 Sep` for a single day; `18–20 Sep` inside one month; `30 Sep – 2 Oct`
  * across months. `endMs` is exclusive, so the last day covered is the instant

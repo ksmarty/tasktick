@@ -10,11 +10,21 @@
  *
  * A row is `[time gutter] │ [card]`. The gutter is a fixed column, right-aligned
  * against a hairline rule, so the times form a clean edge down the left of the
- * list; an all-day item reads its date in that same column rather than being
+ * list; an all-day item reads `all day` in that same column rather than being
  * indented somewhere else. The card then leads with the time range in the
  * calendar's accent colour and the title beneath it — the reading order the
  * reference uses, and the reason the range is set apart from the title: the eye
  * lands on the time first and the name second.
+ *
+ * ## The timeline
+ *
+ * The hairline is a *timeline*: it runs the full height of each row and, except
+ * on the last row, reaches one `gap-stack` into the gap below it (`-mb-3`, the
+ * same 0.75rem the list's own gap uses), so consecutive entries are joined by
+ * one continuous rule instead of each row drawing an isolated tick. The gutter
+ * label is set one step below `text-xs` to leave that rule its own clearance
+ * while staying legible; the values stay right-aligned against the rule. One
+ * item gets a single segment, and an empty agenda draws no rule at all.
  *
  * Colour is never the only signal. A task is drawn with a checkbox glyph and a
  * softer card surface than an event's, so "a to-do I scheduled" is never
@@ -69,7 +79,6 @@ import { useRef, type CSSProperties } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckboxIcon } from '@svg-animated-icons/react/checkbox';
 import { useAppearance } from '@/app/providers';
-import { Separator } from '@/components/ui/separator';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { CalendarItem } from '@/lib/types';
@@ -156,22 +165,26 @@ export function DayAgenda({
          */
         className="flex flex-col gap-stack touch-pan-y px-2 pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-2"
       >
-        {items.map((item) => {
+        {items.map((item, index) => {
           const hex = itemHex(item, calendars, dark);
           const isTask = item.kind === 'task';
           const done = Boolean(item.completed);
           // The gutter carries the start of the row; the card carries the range.
-          // An all-day item has no clock time, so the gutter shows its date
-          // instead of the words "all-day".
-          const gutterLabel = item.isAllDay ? allDayDateLabel(item, prefs.zone) : formatTime(item.startMs, prefs);
+          // An all-day item has no clock time, so it reads "all day" in that slot
+          // — the date is already the day the agenda is grouped under. The full
+          // date span still travels in the accessible name below, where a
+          // multi-day item would otherwise lose it.
+          const gutterLabel = item.isAllDay ? 'all day' : formatTime(item.startMs, prefs);
           const rangeLabel = item.isAllDay
-            ? // The gutter column already carries the date. Repeating it on the
-              // card is the kind of duplication that makes a dense list feel
+            ? // The gutter already reads "all day". Repeating it on the card
+              // would be the kind of duplication that makes a dense list feel
               // noisy, so the card carries only the title for an all-day row.
               null
             : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
           const accessibleName = [
-            item.isAllDay ? 'All-day' : `${formatTime(item.startMs, prefs)} to ${formatTime(item.endMs, prefs)}`,
+            item.isAllDay
+              ? `All-day, ${allDayDateLabel(item, prefs.zone)}`
+              : `${formatTime(item.startMs, prefs)} to ${formatTime(item.endMs, prefs)}`,
             item.title,
             isTask ? 'task' : 'event',
             done ? 'completed' : null,
@@ -207,14 +220,25 @@ export function DayAgenda({
                 <span
                   className={cn(
                     GUTTER_WIDTH_CLASS,
-                    'shrink-0 pt-2 text-right text-xs text-muted-foreground tabular-nums',
+                    'shrink-0 pt-2 text-right text-[0.6875rem] text-muted-foreground tabular-nums',
                   )}
                 >
                   {gutterLabel}
                 </span>
 
-                {/* The hairline the times are aligned against. */}
-                <Separator orientation="vertical" />
+                {/*
+                 * The timeline: the hairline the times are right-aligned
+                 * against, run down the whole row. On every row but the last it
+                 * reaches one `gap-stack` into the gap below, so the segment
+                 * meets the next row's and the entries are connected rather than
+                 * each floating on its own tick. The last row stops at its own
+                 * edge, and the empty state renders no rule at all because there
+                 * are no rows to carry one.
+                 */}
+                <span
+                  aria-hidden
+                  className={cn('w-px shrink-0 self-stretch bg-border', index < items.length - 1 && '-mb-3')}
+                />
 
                 <span
                   className="flex min-w-0 flex-1 flex-col justify-center rounded-lg border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2"
@@ -258,15 +282,19 @@ export function DayAgenda({
           );
         })}
 
-        {items.length === 0 ? (
-          <li className="flex flex-col items-center gap-2 py-8 text-center">
-            <CalendarIcon aria-hidden className="size-8 text-3xl text-muted-foreground" disableHover />
-            <p className="text-sm font-semibold text-foreground">Nothing scheduled</p>
-            <p className="text-sm text-muted-foreground">
-              This day is clear. Add an event, or drag one here from another day.
-            </p>
-          </li>
-        ) : null}
+          {items.length === 0 ? (
+            <li className="flex flex-col items-center gap-2 py-8 text-center">
+              <CalendarIcon aria-hidden className="size-8 text-3xl text-muted-foreground" disableHover />
+              {/*
+               * Icon and heading only. A subtitle here read "This day is clear.
+               * Add an event, or drag one here from another day." It was asked to
+               * be removed once already and was still present, so it goes with the
+               * reason attached: the heading already says there is nothing, and two
+               * lines of instruction were the noisiest thing on an empty screen.
+               */}
+              <p className="text-sm font-semibold text-foreground">Nothing scheduled</p>
+            </li>
+          ) : null}
       </ul>
 
       {drag.ghost ? <DragGhostLabel ghost={drag.ghost} /> : null}

@@ -50,7 +50,7 @@ import {
   HabitList,
   HabitMonthGrid,
   applyCheckInOptimistically,
-  habitProgressView,
+  checkInCompletes,
   type CheckInChange,
 } from '@/components/habits';
 import { useToast } from '@/components/app/Toast';
@@ -69,22 +69,6 @@ import {
 import { usePrimaryAction } from '@/lib/events';
 import type { BootstrapPayload, CheckInPayload } from '@/lib/view-types';
 import type { DateOnly, Habit } from '@/lib/types';
-
-/**
- * Whether this change is the one that fills the habit's goal for the day.
- *
- * A boolean habit fills it by being checked; a counted one when the amount
- * crosses the target — for a weekly or monthly habit the period total comes from
- * the server's `progress`, exactly as the check-in control reads it.
- */
-function checkInCompletes(habit: Habit, change: CheckInChange, today: DateOnly): boolean {
-  const view = habitProgressView(habit, today);
-  if (habit.goalType === 'boolean') return change.count === 1;
-  const periodic = habit.frequency === 'weekly' || habit.frequency === 'monthly';
-  const logged = periodic ? view.logged : habit.entries?.[change.date] ?? 0;
-  const next = change.delta !== undefined ? logged + change.delta : change.count ?? 0;
-  return logged < view.target && next >= view.target;
-}
 
 export default function HabitsPage() {
   const { toast } = useToast();
