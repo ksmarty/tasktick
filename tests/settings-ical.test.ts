@@ -91,3 +91,33 @@ describe('a settings row lets its content shrink', () => {
     expect(GROUP).toMatch(/flex items-center gap-3', SETTINGS_ROW_CHILDREN_CLASS/);
   });
 });
+
+/*
+ * A mirror is unsubscribed from, not deleted, and has no default.
+ *
+ * Both were wrong for a subscribed calendar: the button said "Delete calendar"
+ * and the dialog offered "Make default" (disabled, but present). "Default" is
+ * where new events and tasks are created, and nothing is ever created in a
+ * feed — so the control could only ever be disabled. The wording matters too:
+ * the events were never ours to delete.
+ */
+describe('a mirrored calendar is unsubscribed from, not deleted', () => {
+  it("labels the action by what it does", () => {
+    expect(EDITOR).toMatch(/readOnly \? .Unsubscribe. : .Delete calendar./);
+  });
+
+  it("asks the matching question in the confirmation", () => {
+    expect(EDITOR).toContain('Unsubscribe from ');
+    expect(EDITOR).toContain('The events mirrored from it are removed too.');
+  });
+
+  it("hides the default-calendar row for a mirror", () => {
+    expect(EDITOR).toMatch(/\{readOnly \? null : \(/);
+  });
+
+  it("still offers Delete and Default for a calendar of ours", () => {
+    // The local path must not be collateral damage.
+    expect(EDITOR).toContain("'Delete calendar'");
+    expect(EDITOR).toContain('Make default');
+  });
+});

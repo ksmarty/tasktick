@@ -189,8 +189,16 @@ export function CalendarListEditor() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{`Delete ${removeTarget?.name ?? 'this calendar'}?`}</DialogTitle>
-            <DialogDescription>Every event in this calendar is deleted. This cannot be undone.</DialogDescription>
+            <DialogTitle>
+              {removeTarget?.readOnly
+                ? `Unsubscribe from ${removeTarget?.name ?? 'this calendar'}?`
+                : `Delete ${removeTarget?.name ?? 'this calendar'}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {removeTarget?.readOnly
+                ? 'The events mirrored from it are removed too. You can subscribe again later.'
+                : 'Every event in this calendar is deleted. This cannot be undone.'}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoveTarget(null)}>
@@ -438,6 +446,13 @@ function CalendarDialog({
                 />
               </div>
 
+              {/*
+                * Hidden for a mirrored calendar. "Default" is where new events and
+                * tasks are created, and nothing is ever created in a feed or a CalDAV
+                * collection we only read — the control could only ever be disabled,
+                * which is a worse answer than not offering it.
+                */}
+              {readOnly ? null : (
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm">Default calendar</p>
                 {calendar?.isDefault ? (
@@ -462,6 +477,7 @@ function CalendarDialog({
                   </Button>
                 )}
               </div>
+              )}
 
               {readOnly ? (
                 <p className="text-xs text-muted-foreground">
@@ -500,7 +516,8 @@ function CalendarDialog({
                   }}
                 >
                   <TrashIcon />
-                  Delete calendar
+                  {/* A mirror is unsubscribed from, not deleted: the events were never ours. */}
+                  {readOnly ? 'Unsubscribe' : 'Delete calendar'}
                 </Button>
               )}
             </>
