@@ -67,6 +67,7 @@ import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { SunIcon } from '@svg-animated-icons/react/sun';
 import { TimerIcon } from '@svg-animated-icons/react/timer';
 
+import { requestSectionReset } from '@/components/calendar/section-reset';
 import { TabBar } from '@/components/godui/tab-bar';
 import { useServiceWorkerControl } from '@/components/pwa/useServiceWorkerControl';
 import { Button } from '@/components/ui/button';
@@ -235,8 +236,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   function onTabChange(value: string) {
     const next = value as TabValue;
-    // Already there: nothing to navigate, and no pending state to record.
-    if (next === routeTab) return;
+    /*
+     * Re-tapping the tab you are already on does not navigate, but on the two
+     * sections that have a "today" it means "take me back to the start of this
+     * one". The shell is the only thing that sees the tap, so the shell is what
+     * announces it; whichever screen is mounted answers through
+     * `useSectionReset`. Only Calendar and Habits have a today to return to —
+     * Tasks and Settings ignore the event.
+     *
+     * This is the half that was missing twice: the screens listened, but the
+     * early return below meant the announcement was never raised, so a re-tap
+     * did nothing at all.
+     */
+    if (next === routeTab) {
+      if (next === 'calendar' || next === 'habits') requestSectionReset(next);
+      return;
+    }
     setPendingTab(next);
     router.push(TAB_ROUTES[next]);
   }

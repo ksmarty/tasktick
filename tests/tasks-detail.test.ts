@@ -128,6 +128,56 @@ describe('completing a task offers an Undo', () => {
   });
 });
 
+describe('a mirrored item loses its Edit action', () => {
+  it('reads the flag off the event projection', () => {
+    // The calendar record's `readOnly` is projected onto the `CalendarItem` as
+    // `readonly`, so the sheet needs no calendar lookup; the explicit prop from
+    // the caller wins when there is one.
+    expect(DETAIL).toContain('readOnly ?? (event ? Boolean(event.readonly) : false)');
+  });
+
+  it('removes the action rather than disabling it', () => {
+    // A dead button that can never be enabled is worse than no button.
+    expect(DETAIL).toContain('{isReadOnly ? (');
+    expect(DETAIL).not.toMatch(/<Button[^>]*disabled/);
+    expect(DETAIL).toContain('cannot be edited here');
+    expect(DETAIL).toContain('LockClosedIcon');
+  });
+
+  it('leaves the task list editable — a task carries no read-only flag', () => {
+    // The flag is derived from `event` alone, so a task passed by TasksView or
+    // TodayView (no `readOnly` prop) always keeps its Edit action.
+    expect(DETAIL).toContain('<TaskDetails');
+    expect(DETAIL).toContain('onEdit');
+  });
+});
+
+describe('the sheet shows every populated field', () => {
+  it('reads the full event for what the thin projection drops', () => {
+    expect(DETAIL).toContain('useResource<CalendarEvent>');
+    expect(DETAIL).toContain('/api/events/${event.id}');
+  });
+
+  it('renders the extra task fields, each conditionally', () => {
+    for (const label of ['Starts', 'Status', 'Repeats', 'Reminders', 'Estimate', 'Time spent']) {
+      expect(DETAIL).toContain(label);
+    }
+    expect(DETAIL).toContain('describeRRule');
+    expect(DETAIL).toContain('describeReminders');
+    expect(DETAIL).toContain('humanDuration');
+  });
+
+  it('renders the extra event fields, each conditionally', () => {
+    for (const label of ['Attendees', 'Organizer', 'Categories', 'Description', 'Availability']) {
+      expect(DETAIL).toContain(label);
+    }
+    expect(DETAIL).toContain('detail?.attendees');
+    expect(DETAIL).toContain('detail?.description');
+    expect(DETAIL).toContain('detail?.rrule');
+    expect(DETAIL).toContain('attendeeStatusLabel');
+  });
+});
+
 describe('the editor does not steal focus on the edit path', () => {
   it('cancels the deferred autofocus without removing the focus machinery', () => {
     expect(EDITOR).toContain('onOpenAutoFocus={(event) => event.preventDefault()}');

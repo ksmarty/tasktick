@@ -44,29 +44,31 @@
  *
  * ## The stripe
  *
- * The per-calendar stripe is its own absolutely-positioned element (`w-1`, four
- * pixels, because three is not on Tailwind's scale) painted with the
- * `--edge-color` custom property written inline — the colour is a runtime accent
- * lookup, so it is the one thing here that genuinely cannot be a class. The same
- * colour is reused for the range line, so stripe and time always agree.
+ * The per-calendar stripe is a CSS left border (`border-l-4`) on the entry
+ * itself, painted with the item's resolved hex written inline — the colour is a
+ * runtime accent lookup, so it is the one thing here that genuinely cannot be a
+ * class. The same colour is reused for the range line, so stripe and time always
+ * agree.
  *
- * It is *not* a CSS left border, and that is the whole point. A border follows
- * its element's corners: the moment the entry is rounded on the left, the stripe
- * curves with it and stops being a bar. The last two attempts each paid for one
- * with the other — a radius on all four corners rounded the entry and bent the
- * stripe, squaring the left corners squared the stripe by squaring the entry,
- * which the user then reported as "no longer rounded on the left". A separate
- * element has corners of its own, so it stays a clean rectangle at any radius
- * the entry wears (squared with `rounded-none`, said out loud so a later edit
- * cannot round it by accident).
+ * A left border is the only shape that satisfies all three things the stripe has
+ * been asked for at once, and the last three attempts each paid for one with
+ * another. It is *flush* with the entry's left edge, because it is the entry's
+ * own edge. It is a *bar*, not a lozenge: the border follows the entry's corner
+ * on its outer edge while its inner edge stays straight, so the only curve is
+ * the small corner cap — `rounded-sm` resolves to 6px here (GodUI's
+ * `--radius-sm`), close to the 4px border's own width. A larger radius visibly
+ * bows the stripe's end into a lozenge; `rounded-md` (8px) and up were rendered
+ * and rejected. And the entry keeps its *rounding* — all four corners — because
+ * the border rides the corner instead of being covered by a separate square
+ * element.
  *
- * It also sits 4px *inside* the entry (`left-1`) rather than on its edge, because
- * a flush bar hides the very rounding it exists to allow: the entry's left edge
- * is then the bar's square edge, whatever its `border-radius` says. Inset, the
- * entry's own rounded left corner is visible beside the bar, and the bar is still
- * a bar. The entry's text stays where the old 4px border plus `pl-3` put it —
- * 16px in, `pl-4` — so moving the stripe off the edge does not move the reading
- * line.
+ * The two rejected shapes, for the record: a separate `rounded-none` element
+ * *inset* 4px (`left-1`) leaves the rounding visible but lifts the stripe off
+ * the edge, which is the report this restores; a separate square element
+ * *flush* (`left-0`) keeps the stripe on the edge but its square corners become
+ * the silhouette, so the entry's rounding is invisible. The border has neither
+ * problem. `pl-3` (0.75rem) keeps the reading line exactly where the inset
+ * stripe's `pl-4` put it: 4px of border plus 12px of padding is the same 16px.
  *
  * Dragging a row horizontally moves the item by whole days. It goes through the
  * same `useItemDrag` hook as before, so the lift threshold, the click-swallow
@@ -307,32 +309,23 @@ export function DayAgenda({
                 </span>
 
                 {/*
-                 * `rounded-sm` — rounded on the left again — with the stripe as
-                 * a square element of its own inside it. Those are one decision,
-                 * not two: see "The stripe" at the top of this file for why a
-                 * left radius and a rectangular stripe cannot both come from one
-                 * element's `border-left`.
+                 * `border-l-4` + `rounded-sm`: the stripe is the entry's own left
+                 * border, so it is flush with the left edge and follows the
+                 * corner's outer curve while its inner edge stays straight. See
+                 * "The stripe" at the top of this file for why this is the one
+                 * shape that is flush, rounded and a bar at the same time.
                  *
                  * The padding is asymmetric on purpose. `py-2` is the step below
-                 * the `py-3` that made the entries too tall. `pl-4` (1rem) is
-                 * exactly where the old 4px border plus `pl-3` put the text, so
-                 * the stripe leaving the entry's edge leaves the reading line
-                 * where it was. The right edge keeps `pr-row` — it is the far
-                 * side of that line and had no reason to move.
+                 * the `py-3` that made the entries too tall. `pl-3` (0.75rem)
+                 * plus the 4px border is the same 16px the inset stripe's `pl-4`
+                 * put the text at, so the stripe returning to the edge does not
+                 * move the reading line. The right edge keeps `pr-row` — it is
+                 * the far side of that line and had no reason to move.
                  */}
                 <span
-                  className="relative flex min-w-0 flex-1 flex-col justify-center rounded-sm bg-accent py-2 pr-row pl-4"
-                  style={{ '--edge-color': hex } as CSSProperties}
+                  className="flex min-w-0 flex-1 flex-col justify-center rounded-sm border-l-4 bg-accent py-2 pr-row pl-3"
+                  style={{ borderLeftColor: hex } as CSSProperties}
                 >
-                  {/*
-                   * The stripe itself: `inset-y-0` so it spans the entry, `left-1`
-                   * so the entry's rounded left corner shows beside it, and `w-1`
-                   * (4px) + `rounded-none` so it is a bar and not a pill.
-                   */}
-                  <span
-                    aria-hidden
-                    className="absolute inset-y-0 left-1 w-1 rounded-none bg-[var(--edge-color)]"
-                  />
                   {/* An all-day row has no range to show; the gutter says it. */}
                   {rangeLabel ? (
                     <span className="block truncate text-xs font-semibold" style={{ color: hex }}>

@@ -9,13 +9,19 @@
  * open — and its **Edit** action is the way through to the editor, so the editor
  * stays reachable without being the first thing a tap does.
  *
- * An event already travels in full inside the calendar's `CalendarItem`, so the
- * event branch renders `ItemDetailSheet` straight away. A task does not: the
- * calendar API buckets a deliberately thin item with no notes, tags, subtasks or
- * priority detail. The task branch therefore performs the one read that fills
- * the gap (`GET /api/tasks/:id`, the same read `AgendaTaskEditor` makes) and
- * shows a skeleton in the drawer until it lands; a failed read says so in an
- * `aria-live` alert rather than opening a half-populated sheet.
+ * The event branch hands the calendar's `CalendarItem` straight to the sheet:
+ * it carries the reads the row needs (title, time, calendar, location, url,
+ * `readonly`), and the sheet itself reads the full event for the fields the
+ * projection drops. A task does not: the calendar API buckets a deliberately
+ * thin item with no notes, tags, subtasks or priority detail. The task branch
+ * therefore performs the one read that fills the gap (`GET /api/tasks/:id`, the
+ * same read `AgendaTaskEditor` makes) and shows a skeleton in the drawer until
+ * it lands; a failed read says so in an `aria-live` alert rather than opening a
+ * half-populated sheet.
+ *
+ * Both branches forward the item's own `readonly` flag, so an item mirrored from
+ * a subscribed feed or a read-only collection opens the sheet without an Edit
+ * action.
  *
  * Kept beside `AgendaTaskEditor` rather than inside `CalendarScreen` so the
  * screen owns only the two states — which item is being previewed, and which
@@ -65,6 +71,7 @@ export function AgendaItemPreview({
         onOpenChange={onOpenChange}
         event={item}
         calendarName={calendarName}
+        readOnly={item.readonly ?? false}
         zone={zone}
         timeFormat={timeFormat}
         onEdit={onEdit}
@@ -125,6 +132,7 @@ function TaskPreview({
         task={resource.data}
         listName={listName}
         listColor={listColor}
+        readOnly={item.readonly ?? false}
         zone={zone}
         timeFormat={timeFormat}
         onEdit={onEdit}

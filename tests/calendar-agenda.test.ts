@@ -81,28 +81,35 @@ describe('the gutter timeline', () => {
 });
 
 describe('the agenda entry radius, and the stripe that must not follow it', () => {
-  it('rounds the entry on the left again', () => {
+  it('keeps the entry rounded on all four corners', () => {
     /*
      * `rounded-sm` — all four corners. The entry was `rounded-r-sm` while the
-     * stripe was a `border-l-4`: a radius on the left corners curved that border
-     * with them, and squaring the left was the only way to keep the stripe a
-     * bar. The user then reported the entry had lost its left rounding. Both are
-     * satisfied now that the stripe is its own element (the test below), so the
-     * entry can round again.
+     * stripe was a separate flush element: squaring the left was the only way to
+     * keep that element a rectangle, and the user then reported the entry had
+     * lost its left rounding. The stripe is the entry's own left border now, so
+     * the radius and the bar are one decision and both survive.
      */
-    expect(AGENDA).toContain('flex min-w-0 flex-1 flex-col justify-center rounded-sm bg-accent');
+    expect(AGENDA).toContain('flex min-w-0 flex-1 flex-col justify-center rounded-sm border-l-4 bg-accent');
     expect(AGENDA).not.toContain('rounded-r-sm');
-    expect(AGENDA).not.toContain('border-l-4');
   });
 
-  it('draws the stripe as a square element of its own, inset from the corner', () => {
+  it('draws the stripe as the entry’s own left border, flush with its edge', () => {
     /*
-     * A border follows its element's corners, so left rounding used to bend the
-     * stripe into a pill. Its own absolutely-positioned element keeps its own
-     * (square) corners, and `left-1` insets it so the entry's left radius is
-     * visible beside it — a flush bar hides the rounding it exists to allow.
+     * A left border is the only shape that is flush *and* leaves the entry
+     * rounded *and* stays a bar: it follows the corner on its outer edge and
+     * stays straight on its inner one. The two rejected shapes were a separate
+     * element inset 4px (off the edge — the report this restores) and a separate
+     * square element flush (its square edge is the silhouette, so the entry's
+     * rounding is invisible).
      */
-    expect(AGENDA).toContain('absolute inset-y-0 left-1 w-1 rounded-none bg-[var(--edge-color)]');
+    expect(AGENDA).toContain('rounded-sm border-l-4 bg-accent');
+    expect(AGENDA).not.toContain('bg-[var(--edge-color)]');
+    expect(AGENDA).not.toContain('absolute inset-y-0 left-1 w-1');
+  });
+
+  it('paints the border with the item’s resolved colour', () => {
+    // The colour is a runtime accent lookup, so it genuinely cannot be a class.
+    expect(AGENDA).toContain('borderLeftColor: hex');
   });
 });
 
@@ -110,11 +117,12 @@ describe('the agenda entry’s padding', () => {
   it('is a step below the value that made the entries too tall, on the same text axis', () => {
     /*
      * `py-2` (0.5rem) is the step below the `py-3` (0.75rem) that raised the
-     * entries and then read as too tall. `pl-4` (1rem) is exactly where the old
-     * 4px border plus `pl-3` put the text, so taking the stripe off the entry's
-     * edge does not move the reading line. The right edge keeps the row token.
+     * entries and then read as too tall. `pl-3` (0.75rem) plus the 4px stripe is
+     * exactly where the inset stripe's `pl-4` put the text — 16px in — so the
+     * stripe returning to the entry's edge does not move the reading line. The
+     * right edge keeps the row token.
      */
-    expect(AGENDA).toContain('bg-accent py-2 pr-row pl-4');
+    expect(AGENDA).toContain('bg-accent py-2 pr-row pl-3');
     expect(AGENDA).not.toContain('bg-accent py-3');
   });
 
@@ -123,7 +131,7 @@ describe('the agenda entry’s padding', () => {
     // string) but made the class list `/* … */ 'flex …'`, so `'flex` and
     // `py-2'` never matched and the entry lost its padding and its flex box.
     expect(AGENDA).not.toContain('className="/*');
-    expect(AGENDA).toContain('className="relative flex min-w-0 flex-1 flex-col justify-center');
+    expect(AGENDA).toContain('className="flex min-w-0 flex-1 flex-col justify-center');
   });
 });
 
@@ -143,5 +151,11 @@ describe('a tap opens the preview, and Edit opens the editor', () => {
     expect(PREVIEW).toContain("from '@/components/tasks/ItemDetailSheet'");
     expect(PREVIEW).toContain('ItemDetailSheet');
     expect(PREVIEW).toContain('useResource<Task>');
+  });
+
+  it('forwards a mirrored item’s read-only flag to the sheet', () => {
+    // Both branches pass `item.readonly`; the sheet removes the Edit action when
+    // it is set, so a subscribed feed or read-only collection has no way in.
+    expect(PREVIEW).toContain('readOnly={item.readonly ?? false}');
   });
 });

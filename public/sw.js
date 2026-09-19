@@ -137,7 +137,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v7';
+const VERSION = 'tasktick-v8';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -507,12 +507,18 @@ async function navigationNetworkFirst(event) {
         }),
       ]));
     if (cache && isDocumentCacheable(response)) {
-      try {
-        await cache.put(key, response.clone());
-        await trimApiCache(cache);
-      } catch (error) {
-        console.warn('[sw] navigation not cached', request.url, error);
-      }
+      /*
+       * Not awaited. `cache.put` streams the whole document into the cache, and
+       * awaiting it here meant the page's own HTML was held back until that write
+       * finished — a cost the user pays on every navigation, on storage that is
+       * slowest exactly where it matters. `waitUntil` keeps the worker alive to
+       * finish the write without making the screen wait for it.
+       */
+      const store = cache
+        .put(key, response.clone())
+        .then(() => trimApiCache(cache))
+        .catch((error) => console.warn('[sw] navigation not cached', request.url, error));
+      if (typeof event.waitUntil === 'function') event.waitUntil(store);
     }
     return response;
   } catch (error) {
@@ -686,14 +692,17 @@ async function sessionRead(request, event) {
   const cached = await cache.match(key);
 
   const network = fetch(request)
-    .then(async (response) => {
+    .then((response) => {
       if (isSessionReadCacheable(request, response)) {
-        try {
-          await cache.put(key, response.clone());
-          await trimApiCache(cache);
-        } catch (error) {
-          console.warn('[sw] read not cached', request.url, error);
-        }
+        /*
+         * Off the response path, for the same reason as a navigation: the caller
+         * must not wait for a disk write it did not ask for.
+         */
+        const store = cache
+          .put(key, response.clone())
+          .then(() => trimApiCache(cache))
+          .catch((error) => console.warn('[sw] read not cached', request.url, error));
+        if (typeof event.waitUntil === 'function') event.waitUntil(store);
       }
       return response;
     })

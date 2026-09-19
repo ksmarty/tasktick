@@ -1,17 +1,20 @@
 /**
  * The calendar's "re-tap the Calendar tab and go back to today" contract.
  *
- * The tab bar is the shell's, so the only thing this feature can own is the
- * screen side: a window announcement the shell raises when the active tab is
- * pressed, and `CalendarScreen` answering it. These pins cover both halves of
- * that contract — the event carries the tab, and the screen listens for the
- * calendar one and resets through the same path a fresh entry uses.
+ * The tab bar is the shell's, so the screen side is a window announcement the
+ * shell raises when the active tab is pressed, and `CalendarScreen` answering
+ * it. These pins cover both halves of that contract — the shell raising the
+ * event for the tab it is already on, and the screen listening for the calendar
+ * one and resetting through the same path a fresh entry uses. The shell half is
+ * pinned because it was the missing half twice: the screens listened, but the
+ * shell's early return for a re-tap meant nothing was ever raised.
  */
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SECTION_RETAP_EVENT, requestSectionReset } from '@/components/calendar/section-reset';
 
 const SCREEN = readFileSync(new URL('../src/components/calendar/CalendarScreen.tsx', import.meta.url), 'utf8');
+const SHELL = readFileSync(new URL('../src/components/app/AppShell.tsx', import.meta.url), 'utf8');
 const MODULE = readFileSync(new URL('../src/components/calendar/section-reset.ts', import.meta.url), 'utf8');
 
 afterEach(() => {
@@ -44,6 +47,17 @@ describe('requestSectionReset', () => {
     // calendar. Pinned because a missing filter would reset both screens that
     // happen to be mounted.
     expect(MODULE).toContain('detail?.tab !== tab');
+  });
+});
+
+describe('the shell raises the re-tap', () => {
+  it('announces it for the active tab instead of doing nothing', () => {
+    // The early return for a re-tap is where the first two attempts died: the
+    // screens were listening, but no event was ever dispatched. The shell must
+    // raise it before returning.
+    expect(SHELL).toContain("import { requestSectionReset } from '@/components/calendar/section-reset';");
+    expect(SHELL).toContain('if (next === routeTab) {');
+    expect(SHELL).toContain("if (next === 'calendar' || next === 'habits') requestSectionReset(next);");
   });
 });
 

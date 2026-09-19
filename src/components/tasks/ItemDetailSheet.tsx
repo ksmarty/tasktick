@@ -11,12 +11,31 @@
  *
  * ## Reusable by design
  *
- * It is presentational and knows nothing about where it is mounted: it takes a
- * `Task` or a `CalendarItem`, an `onEdit` callback, and the resolved list or
- * calendar name. The tasks and Today screens pass the task editor; the calendar
- * screen can pass the event editor or its task editor without this file
- * changing. That is deliberate — the alternative was a second copy of the sheet
- * on the calendar, and the two would drift.
+ * It takes a `Task` or a `CalendarItem`, an `onEdit` callback, and the resolved
+ * list or calendar name. The tasks and Today screens pass the task editor; the
+ * calendar screen passes the event editor or its task editor. That is
+ * deliberate — the alternative was a second copy of the sheet on the calendar,
+ * and the two would drift.
+ *
+ * ## Showing everything, without empty rows
+ *
+ * The task branch receives the full `Task`, and the event branch's
+ * `CalendarItem` is a deliberately thin projection, so the event branch also
+ * reads `GET /api/events/:id` for the fields the projection drops — description,
+ * attendees, organizer, categories, recurrence and reminders. That read is
+ * supplementary: the sheet renders the item's own fields immediately, and adds
+ * the rest when they land (a failed read simply omits them). Every row is
+ * conditional on having a value, so nothing prints `Location: —` five times.
+ *
+ * ## Read-only items
+ *
+ * An item from a subscribed `ical` feed or a read-only `caldav` collection is a
+ * mirror: nothing is ever written back, so its Edit action is **removed**, not
+ * disabled. The projected `CalendarItem` already carries that as `readonly`
+ * (from the calendar record's `readOnly`), so no calendar lookup is needed; an
+ * explicit `readOnly` prop from the caller wins. A task from the task list
+ * carries no flag and stays editable — a mirrored item is the only thing that
+ * loses the action.
  *
  * ## The GodUI Drawer
  *
@@ -30,10 +49,12 @@
  * ## Row shape
  *
  * Every field is an icon, a muted label and a value against the trailing edge.
- * The title is the drawer's own heading. A task shows its due date/time, list,
- * priority, tags, notes, link/place and subtasks; an event shows its time range,
- * calendar, location and link/place. A field with nothing in it is omitted
- * rather than shown blank.
+ * The title is the drawer's own heading. A task shows its due date/time, start,
+ * status, list, priority, recurrence, reminders, estimate, spent time, tags,
+ * notes, link/place and subtasks; an event shows its full date range, time (or
+ * an explicit "All day"), calendar, location, link/place, recurrence, status,
+ * availability, organizer, reminders, attendees, categories and description. A
+ * field with nothing in it is omitted rather than shown blank.
  *
  * ## Link and place previews
  *
@@ -46,22 +67,33 @@
  * is a redirect — so it still renders and opens, but with no parsed place beside
  * it. A field with nothing to show is omitted entirely.
  */
+import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { ClockIcon } from '@svg-animated-icons/react/clock';
 import { DotIcon } from '@svg-animated-icons/react/dot';
+import { GlobeIcon } from '@svg-animated-icons/react/globe';
+import { InfoCircledIcon } from '@svg-animated-icons/react/info-circled';
 import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
 import { Link1Icon } from '@svg-animated-icons/react/link-1';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
+import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
-import { Folder, MapPin } from 'lucide-react';
+import { PeopleIcon } from '@svg-animated-icons/react/people';
+import { PersonIcon } from '@svg-animated-icons/react/person';
+import { TimerIcon } from '@svg-animated-icons/react/timer';
+import { Folder, MapPin, Tag as TagIcon } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
-import { formatTime, relativeDayLabel, toDateOnly } from '@/lib/dates';
+import { formatDateTime, formatTime, humanDuration, relativeDayLabel, toDateOnly } from '@/lib/dates';
 import { isHttpUrl, linkPreview } from '@/lib/links';
-import type { AccentColor, CalendarItem, Task } from '@/lib/types';
+import { describeRRule } from '@/lib/rrule';
+import { useResource } from '@/lib/store';
+import type { AccentColor, Attendee, CalendarEvent, CalendarItem, Reminder, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { priorityColor, priorityLabel } from './priority';
+import { describeReminders } from './ReminderPicker';
 import { dueLabel, type DueTone } from './TaskMeta';
 
 /** The due date's tone, matching the row's own label. */
@@ -84,6 +116,12 @@ export interface ItemDetailSheetProps {
   listColor?: AccentColor | null;
   /** The event's calendar name, resolved by the caller. */
   calendarName?: string | null;
+  /**
+   * True when the item's calendar never writes back: a subscribed `ical` feed
+   * or a read-only `caldav` collection. Defaults to the event projection's own
+   * `readonly`; the task list leaves it unset so a task stays editable.
+   */
+  readOnly?: boolean;
   zone: string;
   timeFormat: '12h' | '24h';
   /** Opens the item's editor. The caller chooses which editor that is. */
@@ -163,6 +201,64 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** A task's start, as a relative day plus clock time, or null when it has none. */
+function taskStartLabel(task: Task, zone: string, timeFormat: '12h' | '24h'): string | null {
+  if (task.startAtMs !== null) {
+    return `${relativeDayLabel(toDateOnly(task.startAtMs, zone), zone)} ${formatTime(task.startAtMs, {
+      zone,
+      timeFormat,
+      weekStartsOn: 0,
+    })}`;
+  }
+  if (task.startDate) return relativeDayLabel(task.startDate, zone);
+  return null;
+}
+
+/** "Completed" / "Won't do", or null while the task is still a plain todo. */
+function taskStatusLabel(status: Task['status']): string | null {
+  if (status === 'completed') return 'Completed';
+  if (status === 'wont_do') return "Won't do";
+  return null;
+}
+
+/**
+ * A recurrence rule in words. `mode` is a task's own repeat mode; a completion
+ * rule is spelled out so "every day" is not misread as a schedule.
+ */
+function recurrenceText(rule: string | null | undefined, mode?: Task['recurrenceMode']): string | null {
+  const text = describeRRule(rule);
+  if (!text) return null;
+  return mode === 'completion' ? `${text} (after completion)` : text;
+}
+
+/** A task's reminders on one line: offsets as words, absolute ones as a time. */
+function reminderText(reminders: Reminder[], zone: string, timeFormat: '12h' | '24h'): string {
+  return reminders
+    .map((reminder) =>
+      reminder.offsetMinutes !== null
+        ? describeReminders([reminder.offsetMinutes])
+        : formatDateTime(reminder.fireAtMs, { zone, timeFormat, weekStartsOn: 0 }),
+    )
+    .join(', ');
+}
+
+/** `PARTSTAT` from an iCalendar attendee, in words. */
+const ATTENDEE_STATUS_LABEL: Record<string, string> = {
+  ACCEPTED: 'Accepted',
+  DECLINED: 'Declined',
+  TENTATIVE: 'Tentative',
+  'NEEDS-ACTION': 'No response',
+};
+
+function attendeeStatusLabel(status: string | undefined): string | null {
+  if (!status) return null;
+  return ATTENDEE_STATUS_LABEL[status.toUpperCase()] ?? status;
+}
+
+function attendeeLabel(attendee: Attendee): string {
+  return attendee.name?.trim() || attendee.email;
+}
+
 function TaskDetails({
   task,
   listName,
@@ -179,12 +275,28 @@ function TaskDetails({
   const due = dueLabel(task, zone, timeFormat);
   const tags = task.tags ?? [];
   const subtasks = task.subtasks ?? [];
+  const reminders = task.reminders ?? [];
+  const start = taskStartLabel(task, zone, timeFormat);
+  const repeats = recurrenceText(task.recurrenceRule, task.recurrenceMode);
+  const status = taskStatusLabel(task.status);
 
   return (
     <>
       <Field icon={<ClockIcon />} label="Due">
         {due ? <span className={DUE_TONE_CLASS[due.tone]}>{due.label}</span> : 'No date'}
       </Field>
+
+      {start ? (
+        <Field icon={<ClockIcon />} label="Starts">
+          {start}
+        </Field>
+      ) : null}
+
+      {status ? (
+        <Field icon={<CheckIcon />} label="Status">
+          {status}
+        </Field>
+      ) : null}
 
       {listName ? (
         <Field icon={<Folder className="size-4" />} label="List">
@@ -204,6 +316,30 @@ function TaskDetails({
       <Field icon={<LightningBoltIcon className={cn('text-base', priorityColor(task.priority))} />} label="Priority">
         {priorityLabel(task.priority)}
       </Field>
+
+      {repeats ? (
+        <Field icon={<LoopIcon />} label="Repeats">
+          {repeats}
+        </Field>
+      ) : null}
+
+      {reminders.length ? (
+        <Field icon={<BellIcon />} label="Reminders">
+          {reminderText(reminders, zone, timeFormat)}
+        </Field>
+      ) : null}
+
+      {task.estimateMinutes ? (
+        <Field icon={<TimerIcon />} label="Estimate">
+          {humanDuration(task.estimateMinutes)}
+        </Field>
+      ) : null}
+
+      {task.spentMinutes > 0 ? (
+        <Field icon={<TimerIcon />} label="Time spent">
+          {humanDuration(task.spentMinutes)}
+        </Field>
+      ) : null}
 
       {task.url ? <LinkField url={task.url} /> : null}
 
@@ -261,11 +397,14 @@ function TaskDetails({
 
 function EventDetails({
   event,
+  detail,
   calendarName,
   zone,
   timeFormat,
 }: {
   event: CalendarItem;
+  /** The full record when the sheet could read it — the thin item omits it. */
+  detail: CalendarEvent | null;
   calendarName: string | null;
   zone: string;
   timeFormat: '12h' | '24h';
@@ -277,7 +416,14 @@ function EventDetails({
    * ("Today", "Tomorrow", a weekday, otherwise an absolute date), the same
    * treatment the task due label gets.
    */
+  const startDay = toDateOnly(event.startMs, zone);
+  // DTEND is exclusive for an all-day event, so its last visible day is the day
+  // before; a timed event ends on the day its end instant falls on.
+  const endDay = event.isAllDay
+    ? toDateOnly(Math.max(event.startMs, event.endMs - 1), zone)
+    : toDateOnly(event.endMs, zone);
   const date = relativeDayLabel(toDateOnly(event.startMs, zone), zone);
+  const dateRange = endDay === startDay ? date : `${date} – ${relativeDayLabel(endDay, zone)}`;
   const time = event.isAllDay
     ? 'All day'
     : `${formatTime(event.startMs, { zone, timeFormat, weekStartsOn: 0 })} – ${formatTime(event.endMs, {
@@ -286,10 +432,17 @@ function EventDetails({
         weekStartsOn: 0,
       })}`;
 
+  const recurrence = recurrenceText(detail?.rrule ?? null);
+  const attendees = detail?.attendees ?? [];
+  const categories = detail?.categories ?? [];
+  const reminders = detail?.reminders ?? [];
+  const organizer = detail?.organizer ?? null;
+  const organizerLabel = organizer?.name?.trim() || organizer?.email || null;
+
   return (
     <>
       <Field icon={<CalendarIcon className="text-base" disableHover />} label="Date">
-        {date}
+        {dateRange}
       </Field>
 
       <Field icon={<ClockIcon />} label="Time">
@@ -322,6 +475,80 @@ function EventDetails({
        */}
       {event.location && isHttpUrl(event.location) ? <LinkField url={event.location} /> : null}
       {event.url ? <LinkField url={event.url} /> : null}
+
+      {recurrence ? (
+        <Field icon={<LoopIcon />} label="Repeats">
+          {recurrence}
+        </Field>
+      ) : event.isRecurringInstance ? (
+        <Field icon={<LoopIcon />} label="Repeats">
+          Recurring
+        </Field>
+      ) : null}
+
+      {detail?.status === 'tentative' || detail?.status === 'cancelled' ? (
+        <Field icon={<InfoCircledIcon />} label="Status">
+          {detail.status === 'tentative' ? 'Tentative' : 'Cancelled'}
+        </Field>
+      ) : null}
+
+      {detail?.transparency === 'transparent' ? (
+        <Field icon={<GlobeIcon />} label="Availability">
+          Free
+        </Field>
+      ) : null}
+
+      {organizerLabel ? (
+        <Field icon={<PersonIcon />} label="Organizer">
+          {organizerLabel}
+        </Field>
+      ) : null}
+
+      {reminders.length ? (
+        <Field icon={<BellIcon />} label="Reminders">
+          {describeReminders(reminders)}
+        </Field>
+      ) : null}
+
+      {attendees.length ? (
+        <Block label="Attendees">
+          <ul className="flex flex-col gap-1.5">
+            {attendees.map((attendee, index) => (
+              <li key={`${attendee.email}:${index}`} className="flex items-center gap-2 text-sm">
+                <PeopleIcon className="shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-foreground">{attendeeLabel(attendee)}</span>
+                {attendeeStatusLabel(attendee.status) ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {attendeeStatusLabel(attendee.status)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      {categories.length ? (
+        <Block label="Categories">
+          <ul className="flex flex-wrap gap-1.5">
+            {categories.map((category) => (
+              <li
+                key={category}
+                className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+              >
+                <TagIcon className="size-3" aria-hidden />
+                {category}
+              </li>
+            ))}
+          </ul>
+        </Block>
+      ) : null}
+
+      {detail?.description ? (
+        <Block label="Description">
+          <p className="text-sm whitespace-pre-wrap text-foreground">{detail.description}</p>
+        </Block>
+      ) : null}
     </>
   );
 }
@@ -334,12 +561,34 @@ export function ItemDetailSheet({
   listName = null,
   listColor = null,
   calendarName = null,
+  readOnly,
   zone,
   timeFormat,
   onEdit,
 }: ItemDetailSheetProps) {
   const item = task ?? event ?? null;
   const title = item?.title ?? '';
+
+  /*
+   * The full event record, for the fields the projected `CalendarItem` does not
+   * carry — description, attendees, recurrence, reminders. It is supplementary:
+   * the sheet already renders everything the item itself carries, so a slow or
+   * failed read leaves those rows out rather than blocking the sheet.
+   */
+  const detail = useResource<CalendarEvent>(event?.id ? `/api/events/${event.id}` : null, undefined, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  });
+
+  /*
+   * Read-only when the item's calendar never writes back: every `ical`
+   * subscription and a read-only `caldav` collection. The projected
+   * `CalendarItem` already carries that as `readonly` (projected from the
+   * calendar record's `readOnly`), so no calendar lookup is needed; an explicit
+   * `readOnly` from the caller wins. A task from the task list carries no flag
+   * and stays editable — only a mirrored item loses its Edit action.
+   */
+  const isReadOnly = readOnly ?? (event ? Boolean(event.readonly) : false);
 
   return (
     <Drawer
@@ -363,16 +612,24 @@ export function ItemDetailSheet({
           {event ? (
             <EventDetails
               event={event}
+              detail={detail.data ?? null}
               calendarName={calendarName}
               zone={zone}
               timeFormat={timeFormat}
             />
           ) : null}
 
-          <Button type="button" className="mt-1 w-full" onClick={onEdit}>
-            <Pencil1Icon className="size-4 text-base" disableHover />
-            Edit
-          </Button>
+          {isReadOnly ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <LockClosedIcon className="shrink-0 text-sm" aria-hidden disableHover />
+              Synced from a read-only calendar — it cannot be edited here.
+            </p>
+          ) : (
+            <Button type="button" className="mt-1 w-full" onClick={onEdit}>
+              <Pencil1Icon className="size-4 text-base" disableHover />
+              Edit
+            </Button>
+          )}
         </div>
       ) : null}
     </Drawer>
