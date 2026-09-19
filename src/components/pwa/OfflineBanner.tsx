@@ -115,9 +115,8 @@ export function OfflineBanner() {
         type="button"
         role="status"
         aria-live="polite"
-        /* `message` is a ReactNode; these two attributes are strings. */
-        aria-label={String(message)}
-        title={String(message)}
+        aria-label={message}
+        title={message}
         onClick={() => void retry()}
         className={cn(
           'relative inline-flex size-8 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground shadow-sm backdrop-blur-md outline-none transition focus-visible:ring-2 focus-visible:ring-ring',
@@ -148,6 +147,15 @@ export function OfflineBanner() {
 }
 
 /** The banner's sentence, kept out of the JSX so it can be read in one place. */
+/*
+ * The state in words.
+ *
+ * A plain string, not JSX: the indicator is a single icon now, so there is no
+ * markup to build — and these strings are what its `aria-label` says. They used to
+ * be fragments, which a `String()` coercion turned into "[object Object]" the
+ * moment the visible text went away. One rendering, read by sighted and assistive
+ * users alike, cannot drift.
+ */
 function describe(state: {
   online: boolean;
   waiting: number;
@@ -156,37 +164,23 @@ function describe(state: {
   failures: number;
   failureMessage: string;
   probeFailed: boolean;
-}): React.ReactNode {
+}): string {
   const changes = `${state.waiting} change${state.waiting === 1 ? '' : 's'}`;
 
   if (state.failures > 0) {
-    return (
-      <>
-        {state.failures === 1 ? 'One change could not be saved' : `${state.failures} changes could not be saved`}
-        {state.failureMessage ? <span className="text-muted-foreground"> — {state.failureMessage}</span> : null}
-      </>
-    );
+    const lead = state.failures === 1 ? 'One change could not be saved' : `${state.failures} changes could not be saved`;
+    return state.failureMessage ? `${lead} — ${state.failureMessage}` : lead;
   }
 
   if (state.authPaused) {
-    return (
-      <>
-        Your session expired, so {changes} {state.waiting === 1 ? 'is' : 'are'} waiting on this device.{' '}
-        <span className="text-muted-foreground">Sign in again to send {state.waiting === 1 ? 'it' : 'them'}.</span>
-      </>
-    );
+    return `Your session expired, so ${changes} ${state.waiting === 1 ? 'is' : 'are'} waiting on this device. Sign in again to send ${state.waiting === 1 ? 'it' : 'them'}.`;
   }
 
   if (!state.online) {
-    return (
-      <>
-        You&rsquo;re offline
-        {state.waiting > 0 ? ` and ${changes} ${state.waiting === 1 ? 'is' : 'are'} kept on this device` : ''}.{' '}
-        {state.waiting > 0 ? 'It will sync when you reconnect.' : 'Anything you change will be kept until you reconnect.'}
-        {state.probeFailed && <span className="text-muted-foreground"> Still no connection.</span>}
-      </>
-    );
+    const held = state.waiting > 0 ? ` and ${changes} ${state.waiting === 1 ? 'is' : 'are'} kept on this device` : '';
+    const next = state.waiting > 0 ? 'It will sync when you reconnect.' : 'Anything you change will be kept until you reconnect.';
+    return `You're offline${held}. ${next}${state.probeFailed ? ' Still no connection.' : ''}`;
   }
 
-  return <>Back online — sending {changes}.</>;
+  return `Back online — sending ${changes}.`;
 }
