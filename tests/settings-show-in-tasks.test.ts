@@ -1,7 +1,8 @@
 /**
  * `showInTasks` — the per-calendar task-list switch.
  *
- * `isVisible` governs the calendar screen; `showInTasks` governs the task list.
+ * `isVisible` off disables a calendar everywhere; `showInTasks` refines a
+ * visible calendar by keeping it off the task list.
  * The calendar screen always names the calendars it wants (it derives the ids
  * from `isVisible`), so the default read of `/api/calendar/items` is the task
  * list's read. These tests pin both halves of that contract against a real
@@ -122,12 +123,31 @@ describe('the task list read', () => {
     expect(await eventTitles({ userId: USER_ID, zone: ZONE, ...RANGE })).toEqual(['Defaulted']);
   });
 
-  it('keeps a hide-from-calendar calendar in the task list when it is wanted there', async () => {
-    // The flags are independent: `isVisible` is the calendar screen's concern.
+  it('drops a hidden calendar from the task list as well', async () => {
+    /*
+     * This asserted the opposite until hiding was made to *disable* a calendar.
+     *
+     * The two flags were independent: `isVisible` governed the calendar screen and
+     * `showInTasks` the list, so a calendar hidden from the calendar screen but
+     * still wanted in the list kept contributing. That reads as a half-working
+     * toggle — you press Hide and the events are still in your task list — which
+     * is what prompted the change.
+     *
+     * Now hiding is off everywhere, and `showInTasks` refines a calendar that is
+     * *on*: visible, wanted on the calendar screen, not wanted in the list.
+     */
     await seedCalendar('calendar-only-off', true, false);
     await seedEvent('e-off', 'calendar-only-off', 'Only in tasks');
 
-    expect(await eventTitles({ userId: USER_ID, zone: ZONE, ...RANGE })).toEqual(['Only in tasks']);
+    expect(await eventTitles({ userId: USER_ID, zone: ZONE, ...RANGE })).toEqual([]);
+  });
+
+  it('still drops a visible calendar whose show-in-tasks is off', async () => {
+    // The refinement must keep working now that hiding also excludes.
+    await seedCalendar('visible-not-listed', false, true);
+    await seedEvent('e-nl', 'visible-not-listed', 'Calendar only');
+
+    expect(await eventTitles({ userId: USER_ID, zone: ZONE, ...RANGE })).toEqual([]);
   });
 });
 

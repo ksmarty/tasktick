@@ -565,6 +565,15 @@ export async function listIcalSubscriptions(userId: string): Promise<Calendar[]>
 /**
  * Refresh the subscriptions that are due.
  *
+ * A **hidden** subscription is not refreshed at all: hiding one disables it, so it
+ * stops hitting the network as well as disappearing from the UI. Unhiding it
+ * refreshes on the next tick, so it cannot go stale unnoticed.
+ *
+ * CalDAV calendars are deliberately not treated this way — hiding one keeps it
+ * syncing, because that sync is two-way and stopping it silently would mean a
+ * user's edits quietly stopped reaching the server. If hiding should stop those
+ * too, that is a one-line change and a different decision.
+ *
  * Called from the scheduler tick. A feed is due when it has never synced, or
  * when its interval has elapsed — with a backoff that grows on consecutive
  * failures, so a feed that has been dead for a day is checked every few hours
@@ -578,7 +587,9 @@ export async function syncDueIcalSubscriptions(
   const rows = await db
     .select()
     .from(calendars)
-    .where(and(eq(calendars.provider, 'ical'), isNull(calendars.deletedAtMs)));
+    .where(
+      and(eq(calendars.provider, 'ical'), isNull(calendars.deletedAtMs), eq(calendars.isVisible, true)),
+    );
 
   const results: IcalSyncResult[] = [];
   for (const row of rows as Calendar[]) {

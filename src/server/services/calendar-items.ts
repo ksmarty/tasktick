@@ -174,15 +174,21 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
    * keeps a calendar hidden from the task list still drawn on the calendar
    * screen.
    *
-   * The task list passes no ids, so the default read *is* the task list's read,
-   * and it drops calendars whose `showInTasks` is off. The flag is deliberately
-   * independent of `isVisible`: a calendar hidden from the calendar screen but
-   * still wanted in the task list keeps contributing its events, because
-   * `isVisible` is the calendar screen's concern and this one is not.
+     * The task list passes no ids, so the default read *is* the task list's read.
+     * It drops a calendar for two reasons, and they are not the same thing:
+     *
+     *   * `isVisible` is off. Hiding a calendar **disables** it - off everywhere,
+     *     so it stops contributing to the task list as well as disappearing from
+     *     the calendar screen. A toggle called Hide that only half-hides is the
+     *     kind of thing that makes a setting untrustworthy.
+     *   * `showInTasks` is off. This is the refinement: the calendar is on, you
+     *     want it on the calendar screen, and you do not want its events in the
+     *     list. It only means anything while the calendar is visible, which is
+     *     why the two are checked together rather than independently.
    */
   const visible = options.calendarIds?.length
     ? calendars.filter((c) => options.calendarIds!.includes(c.id))
-    : calendars.filter((c) => c.showInTasks);
+    : calendars.filter((c) => c.isVisible && c.showInTasks);
   const byId = new Map(calendars.map((c) => [c.id, c]));
 
   const items: CalendarItem[] = [];

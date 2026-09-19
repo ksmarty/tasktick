@@ -30,3 +30,39 @@ describe('the subscription surface is one section', () => {
     expect(CARD).toContain('toWebcal(');
   });
 });
+
+/*
+ * A subscribed calendar owns its events, not its label.
+ *
+ * `readOnly` means the contents are mirrored, and the calendar editor was applying
+ * it to the *name* as well — so every subscribed feed opened with its name field
+ * disabled and no way to rename it from Settings -> Calendars. The reported
+ * symptom was a greyed-out name and a colour that would not save.
+ *
+ * The distinction that matters is whether anything will overwrite the value: the
+ * CalDAV sync rewrites `name` and the remote colour on every sync, a feed refresh
+ * touches neither. Pinned from source because there is no jsdom here.
+ */
+const EDITOR = readFileSync(
+  new URL('../src/components/settings/CalendarListEditor.tsx', import.meta.url),
+  'utf8',
+);
+
+describe('a mirrored calendar can still be renamed', () => {
+  it('keys the name field off the provider, not readOnly', () => {
+    // The exact regression: `disabled={readOnly}` on the name input.
+    expect(EDITOR).toContain('disabled={remoteOwnsIdentity}');
+    expect(EDITOR).not.toMatch(/id="calendar-name"[\s\S]{0,220}disabled=\{readOnly\}/);
+  });
+
+  it('only the provider that rewrites the name is treated as owning it', () => {
+    // CalDAV rewrites name and colour on every sync; iCal does not.
+    expect(EDITOR).toMatch(/remoteOwnsIdentity\s*=\s*calendar\?\.provider === 'caldav'/);
+  });
+
+  it('saves the name and colour for a calendar nothing overwrites', () => {
+    expect(EDITOR).toMatch(/if \(!remoteOwnsIdentity\)/);
+    // and still sends only the local preferences for one that is overwritten
+    expect(EDITOR).toMatch(/\{ isVisible, showInTasks \}/);
+  });
+});

@@ -237,6 +237,21 @@ function CalendarDialog({
   const [showInTasks, setShowInTasks] = useState(true);
   const readOnly = calendar?.readOnly ?? false;
 
+  /*
+   * Which provider's name and colour can be edited here.
+   *
+   * `readOnly` means "the contents are mirrored", and it was being applied to the
+   * calendar's *name* as well — which disabled the name field for every
+   * subscribed feed and left no way to rename one from this screen.
+   *
+   * The distinction that matters is whether anything will overwrite what the user
+   * types. The CalDAV sync writes `collection.displayName` and the remote's
+   * colour onto the calendar on **every** sync, so a local rename there would
+   * silently revert. A feed refresh does not touch either field, so an iCal
+   * subscription's name and colour are the user's to set and they stick.
+   */
+  const remoteOwnsIdentity = calendar?.provider === 'caldav';
+
   /**
    * A calendar that came from an integration, rather than being created here.
    *
@@ -283,6 +298,21 @@ function CalendarDialog({
          * a Save button that could never work.
          */
         if (!calendar) throw new Error('That calendar is gone.');
+        /*
+         * A mirrored feed owns its events, not its label. Send the name and
+         * colour too when nothing is going to overwrite them, so renaming a
+         * subscription from this screen actually saves.
+         */
+        if (!remoteOwnsIdentity) {
+          const label = name.trim();
+          if (!label) throw new Error('Give the calendar a name.');
+          return await api.patch<Calendar>(`/api/calendars/${calendar.id}`, {
+            name: label,
+            color,
+            isVisible,
+            showInTasks,
+          });
+        }
         return await api.patch<Calendar>(`/api/calendars/${calendar.id}`, { isVisible, showInTasks });
       }
       const trimmed = name.trim();
@@ -321,9 +351,11 @@ function CalendarDialog({
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit calendar' : 'New calendar'}</DialogTitle>
           <DialogDescription>
-            {readOnly
-              ? 'The name and colour come from the remote; visibility and the task list are yours to set.'
-              : 'The name, colour and visibility are saved together when you submit.'}
+            {remoteOwnsIdentity
+              ? 'The name and colour come from the CalDAV server and are refreshed on every sync, so they cannot be edited here. Visibility and the task list are yours to set.'
+              : readOnly
+                ? 'The events come from the feed; the name, colour and visibility are yours to set.'
+                : 'The name, colour and visibility are saved together when you submit.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -334,7 +366,7 @@ function CalendarDialog({
               id="calendar-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              disabled={readOnly}
+              disabled={remoteOwnsIdentity}
               autoComplete="off"
               maxLength={200}
             />
@@ -344,7 +376,12 @@ function CalendarDialog({
             <p id="calendar-colour-label" className="text-sm font-medium">
               Colour
             </p>
-            <AccentSwatches value={color} onChange={setColor} labelledBy="calendar-colour-label" />
+            <AccentSwatches
+              value={color}
+              onChange={setColor}
+              disabled={remoteOwnsIdentity}
+              labelledBy="calendar-colour-label"
+            />
             <p aria-live="polite" className="text-xs text-muted-foreground">
               Preview:{' '}
               <span className="inline-flex items-center gap-1">
@@ -428,7 +465,14 @@ function CalendarDialog({
 
               {readOnly ? (
                 <p className="text-xs text-muted-foreground">
-                  This calendar comes from a CalDAV account that does not accept changes, so it is read-only here.
+                  {/*
+                   * Name the actual source. This said "a CalDAV account" for every
+                   * mirrored calendar, including iCal subscriptions, which are not
+                   * CalDAV and whose events arrive over plain HTTP.
+                   */}
+                  {remoteOwnsIdentity
+                    ? 'This calendar comes from a CalDAV account, which owns its name and colour and does not accept edits to its events, so it is read-only here.'
+                    : 'This is a read-only mirror of a feed. Its events are refreshed from the URL above; nothing here is ever sent back.'}
                 </p>
               ) : null}
 
