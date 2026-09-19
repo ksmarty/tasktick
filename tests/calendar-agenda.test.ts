@@ -38,12 +38,41 @@ describe('an all-day item reads “all day”, not its date', () => {
 
 describe('the gutter timeline', () => {
   it('draws one rule through the rows and bridges the gap between them', () => {
-    expect(AGENDA).toContain('w-px shrink-0 self-stretch bg-border');
-    expect(AGENDA).toContain("index < items.length - 1 && '-mb-3'");
+    // The rule is a child of the full-height column and overruns it into the
+    // list gap, so consecutive rows meet instead of each drawing a tick.
+    expect(AGENDA).toContain('absolute left-0 w-px bg-border');
+    expect(AGENDA).toContain("'-bottom-3'");
   });
 
   it('sets the gutter label below text-xs and keeps it right-aligned', () => {
     expect(AGENDA).toContain('text-right text-[0.6875rem] text-muted-foreground tabular-nums');
+  });
+
+  it('hangs a node on the rule for every item, in the row’s own colour', () => {
+    // The node sits over the rule in the same full-height column, so the rule
+    // is never split around it — the line connects through rather than stopping
+    // at each circle.
+    expect(AGENDA).toContain('absolute top-3 left-1/2 size-2.5 -translate-x-1/2 rounded-full');
+    expect(AGENDA).toContain('style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}');
+  });
+
+  it('reads an all-day node as a hollow ring rather than a filled disc', () => {
+    expect(AGENDA).toContain("item.isAllDay && 'border-2 bg-background'");
+  });
+
+  it('trims the rule to the first and last nodes so it does not dangle', () => {
+    // First row starts at its node, last row stops at its node, and a single
+    // item (both first and last) draws no rule at all.
+    expect(AGENDA).toContain("index === 0 ? 'top-4' : 'top-0'");
+    expect(AGENDA).toContain("index === items.length - 1 ? 'h-4' : '-bottom-3'");
+    expect(AGENDA).toContain('items.length > 1 ? (');
+  });
+});
+
+describe('the agenda entry radius', () => {
+  it('is a step on the radius scale, below the card radius', () => {
+    expect(AGENDA).toContain('rounded-sm border-l-4');
+    expect(AGENDA).not.toContain('rounded-lg border-l-4');
   });
 });
 

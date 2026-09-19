@@ -20,20 +20,18 @@
  * toast says so and the preference stays applied locally rather than snapping
  * back.
  *
- * ## The accent is a stored preference with nothing to drive
+ * ## The accent
  *
- * Since the app adopted GodUI's palette, `accent` no longer colours the UI: the
- * Celestial Sapphire palette is monochrome, so there is no accent hue — `primary`
- * is near-black in light mode and near-white in dark. The control is therefore
- * rendered **disabled** with a one-line explanation. It is deliberately neither
- * deleted (the value is still a real stored preference that other surfaces read,
- * and silently removing a user-facing setting is not a migration step) nor left
- * live and dead (a swatch that highlights and recolours nothing is indistinguishable
- * from a broken control).
+ * The accent re-points `--primary`, `--primary-foreground` and `--ring` at one of
+ * the twelve iOS system colours (see the block in `globals.css`), so every control
+ * that already reads those tokens follows: buttons, the tab bar's sliding blob,
+ * chips, switches, the calendar's selected day, focus rings.
  *
- * The storage path is left intact: `setAccent` still writes the preference to the
- * client store and the cookie, and the mutation below still accepts `accent`, so
- * re-enabling the picker is one prop and no plumbing.
+ * It was disabled for a while. When the app moved onto GodUI's Celestial Sapphire
+ * palette — which is monochrome — the picker could not recolour anything, and a
+ * swatch that highlights while changing nothing is indistinguishable from a broken
+ * control. The preference was kept rather than deleted precisely so it could be
+ * switched back on, which took one prop.
  */
 import { ColorWheelIcon } from '@svg-animated-icons/react/color-wheel';
 import { DesktopIcon } from '@svg-animated-icons/react/desktop';
@@ -43,6 +41,7 @@ import { SegmentedControl, type SegmentedOption } from '@/components/godui/segme
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
+import type { AccentPreference } from '@/lib/types';
 import { useAppearance } from '@/app/providers';
 import type { AccentColor, UserSettings } from '@/lib/types';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
@@ -65,7 +64,7 @@ export function AppearanceSettings() {
   const dark = resolvedTheme === 'dark';
 
   const persist = useMutation(
-    async (patch: { theme?: ThemePreference; accent?: AccentColor }) =>
+    async (patch: { theme?: ThemePreference; accent?: AccentPreference }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
       invalidates: ['/api/settings', '/api/bootstrap'],
@@ -79,10 +78,10 @@ export function AppearanceSettings() {
   );
 
   /**
-   * Kept whole so the accent preference can still be stored. The picker below is
-   * disabled, so this never runs today — see the file header.
+   * The accent is stored rather than applied here: the value lives on `<html>` as
+   * `data-accent` and the palette rules in `globals.css` do the rest.
    */
-  function chooseAccent(next: AccentColor) {
+  function chooseAccent(next: AccentPreference) {
     setAccent(next);
     void persist.run({ accent: next });
   }
@@ -118,20 +117,21 @@ export function AppearanceSettings() {
         </p>
 
         {/*
-         * Disabled on purpose: the palette is monochrome, so this cannot recolour
-         * anything. The stored value is still shown so it is clear what is saved.
-         */}
+          * `default` is the app's own monochrome primary, and the swatches express
+          * "no accent" as `null` — so the two are mapped at this boundary rather
+          * than teaching the swatch component about a preference it does not own.
+          */}
         <AccentSwatches
-          value={accent}
-          onChange={chooseAccent}
-          disabled
+          value={accent === 'default' ? null : accent}
+          onChange={(next) => chooseAccent(next ?? 'default')}
+          includeDefault
           dark={dark}
           labelledBy="accent-colour-label"
         />
 
         <p className="text-xs text-muted-foreground">
-          Fixed palette: this app uses Celestial Sapphire, which is monochrome and has no accent hue, so this no
-          longer changes anything. Your saved value is kept for the things that still read it.
+          Used for buttons, the tab bar, chips, switches and focus rings. Each colour has a darker variant for the
+          dark appearance, so nothing loses contrast when you switch.
         </p>
       </SettingsRow>
     </SettingsGroup>

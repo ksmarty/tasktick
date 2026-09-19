@@ -144,6 +144,170 @@
   --rainbow-5: oklch(0.84 0.13 90);
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Accent colour
+ * ---------------------------------------------------------------------------
+ *
+ * The palette above is Celestial Sapphire, which is monochrome — a deliberate
+ * choice, and one the user has now asked to be able to opt out of. So the accent
+ * re-points `--primary`, `--primary-foreground` and `--ring` at one of the twelve
+ * iOS system colours, and every component that already reads those tokens follows
+ * without being touched: buttons, the tab bar's sliding blob, chips, switches, the
+ * selected day on the calendar, focus rings.
+ *
+ * **The values come from `ACCENT_HEX_LIGHT` / `ACCENT_HEX_DARK` in
+ * `src/lib/colors.ts`** — the same maps the calendar and habit colours already
+ * use — so an accent chosen here and a calendar set to the same colour are the
+ * same colour rather than two near-misses. If those maps change, this block has to
+ * change with them; that is the one cost of expressing it in CSS rather than
+ * handing it to the theme at runtime, and it buys applying the accent before first
+ * paint with no flash.
+ *
+ * **The foreground is computed, not assumed.** White on an accent is the platform
+ * convention, so it is preferred — but it fails badly on the bright end of the
+ * palette (white on yellow is 1.51:1, on green 2.22:1), so those take near-black.
+ * A hard-coded white would have made a yellow accent unreadable.
+ *
+ * Both rules are keyed off attributes on `<html>`, so the dark one compounds:
+ * `.dark[data-accent='x']`, not `.dark [data-accent='x']`.
+ */
+
+  /* No accent: the palette's own primary, which is how the app looks by default. */
+  [data-accent='default'] {
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --ring: oklch(0.708 0 0);
+  }
+
+  [data-accent='blue'] {
+    --primary: #007aff;
+    --primary-foreground: #ffffff;
+    --ring: #007aff;
+  }
+  [data-accent='indigo'] {
+    --primary: #5856d6;
+    --primary-foreground: #ffffff;
+    --ring: #5856d6;
+  }
+  [data-accent='purple'] {
+    --primary: #af52de;
+    --primary-foreground: #ffffff;
+    --ring: #af52de;
+  }
+  [data-accent='pink'] {
+    --primary: #ff2d55;
+    --primary-foreground: #ffffff;
+    --ring: #ff2d55;
+  }
+  [data-accent='red'] {
+    --primary: #ff3b30;
+    --primary-foreground: #ffffff;
+    --ring: #ff3b30;
+  }
+  [data-accent='orange'] {
+    --primary: #ff9500;
+    --primary-foreground: #0a0a0a;
+    --ring: #ff9500;
+  }
+  [data-accent='yellow'] {
+    --primary: #ffcc00;
+    --primary-foreground: #0a0a0a;
+    --ring: #ffcc00;
+  }
+  [data-accent='green'] {
+    --primary: #34c759;
+    --primary-foreground: #0a0a0a;
+    --ring: #34c759;
+  }
+  [data-accent='teal'] {
+    --primary: #30b0c7;
+    --primary-foreground: #0a0a0a;
+    --ring: #30b0c7;
+  }
+  [data-accent='cyan'] {
+    --primary: #32ade6;
+    --primary-foreground: #0a0a0a;
+    --ring: #32ade6;
+  }
+  [data-accent='gray'] {
+    --primary: #8e8e93;
+    --primary-foreground: #ffffff;
+    --ring: #8e8e93;
+  }
+  [data-accent='brown'] {
+    --primary: #a2845e;
+    --primary-foreground: #ffffff;
+    --ring: #a2845e;
+  }
+
+  .dark[data-accent='default'] {
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --ring: oklch(0.556 0 0);
+  }
+
+  .dark[data-accent='blue'] {
+    --primary: #0a84ff;
+    --primary-foreground: #ffffff;
+    --ring: #0a84ff;
+  }
+  .dark[data-accent='indigo'] {
+    --primary: #5e5ce6;
+    --primary-foreground: #ffffff;
+    --ring: #5e5ce6;
+  }
+  .dark[data-accent='purple'] {
+    --primary: #bf5af2;
+    --primary-foreground: #ffffff;
+    --ring: #bf5af2;
+  }
+  .dark[data-accent='pink'] {
+    --primary: #ff375f;
+    --primary-foreground: #ffffff;
+    --ring: #ff375f;
+  }
+  .dark[data-accent='red'] {
+    --primary: #ff453a;
+    --primary-foreground: #ffffff;
+    --ring: #ff453a;
+  }
+  .dark[data-accent='orange'] {
+    --primary: #ff9f0a;
+    --primary-foreground: #0a0a0a;
+    --ring: #ff9f0a;
+  }
+  .dark[data-accent='yellow'] {
+    --primary: #ffd60a;
+    --primary-foreground: #0a0a0a;
+    --ring: #ffd60a;
+  }
+  .dark[data-accent='green'] {
+    --primary: #30d158;
+    --primary-foreground: #0a0a0a;
+    --ring: #30d158;
+  }
+  .dark[data-accent='teal'] {
+    --primary: #40c8e0;
+    --primary-foreground: #0a0a0a;
+    --ring: #40c8e0;
+  }
+  .dark[data-accent='cyan'] {
+    --primary: #64d2ff;
+    --primary-foreground: #0a0a0a;
+    --ring: #64d2ff;
+  }
+  .dark[data-accent='gray'] {
+    --primary: #98989d;
+    --primary-foreground: #0a0a0a;
+    --ring: #98989d;
+  }
+  .dark[data-accent='brown'] {
+    --primary: #ac8e68;
+    --primary-foreground: #ffffff;
+    --ring: #ac8e68;
+  }
+
 @theme inline {
   /* --- colour ---------------------------------------------------------- */
   --color-background: var(--background);

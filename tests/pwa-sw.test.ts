@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = fs.readFileSync(path.join(ROOT, 'public/sw.js'), 'utf8');
@@ -29,6 +29,7 @@ const SW_VERSION = /const VERSION = '([^']+)'/.exec(SOURCE)?.[1];
 if (!SW_VERSION) throw new Error('could not read VERSION out of public/sw.js');
 const PRECACHE = `precache-${SW_VERSION}`;
 const RUNTIME = `runtime-${SW_VERSION}`;
+const META = `meta-${SW_VERSION}`;
 
 /* -------------------------------------------------------------------------- */
 /* stubs                                                                      */
@@ -101,11 +102,13 @@ class FakeRequest {
   readonly method: string;
   readonly url: string;
   readonly mode: string;
+  readonly headers: FakeHeaders;
 
-  constructor(url: string, init: { method?: string; mode?: string } = {}) {
+  constructor(url: string, init: { method?: string; mode?: string; headers?: Record<string, string> } = {}) {
     this.url = new URL(url, ORIGIN).href;
     this.method = init.method ?? 'GET';
     this.mode = init.mode ?? 'no-cors';
+    this.headers = new FakeHeaders(init.headers ?? {});
   }
 }
 
@@ -121,8 +124,10 @@ interface Harness {
   install(route: (url: string, request: FakeRequest) => FakeResponse | Error): Promise<void>;
   activate(): Promise<void>;
   navigation(url: string, route: Route): Promise<FakeResponse | undefined>;
-  get(url: string, route: Route, init?: { mode?: string }): Promise<FakeResponse | undefined>;
+  get(url: string, route: Route, init?: { mode?: string; headers?: Record<string, string> }): Promise<FakeResponse | undefined>;
   request(url: string, init?: { method?: string }): Promise<FakeResponse | undefined>;
+  /** Deliver a `message` event from the page (session scope, sign-out, …). */
+  message(data: unknown): Promise<void>;
 }
 
 type Route = (url: string, request: FakeRequest) => FakeResponse | Error;
@@ -150,6 +155,8 @@ function createHarness(): Harness {
           entries.set(normalize(target), response);
         },
         match: async (target: unknown) => entries.get(normalize(target)),
+        delete: async (target: unknown) => entries.delete(normalize(target)),
+        keys: async () => [...entries.keys()].map((url) => new FakeRequest(url)),
         add: async () => undefined,
       };
     },
@@ -197,6 +204,10 @@ function createHarness(): Harness {
     Request: FakeRequest,
     Response: FakeResponse,
     URL,
+    // The worker's API-cache timeout races the network against a timer; a test
+    // that wants the cached branch drives this with fake timers.
+    setTimeout: (fn: () => void, ms?: number) => setTimeout(fn, ms),
+    clearTimeout: (handle: unknown) => clearTimeout(handle as never),
     console: { warn: () => undefined, error: () => undefined, log: () => undefined },
   };
   sandbox.globalThis = sandbox;
@@ -264,10 +275,20 @@ function createHarness(): Harness {
     },
     async get(url, getRoute, init = {}) {
       route = getRoute;
-      return dispatch('fetch', makeEvent(new FakeRequest(url, { mode: init.mode ?? 'cors' })));
+      return dispatch('fetch', makeEvent(new FakeRequest(url, { mode: init.mode ?? 'cors', headers: init.headers })));
     },
     async request(url, init = {}) {
       return dispatch('fetch', makeEvent(new FakeRequest(url, init)));
+    },
+    async message(data) {
+      const waits: Promise<unknown>[] = [];
+      await dispatch('message', {
+        data,
+        waits,
+        waitUntil(value: Promise<unknown>) {
+          waits.push(value);
+        },
+      });
     },
   };
 }
@@ -316,22 +337,214 @@ describe('service worker scope', () => {
   });
 });
 
-describe('/api/** is never cached', () => {
-  it('passes a healthy response straight through without storing it', async () => {
+const API_CACHE = `api-s1-${SW_VERSION}`;
+
+/** An HTML document as the server really sends it. */
+function html(body: string): FakeResponse {
+  return new FakeResponse(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+/**
+ * Announces the session scope and forgets the bookkeeping write it causes, so a
+ * test only sees the API cache writes made by the reads it performs.
+ */
+async function announce(harness: Harness, scope: string): Promise<void> {
+  await harness.message({ type: 'session', scope });
+  harness.writes.length = 0;
+}
+
+/** An API response as the server really sends it: 200, JSON, `no-store`. */
+function json(body: string, status = 200): FakeResponse {
+  return new FakeResponse(body, {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, private', Vary: 'Cookie' },
+  });
+}
+
+describe('/api/** reads are network-first with a per-session cache', () => {
+  it('stores nothing before the worker knows which session it is caching for', async () => {
     const harness = createHarness();
-    const response = await harness.get(`${ORIGIN}/api/tasks`, () => new FakeResponse('[1,2,3]'));
+    const response = await harness.get(`${ORIGIN}/api/tasks`, () => json('[1,2,3]'));
     expect(response?.status).toBe(200);
     expect(response?.body).toBe('[1,2,3]');
     expect(harness.writes).toEqual([]);
   });
 
-  it('answers 503 with a JSON offline flag when the network fails', async () => {
+  it('caches a read under the announced session, and serves it when the network fails', async () => {
     const harness = createHarness();
+    await announce(harness, 's1');
+
+    const online = await harness.get(`${ORIGIN}/api/tasks`, () => json('[1,2,3]'));
+    expect(online?.body).toBe('[1,2,3]');
+    expect(harness.writes).toEqual([`${API_CACHE} ${ORIGIN}/api/tasks`]);
+
+    const offline = await harness.get(`${ORIGIN}/api/tasks`, () => new Error('offline'));
+    expect(offline?.status).toBe(200);
+    expect(offline?.body).toBe('[1,2,3]');
+  });
+
+  it('falls back to the cached copy when the network is slower than the timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = createHarness();
+      await announce(harness, 's1');
+      await harness.get(`${ORIGIN}/api/tasks`, () => json('["cached"]'));
+
+      // A network that answers, but only after 10 seconds: "bad cell service".
+      const slow = new Promise<FakeResponse>((resolve) => {
+        setTimeout(() => resolve(json('["fresh"]')), 10_000);
+      });
+      const pending = harness.get(`${ORIGIN}/api/tasks`, () => slow as never);
+
+      // Let the worker's own async setup (reading the scope, opening the cache)
+      // finish before the clock moves, or the timeout timer would be created
+      // after the jump and lose the race it is supposed to win.
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(6_100);
+      // Let the slow response land so the test's own bookkeeping settles.
+      await vi.advanceTimersByTimeAsync(4_000);
+
+      const response = await pending;
+      expect(response?.body).toBe('["cached"]');
+      // The slow answer is still used to refresh the cache for next time.
+      expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/api/tasks`)?.body).toBe('["fresh"]');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('answers 503 with a JSON offline flag when there is nothing cached', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
     const response = await harness.get(`${ORIGIN}/api/tasks`, () => new Error('offline'));
     expect(response?.status).toBe(503);
     expect(response?.headers.get('Content-Type')).toBe('application/json');
     expect(response?.headers.get('Cache-Control')).toBe('no-store');
     expect(response?.json()).toEqual({ offline: true, error: 'network-unavailable' });
+  });
+
+  it('never caches a non-200 or a non-JSON API response', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks`, () => json('boom', 500));
+    await harness.get(`${ORIGIN}/api/export?format=ics`, () =>
+      new FakeResponse('BEGIN:VCALENDAR', { headers: { 'Content-Type': 'text/calendar' } }),
+    );
+    expect(harness.writes).toEqual([]);
+  });
+
+  it('does not cache reads from a different query string at the same URL', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks?window=today`, () => json('["today"]'));
+    const other = await harness.get(`${ORIGIN}/api/tasks?window=all`, () => new Error('offline'));
+    expect(other?.status).toBe(503);
+  });
+
+  it('deletes another session\'s cache as soon as a new session is announced', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks`, () => json('["account-a"]'));
+    expect([...harness.caches.keys()]).toContain(API_CACHE);
+
+    await announce(harness, 's2');
+    expect([...harness.caches.keys()]).not.toContain(API_CACHE);
+
+    // The new session cannot be served account A's data even offline.
+    const offline = await harness.get(`${ORIGIN}/api/tasks`, () => new Error('offline'));
+    expect(offline?.status).toBe(503);
+  });
+
+  it('drops every API cache and the stored scope on sign-out', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks`, () => json('["account-a"]'));
+
+    await harness.message({ type: 'sign-out' });
+    expect([...harness.caches.keys()].filter((name) => name.startsWith('api-'))).toEqual([]);
+    harness.writes.length = 0;
+
+    // With the scope gone the worker is back to "no session known", so it does
+    // not even try to cache a fresh read.
+    await harness.get(`${ORIGIN}/api/habits`, () => json('[]'));
+    expect(harness.writes.filter((write) => write.startsWith('api-'))).toEqual([]);
+  });
+
+  it('keeps the scope across a worker restart (it is read from META_CACHE)', async () => {
+    const first = createHarness();
+    await announce(first, 's1');
+    const stored = await first.caches.get(META)!.get(`${ORIGIN}/__session`);
+    expect(stored?.body).toBe('s1');
+
+    // A fresh worker (same caches, empty memory) picks the scope back up.
+    const second = createHarness();
+    second.caches.set(META, first.caches.get(META)!);
+    await second.get(`${ORIGIN}/api/tasks`, () => json('[]'));
+    expect(second.writes).toEqual([`${API_CACHE} ${ORIGIN}/api/tasks`]);
+  });
+});
+
+describe('route payloads, so a tab tap works offline', () => {
+  const PAYLOAD = `${ORIGIN}/calendar?_rsc=abc123`;
+  const rsc = (body: string) =>
+    new FakeResponse(body, {
+      headers: { 'Content-Type': 'text/x-component', 'Cache-Control': 'no-store, private', Vary: 'RSC, Next-Router-State-Tree' },
+    });
+
+  it('recognises a payload request by its header or its query parameter', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    // `_rsc` only.
+    await harness.get(PAYLOAD, () => rsc('flight-payload'));
+    expect(harness.caches.get(API_CACHE)!.get(PAYLOAD)?.body).toBe('flight-payload');
+    // The `RSC: 1` header only, with no `_rsc` parameter on the URL.
+    await harness.get(`${ORIGIN}/habits`, () => rsc('habits-payload'), { headers: { RSC: '1' } });
+    expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/habits`)?.body).toBe('habits-payload');
+  });
+
+  it('serves a payload from cache when the network is gone', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(PAYLOAD, () => rsc('flight-payload'));
+
+    const offline = await harness.get(PAYLOAD, () => new Error('offline'));
+    expect(offline?.status).toBe(200);
+    expect(offline?.body).toBe('flight-payload');
+  });
+
+  it('primes the route’s own document, at the URL a reload would ask for', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+
+    // The app puts its state in the query string, and the payload request carries
+    // that state plus `_rsc`. The document must be primed for the URL a reload
+    // will use, not for the bare pathname.
+    const themed = `${ORIGIN}/calendar?date=2026-09-19&_rsc=abc123`;
+    await harness.get(themed, (url) => (url.includes('_rsc') ? rsc('flight-payload') : html('<html>calendar</html>')));
+
+    const cached = harness.caches.get(API_CACHE)!.get(`${ORIGIN}/calendar?date=2026-09-19`);
+    expect(cached?.body).toBe('<html>calendar</html>');
+
+    // Which is what makes an offline RELOAD of that route possible.
+    const reload = await harness.navigation(`${ORIGIN}/calendar?date=2026-09-19`, () => new Error('offline'));
+    expect(reload?.status).toBe(200);
+    expect(reload?.body).toBe('<html>calendar</html>');
+  });
+
+  it('does not store an error or a non-payload body as a route payload', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(PAYLOAD, () => json('{"ok":false}', 500));
+    expect(harness.writes).toEqual([]);
+  });
+});
+
+describe('/api/auth/** is never intercepted for caching', () => {
+  it('passes the session endpoint straight through, cached or not', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    const response = await harness.get(`${ORIGIN}/api/auth/get-session`, () => new FakeResponse('{"user":null}'));
+    expect(response?.body).toBe('{"user":null}');
     expect(harness.writes).toEqual([]);
   });
 });
@@ -342,6 +555,54 @@ describe('navigations are network-first with a shell fallback', () => {
     const response = await harness.navigation(`${ORIGIN}/today`, () => new FakeResponse('<html>today</html>'));
     expect(response?.body).toBe('<html>today</html>');
     expect(harness.writes).toEqual([]); // navigations are never written at runtime
+  });
+
+  it('serves an offline reload of a visited URL from this session\'s own copy', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+
+    // The screen the user is looking at, fetched while online.
+    await harness.navigation(`${ORIGIN}/tasks`, () =>
+      html('<html>tasks for account A</html>'),
+    );
+
+    // Reload with no network: same URL, same payload, so React can hydrate it.
+    const reloaded = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
+    expect(reloaded?.status).toBe(200);
+    expect(reloaded?.body).toBe('<html>tasks for account A</html>');
+  });
+
+  it('never serves one URL\'s document at another URL', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+
+    // /settings was never visited, so there is nothing valid to serve there and
+    // the worker redirects to /offline instead of handing React the wrong route.
+    const settings = await harness.navigation(`${ORIGIN}/settings`, () => new Error('offline'));
+    expect(settings?.status).toBe(302);
+    expect(settings?.headers.get('location')).toBe(`${ORIGIN}/offline`);
+  });
+
+  it('keeps documents in the session cache, never the shared runtime cache', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+
+    expect(harness.writes).toEqual([`${API_CACHE} ${ORIGIN}/tasks`]);
+    expect(harness.caches.get(RUNTIME)?.size ?? 0).toBe(0);
+
+    // And a different session starts with nothing.
+    await announce(harness, 's2');
+    const other = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
+    expect(other?.status).toBe(302);
+  });
+
+  it('never stores the login redirect a signed-out visit produces', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    await harness.navigation(`${ORIGIN}/tasks`, () => new FakeResponse('<html>login</html>', { redirected: true }));
+    expect(harness.writes).toEqual([]);
   });
 
   it('redirects a failed non-root navigation to /offline rather than serving foreign HTML', async () => {
@@ -492,6 +753,7 @@ describe('lifecycle', () => {
     const harness = await installedHarness();
     seedCache(harness, 'precache-tasktick-v0', { x: 'stale' });
     seedCache(harness, 'runtime-tasktick-v0', {});
+    seedCache(harness, 'api-s1-tasktick-v0', {});
     await harness.activate();
     expect([...harness.caches.keys()].sort()).toEqual([PRECACHE]);
   });

@@ -8,10 +8,33 @@
  * at `/api/auth/*` on this origin.
  */
 import { createAuthClient } from 'better-auth/react';
+import { purgeSession } from './session-scope';
 
 export const authClient = createAuthClient({});
 
-export const { signIn, signUp, signOut, useSession } = authClient;
+export const { signIn, signUp, useSession } = authClient;
+
+const endSession = authClient.signOut;
+
+/**
+ * Signs out, and takes the local data with it.
+ *
+ * Everything TaskTick keeps on this device — the persisted read cache, the
+ * queued writes, and the service worker's per-session API cache — belongs to the
+ * session that is ending. Porting the purge through this one function rather
+ * than through every call site is what makes that true by construction: the UI
+ * cannot sign out without emptying the device.
+ *
+ * The purge is conditional on the sign-out succeeding. Signing out while
+ * offline does not end anything on the server, and throwing the user's unsent
+ * work away because a request failed would be worse than keeping it: they are
+ * still signed in, and the queue still replays.
+ */
+export const signOut: typeof authClient.signOut = (async (...args: Parameters<typeof endSession>) => {
+  const result = await endSession(...args);
+  if (!result?.error) await purgeSession();
+  return result;
+}) as typeof authClient.signOut;
 
 /**
  * Starts a generic OIDC sign-in.

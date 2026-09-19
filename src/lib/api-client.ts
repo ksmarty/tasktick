@@ -4,7 +4,26 @@
  * Unwraps the `{ ok, data }` / `{ ok, error }` envelope so callers deal in plain
  * values and exceptions, and surfaces the HTTP status on the thrown error so the
  * UI can distinguish "your session expired" (401) from "that input is bad" (422).
+ *
+ * ## Offline writes
+ *
+ * This file is the single seam every mutation already goes through, which is
+ * where "the write could not be sent" is turned from a failure into a queued
+ * write. When a non-GET request cannot reach the server *at all* (a thrown
+ * fetch: no connection, or a connection that dropped mid-request) and the
+ * endpoint is one the queue understands, the request is recorded in the offline
+ * queue and this function resolves with the value the endpoint would have
+ * returned — a temporary id and the submitted fields, plus `queued: true`.
+ *
+ * That resolution value matters: callers hold an optimistic update and revert it
+ * when a write resolves to `undefined` (`TasksView`, `TodayView`). Resolving with
+ * `undefined` after a successful enqueue would roll the user's own change back
+ * off the screen — the exact opposite of the intent.
+ *
+ * Only *network* failures are queued. An HTTP error means the server was reached
+ * and answered; replaying it later would replace a clear message with a mystery.
  */
+import { enqueueWrite, isQueueable, type QueueMethod } from './offline-queue';
 
 export class ApiClientError extends Error {
   constructor(
@@ -24,7 +43,14 @@ export class ApiClientError extends Error {
   get isAuthError(): boolean {
     return this.status === 401;
   }
+
+  /** True when the failure never reached the server. */
+  get isNetworkError(): boolean {
+    return this.status === 0;
+  }
 }
+
+export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 type Query = Record<string, string | number | boolean | string[] | undefined | null>;
 
@@ -40,20 +66,33 @@ function buildUrl(path: string, query?: Query): string {
   return `${url.pathname}${url.search}`;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
+/**
+ * One request, no queueing. `sendNow` is the same thing exported, and is what the
+ * offline queue replays through — a replayed write must not be able to re-enter
+ * the queue that is currently draining.
+ */
+async function transport<T>(
+  method: HttpMethod,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(buildUrl(path, query), {
+    response = await fetch(path, {
       method,
       // Send the session cookie; the API is same-origin only.
       credentials: 'same-origin',
       headers: {
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      // Never let a stale service-worker cache satisfy an authenticated read.
+      // Never let a stale browser cache satisfy an authenticated read. The
+      // service worker keeps its own per-session copy and is the only thing
+      // allowed to answer from a cache (see `public/sw.js`).
       cache: 'no-store',
     });
   } catch {
@@ -88,6 +127,51 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   }
 
   return (envelope?.data ?? (null as T)) as T;
+}
+
+/**
+ * Sends a request without touching the offline queue.
+ *
+ * Exported for the queue's replay loop only. The extra headers exist for
+ * `X-Idempotency-Key`, which makes a replayed write a no-op on a server that
+ * already applied it.
+ */
+export async function sendNow<T>(
+  method: HttpMethod,
+  path: string,
+  body?: unknown,
+  query?: Query,
+  headers?: Record<string, string>,
+): Promise<T> {
+  return transport<T>(method, buildUrl(path, query), body, headers);
+}
+
+/** Queues a write that never reached the server. Returns its placeholder, if held. */
+async function queueFailedWrite(method: HttpMethod, path: string, body: unknown, error: unknown): Promise<unknown | undefined> {
+  if (!(error instanceof ApiClientError) || !error.isNetworkError) return undefined;
+  if (!isQueueable(method, path)) return undefined;
+  if (typeof indexedDB === 'undefined') return undefined;
+
+  try {
+    const { result } = await enqueueWrite({ method: method as QueueMethod, path, body });
+    return result;
+  } catch (queueError) {
+    // The queue could not take it (no storage, quota). The original network
+    // failure is the honest thing to report.
+    console.warn('[offline] write could not be queued', queueError);
+    return undefined;
+  }
+}
+
+async function request<T>(method: HttpMethod, path: string, body?: unknown, query?: Query): Promise<T> {
+  const url = buildUrl(path, query);
+  try {
+    return await transport<T>(method, url, body);
+  } catch (error) {
+    const queued = await queueFailedWrite(method, url, body, error);
+    if (queued !== undefined) return queued as T;
+    throw error;
+  }
 }
 
 export const api = {

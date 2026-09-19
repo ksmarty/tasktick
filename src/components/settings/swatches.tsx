@@ -24,12 +24,21 @@ import { cn } from '@/lib/utils';
 export interface AccentSwatchesProps {
   /** `null` when a custom `#rrggbb` is in force, so no swatch reads as selected. */
   value: AccentColor | null;
-  onChange?: (color: AccentColor) => void;
+  /** `null` means "no accent", and only `includeDefault` produces it. */
+  onChange?: (color: AccentColor | null) => void;
   /** Renders every swatch inert — used by the fixed-palette accent row. */
   disabled?: boolean;
   /** Use the dark-appearance value of each accent. */
   dark?: boolean;
   /** `id` of the element that labels the group, for `aria-labelledby`. */
+  /**
+   * Renders a neutral swatch first, for a setting that may have no accent.
+   *
+   * The app's own look is monochrome, so a picker with no way to choose that would
+   * be a one-way door: pick a colour and there is nothing to pick to get back.
+   * Only the accent row offers it — a calendar cannot be colourless.
+   */
+  includeDefault?: boolean;
   labelledBy?: string;
   className?: string;
 }
@@ -38,12 +47,33 @@ export function AccentSwatches({
   value,
   onChange,
   disabled = false,
+  includeDefault = false,
   dark = false,
   labelledBy,
   className,
 }: AccentSwatchesProps) {
   return (
     <div role="group" aria-labelledby={labelledBy} className={cn('flex flex-wrap gap-2', className)}>
+      {includeDefault ? (
+        <button
+          type="button"
+          aria-label="Default"
+          aria-pressed={value === null}
+          disabled={disabled}
+          onClick={() => onChange?.(null)}
+          className={cn(
+            'inline-flex size-10 shrink-0 items-center justify-center rounded-full shadow-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            value === null
+              ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
+              : 'ring-1 ring-inset ring-black/10',
+            disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
+          )}
+          /* The palette's own primary: what "no accent" resolves to. */
+          style={{ backgroundColor: dark ? 'oklch(0.922 0 0)' : 'oklch(0.205 0 0)' }}
+        >
+          {value === null ? <CheckIcon /> : null}
+        </button>
+      ) : null}
       {ACCENT_COLORS.map((color) => {
         const selected = color === value;
         return (

@@ -41,6 +41,20 @@ export const ACCENT_COLORS = [
 
 export type AccentColor = (typeof ACCENT_COLORS)[number];
 
+/**
+ * What the *accent setting* may be.
+ *
+ * Wider than `AccentColor` by one: 'default' means "use the palette's own
+ * monochrome primary", which is how the app has looked since it moved to GodUI.
+ * It exists so the setting is not a one-way door — without it, choosing a colour
+ * would be permanent, because there would be nothing to choose to get back.
+ *
+ * `AccentColor` deliberately does not gain it: a calendar or a habit cannot be
+ * colourless.
+ */
+export const ACCENT_PREFERENCE = ['default', ...ACCENT_COLORS] as const;
+export type AccentPreference = (typeof ACCENT_PREFERENCE)[number];
+
 /* -------------------------------------------------------------------------- */
 /* tasks                                                                      */
 /* -------------------------------------------------------------------------- */

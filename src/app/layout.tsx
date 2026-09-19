@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { cookies } from 'next/headers';
 import './globals.css';
 import { Providers } from './providers';
-import { ACCENT_COLORS } from '@/lib/types';
+import { ACCENT_PREFERENCE } from '@/lib/types';
 
 const APP_NAME = 'TaskTick';
 const APP_DESCRIPTION =
@@ -97,7 +97,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const store = await cookies();
   const themeCookie = store.get('tasktick-theme')?.value ?? 'system';
   const accentCookie = store.get('tasktick-accent')?.value;
-  const accent = accentCookie && (ACCENT_COLORS as readonly string[]).includes(accentCookie) ? accentCookie : 'blue';
+  // 'default' keeps the app monochrome unless the user picks a colour, so
+  // enabling the accent does not change how it looks for anyone who never asked.
+  const accent =
+    accentCookie && (ACCENT_PREFERENCE as readonly string[]).includes(accentCookie) ? accentCookie : 'default';
 
   return (
     <html lang="en" data-accent={accent} suppressHydrationWarning>

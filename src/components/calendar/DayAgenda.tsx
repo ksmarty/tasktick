@@ -18,13 +18,21 @@
  *
  * ## The timeline
  *
- * The hairline is a *timeline*: it runs the full height of each row and, except
- * on the last row, reaches one `gap-stack` into the gap below it (`-mb-3`, the
- * same 0.75rem the list's own gap uses), so consecutive entries are joined by
- * one continuous rule instead of each row drawing an isolated tick. The gutter
- * label is set one step below `text-xs` to leave that rule its own clearance
- * while staying legible; the values stay right-aligned against the rule. One
- * item gets a single segment, and an empty agenda draws no rule at all.
+ * The hairline is a *timeline*: the rule runs the full height of each row and,
+ * except on the last row, reaches one `gap-stack` into the gap below it
+ * (`-bottom-3`, the same 0.75rem the list's own gap uses), so consecutive
+ * entries are joined by one continuous rule instead of each row drawing an
+ * isolated tick. The rule is never split around the entries — each item overlays
+ * a node on the same run — so the line connects *through* the circles rather
+ * than stopping at each one. A timed item hangs a filled disc on the line; an
+ * all-day item, which has no clock position, hangs a hollow ring in the same
+ * calendar colour, so the gutter alone tells the two apart at a glance. The
+ * first row starts its rule at its own node and the last stops at its node, so
+ * the line neither dangles above the first entry nor past the final one; a day
+ * with a single item carries no rule at all, only its node, and an empty agenda
+ * draws nothing. The gutter label is set one step below `text-xs` to leave that
+ * rule its own clearance while staying legible; the values stay right-aligned
+ * against the rule.
  *
  * Colour is never the only signal. A task is drawn with a checkbox glyph and a
  * softer card surface than an event's, so "a to-do I scheduled" is never
@@ -227,21 +235,54 @@ export function DayAgenda({
                 </span>
 
                 {/*
-                 * The timeline: the hairline the times are right-aligned
-                 * against, run down the whole row. On every row but the last it
-                 * reaches one `gap-stack` into the gap below, so the segment
-                 * meets the next row's and the entries are connected rather than
-                 * each floating on its own tick. The last row stops at its own
-                 * edge, and the empty state renders no rule at all because there
-                 * are no rows to carry one.
+                 * The timeline: a hairline the times are right-aligned
+                 * against, with each item's node laid on top of it.
+                 *
+                 * The rule is an absolutely-positioned child of a full-height
+                 * column rather than the column itself, so the node can sit at a
+                 * fixed offset from the row while the rule starts and stops
+                 * where it needs to. On every row but the last it runs one
+                 * `gap-stack` past the bottom (`-bottom-3`, the list's own gap),
+                 * so the segments meet and the entries are connected rather than
+                 * each floating on its own tick. The node is drawn *over* the
+                 * unbroken rule — never between two segments — which is what
+                 * keeps the line continuous through every circle.
+                 *
+                 * First and last are trimmed to their nodes rather than the row
+                 * edges: the first row starts its rule at its node (`top-4`) and
+                 * the last stops there (`h-4`, no bridge), so nothing dangles
+                 * above the first entry or past the final one. A single-item day
+                 * is both first and last and draws no rule at all, only its
+                 * node.
                  */}
-                <span
-                  aria-hidden
-                  className={cn('w-px shrink-0 self-stretch bg-border', index < items.length - 1 && '-mb-3')}
-                />
+                <span aria-hidden className="relative w-px shrink-0 self-stretch">
+                  {items.length > 1 ? (
+                    <span
+                      className={cn(
+                        'absolute left-0 w-px bg-border',
+                        index === 0 ? 'top-4' : 'top-0',
+                        index === items.length - 1 ? 'h-4' : '-bottom-3',
+                      )}
+                    />
+                  ) : null}
+                  {/*
+                   * The circle on the line. A timed item is a filled disc in
+                   * the item's own colour; an all-day item is a hollow ring of
+                   * the same colour, because it has no moment to point at. The
+                   * colour is `hex` — the value `itemHex` already resolved for
+                   * the row — so dot, stripe and range always agree.
+                   */}
+                  <span
+                    className={cn(
+                      'absolute top-3 left-1/2 size-2.5 -translate-x-1/2 rounded-full',
+                      item.isAllDay && 'border-2 bg-background',
+                    )}
+                    style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}
+                  />
+                </span>
 
                 <span
-                  className="flex min-w-0 flex-1 flex-col justify-center rounded-lg border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2"
+                  className="flex min-w-0 flex-1 flex-col justify-center rounded-sm border-l-4 border-l-[var(--edge-color)] bg-accent px-row py-2"
                   style={{ '--edge-color': hex } as CSSProperties}
                 >
                   {/* An all-day row has no range to show; the gutter says it. */}

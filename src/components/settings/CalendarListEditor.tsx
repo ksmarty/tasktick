@@ -386,7 +386,8 @@ function CalendarDialog({
             </p>
             <AccentSwatches
               value={color}
-              onChange={setColor}
+              // A calendar always has a colour, so the neutral swatch is not offered here.
+                onChange={(next) => next && setColor(next)}
               disabled={remoteOwnsIdentity}
               labelledBy="calendar-colour-label"
             />

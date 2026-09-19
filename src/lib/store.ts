@@ -8,9 +8,34 @@
  * on focus, and let a mutation push an optimistic value — and hand-rolling them
  * is smaller and easier to reason about than bending a framework to the
  * offline-first behaviour the PWA needs.
+ *
+ * ## Offline
+ *
+ * The `Map` below is still the source of truth for rendering, but it is no
+ * longer the only copy: every entry with data is mirrored into IndexedDB
+ * (`offline-store.ts`) and restored on the next page load, which is what makes a
+ * reload on a dead connection show the last data instead of a skeleton. Entries
+ * are tagged with the session scope they belong to and are dropped when the
+ * scope changes.
+ *
+ * Two rules make the offline behaviour coherent without any component knowing
+ * about it:
+ *
+ *   1. A fetched response is NOT applied to a resource that has a pending queued
+ *      write. The server's copy cannot contain the write yet, so applying it
+ *      would roll the user's optimistic change back off the screen — the classic
+ *      "I ticked it off, it un-ticked itself" bug. Once the queue drains, the
+ *      prefixes are revalidated for real and the server wins again.
+ *   2. When a queued write finally lands, the prefixes it affects are refetched
+ *      through `revalidate()`, which reaches every mounted screen, not just the
+ *      one that made the write (it may not exist any more).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { api, errorMessage } from './api-client';
+import { isQueueUsable, matchesPrefix, pathnameOf, pendingAffects, subscribeQueue } from './offline-queue';
+import { encodeEntry, persistEntry as persistRecord, forgetPersistedEntry, loadPersistedEntries, shouldApplyHydrated, clearPersistedEntries } from './offline-store';
+import { insertProjectedEntity, projectQueuedCreate } from './offline-projections';
+import { ensureOfflineSupport, onScopeEvent, scopeForWrites } from './session-scope';
 
 type Listener = () => void;
 
@@ -42,8 +67,32 @@ function getEntry<T>(key: string): Entry<T> {
 
 function setEntry<T>(key: string, patch: Partial<Entry<T>>) {
   const current = getEntry<T>(key);
-  cache.set(key, { ...current, ...patch } as Entry);
+  const next = { ...current, ...patch } as Entry<T>;
+  cache.set(key, next);
+  if (patch.data !== undefined) persistEntrySoon(key, next);
   emit();
+}
+
+/**
+ * True while records are being read back out of IndexedDB.
+ *
+ * Hydration must not turn around and write what it just read: on a large cache
+ * that is a pointless write storm, and on a cached-but-stale payload it would
+ * keep refreshing the `savedAt` that expiry is measured against.
+ */
+let hydrating = false;
+
+function persistEntrySoon(key: string, entry: Entry) {
+  if (hydrating || typeof window === 'undefined' || entry.data === undefined) return;
+  const record = encodeEntry({
+    key,
+    scope: scopeForWrites(),
+    data: entry.data,
+    loadedAt: entry.loadedAt,
+  });
+  // `null` means the payload is not storable (oversized, or not serialisable);
+  // that key is simply not available offline.
+  if (record) void persistRecord(record);
 }
 
 export function subscribe(listener: Listener): () => void {
@@ -123,7 +172,21 @@ export function useResource<T>(
           const data = await api.get<T>(key!, queryRef.current as never);
           // Ignore a response that a newer request has already superseded.
           if (getEntry<T>(cacheKey).version === version) {
-            setEntry<T>(cacheKey, { data, isLoading: false, error: null, loadedAt: Date.now() });
+            if (pendingAffects(cacheKey)) {
+              /*
+               * A queued write owns the local copy of this resource.
+               *
+               * The response was fetched before that write reached the server
+               * (or could not reach it at all), so it does not contain the
+               * change the user has already seen. Applying it would undo the
+               * optimistic update. `invalidate()` marks the entry stale, so the
+               * moment the queue drains the next load replaces this with the
+               * server's answer.
+               */
+              setEntry<T>(cacheKey, { isLoading: false, error: null });
+            } else {
+              setEntry<T>(cacheKey, { data, isLoading: false, error: null, loadedAt: Date.now() });
+            }
           }
         } catch (error) {
           if (getEntry<T>(cacheKey).version === version) {
@@ -161,6 +224,17 @@ export function useResource<T>(
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+   * Every mounted resource publishes its loader so a write that lands later can
+   * refresh it. `revalidate()` is what the offline queue calls when a replayed
+   * write succeeds: the component that made the write may be long gone (or the
+   * page may have been reloaded), so the refetch cannot be the caller's job.
+   */
+  useEffect(() => {
+    if (!cacheKey || !enabled) return;
+    return registerLoader(cacheKey, (force) => load(force));
+  }, [cacheKey, enabled, load]);
 
   useEffect(() => {
     if (!revalidateOnFocus) return;
@@ -201,10 +275,26 @@ export function useResource<T>(
   );
 }
 
+/** A mounted loader; its result is irrelevant to the caller. */
+type Loader = (force: boolean) => unknown;
+
+/** Mounted loaders, so a key can be refreshed without a component asking. */
+const loaders = new Map<string, Set<Loader>>();
+
+function registerLoader(key: string, loader: Loader): () => void {
+  const set = loaders.get(key) ?? new Set<Loader>();
+  set.add(loader);
+  loaders.set(key, set);
+  return () => {
+    set.delete(loader);
+    if (set.size === 0) loaders.delete(key);
+  };
+}
+
 /** Imperatively refreshes every cached key matching a prefix. */
 export function invalidate(prefix: string): void {
   for (const key of cache.keys()) {
-    if (key === prefix || key.startsWith(`${prefix}?`) || key.startsWith(`${prefix}/`)) {
+    if (matchesPrefix(key, prefix)) {
       const entry = getEntry(key);
       setEntry(key, { loadedAt: 0, version: entry.version });
     }
@@ -212,16 +302,120 @@ export function invalidate(prefix: string): void {
   emit();
 }
 
+/**
+ * Invalidates and actually refetches, for every mounted key under `prefix`.
+ *
+ * `invalidate()` alone only marks entries stale, which is enough when the
+ * caller is about to read them again. A write replayed from the offline queue
+ * has no such caller, so this is the version it uses.
+ */
+export function revalidate(prefix: string): void {
+  invalidate(prefix);
+  for (const [key, callbacks] of loaders) {
+    if (!matchesPrefix(key, prefix)) continue;
+    for (const callback of [...callbacks]) void callback(true);
+  }
+}
+
 /** Drops a cached entry entirely (e.g. after a delete). */
 export function forget(key: string): void {
   cache.delete(key);
+  if (typeof window !== 'undefined') void forgetPersistedEntry(key);
   emit();
 }
 
 export function clearCache(): void {
   cache.clear();
+  if (typeof window !== 'undefined') void clearPersistedEntries();
   emit();
 }
+
+/* -------------------------------------------------------------------------- */
+/* offline persistence                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Restores persisted reads for `scope` into the live cache.
+ *
+ * Hydrated entries are marked stale (`loadedAt: 0`), so online the very next
+ * `load()` revalidates them: disk is a fallback for a dead connection, never a
+ * reason to show something older than the network would have given us. Nothing
+ * is applied over data this session already fetched.
+ */
+async function hydrateCache(): Promise<void> {
+  const scope = scopeForWrites();
+  const records = await loadPersistedEntries({ scope });
+  if (records.length === 0) return;
+
+  hydrating = true;
+  try {
+    for (const record of records) {
+      if (!shouldApplyHydrated(cache.get(record.key), record)) continue;
+      const current = cache.get(record.key);
+      cache.set(record.key, {
+        data: record.data,
+        error: null,
+        isLoading: false,
+        version: current?.version ?? 0,
+        loadedAt: 0,
+      });
+    }
+  } finally {
+    hydrating = false;
+  }
+  emit();
+}
+
+/**
+ * Shows a queued create immediately, in the reads it belongs to.
+ *
+ * A queued *update* needs nothing here: the component that made it already
+ * changed the screen, and `load()` refuses to overwrite a resource with a
+ * pending write. A queued *create* would otherwise be invisible until it reached
+ * the server — "Task added" toast, unchanged list.
+ */
+function applyQueuedProjection(entry: { path: string; body?: unknown; tempId?: string; createdAt: number }): void {
+  const projection = projectQueuedCreate(entry.path, entry.body, entry.tempId, entry.createdAt);
+  if (!projection) return;
+
+  for (const key of [...cache.keys()]) {
+    if (pathnameOf(key) !== projection.resource) continue;
+    const current = cache.get(key);
+    if (!current || current.data === undefined) continue;
+
+    const next = insertProjectedEntity(current.data, projection.entity);
+    if (next === current.data) continue;
+    setEntry(key, { data: next, loadedAt: current.loadedAt });
+  }
+}
+
+/**
+ * Wires the store to the offline layer. Runs once, in the browser only.
+ *
+ * `useResource` and `mutate` keep working exactly as before for every existing
+ * caller; what is added here is persistence and the queue's signals.
+ */
+function startOfflineBridge(): void {
+  onScopeEvent((event) => {
+    if (event.type === 'purged' || event.type === 'changed') {
+      // A different session: nothing in memory belongs to it.
+      clearCache();
+      return;
+    }
+    void hydrateCache();
+  });
+
+  subscribeQueue((event) => {
+    if (event.type === 'queued') applyQueuedProjection(event.entry);
+    if (event.type === 'flushed') {
+      for (const prefix of event.affects) revalidate(prefix);
+    }
+  });
+
+  void ensureOfflineSupport();
+}
+
+if (typeof window !== 'undefined') startOfflineBridge();
 
 /* -------------------------------------------------------------------------- */
 /* mutations                                                                  */
@@ -275,17 +469,53 @@ export function useMutation<TArgs extends unknown[], TResult = unknown>(
 /* environment hooks                                                          */
 /* -------------------------------------------------------------------------- */
 
+function subscribeNetwork(listener: () => void): () => void {
+  window.addEventListener('online', listener);
+  window.addEventListener('offline', listener);
+  return () => {
+    window.removeEventListener('online', listener);
+    window.removeEventListener('offline', listener);
+  };
+}
+
+/** Truthful connectivity: what the browser reports, and nothing else. */
+export function useNetworkOnline(): boolean {
+  return useSyncExternalStore(subscribeNetwork, () => navigator.onLine, () => true);
+}
+
+/**
+ * Whether a write is accepted right now — online, or offline with a durable
+ * queue to hold it.
+ *
+ * This is deliberately NOT `navigator.onLine`. The one caller is
+ * `useTaskActions`'s guard ("the app has no queue to put it in"), and that
+ * premise is exactly what the offline queue removed: with IndexedDB available, an
+ * offline write is accepted, held, replayed, and the failure the guard used to
+ * prevent is now the normal path. When IndexedDB is unavailable — private
+ * browsing, storage denied — the queue cannot promise to keep anything, so this
+ * falls back to the honest answer and the write is refused as it used to be.
+ *
+ * `useNetworkOnline` above is the truthful connectivity signal for anything that
+ * is *about* the connection rather than about accepting a write.
+ */
 export function useOnline(): boolean {
   return useSyncExternalStore(
     (listener) => {
-      window.addEventListener('online', listener);
-      window.addEventListener('offline', listener);
+      let cancelled = false;
+      const unsubscribeNetwork = subscribeNetwork(listener);
+      const unsubscribeQueue = subscribeQueue(listener);
+      // The queue's durability resolves asynchronously (the database opens once
+      // per page), and that changes this snapshot.
+      void ensureOfflineSupport().then(() => {
+        if (!cancelled) listener();
+      });
       return () => {
-        window.removeEventListener('online', listener);
-        window.removeEventListener('offline', listener);
+        cancelled = true;
+        unsubscribeNetwork();
+        unsubscribeQueue();
       };
     },
-    () => navigator.onLine,
+    () => navigator.onLine || isQueueUsable(),
     () => true,
   );
 }

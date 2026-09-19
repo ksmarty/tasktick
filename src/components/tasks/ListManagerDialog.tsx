@@ -174,7 +174,12 @@ export function ListManagerDialog({ open, onOpenChange, startInForm = false }: L
                   <p id="task-list-colour-label" className="text-sm font-medium">
                     Colour
                   </p>
-                  <AccentSwatches value={color} onChange={setColor} labelledBy="task-list-colour-label" />
+                  {/* A list has a colour; the neutral swatch is not offered here, so ignore a null. */}
+                  <AccentSwatches
+                    value={color}
+                    onChange={(next) => next && setColor(next)}
+                    labelledBy="task-list-colour-label"
+                  />
                 </div>
 
                 {formList && !formList.isInbox ? (

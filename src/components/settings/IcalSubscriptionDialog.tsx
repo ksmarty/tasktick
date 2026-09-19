@@ -196,7 +196,9 @@ export function IcalSubscriptionDialog({ open, onOpenChange, subscription, onSav
             <AccentSwatches
               value={customHex ? null : color}
               onChange={(next) => {
-                setColor(next);
+                // A subscription always has a colour; null is not offered here.
+
+                if (next) setColor(next);
                 setCustomHex(null);
               }}
               labelledBy="ical-colour-label"

@@ -20,12 +20,18 @@
  * ---------------------------------------------------------------------------
  *
  *   navigations (request.mode === 'navigate')
- *       network-first, with the precached app shell (`/`) as the fallback and
- *       `/offline` after that. `event.preloadResponse` (navigation preload) is
- *       preferred over a second fetch so the request is not serialised behind
- *       worker startup. Deliberately does NOT write anything to a runtime
- *       cache: the shell is refreshed when the next worker activates, which
- *       keeps the cache from accumulating one stale HTML copy per visited URL.
+ *       network-first, then this session's copy of the SAME URL, then the
+ *       precached app shell (`/`), then `/offline`. `event.preloadResponse`
+ *       (navigation preload) is preferred over a second fetch so the request is
+ *       not serialised behind worker startup. The exact-URL rule is the whole
+ *       safety argument: a Next.js App Router document carries the RSC payload
+ *       for one specific route, so a cached document may only ever be served at
+ *       the URL it was stored for. That is also why the previous version cached
+ *       no documents at all and redirected every offline navigation to
+ *       `/offline` — which meant an offline RELOAD of a screen the user was
+ *       looking at a second earlier landed on a dead end. Documents are stored
+ *       in the session's cache (they are rendered per user), never in the shared
+ *       runtime cache.
  *
  *   /_next/static/**, /icons/**
  *       cache-first and treated as immutable — these URLs are content-hashed
@@ -36,17 +42,67 @@
  *       background for the next visit.
  *
  *   /api/**
- *       NEVER CACHED. Network-only; if the network is down we return
- *       503 `{ "offline": true }` so the client can tell "offline" apart from
- *       "server said no". Caching authenticated API responses in a cache shared
- *       by every account on the device is a data-leak risk, so the API is
- *       excluded from every caching path in this file.
+ *       network-first with a per-session cache fallback. A read that the network
+ *       answers within `API_TIMEOUT_MS` is returned untouched (and stored for
+ *       later); a read that fails or crawls is answered from this session's
+ *       cached copy instead of failing. Only a read with nothing cached returns
+ *       503 `{ "offline": true }`, so the client can still tell "offline" apart
+ *       from "server said no".
+ *
+ *       The previous version of this file refused to cache the API at all, and
+ *       the reason it gave was correct: ONE cache shared by every account on the
+ *       device leaks between them. The cache is therefore not shared — it is
+ *       named after the session (`api-<scope>-<version>`) and the previous
+ *       session's cache is deleted the moment a different one is announced, and
+ *       again on sign-out. See "session scoping" below. Reads that are
+ *       authenticated with the session cookie are still never cached in a cache
+ *       that another session could read.
+ *
+ *   route payloads (RSC)
+ *       the App Router's own fetches for a client-side route change
+ *       (`?_rsc=…`, `RSC: 1`) — network-first, with the session cache as the
+ *       fallback, exactly like an API read. They are per-user route data, so they
+ *       live in the session cache and are deleted with it. Without them a tab tap
+ *       with no connection cannot render anything: the router has no payload for
+ *       the route it was asked for.
+ *
+ *   /api/auth/**
+ *       network-only, never cached, never replaced with an offline response.
+ *       These carry credentials and session state; a cached answer to "who is
+ *       signed in?" would be a lie with consequences.
  *
  *   non-GET requests, cross-origin requests
- *       never intercepted and never cached, under any circumstances.
+ *       never intercepted and never cached, under any circumstances. A write is
+ *       never queued here: the client owns the write queue (see
+ *       `src/lib/offline-queue.ts`), because a queue inside a worker is lost the
+ *       moment iOS reclaims it.
  *
  *   responses with `Cache-Control: no-store`
- *       never cached (see `isCacheable`), regardless of resource class.
+ *       never cached by the runtime strategies (see `isCacheable`), regardless of
+ *       resource class. The API cache applies its own, narrower gate
+ *       (`isApiCacheable`): every API response carries `no-store, private`
+ *       because it must not sit in a SHARED cache — which is exactly what a
+ *       per-session cache is not.
+ *
+ * ---------------------------------------------------------------------------
+ * Session scoping — what identifies the session from inside this worker
+ * ---------------------------------------------------------------------------
+ *
+ * Nothing the worker can read for itself. The session cookie is `httpOnly`, so
+ * there is no `document.cookie` here; `self.cookieStore` exists only in
+ * Chromium; and a worker that could read the cookie would be reading a rotating
+ * credential rather than an identity. So the page answers the question and sends
+ * the answer:
+ *
+ *     GET /api/auth/get-session -> session.id -> FNV-1a hash -> "s1a2b3c4d"
+ *         -> postMessage({ type: 'session', scope })
+ *
+ * The worker stores that opaque scope in `META_CACHE` (so it survives a worker
+ * restart, which on iOS is every few minutes), names the API cache after it, and
+ * deletes every other scope's cache on sight. `{ type: 'sign-out' }` drops the
+ * API caches and the stored scope outright. The page runs that purge on sign-out
+ * as well (`purgeSession()` in `src/lib/session-scope.ts`), so the same guarantee
+ * holds even if the message never arrives.
  *
  * ---------------------------------------------------------------------------
  * BUMP `VERSION` ON EVERY DEPLOY THAT CHANGES A PRECACHED FILE
@@ -64,10 +120,25 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v3';
+const VERSION = 'tasktick-v5';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
+/** Tiny cache holding the scope of the session the API cache belongs to. */
+const META_CACHE = `meta-${VERSION}`;
+/** Prefix of every per-session API cache: `api-<scope>-<version>`. */
+const API_CACHE_PREFIX = 'api-';
+/** Key inside META_CACHE holding the opaque session scope. */
+const SESSION_KEY = '/__session';
+/**
+ * How long a read waits for the network before this session's cached copy is
+ * used instead. "Bad cell service" is a latency problem before it is an
+ * availability problem, and a request that eventually succeeds after 30 seconds
+ * has already failed as far as the person holding the phone is concerned.
+ */
+const API_TIMEOUT_MS = 6000;
+/** Older entries are dropped once the API cache grows past this many reads. */
+const API_CACHE_MAX_ENTRIES = 120;
 
 /** The app shell: one HTML document that boots the client router offline. */
 const SHELL_URL = '/';
@@ -184,7 +255,15 @@ async function precacheOne(cache, url) {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const keep = new Set([PRECACHE_CACHE, RUNTIME_CACHE]);
+      /*
+       * Only this version's caches survive, and only the three the worker owns
+       * by name. Every per-session API cache is deliberately NOT kept: its name
+       * carries the version, so a deploy retires it, and the page re-announces
+       * its session on the next load and starts a fresh one. Carrying an old
+       * session's cached reads across a deploy would be exactly the kind of
+       * long-lived leak this design exists to avoid.
+       */
+      const keep = new Set([PRECACHE_CACHE, RUNTIME_CACHE, META_CACHE]);
       const names = await caches.keys();
       await Promise.all(names.filter((name) => !keep.has(name)).map((name) => caches.delete(name)));
 
@@ -204,10 +283,90 @@ self.addEventListener('activate', (event) => {
 });
 
 /* The update prompt in `ServiceWorkerRegistrar` asks the waiting worker to take
- * over; the page reloads on `controllerchange`. */
+ * over; the page reloads on `controllerchange`. The `session`/`sign-out`
+ * messages are the page telling this worker which session the local data belongs
+ * to — see "Session scoping" at the top of the file. */
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+
+  if (data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
+  const work =
+    data.type === 'session' && typeof data.scope === 'string' && data.scope
+      ? setSessionScope(data.scope)
+      : data.type === 'sign-out'
+        ? clearSessionScope()
+        : null;
+
+  if (work && typeof event.waitUntil === 'function') event.waitUntil(work);
 });
+
+/* ==========================================================================
+ * session scope
+ * ========================================================================== */
+
+/**
+ * The current session's scope, memoised for this worker's lifetime and persisted
+ * in `META_CACHE` so a restarted worker does not have to wait for the page to
+ * tell it again.
+ */
+let sessionScope;
+
+async function readSessionScope() {
+  if (sessionScope !== undefined) return sessionScope;
+  try {
+    const meta = await caches.open(META_CACHE);
+    const stored = await meta.match(SESSION_KEY);
+    sessionScope = stored ? (await stored.text()) || null : null;
+  } catch (error) {
+    console.warn('[sw] session scope unavailable', error);
+    sessionScope = null;
+  }
+  return sessionScope;
+}
+
+function apiCacheName(scope) {
+  return `${API_CACHE_PREFIX}${scope}-${VERSION}`;
+}
+
+/**
+ * Adopts `scope` as the session this worker caches for, and deletes every other
+ * session's cache. This is the moment the previous account's data stops being
+ * reachable from this device.
+ */
+async function setSessionScope(scope) {
+  sessionScope = scope;
+  try {
+    const meta = await caches.open(META_CACHE);
+    await meta.put(SESSION_KEY, new Response(scope, { headers: { 'Content-Type': 'text/plain' } }));
+  } catch (error) {
+    console.warn('[sw] could not persist the session scope', error);
+  }
+
+  const mine = apiCacheName(scope);
+  const names = await caches.keys();
+  await Promise.all(
+    names.filter((name) => name.startsWith(API_CACHE_PREFIX) && name !== mine).map((name) => caches.delete(name)),
+  );
+}
+
+/** Sign-out: the cached reads and the scope they belong to both go. */
+async function clearSessionScope() {
+  sessionScope = null;
+  try {
+    const meta = await caches.open(META_CACHE);
+    await meta.delete(SESSION_KEY);
+  } catch (error) {
+    console.warn('[sw] could not clear the session scope', error);
+  }
+
+  const names = await caches.keys();
+  await Promise.all(names.filter((name) => name.startsWith(API_CACHE_PREFIX)).map((name) => caches.delete(name)));
+}
 
 /* ==========================================================================
  * fetch
@@ -222,7 +381,19 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
   if (url.pathname.startsWith(API_PREFIX)) {
-    event.respondWith(apiNetworkOnly(request));
+    // Credentials and session state are never cached, and never replaced with an
+    // invented offline answer: a client that cannot ask "who am I?" must be told
+    // so, not handed a stale identity.
+    if (url.pathname.startsWith('/api/auth/')) {
+      event.respondWith(fetch(request));
+      return;
+    }
+    event.respondWith(sessionRead(request, event));
+    return;
+  }
+
+  if (isRoutePayloadRequest(request, url)) {
+    event.respondWith(sessionRead(request, event));
     return;
   }
 
@@ -244,16 +415,40 @@ self.addEventListener('fetch', (event) => {
  * ========================================================================== */
 
 /**
- * Navigation: network-first, then the precached shell, then `/offline`.
+ * Navigation: network-first, then this session's copy of the same URL, then the
+ * precached shell, then `/offline`.
+ *
  * `event.preloadResponse` is the request the browser already made for us.
  */
 async function navigationNetworkFirst(event) {
+  const request = event.request;
+  const scope = await readSessionScope();
+  // Documents are rendered per user, so they live in the session's cache and
+  // nowhere else. Before the worker knows the session there is nothing safe to
+  // read or write here.
+  const cache = scope ? await caches.open(apiCacheName(scope)) : null;
+  const key = new Request(request.url, { method: 'GET' });
+
   try {
     const preloaded = await event.preloadResponse;
-    if (preloaded) return preloaded;
-    return await fetch(event.request);
+    const response = preloaded || (await fetch(request));
+    if (cache && isDocumentCacheable(response)) {
+      try {
+        await cache.put(key, response.clone());
+        await trimApiCache(cache);
+      } catch (error) {
+        console.warn('[sw] navigation not cached', request.url, error);
+      }
+    }
+    return response;
   } catch (error) {
-    const requestedPath = new URL(event.request.url).pathname;
+    const requestedPath = new URL(request.url).pathname;
+
+    if (cache) {
+      const cached = await cache.match(key);
+      if (cached) return cached;
+    }
+
     const precache = await caches.open(PRECACHE_CACHE);
 
     /*
@@ -295,6 +490,19 @@ async function navigationNetworkFirst(event) {
   }
 }
 
+/**
+ * Whether a navigation response may be kept as this session's copy of that URL.
+ *
+ * Only a real HTML document is stored. A redirect is refused (`fetch` follows it
+ * and reports `redirected`), which is what keeps a login redirect out of the
+ * cache — offline visitors must never be shown a sign-in page that cannot work.
+ */
+function isDocumentCacheable(response) {
+  if (!response || !response.ok || response.redirected) return false;
+  const contentType = response.headers.get('Content-Type') || '';
+  return contentType.includes('text/html');
+}
+
 /** Content-hashed assets: cache-first, network only on a miss. */
 async function cacheFirst(request) {
   const cache = await caches.open(RUNTIME_CACHE);
@@ -333,19 +541,172 @@ async function staleWhileRevalidate(request, event) {
 }
 
 /**
- * `/api/**` is network-only, forever. On failure the client gets a 503 with a
- * machine-readable `offline` flag, which is the only honest thing we can say.
+ * A route payload request: the App Router asking for one route's RSC payload on
+ * a client-side navigation. `RSC: 1` is the header; `_rsc` is the cache-busting
+ * parameter it is paired with. Either is enough to recognise one.
  */
+function isRoutePayloadRequest(request, url) {
+  if (request.headers.get('RSC') === '1') return true;
+  return url.searchParams.has('_rsc');
+}
+
+/**
+ * A read of this session's data: `/api/**` and route payloads.
+ *
+ * Three outcomes, in the order they are considered:
+ *
+ *   1. no session scope yet -> network-only. Caching a read before the worker
+ *      knows which session it belongs to is how a cache leaks between accounts,
+ *      so the honest default is to store nothing.
+ *   2. network answers within the timeout -> return it (and store it for later).
+ *   3. network fails or is too slow, and this session has a copy -> return the
+ *      copy. The outstanding network request is kept alive so the cache is
+ *      refreshed for the next read.
+ *
+ * With no copy and no network there is nothing honest to return, so the 503 with
+ * the machine-readable `offline` flag goes back, exactly as before.
+ */
+async function sessionRead(request, event) {
+  const scope = await readSessionScope();
+  const url = new URL(request.url);
+  // No session known: store nothing. An API read gets the machine-readable
+  // offline answer; a route payload is passed straight through so the client
+  // router sees an ordinary network failure and falls back the way it would
+  // without a worker at all.
+  if (!scope) return isRoutePayloadRequest(request, url) ? fetch(request) : apiNetworkOnly(request);
+
+  const cache = await caches.open(apiCacheName(scope));
+
+  /*
+   * Route payloads prime their route's DOCUMENT as a side effect.
+   *
+   * A client-side navigation never asks this worker for a document, so `/calendar`
+   * would have no cached document however often it was visited — and an offline
+   * RELOAD of it would therefore land on `/offline`, losing the screen the user
+   * was looking at. The payload request is the signal that the user is going to
+   * that route, so the document is fetched and stored once, in the background,
+   * only when it is not already cached.
+   *
+   * The URL is the one the payload was requested for, minus `_rsc` — the app puts
+   * state in the query string (`/calendar?date=2026-09-19`), and a reload asks for
+   * exactly that URL. Priming the bare pathname would cache a document nobody
+   * ever requests.
+   */
+  if (isRoutePayloadRequest(request, url)) {
+    const documentUrl = new URL(url.href);
+    documentUrl.searchParams.delete('_rsc');
+    event.waitUntil(primeDocument(cache, documentUrl.href));
+  }
+
+  /*
+   * The cache key is the URL with the request's headers stripped.
+   *
+   * API responses are sent with `Vary: Cookie`, and the Cache API honours Vary
+   * when matching. Keying on the live request would therefore store the cookie
+   * with the entry and stop matching the moment better-auth rotates it — a cache
+   * that silently empties itself every day. A cookie-less GET key is the same URL
+   * for every read in this session's cache, which is sound precisely because the
+   * cache itself belongs to one session.
+   */
+  const key = new Request(request.url, { method: 'GET' });
+  const cached = await cache.match(key);
+
+  const network = fetch(request)
+    .then(async (response) => {
+      if (isSessionReadCacheable(request, response)) {
+        try {
+          await cache.put(key, response.clone());
+          await trimApiCache(cache);
+        } catch (error) {
+          console.warn('[sw] read not cached', request.url, error);
+        }
+      }
+      return response;
+    })
+    .catch(() => undefined);
+
+  if (!cached) {
+    const fresh = await network;
+    return fresh || offlineResponse();
+  }
+
+  const winner = await Promise.race([network, delay(API_TIMEOUT_MS)]);
+  if (winner) return winner;
+
+  // The cached copy is on its way out to the page; keep the worker alive for the
+  // request that is still in flight so the entry is fresh next time.
+  event.waitUntil(network);
+  return cached;
+}
+
+/** Fetches and stores one route's document, unless this session already has it. */
+async function primeDocument(cache, url) {
+  try {
+    const key = new Request(url, { method: 'GET' });
+    if (await cache.match(key)) return;
+    const response = await fetch(key, { credentials: 'same-origin' });
+    if (!isDocumentCacheable(response)) return;
+    await cache.put(key, response.clone());
+    await trimApiCache(cache);
+  } catch (error) {
+    // Offline, or the route needs a session that is gone: nothing to prime.
+  }
+}
+
+/** Resolves to `undefined` after `ms`, which is what makes the race above safe. */
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Whether a session read may be stored: JSON API data, or a route payload.
+ *
+ * Stricter than `isCacheable` on purpose, and for different reasons: only a 200
+ * of a known, per-session content type is stored, so an error envelope, a
+ * redirect to login, or a streamed export can never be replayed to the user as
+ * if it were data. The `no-store` header every API response carries is
+ * deliberately ignored — it exists to keep authenticated data out of a SHARED
+ * cache, and this one belongs to a single session.
+ */
+function isSessionReadCacheable(request, response) {
+  if (request.method !== 'GET') return false;
+  if (!response || response.status !== 200) return false;
+  const contentType = response.headers.get('Content-Type') || '';
+  return contentType.includes('application/json') || contentType.includes('x-component');
+}
+
+/**
+ * Keeps the per-session API cache bounded.
+ *
+ * Reads are cached per exact query string (a month of calendar items, a task
+ * window), so an app used for a year would otherwise accumulate one entry per
+ * view it has ever opened. Cache keys come back in insertion order, so dropping
+ * the first ones is a coarse least-recently-created eviction — enough to bound
+ * the cache, which is all this needs to do.
+ */
+async function trimApiCache(cache) {
+  const keys = await cache.keys();
+  const excess = keys.length - API_CACHE_MAX_ENTRIES;
+  if (excess <= 0) return;
+  await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
+}
+
+/** `/api/**` with no session scope, or with nothing cached: network, or nothing. */
 async function apiNetworkOnly(request) {
   try {
     return await fetch(request);
   } catch (error) {
-    return new Response(JSON.stringify({ offline: true, error: 'network-unavailable' }), {
-      status: 503,
-      statusText: 'Service Unavailable',
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-    });
+    return offlineResponse();
   }
+}
+
+/** The machine-readable "the network is gone" answer the client understands. */
+function offlineResponse() {
+  return new Response(JSON.stringify({ offline: true, error: 'network-unavailable' }), {
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
 }
 
 /**
@@ -356,6 +717,14 @@ async function apiNetworkOnly(request) {
 function isCacheable(request, response) {
   if (request.method !== 'GET') return false;
   if (!response || !response.ok || response.type === 'opaqueredirect') return false;
+  const contentType = response.headers.get('Content-Type') || '';
+  /*
+   * React Server Component payloads are per-user data in a shared runtime cache.
+   * They are excluded by content type rather than by request header because the
+   * response is what must never be reused across sessions — the header is just
+   * how they are usually requested.
+   */
+  if (contentType.includes('x-component')) return false;
   const cacheControl = response.headers.get('Cache-Control') || '';
   if (/(^|,)\s*no-store\s*(,|$)/i.test(cacheControl)) return false;
   return true;

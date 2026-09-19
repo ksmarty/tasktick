@@ -13,17 +13,17 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
 import { ToastProvider } from '@/components/app/Toast';
-import type { AccentColor } from '@/lib/types';
+import type { AccentPreference } from '@/lib/types';
 
 type ThemePreference = 'light' | 'dark' | 'system';
 
 interface AppearanceContextValue {
   theme: ThemePreference;
-  accent: AccentColor;
+  accent: AccentPreference;
   /** Resolved appearance after applying the system preference. */
   resolvedTheme: 'light' | 'dark';
   setTheme: (theme: ThemePreference) => void;
-  setAccent: (accent: AccentColor) => void;
+  setAccent: (accent: AccentPreference) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue | null>(null);
@@ -46,7 +46,7 @@ export function Providers({
   const [theme, setThemeState] = useState<ThemePreference>(
     initialTheme === 'light' || initialTheme === 'dark' ? initialTheme : 'system',
   );
-  const [accent, setAccentState] = useState<AccentColor>(initialAccent as AccentColor);
+  const [accent, setAccentState] = useState<AccentPreference>(initialAccent as AccentPreference);
   const [systemDark, setSystemDark] = useState(false);
 
   useEffect(() => {
@@ -76,12 +76,28 @@ export function Providers({
     writeCookie('tasktick-theme', theme);
   }, [theme]);
 
+  /*
+   * The accent is a CSS attribute, not React state.
+   *
+   * The palette rules in `globals.css` are keyed on `[data-accent='…']` on
+   * `<html>`, and `--primary`, `--primary-foreground` and `--ring` follow from
+   * there — thirty-eight components read those tokens and none of them are touched.
+   *
+   * Writing it here is what makes the setting take effect when it is *changed*.
+   * The server renders the attribute and the pre-paint script re-applies it on load,
+   * but neither runs on a click, so without this the swatch would update, the
+   * preference would save, and nothing would recolour until the next reload.
+   */
+  useEffect(() => {
+    document.documentElement.setAttribute('data-accent', accent);
+  }, [accent]);
+
   useEffect(() => {
     // The cookie is the SSR source of truth; localStorage is the client one. They
     // can disagree if the cookie was cleared, so the client wins on mount.
     try {
       const stored = localStorage.getItem('tasktick-accent');
-      if (stored) setAccentState(stored as AccentColor);
+      if (stored) setAccentState(stored as AccentPreference);
     } catch {
       /* localStorage is unavailable in private mode; the cookie still works. */
     }
@@ -97,7 +113,7 @@ export function Providers({
     writeCookie('tasktick-theme', next);
   }, []);
 
-  const setAccent = useCallback((next: AccentColor) => {
+  const setAccent = useCallback((next: AccentPreference) => {
     setAccentState(next);
     try {
       localStorage.setItem('tasktick-accent', next);
