@@ -10,6 +10,17 @@ import { ACCENT_COLORS } from './types';
 /** Derived from the single source of truth in `./types`, so it cannot drift. */
 export const accentColor = z.enum(ACCENT_COLORS);
 
+/**
+ * A literal colour in the `#rgb`/`#rrggbb` form the calendar's `colorOverride`
+ * stores. Used where *we* own the value (an iCal subscription's picked colour);
+ * `updateCalendarSchema` keeps its free-form field because CalDAV writes the
+ * remote collection's own `calendar-color` there.
+ */
+const hexColor = z
+  .string()
+  .trim()
+  .regex(/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i, 'Expected a #rrggbb colour');
+
 export const priority = z.enum(['none', 'low', 'medium', 'high']);
 export const taskStatus = z.enum(['todo', 'completed', 'wont_do']);
 export const recurrenceMode = z.enum(['due', 'completion']);
@@ -231,6 +242,7 @@ export const createCalendarSchema = z
     color: accentColor.optional(),
     timezone: z.string().max(64).optional(),
     isVisible: z.boolean().optional(),
+    showInTasks: z.boolean().optional(),
     isDefault: z.boolean().optional(),
   })
   .strict();
@@ -373,7 +385,25 @@ export const icalSubscribeSchema = z
     url: z.string().trim().min(1).max(2000),
     name: z.string().trim().max(120).optional(),
     color: z.enum(ACCENT_COLORS).optional(),
+    /** A custom colour the user picked, overriding `color`. */
+    colorOverride: hexColor.nullable().optional(),
     timezone: z.string().trim().max(64).optional(),
+  })
+  .strict();
+
+/**
+ * A subscription edit.
+ *
+ * Only the name and colour are edited in place; a different `url` is treated as
+ * a re-subscribe (see `updateIcalSubscription`), which is why the field is
+ * allowed here rather than being read-only.
+ */
+export const icalSubscriptionPatchSchema = z
+  .object({
+    url: z.string().trim().min(1).max(2000).optional(),
+    name: z.string().trim().min(1).max(120).optional(),
+    color: z.enum(ACCENT_COLORS).optional(),
+    colorOverride: hexColor.nullable().optional(),
   })
   .strict();
 

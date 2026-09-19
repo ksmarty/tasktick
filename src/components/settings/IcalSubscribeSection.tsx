@@ -22,20 +22,36 @@
  *      feed, so the row says so rather than leaving the user to discover it when
  *      an edit does not stick.
  *
+ * A subscription carries the user's colour choice — a palette token or a custom
+ * `#rrggbb` in the calendar's `colorOverride` — and the row paints it from the
+ * same `calendarColorHex` the calendar screen uses; there is no second colour
+ * model here. Editing (name, colour, URL) and removal live on the row itself, so
+ * neither is buried behind a detail screen. Removal deletes the mirrored events
+ * too, and asks first because that cannot be undone.
+ *
  * A feed that has been failing shows *why*, because "no events" and "the remote
  * has been down for two days" look identical otherwise.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { Link1Icon } from '@svg-animated-icons/react/link-1';
+import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { ReloadIcon } from '@svg-animated-icons/react/reload';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
+import { IcalSubscriptionDialog } from './IcalSubscriptionDialog';
 import { api, errorMessage } from '@/lib/api-client';
 import { useToast } from '@/components/app/Toast';
+import { calendarColorHex } from '@/components/calendar/colors';
 import type { Calendar } from '@/lib/types';
 
 interface Payload {
@@ -59,11 +75,10 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
   const { toast } = useToast();
   const [subs, setSubs] = useState<Calendar[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [url, setUrl] = useState('');
-  const [name, setName] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Calendar | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Calendar | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -80,32 +95,14 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
     void load();
   }, [load]);
 
-  async function submit() {
-    if (!url.trim() || busy) return;
-    setBusy('add');
-    setFormError(null);
-    try {
-      const result = await api.post<{ calendar: Calendar; imported: number }>('/api/ical/subscriptions', {
-        url: url.trim(),
-        ...(name.trim() ? { name: name.trim() } : {}),
-      });
-      setUrl('');
-      setName('');
-      setAdding(false);
-      toast({
-        title: 'Subscribed',
-        description: `Imported ${result.imported} event${result.imported === 1 ? '' : 's'}.`,
-        variant: 'success',
-      });
-      await load();
-      onChanged?.();
-    } catch (error) {
-      // The server distinguishes a bad URL from a private address from an
-      // unreachable host, and that distinction is the whole value of the message.
-      setFormError(errorMessage(error));
-    } finally {
-      setBusy(null);
-    }
+  function openCreate() {
+    setEditing(null);
+    setDialogOpen(true);
+  }
+
+  function openEdit(calendar: Calendar) {
+    setEditing(calendar);
+    setDialogOpen(true);
   }
 
   async function refresh(id: string) {
@@ -121,7 +118,10 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
         const total = result.created + result.updated + result.deleted;
         toast({
           title: 'Refreshed',
-          description: total === 0 ? 'No changes.' : `${result.created} new, ${result.updated} updated, ${result.deleted} removed.`,
+          description:
+            total === 0
+              ? 'No changes.'
+              : `${result.created} new, ${result.updated} updated, ${result.deleted} removed.`,
           variant: 'success',
         });
       }
@@ -134,11 +134,15 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
     }
   }
 
-  async function remove(id: string, label: string) {
-    setBusy(id);
+  async function remove(calendar: Calendar) {
+    setBusy(calendar.id);
     try {
-      await api.delete(`/api/ical/subscriptions/${id}`);
-      toast({ title: 'Unsubscribed', description: `${label} and its events were removed.`, variant: 'success' });
+      await api.delete(`/api/ical/subscriptions/${calendar.id}`);
+      toast({
+        title: 'Unsubscribed',
+        description: `${calendar.name} and its events were removed.`,
+        variant: 'success',
+      });
       await load();
       onChanged?.();
     } catch (error) {
@@ -148,127 +152,152 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
     }
   }
 
+  /** After a create or edit, refetch the list and let the caller refresh too. */
+  async function handleSaved() {
+    await load();
+    onChanged?.();
+  }
+
   return (
-    <SettingsGroup
-      title="Subscribed calendars"
-      footer="Read-only. TaskTick pulls this feed on a schedule and never writes back to it."
-      action={
-        <Button type="button" size="sm" variant="ghost" onClick={() => setAdding((open) => !open)}>
-          {adding ? 'Cancel' : 'Add feed'}
-        </Button>
-      }
-    >
-      {adding ? (
-        <SettingsRow>
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium" htmlFor="ical-feed-url">
-              Calendar URL
-            </label>
-            <Input
-              id="ical-feed-url"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://example.com/calendar.ics"
-              inputMode="url"
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={Boolean(formError)}
-              aria-describedby={formError ? 'ical-feed-error' : undefined}
-            />
-            <label className="text-sm font-medium" htmlFor="ical-feed-name">
-              Name <span className="text-muted-foreground">(optional)</span>
-            </label>
-            <Input
-              id="ical-feed-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Taken from the feed if left blank"
-              autoComplete="off"
-            />
-            {formError ? (
-              <p id="ical-feed-error" role="alert" className="text-sm text-destructive">
-                {formError}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Any URL ending in <code>.ics</code>, including <code>webcal://</code> links.
-              </p>
-            )}
-            <div>
-              <Button type="button" onClick={submit} disabled={!url.trim() || busy === 'add'}>
-                {busy === 'add' ? 'Checking…' : 'Subscribe'}
-              </Button>
-            </div>
-          </div>
-        </SettingsRow>
-      ) : null}
-
-      {loading ? (
-        <SettingsRow>
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        </SettingsRow>
-      ) : subs.length === 0 && !adding ? (
-        <SettingsRow>
-          <p className="text-sm text-muted-foreground">
-            No subscribed calendars. Add one to mirror a feed somebody else publishes.
-          </p>
-        </SettingsRow>
-      ) : (
-        subs.map((calendar) => (
-          <SettingsRow key={calendar.id}>
-            <div className="flex items-start gap-3">
-              <span aria-hidden className="mt-0.5 inline-flex text-lg text-muted-foreground">
-                <CalendarIcon />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{calendar.name}</p>
-                <p className="truncate text-xs text-muted-foreground" title={calendar.remoteHref ?? ''}>
-                  {calendar.remoteHref}
-                </p>
-                {calendar.lastSyncError ? (
-                  // Being explicit matters: "no events" and "the remote has been
-                  // down for two days" look identical without this.
-                  <p role="status" className="text-xs text-destructive">
-                    {calendar.lastSyncError}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">{sinceLabel(calendar.lastSyncedAtMs)}</p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Refresh ${calendar.name}`}
-                  disabled={busy === calendar.id}
-                  onClick={() => refresh(calendar.id)}
-                >
-                  <ReloadIcon />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Unsubscribe from ${calendar.name}`}
-                  disabled={busy === calendar.id}
-                  onClick={() => remove(calendar.id, calendar.name)}
-                >
-                  <TrashIcon />
-                </Button>
-              </div>
-            </div>
+    <>
+      <SettingsGroup
+        title="Subscribed calendars"
+        footer="Read-only. TaskTick pulls this feed on a schedule and never writes back to it."
+        action={
+          <Button type="button" size="sm" variant="ghost" onClick={openCreate}>
+            <PlusIcon />
+            Add feed
+          </Button>
+        }
+      >
+        {loading ? (
+          <SettingsRow>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           </SettingsRow>
-        ))
-      )}
+        ) : subs.length === 0 ? (
+          <SettingsRow>
+            <p className="text-sm text-muted-foreground">
+              No subscribed calendars. Add one to mirror a feed somebody else publishes.
+            </p>
+          </SettingsRow>
+        ) : (
+          subs.map((calendar) => (
+            <SettingsRow key={calendar.id}>
+              <div className="flex items-start gap-3">
+                {/*
+                 * The row's own colour, custom `#rrggbb` included: `calendarColorHex`
+                 * is the same resolver the calendar screen paints with.
+                 */}
+                <span
+                  aria-hidden
+                  className="mt-1 inline-block size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: calendarColorHex(calendar) }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{calendar.name}</p>
+                  <p className="truncate text-xs text-muted-foreground" title={calendar.remoteHref ?? ''}>
+                    {calendar.remoteHref}
+                  </p>
+                  {calendar.lastSyncError ? (
+                    // Being explicit matters: "no events" and "the remote has been
+                    // down for two days" look identical without this.
+                    <p role="status" className="text-xs text-destructive">
+                      {calendar.lastSyncError}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">{sinceLabel(calendar.lastSyncedAtMs)}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Refresh ${calendar.name}`}
+                    disabled={busy === calendar.id}
+                    onClick={() => refresh(calendar.id)}
+                  >
+                    <ReloadIcon />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Edit ${calendar.name}`}
+                    disabled={busy === calendar.id}
+                    onClick={() => openEdit(calendar)}
+                  >
+                    <Pencil1Icon />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Unsubscribe from ${calendar.name}`}
+                    disabled={busy === calendar.id}
+                    onClick={() => setRemoveTarget(calendar)}
+                  >
+                    <TrashIcon />
+                  </Button>
+                </div>
+              </div>
+            </SettingsRow>
+          ))
+        )}
 
-      {!adding && subs.length > 0 ? (
-        <SettingsRow>
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Link1Icon aria-hidden /> Feeds refresh hourly; use refresh to pull now.
-          </p>
-        </SettingsRow>
-      ) : null}
-    </SettingsGroup>
+        {!loading && subs.length > 0 ? (
+          <SettingsRow>
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Link1Icon aria-hidden /> Feeds refresh hourly; use refresh to pull now.
+            </p>
+          </SettingsRow>
+        ) : null}
+      </SettingsGroup>
+
+      <IcalSubscriptionDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setEditing(null);
+        }}
+        subscription={editing}
+        onSaved={handleSaved}
+      />
+
+      {/*
+       * Removal deletes the mirrored events, so it is confirmed rather than done
+       * on the tap that opens it — the same shape the calendar editor uses.
+       */}
+      <Dialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{`Unsubscribe from ${removeTarget?.name ?? 'this feed'}?`}</DialogTitle>
+            <DialogDescription>
+              Its mirrored events are deleted too. This cannot be undone, but you can subscribe to the same URL
+              again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRemoveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (removeTarget) void remove(removeTarget);
+                setRemoveTarget(null);
+              }}
+            >
+              Unsubscribe
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -171,17 +171,17 @@ describe('buildListSections', () => {
 
     expect(sections.map((s) => s.id)).toEqual([
       'pinned',
+      'overdue',
       'today',
       'tomorrow',
-      'overdue',
       'next7days',
       'later',
     ]);
     expect(sections.map((s) => s.title)).toEqual([
       'Pinned',
+      'Overdue',
       'Today',
       'Tomorrow',
-      'Overdue',
       'Next 7 days',
       'Later',
     ]);
@@ -216,8 +216,13 @@ describe('buildListSections', () => {
     ];
     const sections = buildListSections(rows, options);
 
-    // Pinned is first in render order now.
-    expect(sections[0].id).toBe('pinned');
+    // Pinned is first in render order, and Overdue sits immediately below it:
+    // urgency outranks a scheduled day, so the late work is the first thing
+    // under the user's own ordering.
+    const ids = sections.map((section) => section.id);
+    expect(ids[0]).toBe('pinned');
+    expect(ids[1]).toBe('overdue');
+    expect(ids.indexOf('overdue')).toBeLessThan(ids.indexOf('today'));
 
     const groupOf = new Map<string, string>();
     for (const section of sections) {
@@ -360,5 +365,127 @@ describe('buildListSections', () => {
     expect(sections).toHaveLength(1);
     expect(sections[0].tasks).toEqual([]);
     expect(sections[0].reorderable).toBe(false);
+  });
+});
+
+describe('buildListSections — Later shows one occurrence per series', () => {
+  const options = { zone: 'utc', today: '2025-05-12' };
+
+  /** An expanded recurring occurrence: one series uid, one instance start. */
+  function occurrence(id: string, startDate: string, seriesUid: string): CalendarItem {
+    const startMs = Date.parse(`${startDate}T09:00:00Z`);
+    return {
+      key: `event:${id}:${startMs}`,
+      kind: 'event',
+      id,
+      title: `Event ${id}`,
+      startMs,
+      endMs: startMs + 60 * 60 * 1000,
+      isAllDay: false,
+      color: 'blue',
+      calendarId: 'cal',
+      seriesUid,
+      isRecurringInstance: true,
+    };
+  }
+
+  /** A plain one-off event, so it is not folded into any series. */
+  function oneOff(id: string, startDate: string): CalendarItem {
+    const startMs = Date.parse(`${startDate}T09:00:00Z`);
+    return {
+      key: `event:${id}:${startMs}`,
+      kind: 'event',
+      id,
+      title: `Event ${id}`,
+      startMs,
+      endMs: startMs + 60 * 60 * 1000,
+      isAllDay: false,
+      color: 'blue',
+      calendarId: 'cal',
+    };
+  }
+
+  it('keeps only the next occurrence of a weekly series in Later', () => {
+    const sections = buildListSections([], options, [
+      occurrence('w1', '2025-05-25', 'standup'),
+      occurrence('w2', '2025-06-01', 'standup'),
+      occurrence('w3', '2025-06-08', 'standup'),
+    ]);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].id).toBe('later');
+    expect(sections[0].events.map((e) => e.id)).toEqual(['w1']);
+  });
+
+  it('picks the earliest Later occurrence even when the input is unsorted', () => {
+    // Ordering is not assumed of the caller: the function sorts by start before
+    // it de-duplicates, so "next" is the next one however the input arrived.
+    const sections = buildListSections([], options, [
+      occurrence('late', '2025-06-08', 'standup'),
+      occurrence('early', '2025-05-25', 'standup'),
+      occurrence('mid', '2025-06-01', 'standup'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['early']);
+  });
+
+  it('keeps every occurrence inside the day buckets', () => {
+    // Within Next 7 days each occurrence is genuinely relevant, so only Later
+    // collapses the series.
+    const sections = buildListSections([], options, [
+      occurrence('w1', '2025-05-14', 'standup'),
+      occurrence('w2', '2025-05-15', 'standup'),
+      occurrence('w3', '2025-05-16', 'standup'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'next7days')?.events.map((e) => e.id)).toEqual([
+      'w1',
+      'w2',
+      'w3',
+    ]);
+  });
+
+  it('still shows the Later occurrence when the same series has near ones', () => {
+    // The series' first occurrence over the whole window can be in a day bucket;
+    // Later then shows the earliest one that actually landed there.
+    const sections = buildListSections([], options, [
+      occurrence('near', '2025-05-14', 'standup'),
+      occurrence('far1', '2025-05-25', 'standup'),
+      occurrence('far2', '2025-06-01', 'standup'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'next7days')?.events.map((e) => e.id)).toEqual(['near']);
+    expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['far1']);
+  });
+
+  it('leaves non-recurring events alone in Later', () => {
+    const sections = buildListSections([], options, [
+      oneOff('x', '2025-05-25'),
+      oneOff('y', '2025-06-01'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['x', 'y']);
+  });
+
+  it('does not merge two distinct series that share their days', () => {
+    const sections = buildListSections([], options, [
+      occurrence('a1', '2025-05-25', 'series-a'),
+      occurrence('b1', '2025-05-25', 'series-b'),
+      occurrence('a2', '2025-06-01', 'series-a'),
+      occurrence('b2', '2025-06-01', 'series-b'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['a1', 'b1']);
+  });
+
+  it('orders the surviving Later rows by start time', () => {
+    const sections = buildListSections([], options, [
+      occurrence('b', '2025-05-26', 'series-b'),
+      occurrence('a', '2025-05-25', 'series-a'),
+      occurrence('b2', '2025-06-02', 'series-b'),
+      occurrence('a2', '2025-06-01', 'series-a'),
+    ]);
+
+    expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['a', 'b']);
   });
 });

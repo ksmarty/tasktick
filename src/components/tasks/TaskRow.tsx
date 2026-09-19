@@ -134,6 +134,12 @@ export interface TaskRowProps {
   last?: boolean;
   /** Squares the top of the first row's press region (it is not at a corner). */
   first?: boolean;
+  /**
+   * The row is outside the Today section, so its trailing label is the date
+   * rather than a clock time. The section knows this; the row does not (see
+   * `TaskListSection`).
+   */
+  showDate?: boolean;
   className?: string;
   ref?: Ref<HTMLLIElement>;
 }
@@ -156,6 +162,7 @@ export function TaskRow({
   drag,
   last = false,
   first = false,
+  showDate = false,
   className,
   ref,
 }: TaskRowProps) {
@@ -440,6 +447,7 @@ export function TaskRow({
           task={task}
           zone={zone}
           timeFormat={timeFormat}
+          showDate={showDate}
           className="shrink-0 self-center"
         />
       </button>

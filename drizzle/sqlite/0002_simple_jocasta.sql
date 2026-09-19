@@ -1,0 +1,1 @@
+ALTER TABLE `calendars` ADD `show_in_tasks` integer DEFAULT true NOT NULL;

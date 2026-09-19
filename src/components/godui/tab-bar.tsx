@@ -86,7 +86,17 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
         ref={ref}
         aria-label="Bottom navigation"
         className={cn(
-          'inline-flex items-center gap-1 rounded-full border border-border bg-background/80 p-1.5 shadow-lg backdrop-blur-xl',
+          /*
+             * `backdrop-blur-md`, not `xl`.
+             *
+             * The bar is fixed over content that re-renders and fades during a tab
+             * switch, so a backdrop filter re-samples a changing backdrop every
+             * frame — and on a phone GPU that is among the most expensive things
+             * the compositor can be asked to do. Halving the blur radius is the
+             * cheapest change here that costs nothing visually: at 80% background
+             * opacity the two are hard to tell apart.
+             */
+            'inline-flex items-center gap-1 rounded-full border border-border bg-background/80 p-1.5 shadow-lg backdrop-blur-md',
           safeArea && 'pb-[max(0.375rem,env(safe-area-inset-bottom))]',
           className,
         )}
@@ -112,7 +122,7 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
                 <motion.span
                   layoutId={blobId}
                   transition={spring}
-                  className="absolute inset-0 rounded-full bg-primary shadow-sm"
+                  className="absolute inset-0 rounded-full bg-primary shadow-sm will-change-transform"
                 />
               )}
               <motion.span
@@ -133,8 +143,13 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
               </motion.span>
               {(!labelsOnActiveOnly || active) && (
                 <motion.span
-                  layout
-                  initial={
+                  /*
+                    * No `layout` prop. It asks framer for a second layout
+                    * projection beside the blob's, and the projection system
+                    * measures the tree to produce it. Animating opacity and width
+                    * directly gives the same result for less work.
+                    */
+                    initial={
                     labelsOnActiveOnly && !reduceMotion
                       ? { opacity: 0, width: 0 }
                       : false

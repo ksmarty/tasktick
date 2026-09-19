@@ -38,23 +38,20 @@ import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { Half1Icon } from '@svg-animated-icons/react/half-1';
 import { accentHex } from '@/lib/colors';
-import { formatTime, isOverdue, relativeDayLabel, taskDay, todayIn } from '@/lib/dates';
 import type { Task } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { dueLabel, type DueTone } from './due-label';
 import { priorityColor, priorityLabel } from './priority';
+
+// The label and its types were defined here before being split into a pure
+// module so they could be unit-tested in node; they stay importable from here so
+// the feature's public surface is unchanged.
+export { absoluteDayLabel, dueLabel } from './due-label';
+export type { DueLabel, DueTone } from './due-label';
 
 /** The one glyph size for the whole meta line. */
 const META_GLYPH = 'text-sm';
-
-export type DueTone = 'danger' | 'tint' | 'secondary';
-
-export interface DueLabel {
-  label: string;
-  tone: DueTone;
-  /** The floating day the label refers to. */
-  day: string;
-}
 
 const TONE_CLASS: Record<DueTone, string> = {
   danger: 'text-destructive',
@@ -62,36 +59,16 @@ const TONE_CLASS: Record<DueTone, string> = {
   secondary: 'text-muted-foreground',
 };
 
-/**
- * "Today 17:00", "Yesterday", "Thu 22 May" — plus the colour that tells the user
- * whether it is late, due now, or simply scheduled.
- */
-export function dueLabel(
-  task: Pick<Task, 'dueAtMs' | 'dueDate' | 'startAtMs' | 'startDate' | 'status' | 'isAllDay'>,
-  zone: string,
-  timeFormat: '12h' | '24h',
-): DueLabel | null {
-  const day = taskDay(task, zone);
-  if (!day) return null;
-
-  const overdue = isOverdue(task, zone);
-  const today = !overdue && day === todayIn(zone);
-  const withTime = task.dueAtMs !== null && !task.isAllDay;
-  const time = withTime
-    ? ` ${formatTime(task.dueAtMs as number, { zone, timeFormat, weekStartsOn: 0 })}`
-    : '';
-
-  return {
-    label: `${relativeDayLabel(day, zone)}${time}`,
-    tone: overdue ? 'danger' : today ? 'tint' : 'secondary',
-    day,
-  };
-}
-
 export interface DueDateLabelProps {
   task: Task;
   zone: string;
   timeFormat: '12h' | '24h';
+  /**
+   * Show the absolute date instead of the relative day + time. The row is told
+   * its section by `TaskListSection`; Today is the only one that keeps a clock
+   * time.
+   */
+  showDate?: boolean;
   className?: string;
 }
 
@@ -116,8 +93,8 @@ export interface DueDateLabelProps {
  * puts both centres on the same pixel. It is a line-height, not a margin: the
  * box grows around the text and the baseline never moves.
  */
-export function DueDateLabel({ task, zone, timeFormat, className }: DueDateLabelProps) {
-  const due = dueLabel(task, zone, timeFormat);
+export function DueDateLabel({ task, zone, timeFormat, showDate = false, className }: DueDateLabelProps) {
+  const due = dueLabel(task, zone, timeFormat, showDate);
   if (!due) return null;
 
   return (

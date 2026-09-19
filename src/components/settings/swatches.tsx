@@ -22,7 +22,8 @@ import { ACCENT_COLORS, type AccentColor } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 export interface AccentSwatchesProps {
-  value: AccentColor;
+  /** `null` when a custom `#rrggbb` is in force, so no swatch reads as selected. */
+  value: AccentColor | null;
   onChange?: (color: AccentColor) => void;
   /** Renders every swatch inert — used by the fixed-palette accent row. */
   disabled?: boolean;

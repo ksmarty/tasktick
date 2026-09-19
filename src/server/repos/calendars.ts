@@ -49,6 +49,7 @@ function rowToCalendar(row: typeof calendars.$inferSelect): Calendar {
     remoteSyncToken: row.remoteSyncToken,
     supportsVtodo: row.supportsVtodo,
     isVisible: row.isVisible,
+    showInTasks: row.showInTasks,
     isDefault: row.isDefault,
     readOnly: row.readOnly,
     sortOrder: row.sortOrder,
@@ -86,6 +87,7 @@ export interface CreateCalendarInput {
   color?: AccentColor;
   timezone?: string;
   isVisible?: boolean;
+  showInTasks?: boolean;
   isDefault?: boolean;
 }
 
@@ -112,6 +114,7 @@ export async function createCalendar(userId: string, input: CreateCalendarInput,
     provider: 'local',
     supportsVtodo: true,
     isVisible: input.isVisible ?? true,
+    showInTasks: input.showInTasks ?? true,
     isDefault: input.isDefault ?? isFirst,
     sortOrder: last ? keyBetween(last.sortOrder, null).key : 'a0',
     createdAt: now,
@@ -137,6 +140,7 @@ export async function updateCalendar(
   if (input.color !== undefined) patch.color = input.color;
   if (input.timezone !== undefined) patch.timezone = input.timezone;
   if (input.isVisible !== undefined) patch.isVisible = input.isVisible;
+  if (input.showInTasks !== undefined) patch.showInTasks = input.showInTasks;
   if (input.readOnly !== undefined) patch.readOnly = input.readOnly;
   if (input.colorOverride !== undefined) patch.colorOverride = input.colorOverride;
 
@@ -469,23 +473,39 @@ export async function deleteEvent(userId: string, id: string): Promise<boolean> 
   return true;
 }
 
+/**
+ * Events overlapping a range.
+ *
+ * With no `calendarIds`, only calendars marked visible are read — the feed and
+ * search callers want that. A caller that has already decided which calendars
+ * it wants (the calendar screen, and the task list with its `showInTasks`
+ * filter) passes the ids, and no visibility rule is applied on top: the two
+ * visibility flags are independent, and a calendar hidden from the calendar
+ * screen can still be wanted in the task list.
+ */
 export async function eventsInRange(
   userId: string,
   startMs: Millis,
   endMs: Millis,
   zone: string,
+  options: { calendarIds?: string[] } = {},
 ): Promise<CalendarEvent[]> {
   const db = getDb();
   const startDate = toDateOnly(startMs, zone);
   const endDate = toDateOnly(endMs, zone);
 
-  const visibleCalendars = await db
-    .select({ id: calendars.id })
-    .from(calendars)
-    .where(and(eq(calendars.userId, userId), eq(calendars.isVisible, true), isNull(calendars.deletedAtMs)));
+  let calendarIds: string[];
+  if (options.calendarIds) {
+    calendarIds = options.calendarIds;
+  } else {
+    const visibleCalendars = await db
+      .select({ id: calendars.id })
+      .from(calendars)
+      .where(and(eq(calendars.userId, userId), eq(calendars.isVisible, true), isNull(calendars.deletedAtMs)));
+    calendarIds = visibleCalendars.map((c) => c.id);
+  }
 
-  if (!visibleCalendars.length) return [];
-  const calendarIds = visibleCalendars.map((c) => c.id);
+  if (!calendarIds.length) return [];
 
   const rows = await db
     .select()

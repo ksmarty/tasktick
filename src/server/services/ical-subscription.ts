@@ -37,7 +37,7 @@ import { newId } from '@/server/crypto';
 import { parseIcsObject } from '@/server/caldav';
 import type { ParsedEvent } from '@/server/caldav/types';
 import { eventInsertValues, eventValuesFromParsed } from '@/server/sync/mapper';
-import { FeedError, fetchFeed } from './ical-fetch';
+import { FeedError, fetchFeed, type FetchedFeed } from './ical-fetch';
 import type { Calendar, CalendarEvent } from '@/lib/types';
 
 /** How often a feed is polled, when it is healthy. */
@@ -100,7 +100,32 @@ export interface SubscribeInput {
   url: string;
   name?: string;
   color?: Calendar['color'];
+  /**
+   * A literal `#rrggbb` the user picked, stored in the calendar's
+   * `colorOverride` so the calendar screen and the task list paint it verbatim
+   * (see `calendarColorHex`/`itemHex`). `null` clears it back to the token in
+   * `color`.
+   */
+  colorOverride?: string | null;
   timezone?: string;
+  /** View preferences; only the re-subscribe path supplies these. */
+  isVisible?: boolean;
+  showInTasks?: boolean;
+}
+
+/** How a subscription is edited: the name and colour in place, or a new URL. */
+export interface UpdateIcalSubscriptionInput {
+  name?: string;
+  color?: Calendar['color'];
+  colorOverride?: string | null;
+  /** A different URL is a re-subscribe; see `updateIcalSubscription`. */
+  url?: string;
+}
+
+export interface UpdateIcalSubscriptionResult {
+  calendar: Calendar;
+  /** Present only when the URL changed and the feed was fetched afresh. */
+  sync: IcalSyncResult | null;
 }
 
 export interface IcalSyncResult {
@@ -123,14 +148,16 @@ export interface IcalSyncResult {
 export async function subscribeToIcal(
   userId: string,
   input: SubscribeInput,
-  deps: { fetchImpl?: typeof fetch } = {},
+  deps: { fetchImpl?: typeof fetch; prefetched?: FetchedFeed } = {},
 ): Promise<{ calendar: Calendar; sync: IcalSyncResult }> {
   const db = getDb();
   const now = Date.now();
 
   // The feed is fetched before the calendar is created, so a unusable URL leaves
-  // nothing behind.
-  const fetched = await fetchFeed(input.url, null, deps);
+  // nothing behind. A caller that already fetched it (the re-subscribe path in
+  // `updateIcalSubscription`) hands the body over rather than paying for a
+  // second round trip.
+  const fetched = deps.prefetched ?? (await fetchFeed(input.url, null, deps));
   const body = fetched.body;
 
   let parsed;
@@ -180,6 +207,12 @@ export async function subscribeToIcal(
       .set({
         deletedAtMs: null,
         name,
+        // Re-adding a feed is also how a colour change rides in: the revive
+        // path is shared with re-subscribing, so it applies both.
+        color: input.color ?? existing.color,
+        colorOverride: input.colorOverride !== undefined ? input.colorOverride : existing.colorOverride,
+        isVisible: input.isVisible ?? existing.isVisible,
+        showInTasks: input.showInTasks ?? existing.showInTasks,
         provider: 'ical',
         readOnly: true,
         lastSyncError: null,
@@ -209,14 +242,15 @@ export async function subscribeToIcal(
     remoteCtag: null,
     remoteSyncToken: null,
     supportsVtodo: false,
-    isVisible: true,
+    isVisible: input.isVisible ?? true,
+    showInTasks: input.showInTasks ?? true,
     isDefault: false,
     // Nothing is ever written back, so the UI must not offer to edit it.
     readOnly: true,
     sortOrder: `a${String(now)}`,
     lastSyncedAtMs: null,
     lastSyncError: null,
-    colorOverride: null,
+    colorOverride: input.colorOverride ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -236,6 +270,68 @@ async function getCalendarRow(userId: string, calendarId: string): Promise<Calen
     .where(and(eq(calendars.id, calendarId), eq(calendars.userId, userId), isNull(calendars.deletedAtMs)))
     .limit(1);
   return (rows[0] as Calendar | undefined) ?? null;
+}
+
+/**
+ * Edit a subscription: its name and colour in place, or its URL as a
+ * re-subscribe.
+ *
+ * The colour is the calendar's own: a palette token goes in `color`, a literal
+ * `#rrggbb` in `colorOverride`. No second colour field is invented — the
+ * calendar screen and the task-list strip already resolve exactly those two
+ * through `calendarColorHex`/`itemHex`.
+ *
+ * The URL is the feed's identity (`calendars` is unique on
+ * `(user_id, remote_href)`), so changing it is not an in-place rename: the old
+ * mirror is removed and the new feed subscribed from scratch. The new feed is
+ * fetched *before* the old one is dropped, so a URL that 404s leaves the
+ * subscription the user already had untouched.
+ */
+export async function updateIcalSubscription(
+  userId: string,
+  calendarId: string,
+  input: UpdateIcalSubscriptionInput,
+  deps: { fetchImpl?: typeof fetch } = {},
+): Promise<UpdateIcalSubscriptionResult | null> {
+  const db = getDb();
+  const calendar = await getCalendarRow(userId, calendarId);
+  if (!calendar || calendar.provider !== 'ical') return null;
+
+  const name = input.name?.trim();
+  const nextUrl = input.url?.trim();
+
+  if (nextUrl && nextUrl !== calendar.remoteHref) {
+    // Validate first: a bad URL must fail without costing the existing feed.
+    const fetched = await fetchFeed(nextUrl, null, deps);
+    await unsubscribeIcal(userId, calendarId);
+    const { calendar: recreated, sync } = await subscribeToIcal(
+      userId,
+      {
+        url: nextUrl,
+        name: name || calendar.name,
+        color: input.color ?? calendar.color,
+        colorOverride:
+          input.colorOverride !== undefined ? input.colorOverride : calendar.colorOverride,
+        timezone: calendar.timezone,
+        // Carry the view preferences across the re-subscribe; a URL edit is not
+        // a reason to put a hidden calendar back into the task list.
+        isVisible: calendar.isVisible,
+        showInTasks: calendar.showInTasks,
+      },
+      { ...deps, prefetched: fetched },
+    );
+    return { calendar: recreated, sync };
+  }
+
+  const patch: Partial<typeof calendars.$inferInsert> = { updatedAt: Date.now() };
+  if (name) patch.name = name.slice(0, 120);
+  if (input.color !== undefined) patch.color = input.color;
+  if (input.colorOverride !== undefined) patch.colorOverride = input.colorOverride;
+  await db.update(calendars).set(patch).where(and(eq(calendars.id, calendarId), eq(calendars.userId, userId)));
+
+  const updated = await getCalendarRow(userId, calendarId);
+  if (!updated) return null;
+  return { calendar: updated, sync: null };
 }
 
 /**

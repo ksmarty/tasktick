@@ -30,9 +30,10 @@
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { itemHex } from '@/components/calendar/colors';
 import type { CalendarLookup } from '@/components/calendar/types';
-import { formatTime } from '@/lib/dates';
+import { formatTime, toDateOnly } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { absoluteDayLabel } from './due-label';
 
 /** A stable empty lookup, so an event with no calendars passed still paints. */
 const EMPTY_CALENDARS: CalendarLookup = new Map();
@@ -54,6 +55,12 @@ export interface EventRowProps {
   first?: boolean;
   /** Rounds the bottom corner of the last row, so its strip follows the card. */
   last?: boolean;
+  /**
+   * The row is outside the Today section, so its trailing label is the date
+   * rather than "All day" or a clock time. The section knows this; the row does
+   * not (see `TaskListSection`).
+   */
+  showDate?: boolean;
   className?: string;
 }
 
@@ -66,11 +73,14 @@ export function EventRow({
   dark = false,
   first = false,
   last = false,
+  showDate = false,
   className,
 }: EventRowProps) {
-  const timeLabel = event.isAllDay
-    ? 'All day'
-    : formatTime(event.startMs, { zone, timeFormat, weekStartsOn: 0 });
+  const timeLabel = showDate
+    ? absoluteDayLabel(toDateOnly(event.startMs, zone), zone)
+    : event.isAllDay
+      ? 'All day'
+      : formatTime(event.startMs, { zone, timeFormat, weekStartsOn: 0 });
 
   const accessibleName = [
     timeLabel,

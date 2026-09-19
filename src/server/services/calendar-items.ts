@@ -165,19 +165,37 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
   const { userId, zone, startMs, endMs, includeTasks = true, includeEvents = true } = options;
 
   const calendars = await listCalendars(userId);
+  /*
+   * Two callers share this read, and they mean different things by it.
+   *
+   * The calendar screen always names the calendars it wants: it derives the ids
+   * from `isVisible` and passes them explicitly. An explicit `calendarIds` is
+   * therefore authoritative and nothing here may second-guess it. That is what
+   * keeps a calendar hidden from the task list still drawn on the calendar
+   * screen.
+   *
+   * The task list passes no ids, so the default read *is* the task list's read,
+   * and it drops calendars whose `showInTasks` is off. The flag is deliberately
+   * independent of `isVisible`: a calendar hidden from the calendar screen but
+   * still wanted in the task list keeps contributing its events, because
+   * `isVisible` is the calendar screen's concern and this one is not.
+   */
   const visible = options.calendarIds?.length
     ? calendars.filter((c) => options.calendarIds!.includes(c.id))
-    : calendars.filter((c) => c.isVisible);
+    : calendars.filter((c) => c.showInTasks);
   const byId = new Map(calendars.map((c) => [c.id, c]));
 
   const items: CalendarItem[] = [];
 
   if (includeEvents) {
-    const events = await eventsInRange(userId, startMs, endMs, zone);
-    const allowed = new Set(visible.map((c) => c.id));
+    // Hand the exact calendar set down rather than letting the query re-derive
+    // it from `isVisible`: `showInTasks` and `isVisible` are independent, and
+    // the calendar screen's explicit ids must win over both.
+    const events = await eventsInRange(userId, startMs, endMs, zone, {
+      calendarIds: visible.map((c) => c.id),
+    });
 
     for (const event of events) {
-      if (!allowed.has(event.calendarId)) continue;
       if (event.status === 'cancelled') continue;
 
       for (const expanded of expandEvent(event, { startMs, endMs }, zone)) {

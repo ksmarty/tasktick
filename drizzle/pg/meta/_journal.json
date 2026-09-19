@@ -15,6 +15,13 @@
       "when": 1789779917713,
       "tag": "0001_chilly_spitfire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789827904874,
+      "tag": "0002_easy_proemial_gods",
+      "breakpoints": true
     }
   ]
 }

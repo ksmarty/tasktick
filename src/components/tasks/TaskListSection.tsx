@@ -249,6 +249,13 @@ export function TaskListSection({
   }
 
   const danger = section.tone === 'danger';
+  /*
+   * Every row knows its section here and nowhere else. Today is the one group
+   * where a clock time is the useful thing; everywhere else the trailing label
+   * is the date, so the rows are told which they are. The rule is the section
+   * id, not a prop each screen has to remember to pass.
+   */
+  const showDate = section.id !== 'today';
   const taskCount = section.tasks.length;
   const eventCount = section.events.length;
   /*
@@ -344,6 +351,7 @@ export function TaskListSection({
                     drag={dragPropsFor(task)}
                     first={index === 0}
                     last={eventCount === 0 && index === taskCount - 1}
+                    showDate={showDate}
                   />
                 ))}
                 {section.events.map((event, index) => (
@@ -357,6 +365,7 @@ export function TaskListSection({
                     dark={dark}
                     first={taskCount === 0 && index === 0}
                     last={index === eventCount - 1}
+                    showDate={showDate}
                   />
                 ))}
               </ul>

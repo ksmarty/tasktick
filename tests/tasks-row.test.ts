@@ -587,3 +587,30 @@ describe('search — the scroll-reveal hook is gone', () => {
     expect(() => source('useScrollReveal.ts')).toThrow();
   });
 });
+
+describe('section-aware trailing label', () => {
+  const META = source('TaskMeta.tsx');
+
+  it('is told its section by the only component that knows it', () => {
+    // The rows are presentational; TaskListSection is what holds the section id,
+    // so it derives the flag once and passes it down rather than each screen
+    // remembering which labels need a date.
+    expect(SECTION).toContain("const showDate = section.id !== 'today';");
+    expect(SECTION).toContain('showDate={showDate}');
+  });
+
+  it('renders the absolute date outside Today for both row shapes', () => {
+    // A task goes through DueDateLabel -> dueLabel(..., showDate); an event
+    // formats its own trailing label with the same helper.
+    expect(ROW).toContain('showDate={showDate}');
+    expect(META).toContain('dueLabel(task, zone, timeFormat, showDate)');
+    expect(EVENT_ROW).toContain('absoluteDayLabel(toDateOnly(event.startMs, zone), zone)');
+    expect(EVENT_ROW).toContain('showDate');
+  });
+
+  it('keeps Today as the one section that keeps a clock time', () => {
+    // The rule keys off the section id, not a per-screen flag, so adding a new
+    // non-Today section changes nothing here.
+    expect(SECTION).toContain("section.id !== 'today'");
+  });
+});

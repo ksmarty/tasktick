@@ -496,6 +496,16 @@ export const calendars = pgTable(
     /** Whether the remote collection advertises VTODO support. */
     supportsVtodo: boolean('supports_vtodo').notNull().default(false),
     isVisible: boolean('is_visible').notNull().default(true),
+    /**
+     * Whether this calendar's events join the task list.
+     *
+     * Deliberately separate from `isVisible`: a calendar can be drawn on the
+     * calendar screen and still be kept out of the task list, which is the
+     * distinction a user drawing a line between "my schedule" and "my work"
+     * is asking for. Defaults on so an existing calendar keeps appearing where
+     * it always did.
+     */
+    showInTasks: boolean('show_in_tasks').notNull().default(true),
     isDefault: boolean('is_default').notNull().default(false),
     readOnly: boolean('read_only').notNull().default(false),
     sortOrder: text('sort_order').notNull().default('a0'),

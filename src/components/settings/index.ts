@@ -17,6 +17,8 @@ export { CalDavAccountRow, syncResultSummary, type CalDavAccountRowProps } from 
 export { CalDavAccountSheet, type CalDavAccountSheetProps } from './CalDavAccountSheet';
 export { CalendarListEditor } from './CalendarListEditor';
 export { IcalSubscriptionCard } from './IcalSubscriptionCard';
+export { IcalSubscribeSection } from './IcalSubscribeSection';
+export { IcalSubscriptionDialog } from './IcalSubscriptionDialog';
 export { NotificationSettings, type NotificationSettingsProps } from './NotificationSettings';
 export { AppriseSettings, type AppriseSettingsProps } from './AppriseSettings';
 export { DataExportCard } from './DataExportCard';

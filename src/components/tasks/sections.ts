@@ -167,26 +167,28 @@ export const NEXT_7_DAYS_SPAN = 7;
  */
 export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectionTone }[] = [
   { id: 'pinned', title: 'Pinned', tone: 'default' },
+  { id: 'overdue', title: 'Overdue', tone: 'danger' },
   { id: 'today', title: 'Today', tone: 'default' },
   { id: 'tomorrow', title: 'Tomorrow', tone: 'default' },
-  { id: 'overdue', title: 'Overdue', tone: 'danger' },
   { id: 'next7days', title: 'Next 7 days', tone: 'default' },
   { id: 'later', title: 'Later', tone: 'default' },
 ];
 
 /**
- * The list screen's grouping: Pinned, Today, Tomorrow, Overdue, Next 7 days,
+ * The list screen's grouping: Pinned, Overdue, Today, Tomorrow, Next 7 days,
  * Later.
  *
  * Pinned leads because it is the user's own ordering of their list — the one
- * group they placed deliberately — so it sits above the derived day buckets;
- * Today and Tomorrow follow because they are the two days a person actually
- * acts on, and the rest of the urgency buckets follow those. The group order is
- * a render concern only: one pass over the rows, each open task landing in
- * exactly one group — a task that is both pinned and due today is pinned, and
- * never appears twice — so reordering the groups never moves a task between
- * them. A group with nothing in it is skipped rather than rendered as an empty
- * header.
+ * group they placed deliberately. Overdue sits immediately below it because
+ * urgency is the point of this screen: anything already late outranks anything
+ * merely scheduled for today. Today and Tomorrow follow because they are the two
+ * days a person actually acts on, and the rest of the horizon follows those.
+ *
+ * The group order is a render concern only: one pass over the rows, each open
+ * task landing in exactly one group — a task that is both pinned and overdue is
+ * pinned, and never appears twice — so reordering the groups never moves a task
+ * between them. A group with nothing in it is skipped rather than rendered as an
+ * empty header.
  *
  * Pinned is tested first, so it wins over every day bucket; Overdue is anything
  * due before today; Next 7 days is the rest of the week-long horizon after
@@ -195,7 +197,11 @@ export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectio
  *
  * Events are bucketed by the day they start and never pinned. A past event is
  * dropped: the caller asks the calendar for today onward, and an event that has
- * already happened is not an outstanding item.
+ * already happened is not an outstanding item. In Later only the next upcoming
+ * occurrence of a recurring series is kept — the rest repeat the same commitment
+ * far down a list nobody scrolls; the day groups keep every occurrence because
+ * within a few days each one is genuinely relevant. The distinction is made on
+ * the already date-ordered stream, not by comparing dates (see the loop).
  *
  * Closed rows are kept reachable in a trailing section that arrives expanded:
  * ticking a task off must never make it vanish with no way back, and hiding the
@@ -232,13 +238,31 @@ export function buildListSections(
     else buckets.get('later')?.push(task);
   }
 
+  /*
+   * The stream is sorted by start here, so while bucketing it is in ascending
+   * date order; the first occurrence of a series to land in Later is therefore
+   * its earliest one, with no date arithmetic. `/api/calendar/items` already
+   * returns `items` sorted by `startMs` (see `getCalendarItems`), and this sort
+   * makes that guarantee local rather than assumed of the caller.
+   */
+  const laterSeries = new Set<string>();
   for (const event of [...events].sort((a, b) => a.startMs - b.startMs)) {
     const day = toDateOnly(event.startMs, zone);
     if (day < today) continue;
     if (day === today) eventBuckets.get('today')?.push(event);
     else if (day === tomorrow) eventBuckets.get('tomorrow')?.push(event);
     else if (day <= horizon) eventBuckets.get('next7days')?.push(event);
-    else eventBuckets.get('later')?.push(event);
+    else {
+      // Only the next occurrence of a recurring series is useful this far out;
+      // every later one would just repeat the same weekly stand-up. A
+      // non-recurring event has no series and keeps appearing as it always has.
+      const series = event.isRecurringInstance ? event.seriesUid : null;
+      if (series) {
+        if (laterSeries.has(series)) continue;
+        laterSeries.add(series);
+      }
+      eventBuckets.get('later')?.push(event);
+    }
   }
 
   const sections: TaskSection[] = [];

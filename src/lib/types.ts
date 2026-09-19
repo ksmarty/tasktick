@@ -241,6 +241,8 @@ export interface Calendar {
   remoteSyncToken: string | null;
   supportsVtodo: boolean;
   isVisible: boolean;
+  /** Whether this calendar's events also appear in the task list. */
+  showInTasks: boolean;
   isDefault: boolean;
   readOnly: boolean;
   sortOrder: string;

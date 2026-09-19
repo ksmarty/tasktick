@@ -482,6 +482,16 @@ export const calendars = sqliteTable(
     /** Whether the remote collection advertises VTODO support. */
     supportsVtodo: integer('supports_vtodo', { mode: 'boolean' }).notNull().default(false),
     isVisible: integer('is_visible', { mode: 'boolean' }).notNull().default(true),
+    /**
+     * Whether this calendar's events join the task list.
+     *
+     * Deliberately separate from `isVisible`: a calendar can be drawn on the
+     * calendar screen and still be kept out of the task list, which is the
+     * distinction a user drawing a line between "my schedule" and "my work"
+     * is asking for. Defaults on so an existing calendar keeps appearing where
+     * it always did.
+     */
+    showInTasks: integer('show_in_tasks', { mode: 'boolean' }).notNull().default(true),
     isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
     readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
     sortOrder: text('sort_order').notNull().default('a0'),

@@ -3,8 +3,8 @@
 /**
  * The task list screen: every open task, grouped by urgency.
  *
- * One pass over `/api/tasks`, bucketed into Pinned / Today / Tomorrow /
- * Overdue / Next 7 days / Later by `buildListSections` — the user does not
+ * One pass over `/api/tasks`, bucketed into Pinned / Overdue / Today /
+ * Tomorrow / Next 7 days / Later by `buildListSections` — the user does not
  * choose a window here, they read one list. Calendar events for the same window
  * are merged in as non-completable rows. Filtering and sorting each live in their
  * own compact header menu (see `FilterMenu.tsx` and `SortMenu.tsx`), and both are

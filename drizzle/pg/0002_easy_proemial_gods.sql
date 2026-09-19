@@ -1,0 +1,1 @@
+ALTER TABLE "calendars" ADD COLUMN "show_in_tasks" boolean DEFAULT true NOT NULL;

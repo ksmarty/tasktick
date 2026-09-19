@@ -103,7 +103,7 @@ export function CalendarListEditor() {
             Add
           </Button>
         }
-        footer="Visibility controls which calendars the calendar view draws. The default is where new events are created."
+        footer="Visibility controls which calendars the calendar screen draws; the task list switch controls whether their events also appear beside your tasks. The default is where new events are created."
       >
         {calendars.isInitialLoading ? (
           <SettingsRow stacked>
@@ -234,18 +234,20 @@ function CalendarDialog({
   const [name, setName] = useState('');
   const [color, setColor] = useState<AccentColor>(DEFAULT_CALENDAR_COLOR);
   const [isVisible, setVisible] = useState(true);
+  const [showInTasks, setShowInTasks] = useState(true);
   const readOnly = calendar?.readOnly ?? false;
 
   /**
    * A calendar that came from an integration, rather than being created here.
    *
-   * The record carries where it came from: `provider` is `'local' | 'caldav'`
-   * and `caldavAccountId` names the account that discovered it, so a synced
-   * calendar is one with `provider === 'caldav'` (the `caldavAccountId` check is
-   * belt-and-braces for any row written before `provider` was populated). The
-   * only integration that produces calendar rows today is CalDAV; the iCal
-   * subscriptions in this area are an outgoing feed, not an inbound source, so
-   * they are not represented here.
+   * The record carries where it came from: `provider` is `'local' | 'caldav' |
+   * 'ical'` and `caldavAccountId` names the account that discovered it, so a
+   * synced calendar is one with `provider === 'caldav'` (the `caldavAccountId`
+   * check is belt-and-braces for any row written before `provider` was
+   * populated). An inbound iCal subscription is a calendar too, but it is owned
+   * by the Subscribed-calendars section rather than an account, so it is not
+   * treated as account-synced here — the row's Delete is a real removal and not
+   * a no-op that the next sync would undo.
    */
   const synced = calendar?.provider === 'caldav' || Boolean(calendar?.caldavAccountId);
 
@@ -268,15 +270,31 @@ function CalendarDialog({
     setName(calendar?.name ?? '');
     setColor(calendar?.color ?? DEFAULT_CALENDAR_COLOR);
     setVisible(calendar?.isVisible ?? true);
+    setShowInTasks(calendar?.showInTasks ?? true);
   }, [calendar, open]);
 
   const save = useMutation(
     async () => {
+      if (readOnly) {
+        /*
+         * A read-only calendar still has local view preferences. Where the name
+         * and colour come from the remote, visibility and the task-list switch
+         * are ours to set — so the dialog saves just those rather than offering
+         * a Save button that could never work.
+         */
+        if (!calendar) throw new Error('That calendar is gone.');
+        return await api.patch<Calendar>(`/api/calendars/${calendar.id}`, { isVisible, showInTasks });
+      }
       const trimmed = name.trim();
       if (!trimmed) throw new Error('Give the calendar a name.');
       return editing
-        ? await api.patch<Calendar>(`/api/calendars/${calendar?.id}`, { name: trimmed, color, isVisible })
-        : await api.post<Calendar>('/api/calendars', { name: trimmed, color, isVisible });
+        ? await api.patch<Calendar>(`/api/calendars/${calendar?.id}`, {
+            name: trimmed,
+            color,
+            isVisible,
+            showInTasks,
+          })
+        : await api.post<Calendar>('/api/calendars', { name: trimmed, color, isVisible, showInTasks });
     },
     {
       invalidates: ['/api/calendars', '/api/bootstrap'],
@@ -303,7 +321,9 @@ function CalendarDialog({
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit calendar' : 'New calendar'}</DialogTitle>
           <DialogDescription>
-            The name, colour and visibility are saved together when you submit.
+            {readOnly
+              ? 'The name and colour come from the remote; visibility and the task list are yours to set.'
+              : 'The name, colour and visibility are saved together when you submit.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -343,14 +363,41 @@ function CalendarDialog({
               <Separator />
 
               <div className="flex items-center gap-3">
-                <Label htmlFor="calendar-visible" className="min-w-0 flex-1">
-                  Visible in the calendar
-                </Label>
+                <div className="min-w-0 flex-1">
+                  <Label htmlFor="calendar-visible" className="block">
+                    Visible in the calendar
+                  </Label>
+                  <p className="text-xs text-muted-foreground">Drawn on the calendar screen.</p>
+                </div>
                 <Switch
                   id="calendar-visible"
                   aria-label="Visible in the calendar"
                   checked={isVisible}
                   onCheckedChange={setVisible}
+                />
+              </div>
+
+              {/*
+               * The second, independent switch. `isVisible` is the calendar
+               * screen's flag; this one only changes whether the calendar's
+               * events are merged into the task list. A calendar can therefore
+               * be drawn on the calendar and kept out of the task list, which is
+               * the exact distinction users asked for.
+               */}
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <Label htmlFor="calendar-show-in-tasks" className="block">
+                    Show in the task list
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Its events also appear beside your tasks. Turn off to keep this calendar on the calendar screen only.
+                  </p>
+                </div>
+                <Switch
+                  id="calendar-show-in-tasks"
+                  aria-label="Show in the task list"
+                  checked={showInTasks}
+                  onCheckedChange={setShowInTasks}
                 />
               </div>
 
@@ -427,7 +474,7 @@ function CalendarDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button aria-busy={save.isPending || undefined} disabled={save.isPending || readOnly} onClick={() => void save.run()}>
+          <Button aria-busy={save.isPending || undefined} disabled={save.isPending} onClick={() => void save.run()}>
             {editing ? 'Save calendar' : 'Create calendar'}
           </Button>
         </DialogFooter>
