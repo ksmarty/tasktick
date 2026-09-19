@@ -19,9 +19,12 @@
  *     the left of the word. The pill's own padding is symmetric (`px-4` both
  *     sides) and was measured as such — this tightens the one thing that is
  *     actually to the left of the text.
+ *  4. Reduced motion is read from the app-level `@/lib/motion` hook rather than
+ *     `framer-motion` directly, so the in-app preference is honoured too.
  */
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import * as React from 'react';
+import { useReducedMotion } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export type TabBarTab = {

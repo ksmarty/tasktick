@@ -238,13 +238,14 @@ type RowTypeParity = [
   Expect<Equal<sqliteSchema.IcalTokenRow, pgSchema.IcalTokenRow>>,
   Expect<Equal<sqliteSchema.FocusSessionRow, pgSchema.FocusSessionRow>>,
   Expect<Equal<sqliteSchema.SavedFilterRow, pgSchema.SavedFilterRow>>,
+  Expect<Equal<sqliteSchema.ImportKeyRow, pgSchema.ImportKeyRow>>,
 ];
 
 /**
  * One `true` per `RowTypeParity` entry. Presence in an `it` keeps the tuple from
  * being tree-shaken out of type checking.
  */
-const rowTypeParity: RowTypeParity = new Array(19).fill(true) as RowTypeParity;
+const rowTypeParity: RowTypeParity = new Array(20).fill(true) as RowTypeParity;
 
 /* -------------------------------------------------------------------------- */
 /* tests                                                                      */
@@ -253,7 +254,7 @@ const rowTypeParity: RowTypeParity = new Array(19).fill(true) as RowTypeParity;
 describe('schema parity: module surface', () => {
   it('exports the same tables from both dialects', () => {
     expect([...pgTables.keys()].sort()).toEqual([...sqliteTables.keys()].sort());
-    expect(tableNames).toHaveLength(23);
+    expect(tableNames).toHaveLength(24);
     expect([...pgByName.keys()].sort()).toEqual(tableNames);
   });
 

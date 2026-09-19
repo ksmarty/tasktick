@@ -478,7 +478,20 @@ export interface UserSettings {
   notificationsEnabled: boolean;
   dailyDigestAt: string | null;
   defaultReminders: number[] | null;
+  /** `system` follows the OS; `reduce` forces reduced motion on. */
+  reducedMotion: ReducedMotionPreference;
+  /** Opt-in to inferring Low Power Mode from throttled animation frames. */
+  reduceMotionLowPower: boolean;
+  /** Apprise API base URL; null when Apprise delivery is off. */
+  appriseUrl: string | null;
+  /** True when an Apprise key is stored. The key itself is write-only. */
+  appriseKeyConfigured: boolean;
+  /** Optional Apprise tags, or null when none are targeted. */
+  appriseTags: string[] | null;
 }
+
+/** The reduced-motion preference. An OS request to reduce is always honoured. */
+export type ReducedMotionPreference = 'system' | 'reduce';
 
 export interface SessionUser {
   id: string;

@@ -171,6 +171,30 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const [pagePreview, setPagePreview] = useState<-1 | 0 | 1>(0);
 
   const today = todayIn(zone);
+
+  /*
+   * Re-tapping the Calendar tab pushes the bare `/calendar` route, so the
+   * server hands this screen `initialDate = null` — the page's own documented
+   * "no `?date=`, fall back to today". The two states above are initialised
+   * once, so without this the prop change would be ignored and the tab would
+   * look dead. Adopting it makes a re-tap the calendar's "go to the start of
+   * this section": today. It reuses the `?date=` channel the page and the URL
+   * mirror below already own rather than inventing a second signal — and it is
+   * exactly what re-entering the tab from another destination already does,
+   * since the screen remounts there and defaults to today.
+   *
+   * Gated on `null` on purpose: a non-null `initialDate` is only ever the URL
+   * mirror's own echo of the current selection, so adopting it would fight the
+   * mirror. `zone` is a dependency so the reset uses the final timezone once it
+   * resolves — a no-op when it does not, and harmless when it does.
+   */
+  useEffect(() => {
+    if (initialDate !== null) return;
+    const target = todayIn(zone);
+    setAnchor(target);
+    setSelectedDate(target);
+  }, [initialDate, zone]);
+
   const activeDate = anchor ?? today;
   const selected = selectedDate ?? today;
   const prefs: CalendarPrefs = useMemo(() => ({ zone, weekStartsOn, timeFormat }), [zone, weekStartsOn, timeFormat]);

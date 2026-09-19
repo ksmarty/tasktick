@@ -13,6 +13,8 @@
  *     instead of string concatenation, so a caller's `className` merges with
  *     correct Tailwind conflict resolution.
  *  2. Quote style normalized to the repo's single quotes.
+ *  3. Reduced motion is read from the app-level `@/lib/motion` hook rather than
+ *     `framer-motion` directly, so the in-app preference is honoured too.
  *
  * Used for the search screen's result sections, which arrive after a debounced
  * request: the reveal is what makes a late answer read as an answer rather than a
@@ -21,13 +23,13 @@
 import {
   motion,
   useInView,
-  useReducedMotion,
   useScroll,
   useSpring,
   useTransform,
   useVelocity,
 } from 'framer-motion';
 import * as React from 'react';
+import { useReducedMotion } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export type ScrollRevealDirection = 'up' | 'down' | 'left' | 'right';

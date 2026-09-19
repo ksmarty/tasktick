@@ -143,8 +143,8 @@
  * surface in light appearance. The number is centred in that disc by the disc's
  * own flex box — one rule for both the live month and the ones on either side —
  * so the glyph cannot sit high in the circle while the circle is being dragged.
- * The disc carries a 1px border in every state (transparent except for today),
- * so toggling a state can never re-lay-out the cell.
+ * The painted circle carries a 1px border in every state (transparent except for
+ * today), so toggling a state can never re-lay-out the cell.
  *
  * ## The dots
  *
@@ -186,8 +186,11 @@
  * centred horizontally — the disc's box by construction (the day stack's `pt-0.5`
  * cancels its own `-my-0.5`, so the disc starts at the cell's top edge) — painted
  * *above* the disc (`z-20` over the disc's `z-10`) so a ring still reads on the
- * selected and today fills. The layer is `pointer-events-none` and `aria-hidden`,
- * like the dot lane: decoration must never take the day button's tap.
+ * selected and today fills. When a marker is present the grid also insets that
+ * fill (`dayMarkerInset`), so the ring reads as a separate mark *around* the
+ * disc rather than under its fill. The layer is `pointer-events-none` and
+ * `aria-hidden`, like the dot lane: decoration must never take the day button's
+ * tap.
  *
  * It is threaded into **all three panels** — the live month and both neighbours —
  * because the neighbouring months slide in during a drag; a ring that is only
@@ -233,14 +236,16 @@ const DOT_PX = 4;
 const DAY_STACK_CLASS = '-my-0.5 flex min-h-10 w-full cursor-pointer flex-col items-center justify-start pt-0.5';
 
 /**
- * The disc itself: one size for every state, so the month never re-lays-out.
+ * The disc's layout box: one size for every state, so the month never
+ * re-lays-out and the digit never moves.
  *
- * Colour, fill and ring only. The border is declared in every state (transparent
- * except for today) rather than added by the today state, which is what keeps
- * the glyph's box — and therefore the digit's position — identical in all four.
+ * It carries the glyph's colour and centring; the painted circle (border and
+ * fill) is a child inside it — see `DayNumberFace` — because the habits month
+ * needs that circle to be smaller than the box so its day marker can read as a
+ * ring *around* it.
  */
 const DISC_CLASS =
-  'pointer-events-none relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors duration-200';
+  'pointer-events-none relative z-10 flex size-9 shrink-0 items-center justify-center transition-colors duration-200';
 
 /**
  * One month of the paging track: its window, the day it is anchored on and the
@@ -305,6 +310,12 @@ export interface MonthGridProps {
   renderDayMarker?: (date: DateOnly) => ReactNode;
   /** Appended to the day button's accessible name; `null` = nothing appended. */
   dayMarkerLabel?: (date: DateOnly) => string | null;
+  /**
+   * Inset the today/selected fill so a `renderDayMarker` ring reads as a mark
+   * *around* the disc rather than under its fill. Default false: the calendar
+   * screen paints no marker and keeps its full 36px disc.
+   */
+  dayMarkerInset?: boolean;
 }
 
 export function MonthGrid({
@@ -324,6 +335,7 @@ export function MonthGrid({
   onPagePreview,
   renderDayMarker,
   dayMarkerLabel,
+  dayMarkerInset = false,
 }: MonthGridProps) {
   const dayRefs = useRef(new Map<DateOnly, HTMLButtonElement>());
   /** The live month's lattice. The day buttons register into `dayRefs` from here. */
@@ -493,6 +505,7 @@ export function MonthGrid({
               live={null}
               renderDayMarker={renderDayMarker}
               dayMarkerLabel={dayMarkerLabel}
+              dayMarkerInset={dayMarkerInset}
             />
 
             <MonthPanel
@@ -515,6 +528,7 @@ export function MonthGrid({
               }}
               renderDayMarker={renderDayMarker}
               dayMarkerLabel={dayMarkerLabel}
+              dayMarkerInset={dayMarkerInset}
             />
 
             <MonthPanel
@@ -526,6 +540,7 @@ export function MonthGrid({
               live={null}
               renderDayMarker={renderDayMarker}
               dayMarkerLabel={dayMarkerLabel}
+              dayMarkerInset={dayMarkerInset}
             />
           </div>
         </div>
@@ -581,6 +596,8 @@ interface MonthPanelProps {
   renderDayMarker?: (date: DateOnly) => ReactNode;
   /** Appended to the live month's day button name; neighbours are not controls. */
   dayMarkerLabel?: (date: DateOnly) => string | null;
+  /** Draw the today/selected fill smaller than the disc so a ring reads around it. */
+  dayMarkerInset?: boolean;
 }
 
 /**
@@ -601,7 +618,7 @@ interface MonthPanelProps {
  * opaque and the two a page away are not — see the "Paging is a track" note. The
  * hook overwrites both per frame while a drag is in flight.
  */
-function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, renderDayMarker, dayMarkerLabel }: MonthPanelProps) {
+function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, renderDayMarker, dayMarkerLabel, dayMarkerInset }: MonthPanelProps) {
   const rows = useMemo(() => buildMonthRows(page.days, page.anchor), [page.days, page.anchor]);
   const isCurrent = panel === 'current';
 
@@ -650,6 +667,7 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, re
                       inMonth={cell.inMonth}
                       isSelected={isSelected}
                       isToday={isToday}
+                      insetFill={dayMarkerInset}
                       itemCount={dayItems.length}
                       markerLabel={dayMarkerLabel?.(cell.date) ?? null}
                       fullLabel={fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy')}
@@ -664,7 +682,13 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, re
                   ) : (
                     // The disc alone: same size, same states, same centring rule.
                     <span className={DAY_STACK_CLASS}>
-                      <DayNumberFace date={cell.date} inMonth={cell.inMonth} isSelected={isSelected} isToday={isToday} />
+                      <DayNumberFace
+                        date={cell.date}
+                        inMonth={cell.inMonth}
+                        isSelected={isSelected}
+                        isToday={isToday}
+                        insetFill={dayMarkerInset}
+                      />
                     </span>
                   )}
 
@@ -739,6 +763,8 @@ interface DayNumberProps {
   inMonth: boolean;
   isSelected: boolean;
   isToday: boolean;
+  /** Inset the painted fill so a caller's ring reads around it; see `MonthGrid`. */
+  insetFill?: boolean;
   /** How many items the server bucketed on this day; 0 means no dots. */
   itemCount: number;
   /** The day marker's meaning, appended to the accessible name; `null` = none. */
@@ -767,6 +793,7 @@ function DayNumber({
   inMonth,
   isSelected,
   isToday,
+  insetFill,
   itemCount,
   markerLabel,
   fullLabel,
@@ -795,7 +822,7 @@ function DayNumber({
       }}
       className={DAY_STACK_CLASS}
     >
-      <DayNumberFace date={date} inMonth={inMonth} isSelected={isSelected} isToday={isToday} />
+      <DayNumberFace date={date} inMonth={inMonth} isSelected={isSelected} isToday={isToday} insetFill={insetFill} />
     </button>
   );
 }
@@ -805,6 +832,8 @@ interface DayNumberFaceProps {
   inMonth: boolean;
   isSelected: boolean;
   isToday: boolean;
+  /** Draw the painted circle smaller than the disc; see `MonthGrid`. */
+  insetFill?: boolean;
 }
 
 /**
@@ -822,23 +851,45 @@ interface DayNumberFaceProps {
  * the 200ms `tw-animate-css` animates its own enter/exit fades over) so every
  * timed fade in the calendar shares one vocabulary.
  */
-function DayNumberFace({ date, inMonth, isSelected, isToday }: DayNumberFaceProps) {
+function DayNumberFace({ date, inMonth, isSelected, isToday, insetFill = false }: DayNumberFaceProps) {
   return (
     <span
       className={cn(
         DISC_CLASS,
         isSelected
-          ? 'border-transparent bg-primary text-primary-foreground'
+          ? 'text-primary-foreground'
           : isToday
-            ? // Card-coloured with a hairline accent ring: a plain card-coloured
-              // circle would vanish on a card in light appearance.
-              'border-primary bg-background text-primary'
+            ? 'text-primary'
             : inMonth
-              ? 'border-transparent text-foreground'
-              : 'border-transparent text-muted-foreground/60',
+              ? 'text-foreground'
+              : 'text-muted-foreground/60',
       )}
     >
-      <span className={cn('text-sm leading-none tabular-nums', (isSelected || isToday) && 'font-semibold')}>
+      {/*
+        The painted circle: border and fill only. It is normally the full 36px
+        box; `insetFill` (the habits month, whose day marker is a ring *around*
+        the number) shrinks it to 28px — centred by `inset-0 m-auto`, so the
+        outer box and the glyph's centring are untouched — and the ring then has
+        a gap to read against instead of sitting under the fill.
+
+        Card-coloured with a hairline accent ring for today: a plain
+        card-coloured circle would vanish on a card in light appearance. The
+        border is declared in every state, transparent except for today, so
+        toggling one can never re-lay-out.
+      */}
+      <span
+        aria-hidden
+        className={cn(
+          'absolute inset-0 m-auto rounded-full border transition-colors duration-200',
+          insetFill ? 'size-7' : 'size-9',
+          isSelected
+            ? 'border-transparent bg-primary'
+            : isToday
+              ? 'border-primary bg-background'
+              : 'border-transparent',
+        )}
+      />
+      <span className={cn('relative text-sm leading-none tabular-nums', (isSelected || isToday) && 'font-semibold')}>
         {Number(date.slice(8, 10))}
       </span>
     </span>

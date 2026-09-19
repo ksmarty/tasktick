@@ -37,6 +37,7 @@ import { formatTime, fromDateOnly, relativeDayLabel } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { CalendarItem, DateOnly } from '@/lib/types';
 import { calendarColorHex } from './colors';
+import { allDayDateLabel } from './item-labels';
 import type { CalendarLookup, CalendarPrefs, ItemOpenHandler } from './types';
 
 /** Default slot for the sheet's own "New event" action. */
@@ -84,8 +85,10 @@ export function DayDetailSheet({
               const calendar = item.calendarId ? calendars.get(item.calendarId) : undefined;
               const hex = calendarColorHex(calendar, dark);
               const isTask = item.kind === 'task';
+              // An all-day item has no time: show its date where the time would
+              // go, the same rule the agenda gutter follows.
               const time = item.isAllDay
-                ? 'All day'
+                ? allDayDateLabel(item, prefs.zone)
                 : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
 
               return (

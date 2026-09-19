@@ -10,6 +10,7 @@ export { SettingsTabs, type SettingsTab, type SettingsTabsProps } from './Settin
 export { SectionLink, type SectionLinkProps } from './SectionLink';
 export { AccountSettings, type AccountSettingsProps } from './AccountSettings';
 export { AppearanceSettings } from './AppearanceSettings';
+export { MotionSettings } from './MotionSettings';
 export { DateTimeSettings, listTimeZones, type DateTimeSettingsProps } from './DateTimeSettings';
 export { FocusSettings, type FocusSettingsProps } from './FocusSettings';
 export { CalDavAccountRow, syncResultSummary, type CalDavAccountRowProps } from './CalDavAccountRow';
@@ -17,6 +18,7 @@ export { CalDavAccountSheet, type CalDavAccountSheetProps } from './CalDavAccoun
 export { CalendarListEditor } from './CalendarListEditor';
 export { IcalSubscriptionCard } from './IcalSubscriptionCard';
 export { NotificationSettings, type NotificationSettingsProps } from './NotificationSettings';
+export { AppriseSettings, type AppriseSettingsProps } from './AppriseSettings';
 export { DataExportCard } from './DataExportCard';
 export { InviteManager } from './InviteManager';
 export { AdminUserTable, type AdminUserTableProps } from './AdminUserTable';

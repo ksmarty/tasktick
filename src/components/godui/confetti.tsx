@@ -23,6 +23,8 @@
  *     list, so a caller's `className` merges with correct Tailwind conflict
  *     resolution rather than being concatenated.
  *  4. Quote style normalized to the repo's single quotes.
+ *  5. The reduced-motion check goes through the app-level `@/lib/motion` helper,
+ *     so the in-app preference is honoured as well as the OS query.
  *
  * The canvas carries `z-toast`: `--z-index-toast` is defined in `globals.css`,
  * so the burst lands above the drawer and the dialog (`--z-index-modal`) that a
@@ -31,6 +33,7 @@
  */
 import * as React from 'react';
 import { accentHex } from '@/lib/colors';
+import { appReducedMotionNow } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import type { AccentColor } from '@/lib/types';
 
@@ -116,11 +119,7 @@ type Surface = {
 let surface: Surface | null = null;
 
 function reducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
+  return appReducedMotionNow();
 }
 
 function ensureSurface(): Surface {

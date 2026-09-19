@@ -16,6 +16,10 @@
  * through `itemHex`, which honours a calendar's custom `#rrggbb`
  * `colorOverride` rather than narrowing it to one of the twelve palette tokens.
  *
+ * The title button carries the same `-ml-2` the task row does, so the
+ * glyph-to-title gap here is the same 12px as the glyph-to-strip gap and the two
+ * row shapes stay in step with each other (see `TaskRow`).
+ *
  * ## The title is one line
  *
  * Both rows keep the title to one ellipsised line. The task title used to wrap,
@@ -109,7 +113,10 @@ export function EventRow({
           type="button"
           onClick={() => onOpen?.(event)}
           aria-label={accessibleName}
-          className="group/row-content relative flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          // `-ml-2` cancels the 4px track gap and the button's own 4px left
+          // padding, so the title begins 12px from the calendar glyph — the same
+          // 12px that separates the glyph from the colour strip (see `TaskRow`).
+          className="group/row-content relative -ml-2 flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* The same inset press region the task row uses; its top edge is
               squared on the first row of the group (see `TaskRow`). */}

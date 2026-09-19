@@ -6,8 +6,8 @@
  * Leading edge: a shadcn `Checkbox` inside its own 44px touch target. Body: a
  * button whose first line carries the title, the pin and the trailing due date,
  * and whose second line is the derived meta (`TaskMeta`). Behind the row a
- * swipe-left reveals Complete and Delete. A long press either lifts the row for
- * reordering (on touch) or — on a pointer that can hover — right-click opens a
+ * swipe-left reveals Complete, Pin/Unpin and Delete. A long press either lifts
+ * the row for reordering (on touch) or — on a pointer that can hover — right-click opens a
  * shadcn `ContextMenu` of the extra actions; never both, so a finger drag is
  * never mistaken for a context menu.
  *
@@ -24,14 +24,19 @@
  *
  * ## The swipe reveals as it goes
  *
- * The Complete/Delete pair used to sit parked outside the card until a release
- * decided the swipe, so a drag moved the row over the bare card and the buttons
- * were painted in afterwards. The pair now rides the same `offsetX` the row
- * does — `translateX(SWIPE_ACTION_WIDTH + offsetX)` — so both move 1:1 with the
+ * The action trio used to sit parked outside the card until a release decided
+ * the swipe, so a drag moved the row over the bare card and the buttons were
+ * painted in afterwards. The trio now rides the same `offsetX` the row does —
+ * `translateX(SWIPE_ACTION_WIDTH + offsetX)` — so all three move 1:1 with the
  * finger from the first pixel past the axis lock and the buttons are on screen
  * for the whole drag. Release snapshots the same way it always did: past half
- * the pair's width it settles open, otherwise it snaps back, and the 200ms
+ * the trio's width it settles open, otherwise it snaps back, and the 200ms
  * transition is disabled only while the finger is down.
+ *
+ * The Pin/Unpin action is the third of those buttons, between Complete and the
+ * destructive Delete. Its label tracks the task: it reads "Pin" while the task
+ * is loose and "Unpin" once it is pinned, so the same gesture both does and
+ * undoes the pin.
  *
  * The long-press lift and the horizontal swipe still share the row without
  * fighting: the axis lock at `GESTURE_SLOP_PX` decides once, a vertical gesture
@@ -67,6 +72,7 @@ import { CheckIcon } from '@svg-animated-icons/react/check';
 import { CrossCircledIcon } from '@svg-animated-icons/react/cross-circled';
 import { DragHandleDots1Icon } from '@svg-animated-icons/react/drag-handle-dots-1';
 import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
+import { SewingPinIcon } from '@svg-animated-icons/react/sewing-pin';
 import { useMediaQuery } from '@/lib/store';
 import { accentHex } from '@/lib/colors';
 import type { AccentColor, Task } from '@/lib/types';
@@ -81,8 +87,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { DueDateLabel, TaskMeta } from './TaskMeta';
 
-/** Width of the revealed Complete + Delete pair (2 × 76px, i.e. `w-38`). */
-export const SWIPE_ACTION_WIDTH = 152;
+/** Width of the revealed Complete + Pin/Unpin + Delete trio (3 × 76px, i.e. `w-57`). */
+export const SWIPE_ACTION_WIDTH = 228;
 /** How long a press must last before it lifts the row. */
 const LONG_PRESS_MS = 550;
 /** Movement that cancels a long press and decides the gesture axis. */
@@ -119,6 +125,8 @@ export interface TaskRowProps {
   onOpen: (task: Task) => void;
   onDelete?: (task: Task) => void;
   onWontDo?: (task: Task) => void;
+  /** Pins the task to the top of the list, or unpins it when already pinned. */
+  onPin?: (task: Task) => void;
   /** Writes are unavailable (offline). */
   disabled?: boolean;
   drag?: TaskRowDrag | null;
@@ -143,6 +151,7 @@ export function TaskRow({
   onOpen,
   onDelete,
   onWontDo,
+  onPin,
   disabled = false,
   drag,
   last = false,
@@ -358,7 +367,11 @@ export function TaskRow({
           onOpen(task);
         }}
         aria-label={`Open ${task.title}`}
-        className="group/row-content relative flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        // `-ml-2` cancels the 4px track gap and the button's own 4px left
+        // padding, so the title begins 12px from the checkbox glyph — the same
+        // 12px that separates the glyph from the colour strip. Without it the
+        // title sat 20px out, the wide gap the row was reported for.
+        className="group/row-content relative -ml-2 flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {/*
          * The press/hover highlight, inset inside the button rather than
@@ -471,10 +484,10 @@ export function TaskRow({
        * These actions sit UNDER the row content, which is why they are invisible
        * in the common case — but only because the row paints over them. At the
        * card's rounded corners the parent clips the row's background and the
-       * buttons show through as red and green crescents. So they are translated
+       * buttons show through as coloured crescents. So they are translated
        * fully out of the card until the row is actually revealed.
        *
-       * They ride the row's own `offsetX` — the pair is exactly
+       * They ride the row's own `offsetX` — the trio is exactly
        * `SWIPE_ACTION_WIDTH` wide, so `SWIPE_ACTION_WIDTH + offsetX` is 100%
        * parked at rest, 0 when open, and the finger's position in between. That
        * is what makes them appear *during* the drag instead of after the
@@ -482,7 +495,7 @@ export function TaskRow({
        */}
       <div
         aria-hidden={!revealed}
-        className="absolute inset-y-0 right-0 z-0 flex w-38"
+        className="absolute inset-y-0 right-0 z-0 flex w-57"
         style={{
           transform: `translateX(${SWIPE_ACTION_WIDTH + offsetX}px)`,
           transition: swiping ? 'none' : 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
@@ -502,6 +515,26 @@ export function TaskRow({
         >
           Complete
         </button>
+        {onPin ? (
+          <button
+            type="button"
+            tabIndex={revealed ? 0 : -1}
+            disabled={disabled}
+            aria-label={task.isPinned ? `Unpin ${task.title}` : `Pin ${task.title}`}
+            onClick={() => {
+              closeReveal();
+              onPin(task);
+            }}
+            className="flex flex-1 items-center justify-center gap-1 bg-primary text-sm font-semibold text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+          >
+            {task.isPinned ? (
+              <SewingPinIcon className="text-sm" aria-hidden />
+            ) : (
+              <DrawingPinIcon className="text-sm" aria-hidden />
+            )}
+            {task.isPinned ? 'Unpin' : 'Pin'}
+          </button>
+        ) : null}
         {onDelete ? (
           <button
             type="button"
@@ -543,6 +576,16 @@ export function TaskRow({
               <ContextMenuItem onSelect={() => onWontDo(task)}>
                 <CrossCircledIcon className="text-sm" aria-hidden />
                 Mark as won&apos;t do
+              </ContextMenuItem>
+            ) : null}
+            {onPin ? (
+              <ContextMenuItem onSelect={() => onPin(task)}>
+                {task.isPinned ? (
+                  <SewingPinIcon className="text-sm" aria-hidden />
+                ) : (
+                  <DrawingPinIcon className="text-sm" aria-hidden />
+                )}
+                {task.isPinned ? 'Unpin' : 'Pin to top'}
               </ContextMenuItem>
             ) : null}
             {onDelete ? (

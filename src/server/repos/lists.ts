@@ -7,7 +7,7 @@
  * is a small transaction rather than a single statement.
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { getDb } from '../db';
+import { getDb, type Db } from '../db';
 import { lists, tags, taskTags, tasks } from '../db/schema';
 import { newId } from '../crypto';
 import { keyBetween, spreadKeys } from '@/lib/fractional';
@@ -41,8 +41,12 @@ function rowToList(row: typeof lists.$inferSelect): List {
 }
 
 /** All lists with open/total task counts, ordered for the sidebar. */
-export async function listLists(userId: string, options: { includeArchived?: boolean } = {}): Promise<List[]> {
-  const db = getDb();
+export async function listLists(
+  userId: string,
+  options: { includeArchived?: boolean } = {},
+  executor: Db = getDb(),
+): Promise<List[]> {
+  const db = executor;
   const conditions = [eq(lists.userId, userId), isNull(lists.deletedAtMs)];
   if (!options.includeArchived) conditions.push(eq(lists.archived, false));
 
@@ -95,8 +99,8 @@ export async function listOpenCounts(userId: string): Promise<Record<string, num
   return out;
 }
 
-export async function getList(userId: string, id: string): Promise<List | null> {
-  const db = getDb();
+export async function getList(userId: string, id: string, executor: Db = getDb()): Promise<List | null> {
+  const db = executor;
   const [row] = await db
     .select()
     .from(lists)
@@ -105,8 +109,8 @@ export async function getList(userId: string, id: string): Promise<List | null> 
   return row ? rowToList(row) : null;
 }
 
-export async function createList(userId: string, input: CreateListInput): Promise<List> {
-  const db = getDb();
+export async function createList(userId: string, input: CreateListInput, executor: Db = getDb()): Promise<List> {
+  const db = executor;
   const [last] = await db
     .select({ sortOrder: lists.sortOrder })
     .from(lists)
@@ -130,7 +134,7 @@ export async function createList(userId: string, input: CreateListInput): Promis
     updatedAt: now,
   });
 
-  const created = await getList(userId, id);
+  const created = await getList(userId, id, executor);
   if (!created) throw new Error('List insert did not persist');
   return created;
 }

@@ -10,7 +10,7 @@
  *
  * A row is `[time gutter] │ [card]`. The gutter is a fixed column, right-aligned
  * against a hairline rule, so the times form a clean edge down the left of the
- * list; an all-day item reads "all-day" in that same column rather than being
+ * list; an all-day item reads its date in that same column rather than being
  * indented somewhere else. The card then leads with the time range in the
  * calendar's accent colour and the title beneath it — the reading order the
  * reference uses, and the reason the range is set apart from the title: the eye
@@ -76,6 +76,7 @@ import type { CalendarItem } from '@/lib/types';
 import { itemHex } from './colors';
 import { DragGhostLabel } from './DragGhostLabel';
 import { minuteOfDay } from './geometry';
+import { allDayDateLabel } from './item-labels';
 import { useItemDrag } from './use-item-drag';
 import type { CalendarInteraction, CalendarLookup, CalendarPrefs, ItemOpenHandler, RescheduleHandler } from './types';
 
@@ -160,11 +161,13 @@ export function DayAgenda({
           const isTask = item.kind === 'task';
           const done = Boolean(item.completed);
           // The gutter carries the start of the row; the card carries the range.
-          const gutterLabel = item.isAllDay ? 'all-day' : formatTime(item.startMs, prefs);
+          // An all-day item has no clock time, so the gutter shows its date
+          // instead of the words "all-day".
+          const gutterLabel = item.isAllDay ? allDayDateLabel(item, prefs.zone) : formatTime(item.startMs, prefs);
           const rangeLabel = item.isAllDay
-            ? // The gutter column already says "all-day". Repeating it on the card
-              // is the kind of duplication that makes a dense list feel noisy, so
-              // the card carries only the title for an all-day row.
+            ? // The gutter column already carries the date. Repeating it on the
+              // card is the kind of duplication that makes a dense list feel
+              // noisy, so the card carries only the title for an all-day row.
               null
             : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
           const accessibleName = [

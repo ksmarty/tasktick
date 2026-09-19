@@ -126,6 +126,8 @@ export interface TaskListSectionProps {
   onOpenEvent?: (event: CalendarItem) => void;
   onDelete?: (task: Task) => void;
   onWontDo?: (task: Task) => void;
+  /** Pins a task to the top of the list, or unpins it when already pinned. */
+  onPin?: (task: Task) => void;
   /** Publishes a new manual order for this section. */
   onReorder?: (section: TaskSection, orderedIds: string[]) => void;
   disabled?: boolean;
@@ -143,6 +145,7 @@ export function TaskListSection({
   onOpenEvent,
   onDelete,
   onWontDo,
+  onPin,
   onReorder,
   disabled = false,
 }: TaskListSectionProps) {
@@ -336,6 +339,7 @@ export function TaskListSection({
                     accent={listColorFor?.(task) ?? null}
                     onDelete={onDelete}
                     onWontDo={onWontDo}
+                    onPin={onPin}
                     disabled={disabled}
                     drag={dragPropsFor(task)}
                     first={index === 0}

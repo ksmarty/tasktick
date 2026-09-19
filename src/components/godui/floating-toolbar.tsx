@@ -13,13 +13,16 @@
  *     class lists instead of string concatenation, so a caller's `className`
  *     merges with correct Tailwind conflict resolution.
  *  2. Quote style normalized to the repo's single quotes.
+ *  3. Reduced motion is read from the app-level `@/lib/motion` hook rather than
+ *     `framer-motion` directly, so the in-app preference is honoured too.
  *
  * Used for the tasks screen's multi-select bulk bar: it is a context toolbar
  * that appears with a spring when a selection starts and leaves when it ends,
  * which is exactly the gesture the bar belongs to.
  */
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import * as React from 'react';
+import { useReducedMotion } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export type ToolbarAction = {

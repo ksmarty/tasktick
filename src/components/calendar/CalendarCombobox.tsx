@@ -50,6 +50,22 @@ import { cn } from '@/lib/utils';
 import type { Calendar as CalendarRecord } from '@/lib/types';
 import { calendarColorHex } from './colors';
 
+/**
+ * Whether the device's primary pointer is coarse — a finger rather than a mouse.
+ *
+ * The picker uses this to decide whether opening may focus its text filter: a
+ * finger raises the on-screen keyboard, which is exactly what the calendar
+ * picker must not do. Guarded so a non-browser render (or an engine without
+ * `matchMedia`) is treated as a fine pointer, which only ever focuses a field.
+ */
+function coarsePointer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
 export interface CalendarComboboxProps {
   /** The committed value: a calendar id. */
   value: string;
@@ -67,6 +83,7 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
   const [active, setActive] = useState(0);
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxRef = useRef<HTMLUListElement>(null);
 
   const selected = calendars.find((calendar) => calendar.id === value) ?? null;
 
@@ -158,11 +175,18 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
         align="start"
         className="w-[--radix-popover-trigger-width] overflow-hidden rounded-xl p-0"
         onOpenAutoFocus={(event) => {
-          // The filter field is the list's keyboard owner; Radix's default
-          // first-focusable would be the same node, but pinning it here keeps
-          // that from depending on DOM order.
+          /*
+           * The filter field is the list's keyboard owner, so a fine pointer (a
+           * mouse) gets it — Radix's default first-focusable would be the same
+           * node, but pinning it here keeps that from depending on DOM order. A
+           * coarse pointer (a finger) must **not** focus it: focusing a text
+           * field raises the on-screen keyboard over a picker the user only
+           * wants to tap through. On touch the listbox itself takes focus, so
+           * the list is still announced and Escape still closes it.
+           */
           event.preventDefault();
-          inputRef.current?.focus();
+          if (coarsePointer()) listboxRef.current?.focus();
+          else inputRef.current?.focus();
         }}
       >
         <div className="flex items-center gap-2 border-b border-border px-3">
@@ -185,7 +209,14 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
           />
         </div>
 
-        <ul id={listboxId} role="listbox" aria-label="Calendars" className="max-h-64 overflow-y-auto p-1">
+        <ul
+          ref={listboxRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Calendars"
+          tabIndex={-1}
+          className="max-h-64 overflow-y-auto p-1"
+        >
           {matches.map((calendar, index) => {
             const isSelected = calendar.id === value;
             return (

@@ -16,6 +16,14 @@
  *  2. Quote style normalized to the repo's single quotes.
  *  3. `pointer-events-auto` on the portal root — see below. This is a bug fix,
  *     not a style choice.
+ *  4. The scrim is `bg-black/50` instead of `bg-foreground/40`. This is a bug
+ *     fix. `foreground` is near-black in the light scheme and near-WHITE in the
+ *     dark one, so the overlay dimmed the page in light mode and *brightened* it
+ *     in dark mode — measured `oklab(0.145 0 0 / 0.4)` light against
+ *     `oklab(0.985 0 0 / 0.4)` dark. A scrim has one job, which is to push the
+ *     page back, and that is not a job whose colour should follow the text
+ *     colour. `bg-black/50` is also what this app's shadcn dialogs use, so the
+ *     two overlay families now agree.
  *  4. The bottom safe-area clearance is imported from the shell's own chrome
  *     module (`@/components/app/chrome`) and applied to the bottom panel when
  *     the caller has handed the panel its own bottom padding (the pickers all
@@ -177,7 +185,7 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   onClick={() => onOpenChange(false)}
-                  className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
+                  className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                 />
                 <motion.div
                   ref={ref}

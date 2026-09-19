@@ -204,6 +204,20 @@ export const userSettings = pgTable(
     dailyDigestAt: text('daily_digest_at'),
     /** Reminder offsets in minutes applied to new tasks, JSON array. */
     defaultReminders: jsonb('default_reminders').$type<number[]>(),
+    /**
+     * In-app reduced-motion preference: `system` follows the OS, `reduce` forces
+     * it on regardless of the OS. An OS `reduce` is always honoured, so there is
+     * no "force motion" value.
+     */
+    reducedMotion: text('reduced_motion').notNull().default('system'),
+    /** Opt-in to the (heuristic) low-power-mode inference; never a stored result. */
+    reduceMotionLowPower: boolean('reduce_motion_low_power').notNull().default(false),
+    /** Apprise API base URL, e.g. `https://apprise.example.com`; null = disabled. */
+    appriseUrl: text('apprise_url'),
+    /** Apprise API key, encrypted at rest and never returned to the client. */
+    appriseKey: text('apprise_key').notNull().default(''),
+    /** Optional Apprise tags to target, JSON array of strings. */
+    appriseTags: jsonb('apprise_tags').$type<string[]>(),
     ...timestamps,
   },
 );
@@ -695,6 +709,27 @@ export const savedFilters = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* import provenance                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** Mirror of `import_keys` in `schema.sqlite.ts` — see there for the rationale. */
+export const importKeys = pgTable(
+  'import_keys',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    source: text('source').notNull(),
+    sourceKey: text('source_key').notNull(),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('import_keys_user_source_idx').on(t.userId, t.source, t.sourceKey)],
+);
+
+/* -------------------------------------------------------------------------- */
 /* inferred row types                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -712,6 +747,7 @@ export type SyncLogRow = typeof syncLogs.$inferSelect;
 export type SyncConflictRow = typeof syncConflicts.$inferSelect;
 export type FocusSessionRow = typeof focusSessions.$inferSelect;
 export type SavedFilterRow = typeof savedFilters.$inferSelect;
+export type ImportKeyRow = typeof importKeys.$inferSelect;
 export type UserSettingsRow = typeof userSettings.$inferSelect;
 export type TaskReminderRow = typeof taskReminders.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;

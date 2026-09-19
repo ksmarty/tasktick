@@ -170,17 +170,17 @@ describe('buildListSections', () => {
     );
 
     expect(sections.map((s) => s.id)).toEqual([
+      'pinned',
       'today',
       'tomorrow',
-      'pinned',
       'overdue',
       'next7days',
       'later',
     ]);
     expect(sections.map((s) => s.title)).toEqual([
+      'Pinned',
       'Today',
       'Tomorrow',
-      'Pinned',
       'Overdue',
       'Next 7 days',
       'Later',
@@ -196,6 +196,47 @@ describe('buildListSections', () => {
     expect(sections).toHaveLength(1);
     expect(sections[0].id).toBe('pinned');
     expect(sections[0].tasks.map((t) => t.id)).toEqual(['both']);
+  });
+
+  it('moves Pinned to the front without moving any task between groups', () => {
+    // The documented rule is that each open task lands in exactly one group — a
+    // task that is both pinned and due today is pinned, never listed twice. The
+    // group order is a render concern only, so the task→group map must be the
+    // same whichever slot Pinned occupies. Build the map from the rendered
+    // sections and assert it against the classification the buckets imply.
+    const rows = [
+      task('pinned-today', { isPinned: true, dueDate: '2025-05-12' }),
+      task('pinned-overdue', { isPinned: true, dueDate: '2025-05-01' }),
+      task('overdue', { dueDate: '2025-05-10' }),
+      task('today', { dueDate: '2025-05-12' }),
+      task('tomorrow', { dueDate: '2025-05-13' }),
+      task('week', { dueDate: '2025-05-15' }),
+      task('later', { dueDate: '2025-05-25' }),
+      task('someday'),
+    ];
+    const sections = buildListSections(rows, options);
+
+    // Pinned is first in render order now.
+    expect(sections[0].id).toBe('pinned');
+
+    const groupOf = new Map<string, string>();
+    for (const section of sections) {
+      for (const row of section.tasks) {
+        // Exactly one group per task: a duplicate would overwrite the entry.
+        expect(groupOf.has(row.id)).toBe(false);
+        groupOf.set(row.id, section.id);
+      }
+    }
+
+    expect(groupOf.get('pinned-today')).toBe('pinned');
+    expect(groupOf.get('pinned-overdue')).toBe('pinned');
+    expect(groupOf.get('overdue')).toBe('overdue');
+    expect(groupOf.get('today')).toBe('today');
+    expect(groupOf.get('tomorrow')).toBe('tomorrow');
+    expect(groupOf.get('week')).toBe('next7days');
+    expect(groupOf.get('later')).toBe('later');
+    expect(groupOf.get('someday')).toBe('later');
+    expect(groupOf.size).toBe(rows.length);
   });
 
   it('omits a group with nothing in it', () => {

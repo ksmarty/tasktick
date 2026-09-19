@@ -43,6 +43,7 @@ export const {
   icalTokens,
   focusSessions,
   savedFilters,
+  importKeys,
 } = schema;
 
 export type {
@@ -60,6 +61,7 @@ export type {
   SyncConflictRow,
   FocusSessionRow,
   SavedFilterRow,
+  ImportKeyRow,
   UserSettingsRow,
   TaskReminderRow,
   PushSubscriptionRow,

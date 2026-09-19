@@ -178,6 +178,26 @@ export function setAgendaStatus(
   return stripped;
 }
 
+/**
+ * Flips one task's pin flag wherever it sits in the agenda.
+ *
+ * Pinning does not move a row between Today's buckets — the agenda groups by
+ * day, not by pin — so this only touches the flag the row's pin glyph reads.
+ * The list screen regroups from its own `buildListSections` pass.
+ */
+export function setAgendaPinned(agenda: AgendaBuckets, id: string, isPinned: boolean): AgendaBuckets {
+  const ids: ReadonlySet<string> = new Set([id]);
+  return {
+    overdue: patchByIds(agenda.overdue, ids, { isPinned }),
+    today: patchByIds(agenda.today, ids, { isPinned }),
+    tomorrow: patchByIds(agenda.tomorrow, ids, { isPinned }),
+    thisWeek: patchByIds(agenda.thisWeek, ids, { isPinned }),
+    later: patchByIds(agenda.later, ids, { isPinned }),
+    noDate: patchByIds(agenda.noDate, ids, { isPinned }),
+    completedToday: patchByIds(agenda.completedToday, ids, { isPinned }),
+  };
+}
+
 export function removeFromAgenda(agenda: AgendaBuckets, ids: ReadonlySet<string>): AgendaBuckets {
   return {
     overdue: agenda.overdue.filter((task) => !ids.has(task.id)),

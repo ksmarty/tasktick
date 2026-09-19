@@ -23,12 +23,15 @@
  *     `128px` rootMargin, but records visibility in state, because with a
  *     `framer-motion` animation there is no CSS `animation-play-state` to write.
  *  4. Quote style normalized to the repo's single quotes.
+ *  5. Reduced motion is read from the app-level `@/lib/motion` hook rather than
+ *     `framer-motion` directly, so the in-app preference is honoured too.
  *
  * The public API (`AuroraTextProps`, the forwarded ref, `data-slot`) is
  * unchanged.
  */
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import * as React from 'react';
+import { useReducedMotion } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export type AuroraTextProps = React.HTMLAttributes<HTMLSpanElement> & {

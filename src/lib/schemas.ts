@@ -26,6 +26,16 @@ const timeOnly = z
 const nullableDate = dateOnly.nullable();
 const nullableTime = timeOnly.nullable();
 
+/**
+ * An Apprise endpoint base URL. Only the shape is checked — never a fetch — and
+ * http(s) is required because the transport is a plain `fetch` POST.
+ */
+export const appriseUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((value) => /^https?:\/\//i.test(value), 'Apprise URL must start with http:// or https://');
+
 /* -------------------------------------------------------------------------- */
 /* tasks                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -285,6 +295,16 @@ export const updateSettingsSchema = z
     notificationsEnabled: z.boolean().optional(),
     dailyDigestAt: timeOnly.nullable().optional(),
     defaultReminders: z.array(z.number().int()).max(10).nullable().optional(),
+    reducedMotion: z.enum(['system', 'reduce']).optional(),
+    reduceMotionLowPower: z.boolean().optional(),
+    /**
+     * Apprise endpoint and key. The URL shape is validated here, but it is never
+     * fetched on save: a self-hosted gateway may be unreachable from the server
+     * at that moment, and a save must not fail for it.
+     */
+    appriseUrl: appriseUrl.nullable().optional(),
+    appriseKey: z.string().max(500).nullable().optional(),
+    appriseTags: z.array(z.string().trim().min(1).max(64)).max(20).nullable().optional(),
   })
   .strict();
 

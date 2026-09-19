@@ -13,14 +13,17 @@
  *     instead of string concatenation, so a caller's `className` merges with
  *     correct Tailwind conflict resolution.
  *  2. Quote style normalized to the repo's single quotes.
+ *  3. Reduced motion is read from the app-level `@/lib/motion` hook rather than
+ *     `framer-motion` directly, so the in-app preference is honoured too.
  *
  * No `@godui/godui-theme` import exists in the published source — the registry
  * dependency is a stylesheet merge, not a code import — so there was nothing to
  * drop. The public API (`DynamicIsland`, `DynamicIslandSize`,
  * `DynamicIslandProps`) is unchanged.
  */
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import * as React from 'react';
+import { useReducedMotion } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 
 export type DynamicIslandSize =

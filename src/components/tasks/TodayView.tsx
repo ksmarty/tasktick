@@ -37,7 +37,7 @@ import { ItemDetailSheet } from './ItemDetailSheet';
 import { QuickAddBar } from './QuickAddBar';
 import { TaskEditorSheet } from './TaskEditorSheet';
 import { TaskListSection } from './TaskListSection';
-import { removeFromAgenda, reorderAgendaSection, setAgendaStatus } from './optimistic';
+import { removeFromAgenda, reorderAgendaSection, setAgendaPinned, setAgendaStatus } from './optimistic';
 import { taskAccentLookup } from './row-colors';
 import { buildTodaySections, countRemaining, todayProgress, type TaskSection } from './sections';
 import { GLASS_TINT } from './surface';
@@ -133,6 +133,18 @@ export function TodayView() {
     optimistic(
       (agenda) => setAgendaStatus(agenda, task.id, 'wont_do', Date.now()),
       () => actions.patch(task.id, { status: 'wont_do' }),
+    );
+  }
+
+  /**
+   * Flips a task's pin. Today groups by day, not by pin, so the row stays put
+   * and only the pin glyph changes; the write is the editor's own pin path.
+   */
+  function pinTask(task: Task) {
+    const isPinned = !task.isPinned;
+    optimistic(
+      (agenda) => setAgendaPinned(agenda, task.id, isPinned),
+      () => actions.patch(task.id, { isPinned }),
     );
   }
 
@@ -300,6 +312,7 @@ export function TodayView() {
               listColorFor={accentForTask}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
+              onPin={pinTask}
               onReorder={reorderSection}
               disabled={!actions.online}
             />

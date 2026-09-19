@@ -308,6 +308,10 @@ export function HabitMonthGrid({
         onPagePreview={setPreview}
         renderDayMarker={renderDayMarker}
         dayMarkerLabel={dayMarkerLabel}
+        /* The ring is painted *around* the disc, so the today/selected fill is
+           inset to leave a gap for it — the calendar screen, which has no ring,
+           keeps its full-size disc. */
+        dayMarkerInset
       />
     </div>
   );

@@ -5,11 +5,11 @@
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { focusSessions, icalTokens, pushSubscriptions, taskCompletions, tasks, userSettings } from '../db/schema';
-import { newId, randomToken } from '../crypto';
+import { newId, randomToken, encryptField, decryptField } from '../crypto';
 import { asAccentColor } from '@/lib/colors';
 import { getEnv } from '@/lib/env';
 import { todayIn } from '@/lib/dates';
-import type { FocusKind, FocusSession, ProductivityStats, UserSettings } from '@/lib/types';
+import type { FocusKind, FocusSession, ProductivityStats, ReducedMotionPreference, UserSettings } from '@/lib/types';
 
 /* -------------------------------------------------------------------------- */
 /* settings                                                                   */
@@ -31,7 +31,17 @@ export const DEFAULT_SETTINGS: UserSettings = {
   notificationsEnabled: true,
   dailyDigestAt: null,
   defaultReminders: [0],
+  reducedMotion: 'system',
+  reduceMotionLowPower: false,
+  appriseUrl: null,
+  appriseKeyConfigured: false,
+  appriseTags: null,
 };
+
+/** `system` is the only safe fallback; an unknown value must not force motion off. */
+function asReducedMotion(value: string | null | undefined): ReducedMotionPreference {
+  return value === 'reduce' ? 'reduce' : 'system';
+}
 
 function rowToSettings(row: typeof userSettings.$inferSelect): UserSettings {
   return {
@@ -50,6 +60,12 @@ function rowToSettings(row: typeof userSettings.$inferSelect): UserSettings {
     notificationsEnabled: row.notificationsEnabled,
     dailyDigestAt: row.dailyDigestAt,
     defaultReminders: row.defaultReminders,
+    reducedMotion: asReducedMotion(row.reducedMotion),
+    reduceMotionLowPower: row.reduceMotionLowPower,
+    appriseUrl: row.appriseUrl,
+    // The key itself never leaves the server; the UI only needs to know one is set.
+    appriseKeyConfigured: row.appriseKey.length > 0,
+    appriseTags: row.appriseTags,
   };
 }
 
@@ -66,11 +82,13 @@ export async function getSettings(userId: string): Promise<UserSettings> {
     weekStartsOn: env.DEFAULT_WEEK_START,
     timeFormat: env.DEFAULT_TIME_FORMAT,
   };
-  await db.insert(userSettings).values({ userId, ...created }).onConflictDoNothing();
+  // `appriseKeyConfigured` is derived, not a column; strip it before inserting.
+  const { appriseKeyConfigured: _appriseKeyConfigured, ...insertable } = created;
+  await db.insert(userSettings).values({ userId, ...insertable }).onConflictDoNothing();
   return created;
 }
 
-export async function updateSettings(userId: string, input: Partial<UserSettings>): Promise<UserSettings> {
+export async function updateSettings(userId: string, input: SettingsUpdate): Promise<UserSettings> {
   const db = getDb();
   const current = await getSettings(userId);
 
@@ -90,6 +108,15 @@ export async function updateSettings(userId: string, input: Partial<UserSettings
   if (input.notificationsEnabled !== undefined) patch.notificationsEnabled = input.notificationsEnabled;
   if (input.dailyDigestAt !== undefined) patch.dailyDigestAt = input.dailyDigestAt;
   if (input.defaultReminders !== undefined) patch.defaultReminders = input.defaultReminders;
+  if (input.reducedMotion !== undefined) patch.reducedMotion = input.reducedMotion === 'reduce' ? 'reduce' : 'system';
+  if (input.reduceMotionLowPower !== undefined) patch.reduceMotionLowPower = input.reduceMotionLowPower;
+  if (input.appriseUrl !== undefined) patch.appriseUrl = input.appriseUrl;
+  if (input.appriseTags !== undefined) patch.appriseTags = input.appriseTags;
+  // `appriseKey` is write-only: an empty string clears it, `null`/`undefined`
+  // leaves the stored key untouched, and anything else is encrypted at rest.
+  if (input.appriseKey !== undefined && input.appriseKey !== null) {
+    patch.appriseKey = input.appriseKey === '' ? '' : encryptField(input.appriseKey);
+  }
 
   await db.update(userSettings).set(patch).where(eq(userSettings.userId, userId));
   void current;
@@ -98,6 +125,45 @@ export async function updateSettings(userId: string, input: Partial<UserSettings
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/**
+ * The settings a caller may write. Identical to {@link UserSettings} except that
+ * `appriseKey` is accepted (write-only) instead of the derived
+ * `appriseKeyConfigured`, and `appriseKey: null` means "leave the stored key".
+ */
+export interface SettingsUpdate extends Partial<Omit<UserSettings, 'appriseKeyConfigured'>> {
+  appriseKey?: string | null;
+}
+
+/** Decrypted Apprise credentials, for the delivery path only. */
+export interface AppriseConfig {
+  url: string;
+  key: string;
+  tags: string[] | null;
+}
+
+/**
+ * Returns the decrypted Apprise config, or null when it is not fully set up.
+ * Kept separate from {@link getSettings} so the plaintext key has exactly one
+ * caller (the notifier) and never travels in an API response or an export.
+ */
+export async function getAppriseConfig(userId: string): Promise<AppriseConfig | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ url: userSettings.appriseUrl, key: userSettings.appriseKey, tags: userSettings.appriseTags })
+    .from(userSettings)
+    .where(eq(userSettings.userId, userId))
+    .limit(1);
+
+  if (!row?.url || row.key.length === 0) return null;
+  try {
+    return { url: row.url, key: decryptField(row.key), tags: row.tags ?? null };
+  } catch {
+    // A key written under a different secret can never be decrypted. Report it
+    // as unconfigured rather than throwing into the reminder path.
+    return null;
+  }
 }
 
 /* -------------------------------------------------------------------------- */

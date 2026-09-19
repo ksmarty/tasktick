@@ -121,10 +121,40 @@ describe('TaskRow — shadcn primitives', () => {
     expect(ROW).toContain('SWIPE_ACTION_WIDTH');
     expect(ROW).toContain('`translateX(${SWIPE_ACTION_WIDTH + offsetX}px)`');
     expect(ROW).toContain('tabIndex={revealed ? 0 : -1}');
-    // The 200ms settle is disabled while the finger is down, or the pair would
+    // The 200ms settle is disabled while the finger is down, or the trio would
     // lag behind the row it is being revealed by.
     expect(ROW).toMatch(/transition: swiping \? 'none' : 'transform 200ms/);
     expect(ROW).toMatch(/transition: swiping \|\| lifted \? 'none' : 'transform 220ms/);
+  });
+
+  it('reveals a Complete / Pin / Delete trio of 76px buttons', () => {
+    // Three actions at the same 76px each: `SWIPE_ACTION_WIDTH` grows from
+    // 152 (2 × 76, `w-38`) to 228 (3 × 76, `w-57`). The row translate and the
+    // action translate are both derived from it, so growing it is the only
+    // change the tracking needs — it stays 1:1.
+    expect(ROW).toContain('SWIPE_ACTION_WIDTH = 228');
+    expect(ROW).toContain('w-57');
+    expect(ROW).not.toContain('w-38');
+    // The three reachable actions, named.
+    expect(ROW).toContain('`Complete ${task.title}`');
+    expect(ROW).toContain('`Pin ${task.title}`');
+    expect(ROW).toContain('`Unpin ${task.title}`');
+    expect(ROW).toContain('`Delete ${task.title}`');
+    // The label tracks the task's state, not a fixed string.
+    expect(ROW).toContain("{task.isPinned ? 'Unpin' : 'Pin'}");
+    expect(ROW).toContain("task.isPinned ? `Unpin ${task.title}` : `Pin ${task.title}`");
+  });
+
+  it('sets the checkbox/icon-to-title gap to the glyph-to-strip gap', () => {
+    // Measured from the row's padding edge: the 4px colour strip runs 0–4px;
+    // the 20px checkbox glyph is centred in the 44px target that begins flush
+    // with the strip, so the glyph runs 16–36px and the strip-to-glyph gap is
+    // 12px. The title used to start at 56px — 20px from the glyph — because the
+    // 4px track gap plus the button's 4px left padding added to the glyph's own
+    // 12px of centring. `-ml-2` cancels those 8px, bringing the title to 48px,
+    // i.e. 12px from the glyph, so the two gaps match. Both row shapes carry it.
+    expect(ROW).toContain('-ml-2');
+    expect(EVENT_ROW).toContain('-ml-2');
   });
 
   it('keeps the press highlight a region inside the button, not the button', () => {
@@ -239,6 +269,23 @@ describe('TaskListSection — GodUI Accordion grouping', () => {
     // number. If this compensation is ever removed the rows silently double-pad.
     expect(SECTION).toContain('-mx-5 -mb-4');
     expect(SECTION).toContain('text-base text-foreground');
+  });
+});
+
+describe('Pin/Unpin — the swipe action is wired to the mutation path', () => {
+  it('toggles the pin through the existing patch write, not just visually', () => {
+    // Both screens set `isPinned` optimistically and send the same `{ isPinned }`
+    // PATCH the editor's "Pin to top" toggle uses, so the swipe cannot drift
+    // away from the record. The row exposes the handler as `onPin`.
+    expect(VIEW).toContain('function pinTask(task: Task)');
+    expect(VIEW).toContain('actions.patch(task.id, { isPinned })');
+    expect(VIEW).toContain('patchById(current, task.id, { isPinned })');
+    expect(VIEW).toContain('onPin={pinTask}');
+    expect(TODAY).toContain('function pinTask(task: Task)');
+    expect(TODAY).toContain('actions.patch(task.id, { isPinned })');
+    expect(TODAY).toContain('setAgendaPinned(agenda, task.id, isPinned)');
+    expect(TODAY).toContain('onPin={pinTask}');
+    expect(SECTION).toContain('onPin={onPin}');
   });
 });
 

@@ -17,7 +17,7 @@
  *     disappearing, so the delete can propagate.
  */
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql, type SQL } from 'drizzle-orm';
-import { getDb } from '../db';
+import { getDb, type Db } from '../db';
 import { lists, calendars, tags, taskCompletions, taskReminders, taskTags, tasks } from '../db/schema';
 import type { TaskRow } from '../db/schema';
 import { newId } from '../crypto';
@@ -60,6 +60,15 @@ export interface CreateTaskInput {
   recurrenceRule?: string | null;
   recurrenceMode?: 'due' | 'completion';
   estimateMinutes?: number | null;
+
+  /**
+   * Set by the importer so a completed row keeps the source's completion time
+   * rather than the moment it happened to be imported. Ignored unless
+   * `status` is `completed`.
+   */
+  completedAtMs?: Millis | null;
+  /** Set by the importer to preserve the source's creation time. */
+  createdAtMs?: Millis | null;
 
   tagIds?: string[];
   /** Tag names that do not exist yet are created on the fly (quick-add path). */
@@ -144,9 +153,13 @@ export function computeFireAt(
 }
 
 /** True when this task's collection is a writable CalDAV calendar. */
-async function calendarSyncsToRemote(calendarId: string | null | undefined, userId: string): Promise<boolean> {
+async function calendarSyncsToRemote(
+  calendarId: string | null | undefined,
+  userId: string,
+  executor: Db = getDb(),
+): Promise<boolean> {
   if (!calendarId) return false;
-  const db = getDb();
+  const db = executor;
   const [row] = await db
     .select({ provider: calendars.provider, readOnly: calendars.readOnly })
     .from(calendars)
@@ -156,8 +169,13 @@ async function calendarSyncsToRemote(calendarId: string | null | undefined, user
 }
 
 /** Resolves tag names to ids, creating any that do not exist yet. */
-async function resolveTagIds(userId: string, tagIds: string[], tagNames: string[]): Promise<string[]> {
-  const db = getDb();
+async function resolveTagIds(
+  userId: string,
+  tagIds: string[],
+  tagNames: string[],
+  executor: Db = getDb(),
+): Promise<string[]> {
+  const db = executor;
   const resolved = new Set(tagIds);
 
   if (tagNames.length) {
@@ -198,8 +216,9 @@ async function replaceReminders(
   dueAtMs: Millis | null,
   dueDate: DateOnly | null,
   zone: string,
+  executor: Db = getDb(),
 ): Promise<void> {
-  const db = getDb();
+  const db = executor;
   await db.delete(taskReminders).where(and(eq(taskReminders.taskId, taskId), eq(taskReminders.userId, userId)));
 
   const rows = reminders
@@ -221,8 +240,8 @@ async function replaceReminders(
   if (rows.length) await db.insert(taskReminders).values(rows);
 }
 
-async function replaceTags(userId: string, taskId: string, tagIds: string[]): Promise<void> {
-  const db = getDb();
+async function replaceTags(userId: string, taskId: string, tagIds: string[], executor: Db = getDb()): Promise<void> {
+  const db = executor;
   await db.delete(taskTags).where(eq(taskTags.taskId, taskId));
   if (!tagIds.length) return;
   await db.insert(taskTags).values(tagIds.map((tagId) => ({ taskId, tagId })));
@@ -230,8 +249,13 @@ async function replaceTags(userId: string, taskId: string, tagIds: string[]): Pr
 }
 
 /** Next free sort key at the end of a list (or among a parent's subtasks). */
-async function nextSortOrder(userId: string, listId: string | null, parentId: string | null): Promise<string> {
-  const db = getDb();
+async function nextSortOrder(
+  userId: string,
+  listId: string | null,
+  parentId: string | null,
+  executor: Db = getDb(),
+): Promise<string> {
+  const db = executor;
   const scope = parentId
     ? and(eq(tasks.userId, userId), eq(tasks.parentId, parentId), isNull(tasks.deletedAtMs))
     : and(
@@ -490,8 +514,8 @@ export async function queryTasks(options: TaskQueryOptions): Promise<Task[]> {
   return hydrate(userId, rows);
 }
 
-export async function getTask(userId: string, id: string): Promise<Task | null> {
-  const db = getDb();
+export async function getTask(userId: string, id: string, executor: Db = getDb()): Promise<Task | null> {
+  const db = executor;
   const [row] = await db
     .select()
     .from(tasks)
@@ -532,8 +556,13 @@ export async function tasksInRange(userId: string, startMs: Millis, endMs: Milli
 /* writes                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export async function createTask(userId: string, input: CreateTaskInput, userZone: string): Promise<Task> {
-  const db = getDb();
+export async function createTask(
+  userId: string,
+  input: CreateTaskInput,
+  userZone: string,
+  executor: Db = getDb(),
+): Promise<Task> {
+  const db = executor;
   const zone = input.timezone ?? userZone;
   const now = isoNow();
   const id = newId();
@@ -543,9 +572,10 @@ export async function createTask(userId: string, input: CreateTaskInput, userZon
     ? { startDate: input.startDate, startAtMs: input.startTime ? combineDateAndTime(input.startDate, input.startTime, zone) : null }
     : { startDate: null, startAtMs: input.startAtMs ?? null };
 
-  const tagIds = await resolveTagIds(userId, input.tagIds ?? [], input.tagNames ?? []);
-  const sortOrder = input.sortOrder ?? (await nextSortOrder(userId, input.listId ?? null, input.parentId ?? null));
-  const syncRemote = await calendarSyncsToRemote(input.calendarId, userId);
+  const tagIds = await resolveTagIds(userId, input.tagIds ?? [], input.tagNames ?? [], executor);
+  const sortOrder =
+    input.sortOrder ?? (await nextSortOrder(userId, input.listId ?? null, input.parentId ?? null, executor));
+  const syncRemote = await calendarSyncsToRemote(input.calendarId, userId, executor);
 
   await db.insert(tasks).values({
     id,
@@ -566,19 +596,20 @@ export async function createTask(userId: string, input: CreateTaskInput, userZon
     recurrenceRule: input.recurrenceRule ?? null,
     recurrenceMode: input.recurrenceMode ?? 'due',
     estimateMinutes: input.estimateMinutes ?? null,
+    completedAtMs: input.status === 'completed' ? input.completedAtMs ?? null : null,
+    createdAt: input.createdAtMs ?? now,
     sortOrder,
     isPinned: input.isPinned ?? false,
     calendarId: input.calendarId ?? null,
     syncProvider: syncRemote ? 'caldav' : 'local',
     syncState: syncRemote ? 'dirty' : 'synced',
-    createdAt: now,
     updatedAt: now,
   });
 
-  await replaceTags(userId, id, tagIds);
-  await replaceReminders(userId, id, input.reminders ?? [], due.dueAtMs, due.dueDate, zone);
+  await replaceTags(userId, id, tagIds, executor);
+  await replaceReminders(userId, id, input.reminders ?? [], due.dueAtMs, due.dueDate, zone, executor);
 
-  const created = await getTask(userId, id);
+  const created = await getTask(userId, id, executor);
   if (!created) throw new Error('Task insert did not persist');
   return created;
 }

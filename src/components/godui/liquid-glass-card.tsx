@@ -22,12 +22,15 @@
  *     GPU cost for no visible effect; a caller can now ask for the glass tint,
  *     frost and sheen alone.
  *  4. Quote style normalized to the repo's single quotes.
+ *  5. The reduced-motion check goes through the app-level `@/lib/motion` helper,
+ *     so the in-app preference is honoured as well as the OS query.
  *
  * `--lg-x` / `--lg-y` are written inline on purpose: a pointer-tracked position
  * is exactly the case the conventions allow inline `style` for, and they are not
  * spacing values.
  */
 import * as React from 'react';
+import { appReducedMotionNow } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import {
   buildDisplacementMap,
@@ -105,7 +108,7 @@ const LiquidGlassCard = React.forwardRef<HTMLDivElement, LiquidGlassCardProps>(
 
     const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
       const node = rootRef.current;
-      if (node && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (node && !appReducedMotionNow()) {
         const rect = node.getBoundingClientRect();
         node.style.setProperty('--lg-x', `${((e.clientX - rect.left) / rect.width) * 100}%`);
         node.style.setProperty('--lg-y', `${((e.clientY - rect.top) / rect.height) * 100}%`);

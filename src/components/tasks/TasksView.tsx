@@ -3,7 +3,7 @@
 /**
  * The task list screen: every open task, grouped by urgency.
  *
- * One pass over `/api/tasks`, bucketed into Today / Tomorrow / Pinned /
+ * One pass over `/api/tasks`, bucketed into Pinned / Today / Tomorrow /
  * Overdue / Next 7 days / Later by `buildListSections` — the user does not
  * choose a window here, they read one list. Calendar events for the same window
  * are merged in as non-completable rows. Filtering and sorting each live in their
@@ -81,7 +81,7 @@ import {
   TASK_SORTS,
   type TaskViewState,
 } from './filters';
-import { removeByIds, reorderList, setStatusByIds } from './optimistic';
+import { patchById, removeByIds, reorderList, setStatusByIds } from './optimistic';
 import { buildListSections, NEXT_7_DAYS_SPAN, visibleTasks, type TaskSection } from './sections';
 import { taskAccentLookup } from './row-colors';
 import { useTaskActions } from './useTaskActions';
@@ -386,6 +386,19 @@ export function TasksView() {
     );
   }
 
+  /**
+   * Flips a task's pin. The list is regrouped by `buildListSections`, so the row
+   * moves into (or out of) the Pinned section as soon as the optimistic patch
+   * lands, and `actions.patch` is the same write the editor's "Pin to top" uses.
+   */
+  function pinTask(task: Task) {
+    const isPinned = !task.isPinned;
+    optimistic(
+      (current) => patchById(current, task.id, { isPinned }),
+      () => actions.patch(task.id, { isPinned }),
+    );
+  }
+
   function reorderSection(_section: TaskSection, orderedIds: string[]) {
     optimistic(
       (current) => reorderList(current, orderedIds),
@@ -604,6 +617,7 @@ export function TasksView() {
               onOpenEvent={openEventDetail}
               onDelete={deleteTask}
               onWontDo={wontDoTask}
+              onPin={pinTask}
               onReorder={reorderSection}
               disabled={!actions.online}
             />

@@ -11,6 +11,7 @@
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
+import { AppriseSettings } from '@/components/settings/AppriseSettings';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { SettingsPayload } from '@/lib/view-types';
@@ -29,6 +30,7 @@ export default function NotificationSettingsPage() {
         ) : (
           <>
             <NotificationSettings payload={settings.data} onChanged={() => void settings.refresh()} />
+            <AppriseSettings payload={settings.data} onChanged={() => void settings.refresh()} />
             <SettingsGroup
               title="What gets sent"
               footer="Reminders are scheduled from each task's own due date and time. Notifications never include your task notes."

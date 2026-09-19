@@ -15,6 +15,7 @@ import {
   reorderIds,
   reorderList,
   reorderableIds,
+  setAgendaPinned,
   setAgendaStatus,
   setPriorityByIds,
   setStatusById,
@@ -219,6 +220,18 @@ describe('agenda patches', () => {
   it('ignores an unknown section id', () => {
     const before = agenda({ today: [task('a')] });
     expect(reorderAgendaSection(before, 'nope', ['a'])).toBe(before);
+  });
+
+  it('flips the pin flag in whichever bucket the task sits', () => {
+    const before = agenda({ today: [task('a'), task('b')], later: [task('c')] });
+    const after = setAgendaPinned(before, 'a', true);
+
+    expect(after.today.find((t) => t.id === 'a')?.isPinned).toBe(true);
+    expect(after.today.find((t) => t.id === 'b')?.isPinned).toBe(false);
+    expect(after.later.find((t) => t.id === 'c')?.isPinned).toBe(false);
+    // Today groups by day, not by pin, so the row does not change bucket.
+    expect(after.today.map((t) => t.id)).toEqual(['a', 'b']);
+    expect(before.today.find((t) => t.id === 'a')?.isPinned).toBe(false);
   });
 });
 

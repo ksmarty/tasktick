@@ -166,28 +166,32 @@ export const NEXT_7_DAYS_SPAN = 7;
  * which slice to look at first.
  */
 export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectionTone }[] = [
+  { id: 'pinned', title: 'Pinned', tone: 'default' },
   { id: 'today', title: 'Today', tone: 'default' },
   { id: 'tomorrow', title: 'Tomorrow', tone: 'default' },
-  { id: 'pinned', title: 'Pinned', tone: 'default' },
   { id: 'overdue', title: 'Overdue', tone: 'danger' },
   { id: 'next7days', title: 'Next 7 days', tone: 'default' },
   { id: 'later', title: 'Later', tone: 'default' },
 ];
 
 /**
- * The list screen's grouping: Today, Tomorrow, Pinned, Overdue, Next 7 days,
+ * The list screen's grouping: Pinned, Today, Tomorrow, Overdue, Next 7 days,
  * Later.
  *
- * Today and Tomorrow lead because they are the two days a person actually acts
- * on; the rest of the urgency buckets follow. One pass over the rows, each open
- * task landing in exactly one group — a task that is both pinned and due today
- * is pinned, and never appears twice. A group with nothing in it is skipped
- * rather than rendered as an empty header.
+ * Pinned leads because it is the user's own ordering of their list — the one
+ * group they placed deliberately — so it sits above the derived day buckets;
+ * Today and Tomorrow follow because they are the two days a person actually
+ * acts on, and the rest of the urgency buckets follow those. The group order is
+ * a render concern only: one pass over the rows, each open task landing in
+ * exactly one group — a task that is both pinned and due today is pinned, and
+ * never appears twice — so reordering the groups never moves a task between
+ * them. A group with nothing in it is skipped rather than rendered as an empty
+ * header.
  *
- * Pinned wins over the day buckets because it is the user's own ordering of
- * their list; Overdue is anything due before today; Next 7 days is the rest of
- * the week-long horizon after tomorrow; Later is everything else, undated work
- * included, so nothing has a home it does not belong in.
+ * Pinned is tested first, so it wins over every day bucket; Overdue is anything
+ * due before today; Next 7 days is the rest of the week-long horizon after
+ * tomorrow; Later is everything else, undated work included, so nothing has a
+ * home it does not belong in.
  *
  * Events are bucketed by the day they start and never pinned. A past event is
  * dropped: the caller asks the calendar for today onward, and an event that has

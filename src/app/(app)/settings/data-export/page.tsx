@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { DataExportCard } from '@/components/settings/DataExportCard';
+import { TickTickImportCard } from '@/components/settings/TickTickImportCard';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
 import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { BootstrapPayload } from '@/lib/view-types';
@@ -28,6 +29,7 @@ export default function DataSettingsPage() {
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
       <SettingsTabs active="data">
         <DataExportCard />
+        <TickTickImportCard />
 
         {!bootstrap.data ? (
           <Skeleton className="h-40 w-full" />
