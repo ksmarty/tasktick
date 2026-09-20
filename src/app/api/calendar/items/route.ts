@@ -32,20 +32,41 @@ export const GET = route(async ({ user, req }) => {
   const wantsLayout = new URL(req.url).searchParams.get('layout') === '1';
   const calendarIds = searchParamList(req, 'calendarIds');
 
+  /*
+   * Which kinds to project, and whether to bucket by day.
+   *
+   * Both default to the previous behaviour, so every existing caller keeps the
+   * full response. They exist because two screens read this endpoint and want
+   * very different halves of it: the calendar screen needs both kinds and the
+   * day buckets, while the task list wants events only and drops the buckets on
+   * the floor. Sending it everything anyway cost 336 KB of JSON per cold load, of
+   * which 293 KB was task projections the client filtered straight back out — and
+   * every item was serialised twice, once in `items` and again inside `days`.
+   *
+   * `includeTasks` and `includeEvents` already existed on `getCalendarItems`;
+   * this only stops them being unreachable from the wire.
+   */
+  const kinds = searchParamList(req, 'kinds') ?? [];
+  const includeEvents = kinds.length === 0 || kinds.includes('event');
+  const includeTasks = kinds.length === 0 || kinds.includes('task');
+  const wantsDays = new URL(req.url).searchParams.get('days') !== '0';
+
   const [items, calendars] = await Promise.all([
-    getCalendarItems({ userId: user.id, zone, startMs, endMs, calendarIds }),
+    getCalendarItems({ userId: user.id, zone, startMs, endMs, calendarIds, includeEvents, includeTasks }),
     listCalendars(user.id),
   ]);
 
+  const days = wantsDays ? { days: groupItemsByDay(items, zone) } : {};
+
   if (!wantsLayout) {
-    return ok({ items, calendars, days: groupItemsByDay(items, zone) });
+    return ok({ items, calendars, ...days });
   }
 
   // The day/week grid needs overlap columns; the month grid does not.
   return ok({
     items,
     calendars,
-    days: groupItemsByDay(items, zone),
+    ...days,
     layout: layoutOverlaps(items),
   });
 });

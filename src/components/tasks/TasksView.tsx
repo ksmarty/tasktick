@@ -289,8 +289,10 @@ export function TasksView() {
    * Events for the window the list groups: today out to the Later horizon.
    * `/api/calendar/items` is the one read endpoint that expands recurring events
    * and projects both kinds into `CalendarItem`. Its task rows are dropped here
-   * because `/api/tasks` already owns them, and the endpoint has no "events only"
-   * switch (see the report).
+   * because `/api/tasks` already owns them, so the read asks for `kinds=event`
+   * and `days=0`. Without those this screen downloaded every task projection
+   * twice over — once in `items`, once inside `days` — and discarded it, which
+   * was most of a 336 KB cold-load response.
    *
    * The window runs to `EVENT_HORIZON_DAYS`, not to the Next 7 days edge: an
    * event past that edge belongs to the Later group, and reading only to the edge
@@ -306,6 +308,10 @@ export function TasksView() {
     () => ({
       startMs: fromDateOnly(today, zone).toMillis(),
       endMs: fromDateOnly(addDaysToDateOnly(today, EVENT_HORIZON_DAYS, zone), zone).toMillis(),
+      // Events only, and no per-day buckets: this screen reads `items` and
+      // filters it itself. The buckets are for the calendar screen.
+      kinds: 'event',
+      days: '0',
     }),
     [today, zone],
   );
