@@ -146,7 +146,9 @@ export function projectQueuedCreate(
       weekDays: Array.isArray(input.weekDays) ? (input.weekDays.filter((day) => typeof day === 'number') as number[]) : null,
       timesPerPeriod: num(input.timesPerPeriod, 1) ?? 1,
       startDate: str(input.startDate, '') ?? '',
-      reminderAtMs: num(input.reminderAtMs),
+      reminders: Array.isArray(input.reminders)
+        ? (input.reminders.filter((value) => typeof value === 'number') as number[])
+        : null,
       archived: false,
       sortOrder: str(input.sortOrder, '') ?? '',
       createdAt: now,

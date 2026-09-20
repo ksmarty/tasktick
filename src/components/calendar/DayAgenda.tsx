@@ -34,14 +34,17 @@
  * rule its own clearance while staying legible; the values stay right-aligned
  * against the rule.
  *
- * The node and the gutter label share one anchor: a fixed `top-3.5` (14px) from
- * the entry's top, so both sit on the entry's first line whether the title runs
- * to one line or two. It is deliberately a distance from the top rather than a
- * centring, because a two-line title makes the entry taller and a centred node
- * would slide down with it — the timeline would then point at the middle of the
- * card instead of at where the item starts. The offset is the entry's `pt-1.5`
- * (6px) plus half the 16px box of the `text-xs` range line the timed rows lead
- * with.
+ * The node and the gutter label share one anchor: a fixed `top-6.5` (26px) from
+ * the entry's top — the vertical centre of a **one-line** entry. It is a
+ * distance from the top rather than a `top-1/2` centring, because a two-line
+ * entry is taller and a centred node would slide down with it; the rule the user
+ * asked for is "centre a one-line entry, and keep a two-line entry the same
+ * distance from the top", which only a fixed offset can satisfy both ways. The
+ * offset is the entry's own height halved: a one-line entry renders **52px**
+ * tall (`pt-1.5` 6px + the `text-xs` range line 16px + `mt-0.5` 2px + the
+ * `text-sm` title line 20px + `pb-2` 8px), so the centre is 26px. That is `6.5`
+ * on the spacing scale — a token, not an arbitrary value — and the one constant
+ * below is where it lives.
  *
  * Colour is never the only signal. A task is drawn with a checkbox glyph and a
  * softer card surface than an event's, so "a to-do I scheduled" is never
@@ -91,8 +94,8 @@
  *
  * The bottom reservation for the fixed tab band lives here too: in full-height
  * mode the shell's `main` no longer reserves it, so the list states it once —
- * `pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)]`, the same expression the
- * shell's own pane used, grown by the 14px the band was lifted off the bottom
+ * `pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)]`, the same expression the
+ * shell's own pane used, grown by the 2px the band was lifted off the bottom
  * edge — and the last row can always be scrolled clear of the band on a phone.
  * On `lg` the band is hidden, so the reservation drops to a plain `pb-2`.
  *
@@ -133,13 +136,22 @@ const DRAG_COLUMNS = 7;
 const GUTTER_WIDTH_CLASS = 'w-14';
 
 /**
- * The timeline's anchor, stated once so the node and the gutter time cannot
- * drift apart: 14px below the entry's top — the entry's `pt-1.5` (6px) plus half
- * the 16px line box of the `text-xs` range row. `-translate-y-1/2` puts each
- * element's own centre on that offset, whatever its height, which is what makes
- * a one-line and a two-line entry anchor identically.
+ * The timeline's anchor, stated once so the node, the gutter time and the rule's
+ * end trims cannot drift apart: half a one-line entry's measured 52px height —
+ * its true vertical centre, `6.5` spacing units = 26px below the entry's top.
+ * `-translate-y-1/2` puts each element's own centre on that offset, whatever
+ * its height, which is what makes a one-line and a two-line entry anchor
+ * identically. Re-measure the entry and move this one number if its line boxes
+ * change again.
  */
-const TIMELINE_ANCHOR_TOP = 'top-3.5';
+const TIMELINE_ANCHOR_TOP = 'top-6.5';
+/**
+ * The same 26px as a height, for the last rule segment, which stops at the node
+ * instead of crossing the row. It is written as its own literal because Tailwind
+ * scans classes as source text and does not interpolate, so the two must be
+ * moved together.
+ */
+const TIMELINE_ANCHOR_HEIGHT = 'h-6.5';
 const TIMELINE_ANCHOR = `${TIMELINE_ANCHOR_TOP} -translate-y-1/2`;
 
 export interface DayAgendaProps {
@@ -204,7 +216,7 @@ export function DayAgenda({
          * The scrollbar is hidden on the section, which is the element that
          * scrolls — see `CalendarScreen`.
          */
-        className="flex flex-col gap-stack touch-pan-y px-2 pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-2"
+        className="flex flex-col gap-stack touch-pan-y px-2 pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)] lg:pb-2"
       >
         {items.map((item, index) => {
           const hex = itemHex(item, calendars, dark);
@@ -260,7 +272,7 @@ export function DayAgenda({
               >
                 {/*
                  * The gutter label shares the node's anchor: `TIMELINE_ANCHOR`
-                 * (14px from the entry's top) centres the label on the same
+                 * (26px from the entry's top) centres the label on the same
                  * offset the node is drawn at, so the time and the dot agree on
                  * a one-line entry and stay agreed when the title wraps to two.
                  * The label used to be centred on the whole entry, which is the
@@ -297,13 +309,13 @@ export function DayAgenda({
                  * First and last are trimmed to their nodes rather than the row
                  * edges: the first row starts its rule at the node's own offset
                  * (`TIMELINE_ANCHOR_TOP`, exactly where the node is drawn) and
-                 * the last stops there (`h-3.5`, no bridge), so nothing dangles
-                 * above the first entry or past the final one. The offset is a
-                 * fixed distance from the top now that the node is anchored
-                 * there rather than centred on a row whose height varies — it
-                 * tracks the first line of text at any row height. A single-item
-                 * day is both first and last and draws no rule at all, only its
-                 * node.
+                 * the last stops there (`TIMELINE_ANCHOR_HEIGHT`, the same 26px,
+                 * no bridge), so nothing dangles above the first entry or past
+                 * the final one. The offset is a fixed distance from the top now
+                 * that the node is anchored there rather than centred on a row
+                 * whose height varies — it is the centre of the one-line entry
+                 * and stays put when the title wraps to two. A single-item day is
+                 * both first and last and draws no rule at all, only its node.
                  */}
                 <span aria-hidden className="relative w-px shrink-0 self-stretch">
                   {items.length > 1 ? (
@@ -311,18 +323,16 @@ export function DayAgenda({
                       className={cn(
                         'absolute left-0 w-px bg-border',
                         index === 0 ? TIMELINE_ANCHOR_TOP : 'top-0',
-                        index === items.length - 1 ? 'h-3.5' : '-bottom-3',
+                        index === items.length - 1 ? TIMELINE_ANCHOR_HEIGHT : '-bottom-3',
                       )}
                     />
                   ) : null}
                   {/*
-                   * Anchored to the top of the entry, not centred on it: the
-                   * timeline reads as "the item starts here", so the node sits on
-                   * the first line of text. `top-3.5` (14px) is the entry's
-                   * `pt-1.5` (6px) plus half the 16px box of the `text-xs` range
-                   * line the timed rows lead with — anchored to the top, a fixed
-                   * offset tracks the first line instead of drifting with the
-                   * row's height the way the old `top-1/2` did. It uses the same
+                   * Anchored to a fixed distance from the top, not centred on the
+                   * whole entry: the anchor is the centre of a one-line entry
+                   * (`top-6.5`, 26px = half the 52px a one-line entry renders),
+                   * so a two-line title grows downward without dragging the node
+                   * off the middle of the short case. It uses the same
                    * `TIMELINE_ANCHOR` the gutter label does, so the two cannot
                    * disagree.
                    *

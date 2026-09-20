@@ -17,6 +17,8 @@ const WRAPPER = source('components/app/Toast.tsx');
 const STACK = source('components/godui/toast.tsx');
 const TASKS_VIEW = source('components/tasks/TasksView.tsx');
 const TODAY_VIEW = source('components/tasks/TodayView.tsx');
+const USE_TASK_ACTIONS = source('components/tasks/useTaskActions.ts');
+const COMPLETION_UNDO = source('components/tasks/CompletionUndo.tsx');
 
 describe('the app toast dwell time', () => {
   it('sits in the 1.5-2s the user asked for', () => {
@@ -38,15 +40,34 @@ describe('the app toast dwell time', () => {
    * relies on the wrapper's rule for action-carrying banners, so the window is
    * stated once and stays finite — a future caller cannot accidentally pass
    * `duration: 0` (persistent, ~24.8 days) and leave the banner up.
+   *
+   * The task-complete Undo no longer uses that rule at all: it is the inline
+   * `CompletionUndo` control now. The wrapper's action window stays because the
+   * wrapper still has to support actions; what is pinned here is where the
+   * completion path went, not the wrapper rule's removal.
    */
   it('gives an action-carrying banner a finite, longer window', () => {
     expect(WRAPPER).toContain('const ACTION_DURATION = 5000;');
     expect(WRAPPER).toContain('banner.action ? ACTION_DURATION');
+  });
+
+  /*
+   * PORTED from the old `action: { label: 'Undo' }` assertions. The completion
+   * path used to raise a full toast with an Undo action; it now raises the small
+   * left-edge `CompletionUndo` instead, and the re-add (undo) path raises nothing.
+   * The point of the original assertion survives: the completion feedback is
+   * still present, still undoable, and still has no persistent banner.
+   */
+  it('moves the completion Undo off the toast and leaves the re-add silent', () => {
     for (const view of [TASKS_VIEW, TODAY_VIEW]) {
+      expect(view).toContain('CompletionUndo');
+      expect(view).not.toContain('Task completed');
       expect(view).not.toMatch(/duration:\s*0\s*[,}]/);
       expect(view).not.toContain('duration: 5000');
-      expect(view).toContain("action: { label: 'Undo'");
     }
+    expect(USE_TASK_ACTIONS).not.toContain('Marked as not done');
+    // The 1.2s window the user asked for is the constant the control reads.
+    expect(COMPLETION_UNDO).toContain('const COMPLETION_UNDO_MS = 1200;');
   });
 });
 

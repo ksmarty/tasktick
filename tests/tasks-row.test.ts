@@ -335,7 +335,7 @@ describe('the task screens own their own scroll', () => {
       expect(view).toContain('flex min-h-0 flex-1 flex-col');
       expect(view).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain');
       // The list restates the mobile tab-bar clearance the shell's pane carried.
-      expect(view).toContain('pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0');
+      expect(view).toContain('pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)] lg:pb-0');
     }
   });
 });

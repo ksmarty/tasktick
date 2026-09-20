@@ -23,6 +23,12 @@ export {
 export { TaskEditorSheet, type TaskEditorSheetProps } from './TaskEditorSheet';
 export { ItemDetailSheet, type ItemDetailSheetProps } from './ItemDetailSheet';
 export { QuickAddBar, type QuickAddBarProps } from './QuickAddBar';
+export {
+  CompletionUndo,
+  COMPLETION_UNDO_MS,
+  type CompletionUndoProps,
+  type CompletionUndoTask,
+} from './CompletionUndo';
 export { SubTaskList, type SubTaskListProps } from './SubTaskList';
 export { EmptyTasks, type EmptyTasksProps } from './EmptyTasks';
 
@@ -80,12 +86,16 @@ export {
 export {
   dedupeTagNames,
   findListByName,
+  highlightSegments,
   planQuickAdd,
   quickAddChips,
+  quickAddHighlights,
   type QuickAddChip,
   type QuickAddChipKind,
   type QuickAddContext,
+  type QuickAddHighlight,
   type QuickAddPlan,
+  type QuickAddSegment,
 } from './quick-add';
 export {
   activeFilters,

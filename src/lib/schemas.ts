@@ -222,7 +222,11 @@ export const createHabitSchema = z
     weekDays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
     timesPerPeriod: z.number().int().min(1).max(100).optional(),
     startDate: dateOnly.optional(),
-    reminderAt: timeOnly.nullable().optional(),
+    /**
+     * Reminder times as minutes since local midnight (0–1439). An empty list or
+     * `null` means no reminders; the repo normalises both to `null`.
+     */
+    reminders: z.array(z.number().int().min(0).max(1439)).max(1440).nullable().optional(),
   })
   .strict();
 

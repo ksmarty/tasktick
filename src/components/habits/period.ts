@@ -14,6 +14,7 @@
 import { DateTime } from 'luxon';
 import {
   addDaysToDateOnly,
+  combineDateAndTime,
   formatTime,
   monthBounds,
   startOfWeekDate,
@@ -21,7 +22,7 @@ import {
   type FormatPrefs,
 } from '@/lib/dates';
 import { weekdayOfDate } from '@/lib/rrule';
-import type { AccentColor, DateOnly, Habit, HabitFrequency } from '@/lib/types';
+import type { AccentColor, DateOnly, Habit, HabitFrequency, TimeOnly } from '@/lib/types';
 
 const ZONE = 'utc';
 
@@ -458,13 +459,38 @@ export function completionLabel(rate: number | undefined, windowLabel: string): 
   return `${percent}% completed ${windowLabel.toLowerCase()}`;
 }
 
-/** The reminder as a clock time in the user's format, or `null` when unset. */
-export function reminderLabel(
-  habit: Pick<Habit, 'reminderAtMs'>,
+/** `HH:mm` for a minutes-since-midnight value, e.g. `540` -> `09:00`. */
+export function minutesToTime(minutes: number): TimeOnly {
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+/** A wall-clock `HH:mm` back to minutes since midnight, clamped into the day. */
+export function timeToMinutes(time: TimeOnly): number {
+  const [hour, minute] = time.split(':').map((part) => Number.parseInt(part, 10));
+  return Math.min(1439, Math.max(0, (hour || 0) * 60 + (minute || 0)));
+}
+
+/** A minutes-since-midnight reminder in the user's 12h/24h clock format. */
+export function formatReminderTime(minutes: number, prefs: FormatPrefs): string {
+  // A fixed UTC day: only the clock time matters, and anchoring it in UTC keeps
+  // the label independent of the reader's zone.
+  return formatTime(combineDateAndTime('1970-01-01', minutesToTime(minutes), ZONE), {
+    ...prefs,
+    zone: ZONE,
+  });
+}
+
+/**
+ * The habit's reminder times in the user's clock format, ascending. `[]` when
+ * the habit has none, so callers never branch on `null`.
+ */
+export function reminderLabels(
+  habit: Pick<Habit, 'reminders'>,
   prefs: FormatPrefs,
-): string | null {
-  if (!habit.reminderAtMs) return null;
-  return formatTime(habit.reminderAtMs, prefs);
+): string[] {
+  return (habit.reminders ?? []).map((minutes) => formatReminderTime(minutes, prefs));
 }
 
 /* -------------------------------------------------------------------------- */

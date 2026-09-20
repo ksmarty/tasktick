@@ -25,14 +25,13 @@ import {
   DATE_FORMAT,
   addDaysToDateOnly,
   fromDateOnly,
-  nowIn,
   startOfWeekDate,
   todayIn,
   weekBounds,
   monthBounds,
 } from '@/lib/dates';
 import { weekdayOfDate } from '@/lib/rrule';
-import type { AccentColor, DateOnly, Habit, HabitFrequency, HabitGoalType, Millis } from '@/lib/types';
+import type { AccentColor, DateOnly, Habit, HabitFrequency, HabitGoalType } from '@/lib/types';
 
 export interface CreateHabitInput {
   name: string;
@@ -46,7 +45,8 @@ export interface CreateHabitInput {
   weekDays?: number[] | null;
   timesPerPeriod?: number;
   startDate?: DateOnly;
-  reminderAt?: string | null;
+  /** Reminder times as minutes since local midnight (0–1439). */
+  reminders?: number[] | null;
 }
 
 export type UpdateHabitInput = Partial<Omit<CreateHabitInput, 'startDate'>> & {
@@ -69,7 +69,7 @@ function rowToHabit(row: typeof habits.$inferSelect): Habit {
     weekDays: row.weekDays ? row.weekDays.split(',').map((n) => Number.parseInt(n, 10)) : null,
     timesPerPeriod: row.timesPerPeriod,
     startDate: row.startDate,
-    reminderAtMs: row.reminderAtMs,
+    reminders: row.reminders ?? null,
     archived: row.archived,
     sortOrder: row.sortOrder,
     createdAt: row.createdAt,
@@ -392,7 +392,7 @@ export async function createHabit(
     weekDays: input.weekDays?.length ? input.weekDays.join(',') : null,
     timesPerPeriod: input.timesPerPeriod ?? 1,
     startDate: input.startDate ?? todayIn(zone),
-    reminderAtMs: parseReminderAt(input.reminderAt, zone),
+    reminders: normalizeReminderMinutes(input.reminders),
     sortOrder: keyBetween(last?.sortOrder ?? null, null).key,
     createdAt: now,
     updatedAt: now,
@@ -403,18 +403,25 @@ export async function createHabit(
   return created;
 }
 
-function parseReminderAt(time: string | null | undefined, zone: string): Millis | null {
-  if (!time) return null;
-  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
-  if (!match) return null;
-  const today = nowIn(zone);
-  const candidate = today.set({
-    hour: Number.parseInt(match[1], 10),
-    minute: Number.parseInt(match[2], 10),
-    second: 0,
-    millisecond: 0,
-  });
-  return candidate.isValid ? candidate.toMillis() : null;
+/**
+ * A habit's reminder times, normalised to the one stored shape.
+ *
+ * `null`, `undefined` and `[]` all mean "no reminders" and store `null`, so
+ * "unset" and "an empty list" never become two different states. Otherwise the
+ * minutes are clamped into a day, de-duplicated and sorted ascending: the same
+ * wall-clock time twice is one reminder, because two identical times would fire
+ * together and there is nothing a second copy could mean. A habit reminder is a
+ * time of day, so the value is minutes since local midnight rather than an
+ * instant — that is what keeps it the same clock time through a DST change and
+ * independent of the reader's zone.
+ */
+export function normalizeReminderMinutes(input: number[] | null | undefined): number[] | null {
+  if (!input || input.length === 0) return null;
+  const minutes = input
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.min(1439, Math.max(0, Math.round(value))));
+  if (!minutes.length) return null;
+  return [...new Set(minutes)].sort((a, b) => a - b);
 }
 
 export async function updateHabit(userId: string, id: string, input: UpdateHabitInput): Promise<Habit | null> {
@@ -433,8 +440,8 @@ export async function updateHabit(userId: string, id: string, input: UpdateHabit
   if (input.timesPerPeriod !== undefined) patch.timesPerPeriod = Math.max(1, input.timesPerPeriod);
   if (input.startDate !== undefined) patch.startDate = input.startDate;
   if (input.archived !== undefined) patch.archived = input.archived;
-  if (input.reminderAt !== undefined) {
-    patch.reminderAtMs = input.reminderAt ? parseReminderAt(input.reminderAt, 'UTC') : null;
+  if (input.reminders !== undefined) {
+    patch.reminders = normalizeReminderMinutes(input.reminders);
   }
 
   await db.update(habits).set(patch).where(and(eq(habits.id, id), eq(habits.userId, userId)));

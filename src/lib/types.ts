@@ -374,7 +374,12 @@ export interface Habit {
   weekDays: number[] | null;
   timesPerPeriod: number;
   startDate: DateOnly;
-  reminderAtMs: Millis | null;
+  /**
+   * Reminder times, each a number of minutes since local midnight (0–1439),
+   * stored ascending and de-duplicated. `null` means no reminders. Habit
+   * reminders are wall-clock times of day, not offsets from a start instant.
+   */
+  reminders: number[] | null;
   archived: boolean;
   sortOrder: string;
   createdAt: Millis;

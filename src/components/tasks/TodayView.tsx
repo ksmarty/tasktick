@@ -25,12 +25,12 @@ import { formatFullDate } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
 import { useResource } from '@/lib/store';
 import type { Task } from '@/lib/types';
-import type { BootstrapPayload } from '@/lib/view-types';
+import type { BootstrapPayload, CompleteTaskPayload } from '@/lib/view-types';
 import { useShellPane } from '@/components/app/ShellPane';
-import { useToast } from '@/components/app/Toast';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
+import { CompletionUndo } from './CompletionUndo';
 import { EmptyTasks } from './EmptyTasks';
 import { HeaderActionButton } from './HeaderActionButton';
 import { ItemDetailSheet } from './ItemDetailSheet';
@@ -52,7 +52,6 @@ export function TodayView() {
   const timeFormat = data?.settings.timeFormat ?? '24h';
   const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
-  const { toast } = useToast();
 
   // Resolves each row's list colour once, for the per-row colour strip.
   const lists = useMemo(() => data?.lists ?? [], [data?.lists]);
@@ -63,6 +62,8 @@ export function TodayView() {
   useShellPane({ fullHeight: true });
 
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  /** The task a completion just moved to "Completed today", while its Undo is up. */
+  const [undoTask, setUndoTask] = useState<Task | null>(null);
 
   // The shell's action button asks the mounted view for its primary create action.
   usePrimaryAction(openQuickAdd);
@@ -92,38 +93,56 @@ export function TodayView() {
    * Runs a write with an optimistic agenda change, restoring the previous agenda
    * if the write fails — a failed request must never leave the row looking saved.
    */
-  function optimistic(
+  function optimistic<T>(
     update: (agenda: AgendaBuckets) => AgendaBuckets,
-    write: () => Promise<unknown>,
-  ) {
+    write: () => Promise<T>,
+  ): Promise<T> {
     const snapshot = bootstrap.data;
     mutateAgenda(update);
-    void write().then((result) => {
+    const pending = write();
+    void pending.then((result) => {
       if (result === undefined && snapshot) bootstrap.mutate(snapshot);
     });
+    return pending;
   }
 
   /**
-   * Ticks a task off, or un-ticks it, with an Undo toast on completion.
+   * Ticks a task off, or un-ticks it, raising the small left-edge Undo on a
+   * one-off completion (see `CompletionUndo`) and no toast at all.
    *
-   * Undo reverses cleanly only for a one-off task — the server's
-   * `uncompleteTask` restores the status and drops the completion record — so a
-   * recurring task (whose completion rolls the series forward instead) gets the
-   * existing "Moved to" feedback and no Undo.
+   * Undo reverses cleanly only for a one-off task — `uncompleteTask` restores
+   * the status and drops the completion record — so a recurring task (whose
+   * completion rolls the series forward) gets no Undo: the local
+   * `recurrenceRule` suppresses it immediately and the completion payload's
+   * `recurred` flag takes it back down if the server rolls the series forward
+   * anyway. Its feedback is the existing "Moved to" toast.
    */
   function toggleTask(task: Task) {
     const undo = task.status === 'completed';
-    optimistic(
+    setUndoTask(null);
+
+    const pending = optimistic(
       (agenda) => setAgendaStatus(agenda, task.id, undo ? 'todo' : 'completed', Date.now()),
       () => actions.complete(task, undo),
     );
 
     if (undo || task.recurrenceRule) return;
-    toast({
-      title: 'Task completed',
-      description: task.title,
-      action: { label: 'Undo', onClick: () => toggleTask({ ...task, status: 'completed' }) },
+
+    setUndoTask(task);
+    void pending.then((result: CompleteTaskPayload | undefined) => {
+      if (result?.recurred) setUndoTask(null);
     });
+  }
+
+  /** Puts the just-completed task back and drops the Undo. */
+  function undoCompletion() {
+    const task = undoTask;
+    if (!task) return;
+    setUndoTask(null);
+    optimistic(
+      (agenda) => setAgendaStatus(agenda, task.id, 'todo', Date.now()),
+      () => actions.complete(task, true),
+    );
   }
 
   const refresh = () => void bootstrap.refresh();
@@ -201,7 +220,7 @@ export function TodayView() {
        * mobile tab-bar clearance the pane used to carry, or the last row sits
        * under the band; at `lg` the band is gone, so the padding is too.
        */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)] lg:pb-0">
       {data ? (
         <div className="px-gutter pt-2 pb-1">
           {/*
@@ -319,6 +338,12 @@ export function TodayView() {
         </div>
       )}
       </div>
+
+      <CompletionUndo
+        task={undoTask}
+        onUndo={undoCompletion}
+        onDismiss={() => setUndoTask(null)}
+      />
 
       <QuickAddBar open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
       <ItemDetailSheet

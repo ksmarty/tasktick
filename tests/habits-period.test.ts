@@ -16,7 +16,7 @@ import {
   habitWindowRange,
   isHabitDueOn,
   longDateLabel,
-  reminderLabel,
+  reminderLabels,
   streakLabel,
   streakUnit,
   weekStripDays,
@@ -40,7 +40,7 @@ function habit(overrides: Partial<Habit> = {}): Habit {
     weekDays: null,
     timesPerPeriod: 1,
     startDate: '2025-01-01',
-    reminderAtMs: null,
+    reminders: null,
     archived: false,
     sortOrder: 'a',
     createdAt: 0,
@@ -203,13 +203,18 @@ describe('habit summaries', () => {
     expect(frequencySummary(habit({ frequency: 'custom', weekDays: null }))).toBe('Custom');
   });
 
-  it('formats the reminder in the user\'s clock format', () => {
-    const at = Date.UTC(2025, 2, 12, 7, 30);
+  it('formats each reminder in the user\'s clock format, ascending', () => {
     const prefs = { zone: 'utc', timeFormat: '12h' as const, weekStartsOn: 1 };
 
-    expect(reminderLabel(habit({ reminderAtMs: at }), prefs)).toBe('7:30 AM');
-    expect(reminderLabel(habit({ reminderAtMs: at }), { ...prefs, timeFormat: '24h' })).toBe('07:30');
-    expect(reminderLabel(habit(), prefs)).toBeNull();
+    expect(reminderLabels(habit({ reminders: [450] }), prefs)).toEqual(['7:30 AM']);
+    expect(reminderLabels(habit({ reminders: [450] }), { ...prefs, timeFormat: '24h' })).toEqual(['07:30']);
+    // Minutes since midnight, listed in the order the server stores them.
+    expect(reminderLabels(habit({ reminders: [450, 540, 1080] }), prefs)).toEqual([
+      '7:30 AM',
+      '9:00 AM',
+      '6:00 PM',
+    ]);
+    expect(reminderLabels(habit(), prefs)).toEqual([]);
   });
 });
 

@@ -104,7 +104,7 @@ export function useTaskActions(zone: string): TaskActions {
     },
     {
       invalidates: INVALIDATES,
-      onSuccess: (result, [task, undo]) => {
+      onSuccess: (result, [task]) => {
         if (!result) return;
         if (result.recurred && result.task?.dueDate) {
           toast({
@@ -112,11 +112,10 @@ export function useTaskActions(zone: string): TaskActions {
             description: `“${task.title}” repeats, so it rolled forward.`,
             variant: 'success',
           });
-          return;
         }
-        if (undo) {
-          toast({ title: 'Marked as not done', description: task.title, variant: 'info' });
-        }
+        // Un-completing is deliberately silent: the row reappearing (and, on the
+        // lists, the left-edge Undo going away) is the feedback. A "Marked as
+        // not done" banner was the success chatter the user asked to remove.
       },
       onError: fail,
     },

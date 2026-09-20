@@ -4,11 +4,21 @@
  * Natural-language quick add.
  *
  * One presentation: a bottom sheet opened from the shell's action button, on
- * every screen alike. It parses on every keystroke (`parseQuickAdd`) and shows
- * exactly what was understood as tinted chips. The caret lands in the field the
- * moment the dialog opens, and a successful submit closes it — one task is one
- * gesture. A submit that *fails* leaves the dialog open with the sentence still in
- * the field, so nothing typed is lost to an error.
+ * every screen alike. It parses on every keystroke (`parseQuickAdd`), shows
+ * exactly what was understood in place — the recognised fragments of the
+ * sentence are tinted behind the real input — and repeats it as resolved chips
+ * below. The caret lands in the field the moment the dialog opens, and a
+ * successful submit closes it — one task is one gesture. A submit that *fails*
+ * leaves the dialog open with the sentence still in the field, so nothing typed is
+ * lost to an error.
+ *
+ * ## The highlight is the parser's own ranges, not a second regex
+ *
+ * The tinted layer is driven by `QuickAddResult.matches` — the character ranges
+ * `@/lib/nlp` actually consumed — through `quickAddHighlights` /
+ * `highlightSegments` in `./quick-add`. There is no parallel pattern in the view
+ * to drift out of step with the parser: a word is tinted exactly when the parse
+ * understood it. See `QuickAddField` for the mirror layer itself.
  *
  * ## Focus timing (do not "simplify" this)
  *
@@ -61,7 +71,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { dueLabel } from './TaskMeta';
-import { planQuickAdd, quickAddChips, type QuickAddChip, type QuickAddContext } from './quick-add';
+import {
+  planQuickAdd,
+  quickAddChips,
+  highlightSegments,
+  quickAddHighlights,
+  type QuickAddChip,
+  type QuickAddChipKind,
+  type QuickAddContext,
+} from './quick-add';
 import { useTaskActions } from './useTaskActions';
 
 export interface QuickAddBarProps {
@@ -73,6 +91,30 @@ export interface QuickAddBarProps {
   listId?: string | null;
   onCreated?: (task: Task) => void;
 }
+
+/**
+ * The tint per recognised kind — two treatments, deliberately not a rainbow.
+ *
+ *   - the temporal kinds (date, time, repeat, estimate) take the app's primary
+ *     tint, because they are the words that move the task in time and the
+ *     confirmation the user is actually looking for;
+ *   - the meta kinds (tag, list, priority) take an outlined primary edge instead
+ *     of a fill, because they classify the task rather than schedule it.
+ *
+ * Both use the one accent hue — a fill and an outline, not two colours — so the
+ * sentence stays legible and the resolved chips below remain the place colour is
+ * allowed to do more work. A second hue here would be a rainbow the app's
+ * Celestial Sapphire palette has nothing to say with.
+ */
+const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
+  date: 'bg-primary/15',
+  time: 'bg-primary/15',
+  repeat: 'bg-primary/15',
+  estimate: 'bg-primary/15',
+  tag: 'ring-1 ring-primary/30 ring-inset',
+  list: 'ring-1 ring-primary/30 ring-inset',
+  priority: 'ring-1 ring-primary/30 ring-inset',
+};
 
 interface QuickAddState {
   value: string;
@@ -208,6 +250,42 @@ function QuickAddInput({
     }
   }
 
+  /*
+   * The highlight mirror.
+   *
+   * A transparent `<input>` cannot paint a tint behind just part of its value,
+   * so an absolutely positioned, `aria-hidden` mirror sits behind it: the same
+   * text in the same font, at the same size, with the same padding, with the
+   * spans the parser recognised carrying a background tint. The input is painted
+   * on top (`relative`, so it wins the stacking order), which keeps the real
+   * glyphs — and therefore the caret and IME composition — in charge, while the
+   * mirror only ever contributes the tint rectangles. The mirror's own glyphs
+   * are `text-transparent`, so nothing is drawn twice.
+   *
+   * Keeping the mirror under the caret is the whole problem: it is a single-line
+   * field, so a long value scrolls rather than wraps, and the mirror has to
+   * follow that scroll. `scrollLeft` is copied on every input `scroll` (typing
+   * near the end, a paste, a delete that pulls the text back under the caret)
+   * and again in a layout effect after each value change, because React can
+   * reset the field's own scroll as it re-renders.
+   */
+  const highlightRef = useRef<HTMLDivElement>(null);
+  const highlights = useMemo(() => quickAddHighlights(state.result), [state.result]);
+  const segments = useMemo(
+    () => highlightSegments(state.value, highlights),
+    [state.value, highlights],
+  );
+
+  const syncHighlightScroll = useCallback(() => {
+    const input = inputRef.current;
+    const highlight = highlightRef.current;
+    if (input && highlight) highlight.scrollLeft = input.scrollLeft;
+  }, [inputRef]);
+
+  useLayoutEffect(() => {
+    syncHighlightScroll();
+  }, [state.value, syncHighlightScroll]);
+
   return (
     <div className="flex flex-col gap-stack">
       <div className="relative">
@@ -215,6 +293,33 @@ function QuickAddInput({
           className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-base text-muted-foreground"
           aria-hidden
         />
+        {/*
+         * The tint layer. It is `aria-hidden` so the field is read once, not
+         * twice, and `pointer-events-none` so it never steals a tap or a caret
+         * placement. `whitespace-pre` matches the input's own no-wrap behaviour;
+         * `text-transparent` leaves it contributing geometry and background only.
+         */}
+        <div
+          ref={highlightRef}
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent',
+            'px-3 py-1 pl-9 pr-16 text-base select-none text-transparent md:text-sm',
+            'whitespace-pre',
+          )}
+        >
+          <span className="shrink-0 whitespace-pre">
+            {segments.map((segment, index) =>
+              segment.kind ? (
+                <span key={index} className={cn('rounded-sm', HIGHLIGHT_CLASS[segment.kind])}>
+                  {segment.text}
+                </span>
+              ) : (
+                <span key={index}>{segment.text}</span>
+              ),
+            )}
+          </span>
+        </div>
         <Input
           ref={inputRef}
           autoFocus
@@ -225,7 +330,8 @@ function QuickAddInput({
           aria-label="Quick add a task"
           onChange={(event) => state.setValue(event.target.value)}
           onKeyDown={onKeyDown}
-          className="pr-16 pl-9"
+          onScroll={syncHighlightScroll}
+          className="relative pr-16 pl-9"
         />
         <Button
           type="button"

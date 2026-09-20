@@ -29,6 +29,13 @@
       "when": 1789929258575,
       "tag": "0003_wonderful_greymalkin",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789940703005,
+      "tag": "0004_habit_reminders",
+      "breakpoints": true
     }
   ]
 }

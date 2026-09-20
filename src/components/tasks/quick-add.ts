@@ -126,6 +126,62 @@ export interface QuickAddChip {
 }
 
 /**
+ * A range of the typed sentence the parser actually consumed.
+ *
+ * This is the in-place counterpart of a chip: `start`/`end` are half-open
+ * character offsets into the ORIGINAL input, straight from
+ * `QuickAddResult.matches`, so a highlight can never disagree with the parse.
+ * Sorted by position, which is what a renderer walking the string left to right
+ * needs (the parser records matches in the order its pattern groups run, not in
+ * the order they appear).
+ */
+export interface QuickAddHighlight {
+  kind: QuickAddChipKind;
+  start: number;
+  end: number;
+}
+
+/** The parser's `matches`, as half-open ranges sorted by where they appear. */
+export function quickAddHighlights(result: QuickAddResult): QuickAddHighlight[] {
+  return result.matches
+    .map((match) => ({ kind: match.kind, start: match.index, end: match.index + match.text.length }))
+    .filter((highlight) => highlight.end > highlight.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+/** One run of the input, tagged with the kind the parser gave it or `null`. */
+export interface QuickAddSegment {
+  text: string;
+  kind: QuickAddChipKind | null;
+}
+
+/**
+ * Splits the value into contiguous runs, tagging the recognised ones.
+ *
+ * Defensive about ranges: it clamps them into the string and never lets a
+ * malformed range drop text or loop, so the mirror layer can always reproduce
+ * exactly what is in the field — the caret and the glyphs must never desync.
+ */
+export function highlightSegments(
+  value: string,
+  highlights: readonly QuickAddHighlight[],
+): QuickAddSegment[] {
+  const segments: QuickAddSegment[] = [];
+  let cursor = 0;
+
+  for (const highlight of highlights) {
+    const start = Math.min(Math.max(highlight.start, cursor), value.length);
+    const end = Math.min(Math.max(highlight.end, start), value.length);
+    if (start > cursor) segments.push({ text: value.slice(cursor, start), kind: null });
+    if (end > start) segments.push({ text: value.slice(start, end), kind: highlight.kind });
+    cursor = end;
+  }
+
+  if (cursor < value.length) segments.push({ text: value.slice(cursor), kind: null });
+  return segments;
+}
+
+/**
  * The live preview line: one tinted chip per kind the parser actually
  * recognised, ordered by where the fragment first appeared in the sentence, so
  * the chips read the way the user typed them.

@@ -137,7 +137,7 @@ export function AdminUserTable({ currentUserId }: AdminUserTableProps) {
                       </div>
                       <p className="text-xs break-all text-muted-foreground">
                         {user.email} · joined{' '}
-                        {formatDayMonth(DateTime.fromMillis(user.createdAt), DateTime.now())}
+                        {formatDayMonth(DateTime.fromISO(user.createdAt), DateTime.now())}
                       </p>
                     </TableCell>
 

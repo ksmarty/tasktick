@@ -114,16 +114,21 @@ describe('ItemDetailSheet — the reusable overlay', () => {
   });
 });
 
-describe('completing a task offers an Undo', () => {
-  it('raises an Undo toast for a one-off task on both task screens', () => {
+describe('completing a task offers an inline Undo, not a toast', () => {
+  it('shows the left-edge Undo for a one-off task on both task screens', () => {
     for (const view of [VIEW, TODAY]) {
-      expect(view).toContain("title: 'Task completed'");
-      expect(view).toContain("action: { label: 'Undo'");
+      expect(view).toContain('<CompletionUndo');
+      expect(view).toContain('onUndo={undoCompletion}');
       // Undo runs the completion endpoint in reverse on the same task.
-      expect(view).toContain("toggleTask({ ...task, status: 'completed' })");
+      expect(view).toContain('actions.complete(task, true)');
       // A recurring task rolls forward rather than completing, so it gets no
-      // Undo — the server cannot cleanly restore its advanced due date.
+      // Undo — the server cannot cleanly restore its advanced due date. The
+      // local rule suppresses it at once, and the payload's `recurred` flag
+      // takes it back down if the server rolls it forward anyway.
       expect(view).toContain('if (undo || task.recurrenceRule) return;');
+      expect(view).toContain('result?.recurred');
+      // The old full toast is gone from the completion path.
+      expect(view).not.toContain("title: 'Task completed'");
     }
   });
 });

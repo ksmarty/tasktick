@@ -309,7 +309,8 @@ export const typeDefs = /* GraphQL */ `
     weekDays: [Int!]
     timesPerPeriod: Int!
     startDate: String!
-    reminderAtMs: Float
+    """Reminder times as minutes since local midnight (0–1439)."""
+    reminders: [Int!]
     archived: Boolean!
     sortOrder: String!
     createdAt: Float!
@@ -760,7 +761,8 @@ export const typeDefs = /* GraphQL */ `
     weekDays: [Int!]
     timesPerPeriod: Int
     startDate: String
-    reminderAt: String
+    """Reminder times as minutes since local midnight (0–1439)."""
+    reminders: [Int!]
   }
 
   input UpdateHabitInput {
@@ -775,7 +777,8 @@ export const typeDefs = /* GraphQL */ `
     weekDays: [Int!]
     timesPerPeriod: Int
     startDate: String
-    reminderAt: String
+    """Reminder times as minutes since local midnight (0–1439)."""
+    reminders: [Int!]
     archived: Boolean
   }
 

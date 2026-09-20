@@ -48,7 +48,7 @@
  *
  * Because the shell's pane no longer scrolls in this mode, the pane's own
  * bottom reservation for the tab band is gone with it; the agenda's list
- * restates that reservation (`pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)]`)
+ * restates that reservation (`pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)]`)
  * so the last row can always be scrolled clear of the fixed bottom band.
  *
  * ## Overlays and feedback
@@ -65,7 +65,6 @@
 import { usePrimaryAction } from '@/lib/events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { useShellPane } from '@/components/app/ShellPane';
 import { useToast } from '@/components/app/Toast';
@@ -116,8 +115,6 @@ export interface CalendarScreenProps {
 }
 
 export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScreenProps) {
-  const router = useRouter();
-  const pathname = usePathname();
   const { toast } = useToast();
 
   // The shell's pane must not scroll: the grid is pinned and the agenda scrolls
@@ -401,13 +398,36 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   /** The month the label and the picker are talking about. */
   const shownMonth = useMemo(() => fromDateOnly(activeDate, zone), [activeDate, zone]);
 
-  // Mirror the state into the URL so a reload, a bookmark or the back gesture
-  // lands on the same day.
+  /*
+   * Mirror the state into the URL so a reload, a bookmark or the back gesture
+   * lands on the same day.
+   *
+   * `window.history.replaceState`, deliberately — NOT `router.replace`.
+   *
+   * `router.replace` asks the App Router to render the new URL, and this route
+   * reads `searchParams`, so every day the user touched became a server round
+   * trip for a route payload (`/calendar?date=…&_rsc=…`). Online that is a
+   * wasted render; OFFLINE it is fatal, because the worker has no payload cached
+   * for that exact `_rsc` URL and answers 503. The router treats the failed
+   * payload as a dead end and falls back to a full DOCUMENT navigation — which
+   * the worker serves from its cache, which boots this screen again, which
+   * mirrors the URL again, which misses again: a hard-navigation loop that never
+   * settles. Measured offline: ~4.8 document boots and ~8.4 failed payload
+   * fetches per second, indefinitely.
+   *
+   * A history entry replacement updates the address bar (so reload/bookmark/
+   * back still work) without asking the router for anything. It is a no-op when
+   * the URL already matches, which is what stops the loop dead on a document
+   * that was loaded at a `?date=` URL to begin with.
+   */
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const params = new URLSearchParams({ date: selected });
     if (filterId) params.set('calendar', filterId);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [selected, filterId, pathname, router]);
+    const next = `${window.location.pathname}?${params.toString()}`;
+    if (next === `${window.location.pathname}${window.location.search}`) return;
+    window.history.replaceState(null, '', next);
+  }, [selected, filterId]);
 
   /* ------------------------------------------------------------------ */
   /* writes                                                             */

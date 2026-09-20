@@ -394,7 +394,8 @@ export const habits = sqliteTable(
     weekDays: text('week_days'),
     timesPerPeriod: integer('times_per_period').notNull().default(1),
     startDate: text('start_date').notNull(),
-    reminderAtMs: integer('reminder_at_ms'),
+    /** Reminder times as minutes since local midnight (0–1439), ascending. */
+    reminders: text('reminders', { mode: 'json' }).$type<number[] | null>(),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
     sortOrder: text('sort_order').notNull().default('a0'),
     ...timestamps,

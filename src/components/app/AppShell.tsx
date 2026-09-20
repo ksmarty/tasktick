@@ -448,7 +448,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ? // The screen scrolls its own list; the pane must not scroll too,
                   // or the grid it is keeping in place travels with the page.
                   'overflow-hidden'
-                : 'overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0',
+                : 'overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)] lg:pb-0',
             )}
           >
             {/*
@@ -556,19 +556,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
          * when the label changes width; `justify-center` inside the pill still
          * centres the four tabs when the widest label is selected.
          *
-         * The band is lifted `bottom-3.5` (14px) off the viewport edge rather
-         * than sitting at `bottom-0`. That is 25% of the pill's own 58px height
-         * (0.25 x 58 = 14.5px, rounded to the 14px the spacing scale carries),
-         * which is the reading of "move the navbar up by about 25%" that scales
-         * with the bar rather than with the 2px gap it happened to have. The
-         * offset is on the container, not folded into the safe-area padding:
-         * padding of `max(1rem, env(...))` would be swallowed by the inset on a
-         * phone with a home indicator, so the bar would not move there at all.
-         * The pane reservations below grew by the same 14px.
+         * The band sits `bottom-0.5` (2px) off the viewport edge, which with the
+         * pill's own 2px of padding is a **4px** visible gap.
+         *
+         * It was `bottom-0` — a 2px gap — and was then lifted to `bottom-3.5`, a
+         * 16px gap, by a misreading of "move the navbar up by about 25%": 25% of
+         * the pill's own 58px height is 14.5px, which is not what was meant and
+         * was plainly too high. The figure the user gave is a 4px gap, which is
+         * 2px more than the original rather than 14px more. The offset is on the
+         * container, not folded into the safe-area padding: padding of
+         * `max(1rem, env(...))` would be swallowed by the inset on a phone with a
+         * home indicator, so the bar would not move there at all. The pane
+         * reservations below move with it.
          */}
         <div
           className={cn(
-            'fixed inset-x-0 bottom-3.5 z-appbar flex items-center justify-between gap-2 px-gutter lg:hidden',
+            'fixed inset-x-0 bottom-0.5 z-appbar flex items-center justify-between gap-2 px-gutter lg:hidden',
             BOTTOM_BAND_CLEARANCE,
           )}
         >

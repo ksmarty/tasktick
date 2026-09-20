@@ -53,13 +53,16 @@ describe('the gutter timeline', () => {
     // is never split around it — the line connects through rather than stopping
     // at each circle.
     /*
-     * Anchored to the top of the entry, on its first line of text rather than
-     * its centre: the timeline reads as “the item starts here”. The offset lives
-     * in one constant so the node and the gutter label cannot disagree —
-     * `top-3.5` (14px) is the entry's `pt-1.5` (6px) plus half the 16px box of
-     * the `text-xs` range line the timed rows lead with.
+     * The anchor is the centre of a **one-line** entry, not its first text line:
+     * a one-line entry renders 52px tall (`pt-1.5` 6px + the `text-xs` range line
+     * 16px + `mt-0.5` 2px + the `text-sm` title line 20px + `pb-2` 8px), so the
+     * centre is 26px — `6.5` on the spacing scale. Keeping it a fixed offset,
+     * rather than a `top-1/2` centring, is what lets a two-line entry anchor the
+     * same distance from the top. The offset lives in one constant so the node
+     * and the gutter label cannot disagree.
      */
-    expect(AGENDA).toContain("const TIMELINE_ANCHOR_TOP = 'top-3.5';");
+    expect(AGENDA).toContain("const TIMELINE_ANCHOR_TOP = 'top-6.5';");
+    expect(AGENDA).toContain("const TIMELINE_ANCHOR_HEIGHT = 'h-6.5';");
     expect(AGENDA).toContain('const TIMELINE_ANCHOR = `${TIMELINE_ANCHOR_TOP} -translate-y-1/2`;');
     expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
     expect(AGENDA).toContain('style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}');
@@ -79,11 +82,12 @@ describe('the gutter timeline', () => {
 
   it('trims the rule to the first and last nodes so it does not dangle', () => {
     // First row starts its rule at the node's own top-aligned offset, last row
-    // stops there, and a single item (both first and last) draws no rule at all.
-    // Fixed offsets now that the node is anchored to the top; they still meet
-    // the node at any row height, because the node no longer moves with it.
+    // stops there (`TIMELINE_ANCHOR_HEIGHT`, the same 26px as the node), and a
+    // single item (both first and last) draws no rule at all. Fixed offsets now
+    // that the node is anchored to the top; they still meet the node at any row
+    // height, because the node no longer moves with it.
     expect(AGENDA).toContain("index === 0 ? TIMELINE_ANCHOR_TOP : 'top-0'");
-    expect(AGENDA).toContain("index === items.length - 1 ? 'h-3.5' : '-bottom-3'");
+    expect(AGENDA).toContain("index === items.length - 1 ? TIMELINE_ANCHOR_HEIGHT : '-bottom-3'");
     expect(AGENDA).toContain('items.length > 1 ? (');
   });
 });

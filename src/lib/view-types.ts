@@ -105,7 +105,18 @@ export interface AdminUserPayload {
   isAdmin: boolean;
   banned: boolean;
   timezone: string;
-  createdAt: number;
+  /**
+   * An ISO 8601 string, not a millisecond number like every other payload here.
+   *
+   * better-auth owns the `user` table and declares its timestamps with Drizzle's
+   * `{ mode: 'timestamp_ms' }`, so the driver hands back a `Date` and JSON turns
+   * it into a string. The app's own tables use a plain integer and stay numbers.
+   * This said `number` until a render called `DateTime.fromMillis` on it and
+   * threw `fromMillis requires a numerical input` — a client-side exception on
+   * the whole admin page. The type now says what the wire actually carries, so
+   * the compiler catches the next caller instead of the user.
+   */
+  createdAt: string;
 }
 
 /** Response of `POST /api/tasks/[id]/complete`. */

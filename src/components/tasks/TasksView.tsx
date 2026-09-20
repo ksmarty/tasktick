@@ -53,7 +53,6 @@ import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass'
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide } from 'lucide-react';
 import { useShellPane } from '@/components/app/ShellPane';
-import { useToast } from '@/components/app/Toast';
 import { useAppearance } from '@/app/providers';
 import { EventEditorSheet, type EventDefaults } from '@/components/calendar/EventEditorSheet';
 import type { CalendarLookup } from '@/components/calendar/types';
@@ -62,10 +61,11 @@ import { todayIn, addDaysToDateOnly, fromDateOnly, timeIn, toDateOnly } from '@/
 import { usePrimaryAction } from '@/lib/events';
 import { useResource } from '@/lib/store';
 import type { CalendarItem, Task } from '@/lib/types';
-import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
+import type { BootstrapPayload, CalendarItemsPayload, CompleteTaskPayload } from '@/lib/view-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CompletionUndo } from './CompletionUndo';
 import { EmptyTasks } from './EmptyTasks';
 import { TaskFilterMenu } from './FilterMenu';
 import { HeaderActionButton } from './HeaderActionButton';
@@ -144,7 +144,6 @@ export function TasksView() {
   const timeFormat = data?.settings.timeFormat ?? '24h';
   const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
-  const { toast } = useToast();
   /** The resolved appearance, so an accent token maps to the right hex. */
   const dark = useAppearance().resolvedTheme === 'dark';
 
@@ -172,6 +171,8 @@ export function TasksView() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  /** The task a completion just removed from view, while its Undo is on screen. */
+  const [undoTask, setUndoTask] = useState<Task | null>(null);
   /** Completed rows are hidden until the header's eye toggle asks for them. */
   const [showCompleted, setShowCompleted] = useState(false);
   /** The event editor, opened by the detail sheet's Edit action. */
@@ -366,41 +367,66 @@ export function TasksView() {
    * Runs a write on top of an optimistic list change, restoring the previous list
    * when the write fails, so a row never looks saved when it is not.
    */
-  function optimistic(
+  function optimistic<T>(
     update: (tasks: Task[]) => Task[],
-    write: () => Promise<unknown>,
-  ) {
+    write: () => Promise<T>,
+  ): Promise<T> {
     const snapshot = resource.data;
     resource.mutate((current) => (current ? update(current) : current));
-    void write().then((result) => {
+    const pending = write();
+    void pending.then((result) => {
       if (result === undefined && snapshot) resource.mutate(snapshot);
     });
+    return pending;
   }
 
   /**
    * Ticks a task off, or un-ticks it when it is already done.
    *
-   * Completing (not un-completing) raises an Undo toast. Undo calls the same
-   * completion endpoint with `?undo=1`, which the server reverses cleanly for a
-   * one-off task: `uncompleteTask` restores the status and drops the completion
-   * it recorded. A *recurring* task is the exception — completing it rolls the
-   * series forward rather than finishing it, and the server's undo leaves that
-   * advanced due date in place — so no Undo is offered there and the existing
-   * "Moved to <date>" toast is the feedback instead.
+   * Completing a one-off task raises the small left-edge Undo (see
+   * `CompletionUndo`) and deliberately raises no toast. Undo calls the same
+   * endpoint with `?undo=1`, which `uncompleteTask` reverses cleanly for a
+   * one-off: it restores the status and drops the completion record.
+   *
+   * A *recurring* task is the exception. Completing it rolls the series forward
+   * rather than finishing it, and the server's undo would leave that advanced
+   * due date in place, so an Undo there would lie. It is therefore suppressed
+   * twice: at once by the local `recurrenceRule` (so the control never flashes
+   * before the request returns) and again by the completion payload's `recurred`
+   * flag, which is the server's own word on it and also catches a task whose
+   * rule is not in this client's copy. That path keeps the existing
+   * "Moved to <date>" toast as its feedback.
    */
   function toggleTask(task: Task) {
     const undo = task.status === 'completed';
-    optimistic(
+    setUndoTask(null);
+
+    const pending = optimistic(
       (current) => setStatusByIds(current, new Set([task.id]), undo ? 'todo' : 'completed', Date.now()),
       () => actions.complete(task, undo),
     );
 
     if (undo || task.recurrenceRule) return;
-    toast({
-      title: 'Task completed',
-      description: task.title,
-      action: { label: 'Undo', onClick: () => toggleTask({ ...task, status: 'completed' }) },
+
+    setUndoTask(task);
+    void pending.then((result: CompleteTaskPayload | undefined) => {
+      if (result?.recurred) setUndoTask(null);
     });
+  }
+
+  /**
+   * Puts the just-completed task back. The completion it recorded is removed by
+   * the same `?undo=1` write, so the Undo really undoes rather than adding a
+   * second row.
+   */
+  function undoCompletion() {
+    const task = undoTask;
+    if (!task) return;
+    setUndoTask(null);
+    optimistic(
+      (current) => setStatusByIds(current, new Set([task.id]), 'todo', Date.now()),
+      () => actions.complete(task, true),
+    );
   }
 
   const refresh = () => void resource.refresh();
@@ -625,7 +651,7 @@ export function TasksView() {
        * mobile tab-bar clearance the pane used to carry, or the last row sits
        * under the band; at `lg` the band is gone, so the padding is too.
        */}
-      <div className="fade-y min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0">
+      <div className="fade-y min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)] lg:pb-0">
       {resource.error && resource.data === undefined ? (
         <div className="flex flex-col items-center gap-3 px-gutter py-6 text-center">
           <ExclamationCircledIcon className="text-4xl text-muted-foreground" aria-hidden />
@@ -675,6 +701,12 @@ export function TasksView() {
         </div>
       )}
       </div>
+
+      <CompletionUndo
+        task={undoTask}
+        onUndo={undoCompletion}
+        onDismiss={() => setUndoTask(null)}
+      />
 
       <TaskFilterMenu
         open={filterOpen}

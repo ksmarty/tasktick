@@ -23,7 +23,12 @@
  *       network-first, then this session's copy of the SAME URL, then the
  *       precached app shell (`/`), then `/offline`. `event.preloadResponse`
  *       (navigation preload) is preferred over a second fetch so the request is
- *       not serialised behind worker startup. The exact-URL rule is the whole
+ *       not serialised behind worker startup — and it is part of the SAME
+ *       `NAVIGATION_TIMEOUT_MS` race, not awaited ahead of it. Awaiting it on its
+ *       own meant a link that HANGS (rather than fails) held the navigation for
+ *       as long as the browser's own request timeout: measured at over 40s on a
+ *       link delayed by 20s, with the documented 3s ceiling never reached. The
+ *       exact-URL rule is the whole
  *       safety argument: a Next.js App Router document carries the RSC payload
  *       for one specific route, so a cached document may only ever be served at
  *       the URL it was stored for. That is also why the previous version cached
@@ -137,7 +142,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v8';
+const VERSION = 'tasktick-v9';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -148,12 +153,26 @@ const API_CACHE_PREFIX = 'api-';
 /** Key inside META_CACHE holding the opaque session scope. */
 const SESSION_KEY = '/__session';
 /**
- * How long a read waits for the network before this session's cached copy is
- * used instead. "Bad cell service" is a latency problem before it is an
- * availability problem, and a request that eventually succeeds after 30 seconds
- * has already failed as far as the person holding the phone is concerned.
+ * How long a read that ALREADY HAS a cached copy waits for the network before
+ * that copy is served.
+ *
+ * This is the ceiling the user actually feels. On a link that HANGS rather than
+ * refuses — which is what a weak signal does, and where the OS still reports a
+ * connection so no `offline` event ever fires — a cached read used to wait the
+ * full six seconds of the old value before falling back. Measured on a hung
+ * link: a single cached read resolved in 6016ms, and a tab tap issued while a
+ * prefetch was in flight waited out the same six seconds before the calendar
+ * appeared (the reported "~5 seconds"). The network request is not cancelled
+ * when the ceiling wins; it keeps running and refreshes the entry for the next
+ * read, so a connection that recovers mid-request is not wasted.
+ *
+ * The value is a latency budget, not an availability one: "bad cell service" is
+ * a latency problem first, and a screen that waits six seconds for data it
+ * already has has failed even when the request eventually succeeds. A healthy
+ * connection answers well inside this window, so the fresh response still wins
+ * online.
  */
-const API_TIMEOUT_MS = 6000;
+const API_TIMEOUT_MS = 1500;
 
 /**
  * How long a *navigation* waits for the network before falling back to cache.
@@ -164,7 +183,6 @@ const API_TIMEOUT_MS = 6000;
  * is what turns "everything froze, then it switched" into a screen that appears.
  */
 const NAVIGATION_TIMEOUT_MS = 3000;
-
 /**
  * Whether the page currently believes it has a network.
  *
@@ -184,6 +202,20 @@ const API_CACHE_MAX_ENTRIES = 120;
 
 /** The app shell: one HTML document that boots the client router offline. */
 const SHELL_URL = '/';
+/**
+ * Where the root sends a signed-in visitor, and therefore where an offline
+ * launch of the installed app is sent too.
+ *
+ * `/` is a redirect route (`src/app/page.tsx` sends a signed-in user to
+ * `/tasks`, a signed-out one to `/login`). A redirect is deliberately never
+ * cached, so there is no document for `/` — which used to leave an offline
+ * cold start of the INSTALLED app (whose `start_url` is `/`) staring at the
+ * last-resort "couldn't load its app shell" page, even though the very screen
+ * it wanted was sitting in the session cache. Redirecting `/` to the landing
+ * route keeps the exact-URL rule intact — `/tasks` is served only at `/tasks` —
+ * and lets the ordinary exact-path lookup answer it.
+ */
+const LANDING_URL = '/tasks';
 /** Dedicated "you are offline" route, the final fallback for navigations. */
 const OFFLINE_URL = '/offline';
 
@@ -492,20 +524,28 @@ async function navigationNetworkFirst(event) {
       const offlineCopy = await cache.match(key);
       if (offlineCopy) return offlineCopy;
     }
-    const preloaded = await event.preloadResponse;
     /*
-     * Raced against a ceiling. A fetch that hangs is worse than one that fails:
-     * it holds the screen. The `catch` below already knows how to answer from
-     * the cache, so a timeout simply takes that path a few seconds sooner.
+     * The preload and the fallback fetch are ONE request, and both are inside
+     * the same ceiling.
+     *
+     * `event.preloadResponse` used to be awaited on its own, ahead of the race.
+     * With navigation preload enabled it is the request that is actually in
+     * flight, so a link that HANGS rather than fails held the navigation for as
+     * long as the browser's own request timeout — the documented
+     * `NAVIGATION_TIMEOUT_MS` ceiling was never reached. Measured on a link
+     * delayed by 20s: the navigation never resolved at all (>40s) even though
+     * the document was already in this session's cache. Racing the whole thing
+     * is what makes the ceiling mean what the comment above says it means.
      */
-    const response =
-      preloaded ||
-      (await Promise.race([
-        fetch(request),
-        delay(NAVIGATION_TIMEOUT_MS).then(() => {
-          throw new Error('navigation-timeout');
-        }),
-      ]));
+    const network = (async () => (await event.preloadResponse) || fetch(request))();
+    /*
+     * The loser of the race must not surface later as an unhandled rejection:
+     * if the ceiling wins, the request is still in flight and may yet fail.
+     */
+    void network.catch(() => undefined);
+    const winner = await Promise.race([network, delay(NAVIGATION_TIMEOUT_MS)]);
+    if (!winner) throw new Error('navigation-timeout');
+    const response = winner;
     if (cache && isDocumentCacheable(response)) {
       /*
        * Not awaited. `cache.put` streams the whole document into the cache, and
@@ -544,7 +584,22 @@ async function navigationNetworkFirst(event) {
      * which is a page that renders nothing and responds to nothing. So the only
      * permitted reuse is an exact-path match.
      */
-    if (requestedPath === SHELL_URL || requestedPath === OFFLINE_URL) {
+    if (requestedPath === SHELL_URL) {
+      const cached = await precache.match(requestedPath);
+      if (cached) return cached;
+
+      /*
+       * The root is a redirect route, so there is usually no document for it
+       * (see LANDING_URL). Offline, answer it the way the server would — by
+       * sending the browser to the landing route — instead of falling through
+       * to a page that says the app shell could not be loaded. If that route is
+       * not cached either it follows the ordinary path to /offline below, so
+       * this can only ever improve on the last-resort document.
+       */
+      return Response.redirect(new URL(LANDING_URL, self.location.origin).href, 302);
+    }
+
+    if (requestedPath === OFFLINE_URL) {
       const cached = await precache.match(requestedPath);
       if (cached) return cached;
 

@@ -3,12 +3,13 @@
 /**
  * GodUI — Tab Bar.
  *
- * Source as published by the `@godui/tab-bar` registry entry, with two local
- * changes noted below. Kept in `components/godui` rather than imported from a
- * package because that is how the registry ships: the source is copied into the
- * project so it can be edited, which is what makes the local changes possible.
+ * Source as published by the `@godui/tab-bar` registry entry (`godui_get_component`),
+ * with a small, explicit list of local changes noted below. Kept in
+ * `components/godui` rather than imported from a package because that is how the
+ * registry ships: the source is copied into the project so it can be edited,
+ * which is what makes the local changes possible.
  *
- * Local changes:
+ * Local changes — keep this list complete, a future re-vendor reads it:
  *  1. `cn()` is imported from `@/lib/utils` instead of being inlined, so the
  *     caller's `className` merges correctly against the component's own classes
  *     (Tailwind conflict resolution rather than string concatenation).
@@ -21,6 +22,21 @@
  *     actually to the left of the text.
  *  4. Reduced motion is read from the app-level `@/lib/motion` hook rather than
  *     `framer-motion` directly, so the in-app preference is honoured too.
+ *  5. `backdrop-blur-md` rather than upstream's `backdrop-blur-xl`. The bar is
+ *     fixed over content that re-renders and fades during a tab switch, so the
+ *     backdrop filter re-samples a changing backdrop every frame; halving the
+ *     blur radius is the cheapest change that costs nothing visually at 80%
+ *     background opacity.
+ *  6. `will-change-transform` on the sliding blob, which upstream leaves off.
+ *     The blob is projected with a transform, so the hint keeps it on its own
+ *     compositor layer for the duration of the slide.
+ *
+ * The label's `layout` prop is NOT a local change: upstream has it, and it is
+ * what keeps the reveal off the layout path. A previous local edit removed it in
+ * favour of tweening `width`, which animates a layout property on every frame
+ * and drags the blob's projection along with it (the whole button resizes as the
+ * label grows). It is back to upstream's shape deliberately — see the `motion.span`
+ * below.
  */
 import { motion } from 'framer-motion';
 import * as React from 'react';
@@ -87,16 +103,9 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
         aria-label="Bottom navigation"
         className={cn(
           /*
-             * `backdrop-blur-md`, not `xl`.
-             *
-             * The bar is fixed over content that re-renders and fades during a tab
-             * switch, so a backdrop filter re-samples a changing backdrop every
-             * frame — and on a phone GPU that is among the most expensive things
-             * the compositor can be asked to do. Halving the blur radius is the
-             * cheapest change here that costs nothing visually: at 80% background
-             * opacity the two are hard to tell apart.
-             */
-            'inline-flex items-center gap-1 rounded-full border border-border bg-background/80 p-1.5 shadow-lg backdrop-blur-md',
+           * `backdrop-blur-md`, not `xl` — see local change 5.
+           */
+          'inline-flex items-center gap-1 rounded-full border border-border bg-background/80 p-1.5 shadow-lg backdrop-blur-md',
           safeArea && 'pb-[max(0.375rem,env(safe-area-inset-bottom))]',
           className,
         )}
@@ -144,12 +153,23 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
               {(!labelsOnActiveOnly || active) && (
                 <motion.span
                   /*
-                    * No `layout` prop. It asks framer for a second layout
-                    * projection beside the blob's, and the projection system
-                    * measures the tree to produce it. Animating opacity and width
-                    * directly gives the same result for less work.
+                    * `layout`, as upstream ships it — restored deliberately.
+                    *
+                    * A previous local edit removed this and tweened `width`
+                    * instead, on the theory that it was "the same result for
+                    * less work". It is the opposite: `width` is a layout
+                    * property, so the tween re-laid-out the label (and its
+                    * button, and the blob sized `inset-0` inside it) on every
+                    * frame of the spring. Framer's projection then re-measured a
+                    * box that was moving every frame, and the tab switch spent its
+                    * budget in layout instead of on the compositor. `layout` does
+                    * one measurement and projects the change as a transform.
+                    *
+                    * The `width` target stays, because that is what tells framer
+                    * the box the label should settle at.
                     */
-                    initial={
+                  layout
+                  initial={
                     labelsOnActiveOnly && !reduceMotion
                       ? { opacity: 0, width: 0 }
                       : false

@@ -7,8 +7,10 @@ import { parseQuickAdd } from '@/lib/nlp';
 import {
   dedupeTagNames,
   findListByName,
+  highlightSegments,
   planQuickAdd,
   quickAddChips,
+  quickAddHighlights,
   type QuickAddContext,
 } from '@/components/tasks/quick-add';
 
@@ -161,5 +163,84 @@ describe('quickAddChips', () => {
   it('returns nothing for a plain sentence', () => {
     const { parsed } = plan('Just a task');
     expect(quickAddChips(parsed, context)).toEqual([]);
+  });
+});
+
+/**
+ * The in-place highlight must be the parser's own truth, so these pin the ranges
+ * `parseQuickAdd` reports — not a pattern re-derived in the view. The token
+ * patterns (`at 7pm`, `#tag`, `!high`) consume a leading space to anchor on a
+ * word boundary; that space must not become part of the highlighted range, or a
+ * tint sits one character left of the word it claims to have understood.
+ */
+describe('quickAddHighlights', () => {
+  it('reports exact, space-trimmed ranges for the three report sentences', () => {
+    expect(quickAddHighlights(plan('today at 7pm go home').parsed)).toEqual([
+      { kind: 'date', start: 0, end: 5 },
+      { kind: 'time', start: 6, end: 12 },
+    ]);
+    expect(quickAddHighlights(plan('tomorrow 9am #work').parsed)).toEqual([
+      { kind: 'date', start: 0, end: 8 },
+      { kind: 'time', start: 9, end: 12 },
+      { kind: 'tag', start: 13, end: 18 },
+    ]);
+    expect(quickAddHighlights(plan('every monday !high').parsed)).toEqual([
+      { kind: 'repeat', start: 0, end: 12 },
+      { kind: 'priority', start: 13, end: 18 },
+    ]);
+  });
+
+  it('is sorted by position, not by the order the pattern groups ran', () => {
+    const { parsed } = plan('Buy milk tomorrow 17:00 !high #errand ~30m every week');
+    const starts = quickAddHighlights(parsed).map((highlight) => highlight.start);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+  });
+
+  it('reports nothing for a plain sentence', () => {
+    expect(quickAddHighlights(plan('Just a task').parsed)).toEqual([]);
+  });
+});
+
+describe('highlightSegments', () => {
+  it('splits the value into recognised runs and untouched text', () => {
+    const value = 'today at 7pm go home';
+    expect(highlightSegments(value, quickAddHighlights(plan(value).parsed))).toEqual([
+      { text: 'today', kind: 'date' },
+      { text: ' ', kind: null },
+      { text: 'at 7pm', kind: 'time' },
+      { text: ' go home', kind: null },
+    ]);
+  });
+
+  it('reproduces the value exactly, even around recognised runs', () => {
+    const value = 'tomorrow 9am #work';
+    const segments = highlightSegments(value, quickAddHighlights(plan(value).parsed));
+    expect(segments.map((segment) => segment.text).join('')).toBe(value);
+  });
+
+  it('has nothing to highlight for an empty field', () => {
+    expect(highlightSegments('', quickAddHighlights(plan('').parsed))).toEqual([]);
+  });
+});
+
+/**
+ * The pin the task asked for: whatever the highlighting work does, this sentence
+ * must still become the same task with the same due date. The parsing is the
+ * contract; the tint is decoration.
+ */
+describe('pinned parse — today at 7pm go home', () => {
+  it('still produces the same task it did before the highlight work', () => {
+    const { parsed, plan: result } = plan('today at 7pm go home');
+    expect(parsed.title).toBe('go home');
+    expect(parsed.dueDate).toBe('2025-05-12');
+    expect(parsed.dueTime).toBe('19:00');
+    expect(parsed.isAllDay).toBe(false);
+    expect(result?.createListName).toBeNull();
+    expect(result?.payload).toEqual({
+      title: 'go home',
+      dueDate: '2025-05-12',
+      dueTime: '19:00',
+      listId: 'inbox',
+    });
   });
 });

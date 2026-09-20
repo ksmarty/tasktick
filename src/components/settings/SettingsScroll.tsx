@@ -10,7 +10,7 @@
  * becomes the one scroller for the area.
  *
  * It restates the mobile tab-bar clearance the shell's pane carries
- * (`pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)]`, dropped at `lg` where the
+ * (`pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)]`, dropped at `lg` where the
  * band is hidden), so the last card still clears the band. The `min-h-0 flex-1`
  * pair is what makes it the flex child that moves while the published header
  * above stays put. Nothing else about the area changes: the layout still
@@ -27,7 +27,7 @@ export function SettingsScroll({ children }: { children: React.ReactNode }) {
   useShellPane({ fullHeight: true });
 
   return (
-    <div className="fade-y min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0">
+    <div className="fade-y min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.375rem)] lg:pb-0">
       {children}
     </div>
   );

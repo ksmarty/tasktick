@@ -408,7 +408,8 @@ export const habits = pgTable(
     weekDays: text('week_days'),
     timesPerPeriod: bigint('times_per_period', { mode: 'number' }).notNull().default(1),
     startDate: text('start_date').notNull(),
-    reminderAtMs: bigint('reminder_at_ms', { mode: 'number' }),
+    /** Reminder times as minutes since local midnight (0–1439), ascending. */
+    reminders: jsonb('reminders').$type<number[] | null>(),
     archived: boolean('archived').notNull().default(false),
     sortOrder: text('sort_order').notNull().default('a0'),
     ...timestamps,

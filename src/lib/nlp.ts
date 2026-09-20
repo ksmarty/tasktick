@@ -136,7 +136,15 @@ class Scanner {
     // Erasure always replaces N characters with N spaces, so the buffer length is
     // invariant and these offsets stay valid against the ORIGINAL input. That is
     // what lets the UI highlight the understood fragments in place.
-    this.matches.push({ kind, text: text.trim(), index });
+    //
+    // Several patterns are anchored on `(?:^|\s)` and must consume the leading
+    // space to sit on a token boundary (`at 7pm`, `#tag`, `!high` …). That space
+    // is part of `match[0]` but not of the fragment the user sees, so the offset
+    // is shifted past anything `trim()` removes — otherwise `index` would point
+    // one character early and the highlight would sit a character to the left of
+    // the word it claims to have understood.
+    const leading = text.length - text.trimStart().length;
+    this.matches.push({ kind, text: text.trim(), index: index + leading });
   }
 
   private erase(start: number, length: number): void {

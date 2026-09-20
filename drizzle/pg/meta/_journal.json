@@ -29,6 +29,13 @@
       "when": 1789929261184,
       "tag": "0003_foamy_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789940720117,
+      "tag": "0004_habit_reminders",
+      "breakpoints": true
     }
   ]
 }

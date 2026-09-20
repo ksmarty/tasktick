@@ -27,6 +27,12 @@ const ORIGIN = 'https://tasks.example.com';
  */
 const SW_VERSION = /const VERSION = '([^']+)'/.exec(SOURCE)?.[1];
 if (!SW_VERSION) throw new Error('could not read VERSION out of public/sw.js');
+/** Read too, so "the ceiling" in a test is the one the worker actually uses. */
+const NAVIGATION_TIMEOUT_MS = Number(/const NAVIGATION_TIMEOUT_MS = (\d+)/.exec(SOURCE)?.[1]);
+if (!NAVIGATION_TIMEOUT_MS) throw new Error('could not read NAVIGATION_TIMEOUT_MS out of public/sw.js');
+/** The cached-read ceiling — the one that decides how long a tab tap waits. */
+const API_TIMEOUT_MS = Number(/const API_TIMEOUT_MS = (\d+)/.exec(SOURCE)?.[1]);
+if (!API_TIMEOUT_MS) throw new Error('could not read API_TIMEOUT_MS out of public/sw.js');
 const PRECACHE = `precache-${SW_VERSION}`;
 const RUNTIME = `runtime-${SW_VERSION}`;
 const META = `meta-${SW_VERSION}`;
@@ -123,7 +129,7 @@ interface Harness {
   /** Fire `install` with the network presumably up. */
   install(route: (url: string, request: FakeRequest) => FakeResponse | Error): Promise<void>;
   activate(): Promise<void>;
-  navigation(url: string, route: Route): Promise<FakeResponse | undefined>;
+  navigation(url: string, route: Route, preload?: Promise<FakeResponse | undefined>): Promise<FakeResponse | undefined>;
   get(url: string, route: Route, init?: { mode?: string; headers?: Record<string, string> }): Promise<FakeResponse | undefined>;
   request(url: string, init?: { method?: string }): Promise<FakeResponse | undefined>;
   /** Point the fake network at a route without dispatching anything. */
@@ -271,9 +277,9 @@ function createHarness(): Harness {
       await dispatch('activate', { waitUntil: (value: Promise<unknown>) => void waits.push(value) });
       await Promise.all(waits);
     },
-    async navigation(url, navigationRoute) {
+    async navigation(url, navigationRoute, preload) {
       route = navigationRoute;
-      return dispatch('fetch', makeEvent(new FakeRequest(url, { mode: 'navigate' })));
+      return dispatch('fetch', makeEvent(new FakeRequest(url, { mode: 'navigate' }), preload as never));
     },
     async get(url, getRoute, init = {}) {
       route = getRoute;
@@ -405,9 +411,11 @@ describe('/api/** reads are network-first with a per-session cache', () => {
       // finish before the clock moves, or the timeout timer would be created
       // after the jump and lose the race it is supposed to win.
       await vi.advanceTimersByTimeAsync(1);
-      await vi.advanceTimersByTimeAsync(6_100);
+      // Just past the ceiling: the cached copy is what the page gets, and it
+      // must not have waited for the slow network to finish.
+      await vi.advanceTimersByTimeAsync(API_TIMEOUT_MS + 100);
       // Let the slow response land so the test's own bookkeeping settles.
-      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(10_000 - API_TIMEOUT_MS);
 
       const response = await pending;
       expect(response?.body).toBe('["cached"]');
@@ -416,6 +424,14 @@ describe('/api/** reads are network-first with a per-session cache', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps the cached-read ceiling short, so a hanging link cannot freeze a tab tap', () => {
+    // This is the ceiling a person feels: a cached read on a link that hangs is
+    // served only after it elapses, and a tab tap behind an in-flight prefetch
+    // waits out the remainder. Six seconds was the reported "~5 seconds"; the
+    // value is pinned here so it cannot creep back up unnoticed.
+    expect(API_TIMEOUT_MS).toBeLessThanOrEqual(2000);
   });
 
   it('answers 503 with a JSON offline flag when there is nothing cached', async () => {
@@ -562,6 +578,38 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(harness.writes).toEqual([]); // navigations are never written at runtime
   });
 
+  it('races a hanging navigation preload against the ceiling instead of awaiting it forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = await installedHarness();
+      await announce(harness, 's1');
+      // A visit that cached the document, so there is something valid to fall
+      // back to.
+      await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+
+      /*
+       * Navigation preload is the request that is actually in flight, so a link
+       * that HANGS rather than fails used to hold the screen for as long as the
+       * browser's own request timeout: `event.preloadResponse` was awaited
+       * AHEAD of the `NAVIGATION_TIMEOUT_MS` race. Measured against a link
+       * delayed by 20s, the navigation never resolved at all (>40s) even though
+       * the document was already cached.
+       */
+      const preload = new Promise<FakeResponse | undefined>(() => undefined);
+      const pending = harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'), preload);
+
+      // Let the worker's own async setup run, then step past the ceiling.
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(NAVIGATION_TIMEOUT_MS + 50);
+
+      const response = await pending;
+      expect(response?.status).toBe(200);
+      expect(response?.body).toBe('<html>tasks</html>');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('serves an offline reload of a visited URL from this session\'s own copy', async () => {
     const harness = await installedHarness();
     await announce(harness, 's1');
@@ -639,6 +687,35 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(root?.body).toBe(`<html>${ORIGIN}/</html>`);
   });
 
+  it('sends an offline cold start at the root to the landing route it has cached', async () => {
+    /*
+     * The installed app's `start_url` is `/`, and `/` is a redirect route
+     * (`src/app/page.tsx`). A redirect is deliberately never cached, so in
+     * production the root has no precached document — and an offline cold start
+     * used to be handed the last-resort "couldn't load its app shell" page even
+     * when the screen it wanted was in the session cache. The install below is
+     * the real one, redirecting the root.
+     */
+    const harness = createHarness();
+    await harness.install((url) => {
+      if (url.endsWith('/')) return new FakeResponse('<html>login</html>', { redirected: true });
+      if (url.endsWith('/offline')) return new FakeResponse('<html>offline</html>');
+      return new FakeResponse('asset');
+    });
+    await announce(harness, 's1');
+    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+
+    const root = await harness.navigation(`${ORIGIN}/`, () => new Error('offline'));
+    expect(root?.status).toBe(302);
+    expect(root?.headers.get('location')).toBe(`${ORIGIN}/tasks`);
+
+    // The browser's follow-up is served at its own URL, so route and payload
+    // still agree.
+    const landing = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
+    expect(landing?.status).toBe(200);
+    expect(landing?.body).toBe('<html>tasks</html>');
+  });
+
   it('redirects to /offline when the precache is empty, then shows a last-resort document there', async () => {
     const harness = createHarness();
 
@@ -668,9 +745,15 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(await shellResponse(harness)).toBeUndefined();
 
     // A rejected login redirect must not become the shell, so the root has
-    // nothing to serve and falls through to the payload-free document.
+    // nothing to serve. It is sent to the app's landing route, which follows
+    // the ordinary path to /offline when that is not cached either.
     const root = await harness.navigation(`${ORIGIN}/`, () => new Error('offline'));
-    expect(root?.body).toContain('TaskTick');
+    expect(root?.status).toBe(302);
+    expect(root?.headers.get('location')).toBe(`${ORIGIN}/tasks`);
+
+    const landing = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
+    expect(landing?.status).toBe(302);
+    expect(landing?.headers.get('location')).toBe(`${ORIGIN}/offline`);
 
     // Other routes redirect, and /offline serves its own precached copy.
     const elsewhere = await harness.navigation(`${ORIGIN}/today`, () => new Error('offline'));

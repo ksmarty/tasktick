@@ -28,9 +28,10 @@
  * value, and the date field is the shadcn `Calendar` in a `Popover`.
  *
  * Two server contracts worth knowing:
- *   - `reminderAt` is a wall-clock `HH:mm`; the API anchors it itself, and it
- *     anchors in UTC, so the value is read back with the same zone to keep the
- *     round trip exact.
+ *   - `reminders` is a list of minutes since local midnight (0–1439), one per
+ *     wall-clock time of day. The editor works in the native `HH:mm` a
+ *     `type="time"` input produces and converts at the edge, so no timezone
+ *     anchoring is involved.
  *   - the update schema is `.strict()`, so the body is built field by field
  *     rather than spreading the form state.
  */
@@ -38,6 +39,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArchiveIcon } from '@svg-animated-icons/react/archive';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { MinusIcon } from '@svg-animated-icons/react/minus';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
@@ -61,15 +63,16 @@ import { cn } from '@/lib/utils';
 import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { api } from '@/lib/api-client';
 import { useMutation } from '@/lib/store';
-import { timeIn } from '@/lib/dates';
 import { ACCENT_COLORS } from '@/lib/types';
-import { longDateLabel } from './period';
+import { longDateLabel, minutesToTime, timeToMinutes } from './period';
 import { DEFAULT_HABIT_ICON, HABIT_ICON_NAMES, asHabitIconName, habitIcon, habitIconLabel } from './icons';
 import { useToast } from '@/components/app/Toast';
 import type { AccentColor, DateOnly, Habit, HabitFrequency, HabitGoalType, TimeOnly } from '@/lib/types';
 
-/** The API stores a habit reminder anchored in UTC; read it back the same way. */
-const REMINDER_ZONE = 'utc';
+/** One reminder per minute of the day is the most that can be distinct. */
+const MAX_HABIT_REMINDERS = 1440;
+/** The time a freshly added reminder row starts at; the user edits it. */
+const DEFAULT_REMINDER_TIME: TimeOnly = '09:00';
 
 const GOAL_OPTIONS: { value: HabitGoalType; label: string }[] = [
   { value: 'boolean', label: 'Done' },
@@ -188,7 +191,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
   const [weekDays, setWeekDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [timesPerPeriod, setTimesPerPeriod] = useState(3);
   const [startDate, setStartDate] = useState<DateOnly>(today);
-  const [reminder, setReminder] = useState<TimeOnly | null>(null);
+  const [reminders, setReminders] = useState<TimeOnly[]>([]);
   const [archived, setArchived] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   /** A problem with the form as a whole, shown above the fields. */
@@ -221,7 +224,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
     setWeekDays(habit?.weekDays?.length ? habit.weekDays : [1, 2, 3, 4, 5]);
     setTimesPerPeriod(habit?.timesPerPeriod && habit.timesPerPeriod > 1 ? habit.timesPerPeriod : 3);
     setStartDate(habit?.startDate ?? today);
-    setReminder(habit?.reminderAtMs ? timeOnlyFrom(habit.reminderAtMs) : null);
+    setReminders((habit?.reminders ?? []).map(minutesToTime));
     setArchived(Boolean(habit?.archived));
     setNameError(null);
     setFormError(null);
@@ -252,7 +255,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
         weekDays: frequency === 'custom' ? sortWeekDays(weekDays) : null,
         timesPerPeriod: frequency === 'daily' || frequency === 'custom' ? 1 : Math.max(1, timesPerPeriod),
         startDate,
-        reminderAt: reminder,
+        reminders: reminderMinutes(reminders),
       };
       return habit
         ? await api.patch<Habit>(`/api/habits/${habit.id}`, body)
@@ -337,7 +340,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
           <DialogHeader className="shrink-0 gap-0 border-b border-border px-card py-stack">
             <DialogTitle className="text-lg font-semibold">{editing ? 'Edit habit' : 'New habit'}</DialogTitle>
             <DialogDescription className="sr-only">
-              Set the habit&rsquo;s name, icon, colour, goal, schedule, start date and reminder.
+              Set the habit&rsquo;s name, icon, colour, goal, schedule, start date and reminders.
             </DialogDescription>
           </DialogHeader>
 
@@ -546,22 +549,58 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
                 </Popover>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="habit-reminder">Reminder</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="habit-reminder"
-                    type="time"
-                    value={reminder ?? ''}
-                    onChange={(event) => setReminder(event.target.value ? (event.target.value as TimeOnly) : null)}
-                    className="w-40"
-                  />
-                  {reminder ? (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setReminder(null)}>
-                      Clear
-                    </Button>
-                  ) : null}
+              <div className="flex flex-col gap-2" role="group" aria-label="Reminders">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Reminders</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1 rounded-full"
+                    disabled={reminders.length >= MAX_HABIT_REMINDERS}
+                    onClick={() => setReminders((current) => [...current, DEFAULT_REMINDER_TIME])}
+                  >
+                    <PlusIcon aria-hidden className="size-3.5 text-base" disableHover />
+                    Add reminder
+                  </Button>
                 </div>
+                {reminders.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No reminders yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {reminders.map((time, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <Input
+                          type="time"
+                          aria-label={`Reminder ${index + 1}`}
+                          value={time}
+                          onChange={(event) => {
+                            const next = event.target.value as TimeOnly;
+                            setReminders((current) =>
+                              current.map((value, position) => (position === index ? next : value)),
+                            );
+                          }}
+                          className="w-40"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove reminder ${index + 1}`}
+                          onClick={() =>
+                            setReminders((current) => current.filter((_, position) => position !== index))
+                          }
+                        >
+                          <Cross1Icon aria-hidden className="size-3.5 text-base" disableHover />
+                          Remove
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Saved with the habit — this app does not deliver reminder notifications yet.
+                </p>
               </div>
             </div>
 
@@ -675,7 +714,11 @@ function dateOnlyOf(value: Date): DateOnly {
   return `${value.getFullYear()}-${month}-${day}`;
 }
 
-/** `HH:mm` of an instant, read in the same zone the API writes it in. */
-function timeOnlyFrom(instantMs: number): TimeOnly | null {
-  return timeIn(instantMs, REMINDER_ZONE);
+/** The `HH:mm` rows as the stored list of minutes, de-duplicated and sorted. */
+function reminderMinutes(times: TimeOnly[]): number[] | null {
+  const minutes = times
+    .filter((time) => /^\d{1,2}:\d{2}$/.test(time))
+    .map((time) => timeToMinutes(time));
+  if (!minutes.length) return null;
+  return [...new Set(minutes)].sort((a, b) => a - b);
 }

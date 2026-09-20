@@ -31,7 +31,7 @@ function habit(overrides: Partial<Habit> = {}): Habit {
     weekDays: null,
     timesPerPeriod: 1,
     startDate: '2025-01-01',
-    reminderAtMs: null,
+    reminders: null,
     archived: false,
     sortOrder: 'a',
     createdAt: 0,
