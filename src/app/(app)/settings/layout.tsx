@@ -30,6 +30,7 @@
  * have different gutters and the shell deliberately applies neither.
  */
 import { PageHeader } from '@/components/app/PageHeader';
+import { SettingsScroll } from '@/components/settings/SettingsScroll';
 
 /** The one title every settings section publishes. */
 const SETTINGS_TITLE = 'Settings';
@@ -38,7 +39,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <>
       <PageHeader title={SETTINGS_TITLE} />
-      {children}
+      <SettingsScroll>{children}</SettingsScroll>
     </>
   );
 }

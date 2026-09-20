@@ -53,13 +53,14 @@ describe('the gutter timeline', () => {
     // is never split around it — the line connects through rather than stopping
     // at each circle.
     /*
-     * Centred on the row, not pinned to a fixed offset from the top. A two-line
-     * entry is taller than a one-line entry, so `top-3` put the node, the time
-     * and the item in three different places on exactly the rows where they most
-     * need to agree.
+     * Anchored to the top of the entry, on its first line of text rather than
+     * its centre: the timeline reads as “the item starts here”. `top-3.5`
+     * (14px) is the entry's `pt-1.5` (6px) plus half the 16px box of the
+     * `text-xs` range line the timed rows lead with, so the node tracks the
+     * first line instead of a row-height-dependent centre.
      */
     expect(AGENDA).toContain(
-      'absolute top-1/2 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
+      'absolute top-3.5 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
     );
     expect(AGENDA).toContain('flex shrink-0 items-center justify-end text-right');
     expect(AGENDA).toContain('style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}');
@@ -70,12 +71,12 @@ describe('the gutter timeline', () => {
   });
 
   it('trims the rule to the first and last nodes so it does not dangle', () => {
-    // First row starts its rule at the node's centre, last row stops there, and
-    // a single item (both first and last) draws no rule at all. Fractions of the
-    // row, not fixed pixels: the entry's vertical padding moved, and a fixed
-    // offset tuned to the old height left the rule short of the node.
-    expect(AGENDA).toContain("index === 0 ? 'top-1/2' : 'top-0'");
-    expect(AGENDA).toContain("index === items.length - 1 ? 'h-1/2' : '-bottom-3'");
+    // First row starts its rule at the node's own top-aligned offset, last row
+    // stops there, and a single item (both first and last) draws no rule at all.
+    // Fixed offsets now that the node is anchored to the top; they still meet
+    // the node at any row height, because the node no longer moves with it.
+    expect(AGENDA).toContain("index === 0 ? 'top-3.5' : 'top-0'");
+    expect(AGENDA).toContain("index === items.length - 1 ? 'h-3.5' : '-bottom-3'");
     expect(AGENDA).toContain('items.length > 1 ? (');
   });
 });
@@ -117,13 +118,14 @@ describe('the agenda entry radius, and the stripe that must not follow it', () =
 describe('the agenda entry’s padding', () => {
   it('is a step below the value that made the entries too tall, on the same text axis', () => {
     /*
-     * `py-2` (0.5rem) is the step below the `py-3` (0.75rem) that raised the
-     * entries and then read as too tall. `pl-3` (0.75rem) plus the `w-1` (4px)
-     * strip is exactly where the old border put the text — 16px in — so the
-     * stripe returning to the entry's edge does not move the reading line. The
-     * right edge keeps the row token.
+     * `pt-1.5 pb-2` (6px top, 8px bottom) is the `py-2` step below the `py-3`
+     * (0.75rem) that raised the entries, with 2px shaved off the top so the
+     * optically-lower equal padding reads as centred. `pl-3` (0.75rem) plus the
+     * `w-1` (4px) strip is exactly where the old border put the text — 16px in —
+     * so the stripe returning to the entry's edge does not move the reading
+     * line. The right edge keeps the row token.
      */
-    expect(AGENDA).toContain('justify-center py-2 pr-row pl-3');
+    expect(AGENDA).toContain('justify-center pt-1.5 pb-2 pr-row pl-3');
     expect(AGENDA).not.toContain('bg-accent py-3');
   });
 
@@ -155,7 +157,11 @@ describe('a tap opens the preview, and Edit opens the editor', () => {
   });
 
   it('still reaches both editors from the preview’s Edit action', () => {
-    expect(SCREEN).toContain('setEditor({ open: true, eventId: item.id, defaults: defaultsFor(item, prefs) })');
+    // The event editor is opened with the item's own projection, so a mirrored
+    // event carries its read-only flag into the editor as well as the preview.
+    expect(SCREEN).toContain('eventId: item.id');
+    expect(SCREEN).toContain('defaults: defaultsFor(item, prefs)');
+    expect(SCREEN).toContain('readOnly: Boolean(item.readonly)');
     expect(SCREEN).toContain('setTaskEditor({ open: true, taskId: item.id })');
   });
 

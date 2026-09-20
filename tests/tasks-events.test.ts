@@ -162,7 +162,7 @@ describe('TaskListSection — events render beside the tasks', () => {
   it('merges the row layout onto the li, one element per row', () => {
     // An inner wrapper `div` carried the same 44px flex box; on the demo list 56
     // of the 64 rows are events, so it was 56 elements per render for nothing.
-    expect(EVENT_ROW).toContain("'relative z-10 flex min-h-11 w-full items-center gap-1 px-row',");
+    expect(EVENT_ROW).toContain("'relative z-10 flex min-h-11 w-full items-center gap-1 pl-row pr-1.5',");
     expect(EVENT_ROW).not.toContain('<div className="relative z-10 flex min-h-11');
   });
 

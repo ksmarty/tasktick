@@ -17,14 +17,37 @@ const WRAPPER = source('components/app/Toast.tsx');
 const STACK = source('components/godui/toast.tsx');
 
 describe('the app toast dwell time', () => {
-  it('is shorter than the old 3.2s', () => {
-    expect(WRAPPER).toContain('const DEFAULT_DURATION = 2500;');
+  it('sits in the 1.5-2s the user asked for', () => {
+    expect(WRAPPER).toContain('const DEFAULT_DURATION = 1800;');
+    expect(WRAPPER).not.toContain('const DEFAULT_DURATION = 2500;');
     expect(WRAPPER).not.toContain('const DEFAULT_DURATION = 3200;');
   });
 
   it('leaves the deliberately persistent toast alone', () => {
     expect(WRAPPER).toContain('const PERSISTENT_DURATION = 2 ** 31 - 1;');
     expect(WRAPPER).toContain('banner.duration === 0 ? PERSISTENT_DURATION : banner.duration');
+  });
+});
+
+describe('the countdown actually starts', () => {
+  /*
+   * The bug this pins: `expanded` suppresses the dismiss timer, and the
+   * toaster used to set it from `onMouseEnter`. A tap delivers the
+   * compatibility `mouseenter` and no matching `mouseleave`, so on a touch
+   * device the stack was stuck expanded and no toast ever dismissed itself.
+   * The pause is deliberate and must stay; what is pinned is that "hovered"
+   * is decided by a pointer that can actually hover.
+   */
+  it('still pauses the stack while it is genuinely hovered', () => {
+    expect(STACK).toContain('if (expanded) return;');
+  });
+
+  it('expands on a mouse pointer, not on a tap', () => {
+    expect(STACK).toContain("event.pointerType !== 'mouse'");
+    expect(STACK).toContain('onPointerEnter');
+    expect(STACK).toContain('onPointerLeave');
+    expect(STACK).not.toContain('onMouseEnter');
+    expect(STACK).not.toContain('onMouseLeave');
   });
 });
 

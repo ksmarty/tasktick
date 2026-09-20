@@ -331,7 +331,7 @@ export function TaskRow({
         // No background of its own: the card is the surface, so a translucent
         // one reads as a single grouped list rather than N white slices. The
         // lifted row needs its own solid paint, since it travels over others.
-        'relative z-10 flex min-h-11 w-full items-center gap-1 px-row',
+        'relative z-10 flex min-h-11 w-full items-center gap-1 pl-row pr-1.5',
         lifted && 'z-20 bg-card shadow-xl',
         disabled && 'opacity-60',
       )}
@@ -471,7 +471,7 @@ export function TaskRow({
           onDragStart={(event: DragEvent<HTMLElement>) => drag?.onDragStart(event)}
           onDragEnd={(event: DragEvent<HTMLElement>) => drag?.onDragEnd(event)}
           aria-hidden
-          className="-mr-2 flex w-8 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/60 active:cursor-grabbing"
+          className="-mr-1 flex w-8 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/60 active:cursor-grabbing"
         >
           <DragHandleDots1Icon className="text-sm" />
         </span>

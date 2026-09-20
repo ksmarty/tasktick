@@ -52,6 +52,7 @@ import { DateTime } from 'luxon';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
+import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { useToast } from '@/components/app/Toast';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
@@ -86,8 +87,16 @@ import {
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset, weekdayOfDate } from '@/lib/rrule';
 import { invalidate, useResource } from '@/lib/store';
 import type { Calendar as CalendarRecord, CalendarEvent, DateOnly, TimeOnly } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import { CalendarCombobox } from './CalendarCombobox';
 import { minuteToTime } from './geometry';
+import {
+  REMINDER_UNITS,
+  customReminderOffsets,
+  formatReminderOffset,
+  reminderOffsetFrom,
+  type ReminderUnit,
+} from './reminder-offset';
 import type { CalendarFilter, CalendarPrefs } from './types';
 
 /** Prefill for a new event, expressed the way the grid thinks. */
@@ -117,6 +126,16 @@ export interface EventEditorSheetProps {
    * what honours a custom colour.
    */
   filter?: CalendarFilter | null;
+  /**
+   * True when the event's calendar never writes back: a mirrored `ical` feed, a
+   * read-only `caldav` collection, or a `pull`-only CalDAV account.
+   *
+   * The preview hides its Edit action for such an item, so this sheet should
+   * never be reached with the flag set. It is honoured anyway because the one
+   * path that bypasses the preview is a **new** event seeded on a read-only
+   * calendar, and a write there would land locally and silently never sync.
+   */
+  readOnly?: boolean;
 }
 
 /** The wire shape of `POST /api/events`, matching `createEventSchema`. */
@@ -146,6 +165,9 @@ const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 60, label: '1 hour' },
   { minutes: 1440, label: '1 day' },
 ];
+
+/** The existing offsets a custom reminder must not duplicate. */
+const PRESET_REMINDER_MINUTES = REMINDER_OPTIONS.map((option) => option.minutes);
 
 /**
  * The bordered surface a group of fields sits in.
@@ -179,6 +201,7 @@ export function EventEditorSheet({
   prefs,
   onChanged,
   filter = null,
+  readOnly = false,
 }: EventEditorSheetProps) {
   const { data: existing, error, isInitialLoading } = useResource<CalendarEvent>(
     eventId ? `/api/events/${eventId}` : null,
@@ -270,6 +293,7 @@ export function EventEditorSheet({
             calendars={calendars}
             prefs={prefs}
             filter={filter}
+            readOnly={readOnly}
             onClose={() => onOpenChange(false)}
             onChanged={onChanged}
           />
@@ -346,6 +370,7 @@ function EventForm({
   calendars,
   prefs,
   filter,
+  readOnly,
   onClose,
   onChanged,
 }: {
@@ -354,6 +379,7 @@ function EventForm({
   calendars: CalendarRecord[];
   prefs: CalendarPrefs;
   filter: CalendarFilter | null;
+  readOnly: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -362,8 +388,20 @@ function EventForm({
   const [draft, setDraft] = useState(() => buildDraft(event, defaults, calendars, filter, prefs.zone, today));
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [customReminderOpen, setCustomReminderOpen] = useState(false);
 
   const patch = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
+
+  /*
+   * Whether this form may write at all.
+   *
+   * Two independent reasons, and either one locks it: the caller knows the
+   * item's own projection (`readOnly`), and the selected calendar's record
+   * knows whether the collection itself refuses writes. The picker below only
+   * offers writable calendars, so choosing another one unlocks the form.
+   */
+  const selectedCalendar = calendars.find((calendar) => calendar.id === draft.calendarId) ?? null;
+  const locked = readOnly || Boolean(selectedCalendar?.readOnly);
 
   const repeatRule = useMemo(() => {
     const preset = REPEAT_PRESETS.find((candidate) => candidate.id === draft.repeatId);
@@ -374,6 +412,9 @@ function EventForm({
 
   const startMs = draft.allDay ? null : combineDateAndTime(draft.startDate, draft.startTime, prefs.zone);
   const endMs = draft.allDay ? null : combineDateAndTime(draft.endDate, draft.endTime, prefs.zone);
+
+  /** The offsets the presets do not cover, drawn as removable chips. */
+  const customReminders = customReminderOffsets(draft.reminders, PRESET_REMINDER_MINUTES);
 
   // Inline rather than a server round trip: a 422 in a message makes the user
   // hunt for which of the four date/time fields was wrong.
@@ -415,7 +456,7 @@ function EventForm({
   }
 
   async function save() {
-    if (rangeError) return;
+    if (locked || rangeError) return;
     setSaving(true);
     try {
       const body = buildBody();
@@ -439,7 +480,7 @@ function EventForm({
   }
 
   async function remove() {
-    if (!event) return;
+    if (locked || !event) return;
     try {
       await api.delete(`/api/events/${event.id}`);
       invalidate('/api/calendar/items');
@@ -491,6 +532,12 @@ function EventForm({
           className="shrink-0"
         />
 
+        {locked ? (
+          <p role="status" className="shrink-0 text-sm text-muted-foreground">
+            This calendar is read-only, so nothing here is written back. Choose a writable calendar to save.
+          </p>
+        ) : null}
+
         <section aria-label="When" className={FIELD_GROUP_CLASS}>
           <div className="flex items-center gap-3">
             <Label htmlFor="event-all-day" className="flex-1">
@@ -506,7 +553,21 @@ function EventForm({
 
           <Separator />
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/*
+            One line per end of the event: the day and its clock time share the
+            row, and both rows share **one** grid so the date column and the
+            time column line up between the start row and the end row — two
+            separate rows would only line up by coincidence, and two separate
+            grids would drift the moment either label changed.
+
+            The time track is `auto` because the native `<input type="time">`
+            has its own intrinsic width and must not collapse when it is empty;
+            the field itself is the fixed `w-36`, so the two time columns are
+            identical. The date track is `minmax(0,1fr)`: it takes the rest of
+            the line and may shrink, which is what lets the date button's own
+            `truncate` handle a long weekday instead of pushing the row wide.
+          */}
+          <div className={cn('grid gap-3', draft.allDay ? 'grid-cols-1' : 'grid-cols-[minmax(0,1fr)_auto]')}>
             <DateField
               id="event-start-date"
               label="Starts"
@@ -527,9 +588,7 @@ function EventForm({
                 onChange={(time) => patch({ startTime: time })}
               />
             ) : null}
-          </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DateField
               id="event-end-date"
               label="Ends"
@@ -595,11 +654,26 @@ function EventForm({
         </section>
 
         <section aria-label="Reminders" className={FIELD_GROUP_CLASS}>
-          <h3 className="text-sm font-medium text-foreground">Reminders</h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium text-foreground">Reminders</h3>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setCustomReminderOpen(true)}
+            >
+              <PlusIcon aria-hidden className="size-3.5 text-base" disableHover />
+              Custom
+            </Button>
+          </div>
           {/*
             Toggle buttons rather than chips with a delete cross: `aria-pressed`
             is what these are, and a pressing state a screen reader can read is
-            worth more than the chip shape.
+            worth more than the chip shape. A custom offset is not one of the
+            fixed choices, so it is a chip carrying its own remove control
+            instead — it can be taken off without hunting for the preset it is
+            not.
           */}
           <div className="flex flex-wrap gap-2">
             {REMINDER_OPTIONS.map((option) => {
@@ -624,10 +698,38 @@ function EventForm({
                 </Button>
               );
             })}
+            {customReminders.map((minutes) => (
+              <span
+                key={minutes}
+                className="inline-flex min-h-8 items-center gap-1 rounded-full bg-primary pr-1 pl-3 text-sm font-medium text-primary-foreground"
+              >
+                {formatReminderOffset(minutes)}
+                <button
+                  type="button"
+                  aria-label={`Remove ${formatReminderOffset(minutes)} reminder`}
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-full hover:bg-primary-foreground/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                  onClick={() =>
+                    patch({ reminders: draft.reminders.filter((candidate) => candidate !== minutes) })
+                  }
+                >
+                  <Cross1Icon aria-hidden className="size-3.5 text-base" disableHover />
+                </button>
+              </span>
+            ))}
           </div>
+          {/*
+            The honest caveat. Offsets are stored and shown, but nothing in this
+            app dispatches a notification, so the note says what the picker does
+            (save an offset relative to the occurrence) rather than implying a
+            delivery that will never come.
+          */}
+          <p className="text-xs text-muted-foreground">
+            {repeatRule ? 'Counted back from each occurrence. ' : 'Counted back from the event start. '}
+            Saved with the event — this app does not deliver reminder notifications yet.
+          </p>
         </section>
 
-        {event ? (
+        {event && !locked ? (
           <div className="shrink-0 overflow-hidden rounded-xl border border-border">
             <button
               type="button"
@@ -642,18 +744,26 @@ function EventForm({
       </div>
 
       <DialogFooter className="shrink-0 border-t border-border px-card pt-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
-        <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          className="flex-1"
-          aria-busy={saving || undefined}
-          disabled={saving || Boolean(rangeError) || !draft.calendarId}
-          onClick={() => void save()}
-        >
-          {event ? 'Save' : 'Add'}
-        </Button>
+        {locked ? (
+          <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
+              aria-busy={saving || undefined}
+              disabled={saving || Boolean(rangeError) || !draft.calendarId}
+              onClick={() => void save()}
+            >
+              {event ? 'Save' : 'Add'}
+            </Button>
+          </>
+        )}
       </DialogFooter>
 
       {/*
@@ -678,7 +788,128 @@ function EventForm({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/*
+        A custom reminder is an amount + unit that compiles to the same minutes-
+        before-the-occurrence the presets are, so it round-trips through CalDAV
+        as a relative VALARM. There is deliberately no absolute-time option: the
+        codec only keeps relative triggers, so an absolute one would be dropped
+        on the next sync — and on a recurring event the offset has to be relative
+        to count back from each occurrence.
+      */}
+      <CustomReminderDialog
+        open={customReminderOpen}
+        onOpenChange={setCustomReminderOpen}
+        selected={draft.reminders}
+        onAdd={(minutes) => patch({ reminders: [...draft.reminders, minutes] })}
+      />
     </>
+  );
+}
+
+/**
+ * The custom-reminder picker: a whole number of minutes, hours or days before.
+ *
+ * The value is validated here before it reaches the draft, because the wire
+ * schema (`createEventSchema`) caps an offset at 100 800 minutes and rejects the
+ * whole save otherwise — a message under this field is friendlier than a 422 in
+ * a toast.
+ */
+function CustomReminderDialog({
+  open,
+  onOpenChange,
+  selected,
+  onAdd,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The draft's current offsets, so a duplicate is refused with a reason. */
+  selected: readonly number[];
+  onAdd: (minutes: number) => void;
+}) {
+  const [amount, setAmount] = useState('30');
+  const [unit, setUnit] = useState<ReminderUnit>('minutes');
+  const [error, setError] = useState<string | null>(null);
+
+  function submit() {
+    const result = reminderOffsetFrom(Number(amount), unit);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    if (selected.includes(result.minutes)) {
+      setError('That reminder is already set.');
+      return;
+    }
+    onAdd(result.minutes);
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // A stale error from the last attempt must not greet the next one.
+        if (next) setError(null);
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent showCloseButton={false} className="gap-0 p-0">
+        <div className="flex flex-col gap-stack p-card">
+          <DialogTitle>Custom reminder</DialogTitle>
+          <DialogDescription>How long before the event should it be?</DialogDescription>
+
+          <div className="flex items-end gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Label htmlFor="event-reminder-amount">Amount</Label>
+              <Input
+                id="event-reminder-amount"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={amount}
+                aria-invalid={error ? true : undefined}
+                onChange={(input) => {
+                  setAmount(input.target.value);
+                  setError(null);
+                }}
+              />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Label htmlFor="event-reminder-unit">Unit</Label>
+              <Select value={unit} onValueChange={(value) => setUnit(value as ReminderUnit)}>
+                <SelectTrigger id="event-reminder-unit" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  {REMINDER_UNITS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {error ? (
+            <p role="alert" className="text-xs text-destructive">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submit}>
+              Add reminder
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -749,10 +980,11 @@ function DateField({
  * value plus a picker glyph; stretched across the form (`w-full`, which is what
  * it was) it read as an over-long empty box with its glyph jammed against the
  * form's edge — and on a narrow phone the native control's own intrinsic width
- * could push past that edge. `w-40` is the same compact width the habits
- * editor's reminder field uses, it clears the control's ~138px content need with
- * room to spare, and the wrapper's `min-w-0` means the column can always shrink
- * it rather than letting a grid track overflow.
+ * could push past that edge. `w-36` keeps the two time columns identical and
+ * still clears the control's content need, while leaving the date to its left
+ * enough room for `ccc d LLL yyyy` on a 390px phone. The wrapper's `min-w-0`
+ * means the column can always shrink it rather than letting a grid track
+ * overflow.
  */
 function TimeField({
   id,
@@ -779,7 +1011,7 @@ function TimeField({
           // last good value instead.
           if (input.target.value) onChange(input.target.value);
         }}
-        className="w-40"
+        className="w-36"
       />
     </div>
   );

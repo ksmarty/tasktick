@@ -72,15 +72,19 @@
  * stated rather than hidden:
  *
  *  - the panel owns `px-5 pb-4 pt-0`, so the row track pulls back with `-mx-5
- *    -mb-4` and every row then supplies its own `px-row`. That is what keeps the
- *    row inset coming from the layout token instead of from a vendored number.
- *    The header's own padding is a separate, vertical override (above), so this
- *    compensation is unchanged: the rows' left/right axis still comes from
- *    `-mx-5` + `px-row`.
+ *    -mb-4` and every row then supplies its own `pl-row pr-1.5`. That is what
+ *    keeps the row inset coming from the layout token instead of from a vendored
+ *    number. The left is the token (`--spacing-row`); the right is that token
+ *    halved, so the date/time and the collapse arrow sit the same 10px from the
+ *    section's right edge. The header's own padding is a separate, vertical
+ *    override (above), and its right is an explicit `pr-2.5` (above), so the two
+ *    trailing edges line up.
  *  - the trigger owns `px-5`, so the header's own content pulls back with `-mx-1`
- *    (1.25rem − 0.25rem = 1rem) and lands on exactly the same `px-row` axis as the
- *    rows. A negative margin rather than an override, because `tailwind-merge`
- *    cannot be relied on to resolve a token class against a vendored one.
+ *    (1.25rem − 0.25rem = 1rem) and lands on exactly the same `px-row` left axis
+ *    as the rows. A negative margin rather than an override, because
+ *    `tailwind-merge` cannot be relied on to resolve a token class against a
+ *    vendored one. (The right no longer needs to match the rows: the trigger's
+ *    right padding is overridden to the halved value directly.)
  *  - the panel paints `text-sm text-muted-foreground`, which the row track resets
  *    with an explicit `text-base text-foreground`. The track used to carry the
  *    hairline under the header and between rows; both lines are gone, and the
@@ -300,7 +304,7 @@ export function TaskListSection({
       strength={0}
       sheen={0}
       tint={GLASS_TINT}
-      className="border-border shadow-sm"
+      className="border-0 shadow-sm"
     >
       <Accordion
         type="single"
@@ -309,8 +313,10 @@ export function TaskListSection({
         // "Completed" holds work the user has finished with, so it arrives closed.
         defaultValue={section.defaultCollapsed ? [] : [section.id]}
         // Neutralise the Accordion's own surface so the glass card is the card,
-        // and tighten the header's own `py-4` (see the file doc).
-        className="rounded-none border-0 bg-transparent [&_button[aria-expanded]]:py-2.5"
+        // tighten the header's own `py-4` (see the file doc), and halve its
+        // right padding (`px-5` → `pr-2.5`) so the collapse arrow sits at the
+        // same 10px from the card edge as the rows' date/time do.
+        className="rounded-none border-0 bg-transparent [&_button[aria-expanded]]:py-2.5 [&_button[aria-expanded]]:pr-2.5"
         items={[
           {
             value: section.id,

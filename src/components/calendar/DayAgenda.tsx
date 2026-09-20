@@ -263,31 +263,34 @@ export function DayAgenda({
                  * keeps the line continuous through every circle.
                  *
                  * First and last are trimmed to their nodes rather than the row
-                 * edges: the first row starts its rule at its node's centre
-                 * (`top-1/2`, exactly where the node is drawn) and the last stops
-                 * there (`h-1/2`, no bridge), so nothing dangles above the first
-                 * entry or past the final one. Both are fractions of the row
-                 * rather than fixed pixels, so they keep meeting the node at any
-                 * row height — the entry's vertical padding changes, and a fixed
-                 * offset tuned to one height leaves the line short of the node at
-                 * another. A single-item day is both first and last and draws no
-                 * rule at all, only its node.
+                 * edges: the first row starts its rule at the node's own offset
+                 * (`top-3.5`, exactly where the node is drawn) and the last stops
+                 * there (`h-3.5`, no bridge), so nothing dangles above the first
+                 * entry or past the final one. The offset is fixed now that the
+                 * node is anchored to the top rather than centred on a row whose
+                 * height varies — it is the entry's `pt-1.5` (6px) plus half the
+                 * range line's 16px box, so it tracks the first line of text at
+                 * any row height. A single-item day is both first and last and
+                 * draws no rule at all, only its node.
                  */}
                 <span aria-hidden className="relative w-px shrink-0 self-stretch">
                   {items.length > 1 ? (
                     <span
                       className={cn(
                         'absolute left-0 w-px bg-border',
-                        index === 0 ? 'top-1/2' : 'top-0',
-                        index === items.length - 1 ? 'h-1/2' : '-bottom-3',
+                        index === 0 ? 'top-3.5' : 'top-0',
+                        index === items.length - 1 ? 'h-3.5' : '-bottom-3',
                       )}
                     />
                   ) : null}
                   {/*
-                   * Centred on the row, like the gutter label, rather than pinned to
-                   * the top. A row with two lines is taller than one with a single
-                   * line, so a fixed offset put the node, the time and the item in
-                   * three different places on exactly the rows that matter most.
+                   * Anchored to the top of the entry, not centred on it: the
+                   * timeline reads as "the item starts here", so the node sits on
+                   * the first line of text. `top-3.5` (14px) is the entry's
+                   * `pt-1.5` (6px) plus half the 16px box of the `text-xs` range
+                   * line the timed rows lead with — anchored to the top, a fixed
+                   * offset tracks the first line instead of drifting with the
+                   * row's height the way the old `top-1/2` did.
                    *
                    * The circle on the line. A timed item is a filled disc in
                    * the item's own colour; an all-day item is a hollow ring of
@@ -297,7 +300,7 @@ export function DayAgenda({
                    */}
                   <span
                     className={cn(
-                      'absolute top-1/2 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
+                      'absolute top-3.5 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
                       item.isAllDay && 'border-2 bg-background',
                     )}
                     style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}
@@ -313,9 +316,12 @@ export function DayAgenda({
                  * inner edge stays a straight, square-ended line. See "The
                  * stripe" at the top of this file.
                  *
-                 * The padding is asymmetric on purpose. `py-2` is the step below
-                 * the `py-3` that made the entries too tall, and it lives on the
-                 * content beside the strip. `pl-3` (0.75rem) plus the `w-1` (4px)
+                 * The padding is asymmetric on purpose. `pt-1.5 pb-2` (6px top,
+                 * 8px bottom) is the `py-2` step below the `py-3` that made the
+                 * entries too tall, with 2px shaved off the top: equal padding
+                 * reads as sitting low, so the optical correction lifts the text
+                 * block without the geometric centre changing much. The bottom
+                 * keeps the full 8px. `pl-3` (0.75rem) plus the `w-1` (4px)
                  * strip is the same 16px the old border put the text at, so the
                  * reading line does not move. The right edge keeps `pr-row` — it
                  * is the far side of that line and had no reason to move.
@@ -323,7 +329,7 @@ export function DayAgenda({
                 <span className="flex min-w-0 flex-1 overflow-hidden rounded-sm bg-accent">
                   <span aria-hidden className="w-1 shrink-0 self-stretch" style={{ backgroundColor: hex }} />
 
-                  <span className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-row pl-3">
+                  <span className="flex min-w-0 flex-1 flex-col justify-center pt-1.5 pb-2 pr-row pl-3">
                     {/* An all-day row has no range to show; the gutter says it. */}
                     {rangeLabel ? (
                       <span className="block truncate text-xs font-semibold" style={{ color: hex }}>

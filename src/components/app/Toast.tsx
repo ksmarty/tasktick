@@ -90,13 +90,25 @@ export interface ToastProviderProps {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 /**
- * The app's dwell time. GodUI's own default is 4s; the app's was 3.2s, and the
- * user asked for shorter — long enough to read a title plus a one-line detail at
- * a glance, short enough that a run of actions does not leave a wall of banners
- * over the tab bar. Toasts that carry an action override this (the task-complete
- * Undo asks for 5s) and `duration: 0` still means "until dismissed".
+ * The app's dwell time.
+ *
+ * GodUI's own default is 4s and the app's was 3.2s, then 2.5s; the user asked
+ * for 1.5-2s and this is the top of that range. It is the top half deliberately:
+ * every one of these banners carries a title *and* a second line —
+ * "Task added / Buy milk · Today", "Moved to tomorrow / Stand-up" — so the
+ * useful reading time is the description's, and 1.5s is where a two-line banner
+ * still feels clipped. 1.8s is inside the range the user asked for and plainly
+ * shorter than the 2.5s it replaces; the difference is measurable in the DOM
+ * (see the item report), not just on the stopwatch in someone's head.
+ *
+ * Toasts that carry an action override this — the task-complete Undo asks for
+ * 5s, because a 1.8s window is not long enough to read *and* hit Undo — and
+ * `duration: 0` still means "until dismissed".
+ *
+ * Whatever the value, the auto-dismiss only works if the countdown starts: see
+ * the pointer fix in `@/components/godui/toast`.
  */
-const DEFAULT_DURATION = 2500;
+const DEFAULT_DURATION = 1800;
 
 /** `setTimeout`'s ceiling — ~24.8 days, which is "until dismissed" in practice. */
 const PERSISTENT_DURATION = 2 ** 31 - 1;

@@ -37,6 +37,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { accentHex } from '@/lib/colors';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { ACCENT_COLORS, type AccentColor, type Calendar } from '@/lib/types';
@@ -120,12 +121,21 @@ export function CalendarListEditor() {
         ) : (
           list.map((calendar) => (
             <SettingsRow key={calendar.id}>
+              {/*
+               * A hidden calendar reads as dimmed at a glance. The swatch drops
+               * to 40% and the name/subtitle block to 60%, which takes the
+               * near-black name to roughly a 5:1 contrast on the card — clearly
+               * a different weight from a visible row, still legible. The
+               * trailing controls sit outside that block on purpose, so the eye
+               * toggle that brings the calendar back stays at full strength and
+               * never looks disabled.
+               */}
               <span
                 aria-hidden
-                className="size-2.5 shrink-0 rounded-full"
+                className={cn('size-2.5 shrink-0 rounded-full', !calendar.isVisible && 'opacity-40')}
                 style={{ backgroundColor: accentHex(calendar.color) }}
               />
-              <span className="min-w-0 flex-1">
+              <span className={cn('min-w-0 flex-1', !calendar.isVisible && 'opacity-60')}>
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="min-w-0 truncate text-sm">{calendar.name}</span>
                   {calendar.isDefault ? (
@@ -145,6 +155,7 @@ export function CalendarListEditor() {
                   variant="ghost"
                   size="icon"
                   aria-label={calendar.isVisible ? `Hide ${calendar.name}` : `Show ${calendar.name}`}
+                  aria-pressed={calendar.isVisible}
                   disabled={toggleVisibility.isPending}
                   onClick={() => void toggleVisibility.run(calendar, !calendar.isVisible)}
                 >

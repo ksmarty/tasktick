@@ -54,7 +54,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
@@ -461,10 +460,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
              * so choosing a settings section swaps the page without replaying
              * the fade over the blurred chrome.
              *
-             * Opacity only, deliberately. Any transform on this wrapper makes it
-             * the containing block for `position: fixed` descendants, so a
-             * docked bar inside a route would position against this box instead
-             * of the viewport. Animating opacity leaves it a plain block.
+             * The fade is a CSS animation, not a `motion.div`. It was a
+             * framer-motion opacity animation at 0.34s, and that cost the user
+             * twice over:
+             *
+             *  - framer-motion renders its `initial` opacity 0 as an inline
+             *    `style="opacity:0"` in the server-rendered HTML, so a cold
+             *    load painted the *entire page content* invisible and only
+             *    revealed it once the JS had hydrated and an animation had run.
+             *    A CSS animation starts with the first paint and needs no JS at
+             *    all, so the content is never held hostage by the bundle. This
+             *    is measurable: the wrapper is at opacity 1 about a second
+             *    earlier at 6× CPU throttle on a cold load (see the item
+             *    report).
+             *  - an opacity animation driven from the main thread competes with
+             *    the route's own first render and its effects, exactly when the
+             *    main thread is busiest. `animate-in fade-in` is the same fade
+             *    vocabulary the dialogs already use, and opacity runs on the
+             *    compositor, so the frame budget belongs to the page.
+             *
+             * 150ms rather than 340ms: a destination change is the most common
+             * gesture in the app and the fade is the last thing between the tap
+             * and legible content. It is still a fade, just not one the user
+             * waits on. Measured in the page: the opacity ramps 0 -> 1 over
+             * 163ms of wall clock, and it is the same `enter` animation the
+             * dialogs close and open over.
+             *
+             * Nothing moves: `fade-in` only sets the animation's start opacity,
+             * and the keyframes leave translate and scale at their identity
+             * (`matrix(1, 0, 0, 1, 0, 0)` for the 150ms it runs, `none` after).
+             * An identity transform is still a transform, so for those 150ms
+             * this wrapper *is* a containing block for `position: fixed`
+             * descendants. The only fixed element a route can hold today is the
+             * calendar's drag ghost, which exists only while an event is being
+             * dragged and so can never span a navigation; the app's own fixed
+             * chrome (the band, the bottom fade, the toaster) is a sibling of
+             * `main`, not a descendant. If a route ever docks a fixed bar of its
+             * own, this fade is what to revisit.
              *
              * `min-h-[calc(100%_+_3rem)]` guarantees the pane can always scroll
              * a little, even when the content is shorter than the screen. The
@@ -479,18 +511,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
              * calendar grid is full-bleed and the shell cannot know which
              * screens are.
              */}
-            <motion.div
+            <div
               key={contentKey}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.34, ease: 'easeOut' }}
               className={cn(
-                'flex flex-col gap-stack',
+                'flex animate-in flex-col gap-stack fade-in duration-150 ease-out',
                 paneFullHeight ? 'h-full' : 'min-h-[calc(100%_+_3rem)]',
               )}
             >
               {children}
-            </motion.div>
+            </div>
           </main>
         </div>
 

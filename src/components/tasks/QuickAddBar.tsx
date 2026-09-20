@@ -16,10 +16,14 @@
  * tap. Two things keep that guarantee now that the sheet is a shadcn `Dialog`
  * (Radix) rather than a MUI one:
  *
- *   - the panel does **not** animate (`duration-0`, and the `animate-in`/`animate-out`
- *     classes are switched off). Radix mounts the panel through a portal, so the
- *     panel's presence in the DOM is what has to be immediate, and a 200ms
- *     entrance animation is exactly the delay that was fixed; and
+ *   - the panel does **not** animate *in* (`data-[state=open]:duration-0` and the
+ *     `animate-in` class is switched off, while the exit keeps its own 200ms
+ *     slide-down). Radix mounts the panel through a portal, so the panel's
+ *     presence in the DOM is what has to be immediate, and a 200ms entrance
+ *     animation is exactly the delay that was fixed; the exit is unaffected by
+ *     that argument and animating it is what makes the sheet leave the screen
+ *     instead of vanishing. The two states are therefore written separately
+ *     rather than as one undifferentiated `duration-0`; and
  *   - the focus runs in a *layout* effect, not a passive one, so it belongs to the
  *     same commit that `open` arrived in. `TasksView.openQuickAdd` flushes that
  *     commit synchronously inside the tap (see `usePrimaryAction`), and Radix's
@@ -295,10 +299,31 @@ export function QuickAddBar({ open, onOpenChange, listId = null, onCreated }: Qu
         className={cn(
           'bottom-0 top-auto left-0 max-w-full translate-x-0 translate-y-0',
           'gap-0 rounded-t-2xl rounded-b-none border-x-0 border-b-0 p-0',
-          // No entrance animation. The panel must be in the DOM — and the input
-          // focusable — in the commit that the tap produced, or iOS never raises
-          // the keyboard.
-          'duration-0 data-[state=open]:animate-none data-[state=closed]:animate-none',
+          /*
+           * Instant in, animated out — and the two have to be stated
+           * separately, because they are for different reasons.
+           *
+           * The entrance is `duration-0` + `animate-none`: the panel must be in
+           * the DOM, and the input focusable, in the commit the tap produced, or
+           * iOS never raises the keyboard. That applies to the entrance only.
+           *
+           * The exit was switched off along with it, and that is what the user
+           * was seeing: \u201cthe bottom sheets \u2026 just immediately disappear
+           * if I click outside\u201d. Radix keeps a closing panel mounted only
+           * while it has an animation to finish; with `animate-none` there is
+           * none, so the panel was removed a frame after the tap (measured: gone
+           * at t+40ms, one frame, no transform) while the scrim behind it faded
+           * for its own 200ms \u2014 the sheet blinked out of a scene that was
+           * still dimming.
+           *
+           * So the closed state gets its own animation, and it mirrors the
+           * primitive's own sheet geometry: `slide-out-to-bottom` translates the
+           * panel by 100% of its own height, the same distance the GodUI
+           * `Drawer` uses for its exit spring, off the bottom edge it is pinned
+           * to. 200ms is the duration the other dialogs already close over.
+           */
+          'data-[state=open]:duration-0 data-[state=open]:animate-none',
+          'data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=closed]:duration-200 data-[state=closed]:ease-out',
         )}
         showCloseButton={false}
         /*

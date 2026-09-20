@@ -626,7 +626,7 @@ export function TasksView() {
        * mobile tab-bar clearance the pane used to carry, or the last row sits
        * under the band; at `lg` the band is gone, so the padding is too.
        */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0">
+      <div className="fade-y min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0">
       {resource.error && resource.data === undefined ? (
         <div className="flex flex-col items-center gap-3 px-gutter py-6 text-center">
           <ExclamationCircledIcon className="text-4xl text-muted-foreground" aria-hidden />

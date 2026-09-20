@@ -1,5 +1,18 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+/*
+ * Scroll-edge fading, MIT, by one of the tw-shimmer authors.
+ *
+ * It masks the scroll container itself, and gates the mask on that element's own
+ * scroll position — so the fade exists only while there is content beyond the
+ * edge. A hand-rolled gradient overlay cannot do that without JavaScript, and
+ * gets it wrong in the one case that matters: a list short enough to fit would
+ * still have its last row dimmed by a fake gradient.
+ *
+ * Apply the classes to the element that actually scrolls (see `fade-y` on the
+ * task list, the settings pane and the calendar's day agenda).
+ */
+@import 'tw-fade';
 
 /*
  * GodUI — "Celestial Sapphire" design tokens.

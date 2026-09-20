@@ -134,7 +134,19 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const [selectedDate, setSelectedDate] = useState<DateOnly | null>(initialDate);
   const [filterId, setFilterId] = useState<string | null>(initialCalendarId);
   const [daySheetDate, setDaySheetDate] = useState<DateOnly | null>(null);
-  const [editor, setEditor] = useState<{ open: boolean; eventId: string | null; defaults: EventDefaults } | null>(null);
+  const [editor, setEditor] = useState<{
+    open: boolean;
+    eventId: string | null;
+    defaults: EventDefaults;
+    /**
+     * The tapped item's own projection, so an event from a read-only calendar
+     * opens locked. This is the sync-mode flag rather than the local record: a
+     * CalDAV account set to pull-only discovers its calendars as writable, and an
+     * event in one would look editable while its Save silently never left the
+     * device.
+     */
+    readOnly: boolean;
+  } | null>(null);
   /*
    * The task tapped in the agenda. Unlike an event, an agenda row does not carry
    * the whole record the task editor needs, so this holds only the id and the
@@ -485,7 +497,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     setDetail(null);
     if (!item) return;
     if (item.kind === 'event') {
-      setEditor({ open: true, eventId: item.id, defaults: defaultsFor(item, prefs) });
+      setEditor({ open: true, eventId: item.id, defaults: defaultsFor(item, prefs), readOnly: Boolean(item.readonly) });
       return;
     }
     setTaskEditor({ open: true, taskId: item.id });
@@ -493,12 +505,24 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
 
   const createAt = useCallback(
     (date: DateOnly, startMinute: number) => {
+      /*
+       * A read-only calendar is not a destination: an event created there is
+       * stored locally and never written back, so it would look saved and
+       * silently never leave the device. The active filter therefore only seeds
+       * the picker when it accepts a write, and the default (or first) writable
+       * calendar is the fallback.
+       */
+      const writableFilter = filterCalendar && !filterCalendar.readOnly ? filterCalendar : null;
       const defaultCalendarId =
-        filterCalendar?.id ?? calendars.find((calendar) => calendar.isDefault)?.id ?? calendars[0]?.id ?? null;
+        writableFilter?.id ??
+        calendars.find((calendar) => calendar.isDefault && !calendar.readOnly)?.id ??
+        calendars.find((calendar) => !calendar.readOnly)?.id ??
+        null;
       setDaySheetDate(null);
       setEditor({
         open: true,
         eventId: null,
+        readOnly: false,
         defaults: {
           date,
           startMinute,
@@ -623,7 +647,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
           <section
             aria-label="Day agenda"
             {...agendaSwipe}
-            className="flex min-h-0 flex-1 flex-col touch-pan-y overflow-y-auto overscroll-contain lg:w-96 lg:flex-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="fade-y flex min-h-0 flex-1 flex-col touch-pan-y overflow-y-auto overscroll-contain lg:w-96 lg:flex-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             <DayAgenda
               items={selectedItems}
@@ -674,6 +698,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         onOpenChange={(open) => {
           if (!open) setEditor(null);
         }}
+        readOnly={editor?.readOnly ?? false}
         eventId={editor?.eventId ?? null}
         defaults={
           editor?.defaults ?? {

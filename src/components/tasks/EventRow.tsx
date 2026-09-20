@@ -21,11 +21,12 @@
  * same `size-5 text-xl` sizing and the same 44px target — and the row is 13 DOM
  * nodes instead of 21. See that file for the measurement.
  *
- * The row keeps the list's shape (44px tall, the `px-row` inset, the same
- * press-highlight region, the rounded last corner) and adds the per-row colour
- * strip the tasks have, in the event's calendar colour. That colour is resolved
- * through `itemHex`, which honours a calendar's custom `#rrggbb`
- * `colorOverride` rather than narrowing it to one of the twelve palette tokens.
+ * The row keeps the list's shape (44px tall, the same row inset the task rows
+ * use, the same press-highlight region, the rounded last corner) and adds the
+ * per-row colour strip the tasks have, in the event's calendar colour. That
+ * colour is resolved through `itemHex`, which honours a calendar's custom
+ * `#rrggbb` `colorOverride` rather than narrowing it to one of the twelve
+ * palette tokens.
  *
  * The title button carries the same `-ml-2` the task row does, so the
  * glyph-to-title gap here is the same 12px as the glyph-to-strip gap and the two
@@ -115,7 +116,7 @@ export function EventRow({
          * `relative`, and `isolate` keeps the `z-10` local to the row exactly as
          * it was.
          */
-        'relative z-10 flex min-h-11 w-full items-center gap-1 px-row',
+        'relative z-10 flex min-h-11 w-full items-center gap-1 pl-row pr-1.5',
         last && 'rounded-b-lg',
         className,
       )}

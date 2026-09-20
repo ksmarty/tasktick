@@ -16,6 +16,13 @@
  *  3. `PEEK` is 8 instead of 16, so a collapsed stack reads as one group rather
  *     than as separate cards. See the `LOCAL CHANGE` comment at the constant; a
  *     re-vendor must carry this over.
+ *  4. The stack expands on a **mouse** pointer only — `onPointerEnter` /
+ *     `onPointerLeave` gated on `pointerType === 'mouse'`, where the source used
+ *     the mouse-enter / mouse-leave pair. This is a bug fix, not a style choice.
+ *     See `LOCAL CHANGE` at the handlers: a tap leaves `expanded` true forever,
+ *     and `expanded` is what stops the auto-dismiss timer (below), so on a touch
+ *     device *no toast ever dismissed itself*. The pause itself is deliberate
+ *     and stays — only the way "hovered" is detected changed.
  *
  * The source's `z-toast` is kept as-is: `--z-index-toast` is defined in
  * `globals.css`, so the class resolves and the stack sits above the drawer's
@@ -181,7 +188,15 @@ function ToastItem({
     return () => observer.disconnect();
   }, [record.id, onHeight]);
 
-  // Pause the countdown while the stack is expanded (i.e. hovered).
+  /*
+   * Pause the countdown while the stack is expanded (i.e. hovered).
+   *
+   * The pause is deliberate — a user reading an expanded stack should not have
+   * it vanish — so it stays. What it must not do is stop the timer *starting*:
+   * `expanded` true here means no timeout is ever armed, so if it sticks, this
+   * toast lives until something else dismisses it. On a touch device it did
+   * stick; see the `LOCAL CHANGE` note on the toaster's pointer handlers.
+   */
   React.useEffect(() => {
     if (expanded) return;
     const id = setTimeout(
@@ -320,8 +335,34 @@ function ToastProvider({
         <motion.ol
           data-slot="toaster"
           aria-live="polite"
-          onMouseEnter={() => setExpanded(true)}
-          onMouseLeave={() => setExpanded(false)}
+          /*
+           * LOCAL CHANGE: was the mouse-enter / mouse-leave pair.
+           *
+           * A tap is a hover as far as the mouse-event model is concerned: the
+           * browser delivers the compatibility `mouseenter` to whatever is under
+           * the finger and then never delivers the matching `mouseleave` until
+           * the pointer goes somewhere else. So one tap inside the stack left
+           * `expanded` true for good, and because `expanded` is exactly what
+           * suppresses the dismiss timer, every toast after it stayed on screen
+           * until it was swiped or its action was pressed. Measured on a touch
+           * context: a toast raised from the action button dismissed itself in
+           * ~2.7s; the same toast after a single tap on the stack was still in
+           * the DOM when the test gave up 12s later.
+           *
+           * Pointer events report *what kind* of pointer it was, so the stack now
+           * expands for a real mouse and ignores a finger or a pen tap. The
+           * touch pointer's own `pointerenter`/`pointerleave` arrive in the same
+           * task and cancel out, so the hover state is accurate rather than
+           * guessed — see the frames in the item report.
+           */
+          onPointerEnter={(event) => {
+            if (event.pointerType !== 'mouse') return;
+            setExpanded(true);
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType !== 'mouse') return;
+            setExpanded(false);
+          }}
           animate={{ height: regionHeight }}
           transition={TOAST_SPRING}
           style={{ transformOrigin: isBottom ? 'bottom' : 'top' }}

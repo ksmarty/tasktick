@@ -1,5 +1,5 @@
 /** A single event. */
-import { notFound, ok, parseJson, route } from '@/server/http';
+import { forbidden, notFound, ok, parseJson, route } from '@/server/http';
 import { deleteEvent, getEvent, updateEvent } from '@/server/repos/calendars';
 import { getSettings } from '@/server/repos/settings';
 import { updateEventSchema } from '@/lib/schemas';
@@ -16,9 +16,16 @@ export const GET = route(async ({ user, params }) => {
 export const PATCH = route(async ({ user, params, req }) => {
   const body = await parseJson(req, updateEventSchema);
   const settings = await getSettings(user.id);
-  const event = await updateEvent(user.id, params.id, body as never, settings.timezone || user.timezone);
-  if (!event) throw notFound('That event does not exist.');
-  return ok(event);
+  try {
+    const event = await updateEvent(user.id, params.id, body as never, settings.timezone || user.timezone);
+    if (!event) throw notFound('That event does not exist.');
+    return ok(event);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'read-only') {
+      throw forbidden('That calendar is read-only, so nothing is written back.');
+    }
+    throw error;
+  }
 });
 
 export const DELETE = route(async ({ user, params }) => {

@@ -318,10 +318,32 @@ async function calendarSyncsRemotely(userId: string, calendarId: string): Promis
   return Boolean(calendar && calendar.provider === 'caldav' && !calendar.readOnly);
 }
 
+/**
+ * True when nothing will ever write this calendar's contents back.
+ *
+ * Three independent reasons: the collection itself refuses writes (a mirrored
+ * `ical` feed, or a read-only `caldav` collection), or the `caldav` account it
+ * belongs to is set to "Read only" (`direction: 'pull'`). The last one is not
+ * visible on the calendar row — discovery reports such a collection as writable
+ * — but the sync engine's `doPush = direction !== 'pull'` means a local edit is
+ * never sent anywhere.
+ *
+ * `createEvent`/`updateEvent` refuse such a calendar, so a write that slipped
+ * past the editor's read-only state fails with a message instead of landing
+ * locally and silently never syncing.
+ */
+async function calendarRefusesWrites(userId: string, calendar: Calendar): Promise<boolean> {
+  if (calendar.readOnly) return true;
+  if (calendar.provider !== 'caldav' || !calendar.caldavAccountId) return false;
+  const accounts = await listAccounts(userId);
+  return accounts.some((account) => account.id === calendar.caldavAccountId && account.direction === 'pull');
+}
+
 export async function createEvent(userId: string, input: EventInput, userZone: string): Promise<CalendarEvent> {
   const db = getDb();
   const calendar = await getCalendar(userId, input.calendarId);
   if (!calendar) throw new Error('not-found');
+  if (await calendarRefusesWrites(userId, calendar)) throw new Error('read-only');
 
   const zone = input.timezone ?? calendar.timezone ?? userZone;
   const span = resolveSpan(input, zone);
@@ -447,6 +469,9 @@ export async function updateEvent(
   }
 
   const targetCalendarId = (patch.calendarId as string | undefined) ?? existing.calendarId;
+  const targetCalendar = await getCalendar(userId, targetCalendarId);
+  if (!targetCalendar) throw new Error('not-found');
+  if (await calendarRefusesWrites(userId, targetCalendar)) throw new Error('read-only');
   if (await calendarSyncsRemotely(userId, targetCalendarId)) {
     patch.syncState = 'dirty';
     patch.syncProvider = 'caldav';

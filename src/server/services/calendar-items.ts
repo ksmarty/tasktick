@@ -11,7 +11,7 @@
  * update no matter how far into the future it repeats.
  */
 import { expandRecurrence } from '@/server/recurrence';
-import { eventsInRange, listCalendars } from '@/server/repos/calendars';
+import { eventsInRange, listAccounts, listCalendars } from '@/server/repos/calendars';
 import { tasksInRange } from '@/server/repos/tasks';
 import { allDayBounds, dateOnlyToMillis, fromDateOnly, toDateOnly } from '@/lib/dates';
 import { asAccentColor } from '@/lib/colors';
@@ -93,6 +93,7 @@ function expandEvent(event: CalendarEvent, range: { startMs: Millis; endMs: Mill
 function toEventItem(
   expanded: ExpandedEvent,
   calendar: Calendar | undefined,
+  readOnly: boolean,
   zone: string,
 ): CalendarItem {
   const { event, startMs, endMs } = expanded;
@@ -116,11 +117,17 @@ function toEventItem(
     url: event.url,
     seriesUid: event.uid,
     isRecurringInstance: Boolean(event.rrule),
-    readonly: Boolean(calendar?.readOnly),
+    readonly: readOnly,
   };
 }
 
-function toTaskItem(task: Task, startMs: Millis, calendar: Calendar | undefined, zone: string): CalendarItem {
+function toTaskItem(
+  task: Task,
+  startMs: Millis,
+  calendar: Calendar | undefined,
+  readOnly: boolean,
+  zone: string,
+): CalendarItem {
   const minutes = task.estimateMinutes && task.estimateMinutes > 0 ? task.estimateMinutes : DEFAULT_TASK_MINUTES;
   const timed = Boolean(task.dueAtMs);
 
@@ -140,8 +147,36 @@ function toTaskItem(task: Task, startMs: Millis, calendar: Calendar | undefined,
     listId: task.listId,
     url: task.url,
     isRecurringInstance: Boolean(task.recurrenceRule),
-    readonly: Boolean(calendar?.readOnly),
+    readonly: readOnly,
   };
+}
+
+/**
+ * Whether nothing will ever write this calendar's items back.
+ *
+ * Two independent reasons, and the Edit action must be hidden for either:
+ *
+ *  * the collection itself refuses writes — a read-only CalDAV collection, or
+ *    any subscription (the feed importer stores those with `readOnly: true`);
+ *  * the CalDAV account it belongs to is set to "Read only" (`direction:
+ *    'pull'`). Discovery reports such a collection as writable, so its
+ *    `readOnly` stays false, but the sync engine's `doPush = direction !==
+ *    'pull'` means a local edit is never sent anywhere — it just looks saved.
+ *
+ * This is the flag `CalendarItem.readonly` carries, and the one every consumer
+ * hides Edit (and refuses a drag) on.
+ */
+function isReadOnlyCalendar(
+  calendar: Calendar | undefined,
+  pullOnlyAccountIds: ReadonlySet<string>,
+): boolean {
+  if (!calendar) return false;
+  if (calendar.readOnly) return true;
+  return (
+    calendar.provider === 'caldav' &&
+    calendar.caldavAccountId !== null &&
+    pullOnlyAccountIds.has(calendar.caldavAccountId)
+  );
 }
 
 export interface CalendarItemsOptions {
@@ -166,7 +201,10 @@ export interface CalendarItemsOptions {
 export async function getCalendarItems(options: CalendarItemsOptions): Promise<CalendarItem[]> {
   const { userId, zone, startMs, endMs, includeTasks = true, includeEvents = true } = options;
 
-  const calendars = await listCalendars(userId);
+  const [calendars, accounts] = await Promise.all([listCalendars(userId), listAccounts(userId)]);
+  const pullOnlyAccountIds = new Set(
+    accounts.filter((account) => account.direction === 'pull').map((account) => account.id),
+  );
   /*
    * Two callers share this read, and they mean different things by it.
    *
@@ -206,8 +244,10 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
     for (const event of events) {
       if (event.status === 'cancelled') continue;
 
+      const calendar = byId.get(event.calendarId);
+      const readOnly = isReadOnlyCalendar(calendar, pullOnlyAccountIds);
       for (const expanded of expandEvent(event, { startMs, endMs }, zone)) {
-        items.push(toEventItem(expanded, byId.get(event.calendarId), zone));
+        items.push(toEventItem(expanded, calendar, readOnly, zone));
       }
     }
   }
@@ -222,6 +262,7 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
       if (task.calendarId && !listCalendarIds.has(task.calendarId)) continue;
 
       const calendar = task.calendarId ? byId.get(task.calendarId) : undefined;
+      const readOnly = isReadOnlyCalendar(calendar, pullOnlyAccountIds);
 
       if (task.recurrenceRule) {
         const anchorMs =
@@ -237,12 +278,12 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
           maxOccurrences: 1000,
         });
         for (const occurrence of occurrences) {
-          items.push(toTaskItem(task, occurrence.startMs, calendar, zone));
+          items.push(toTaskItem(task, occurrence.startMs, calendar, readOnly, zone));
         }
       } else {
         const start = task.dueAtMs ?? (task.dueDate ? dateOnlyToMillis(task.dueDate, task.timezone ?? zone) : null);
         if (start === null) continue;
-        items.push(toTaskItem(task, start, calendar, zone));
+        items.push(toTaskItem(task, start, calendar, readOnly, zone));
       }
     }
   }

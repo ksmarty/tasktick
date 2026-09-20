@@ -87,12 +87,22 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
 
   const selected = calendars.find((calendar) => calendar.id === value) ?? null;
 
+  /*
+   * A read-only calendar is not a destination. Choosing one would store the
+   * event locally and never write it back — the same silent loss the hidden
+   * Edit action prevents — so the list offers only calendars that accept a
+   * write. The current value is still resolved across **all** calendars, so a
+   * read-only calendar already on the event keeps its name on the trigger while
+   * the user picks a writable one.
+   */
+  const selectable = useMemo(() => calendars.filter((calendar) => !calendar.readOnly), [calendars]);
+
   /** Type-ahead filtering over the calendar names; empty query lists them all. */
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return calendars;
-    return calendars.filter((calendar) => calendar.name.toLowerCase().includes(needle));
-  }, [calendars, query]);
+    if (!needle) return selectable;
+    return selectable.filter((calendar) => calendar.name.toLowerCase().includes(needle));
+  }, [selectable, query]);
 
   // Opening starts the highlight on the current selection, so Enter keeps it.
   const onOpenChange = useCallback(
@@ -100,11 +110,11 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
       setOpen(next);
       if (next) {
         setQuery('');
-        const index = calendars.findIndex((calendar) => calendar.id === value);
+        const index = selectable.findIndex((calendar) => calendar.id === value);
         setActive(index >= 0 ? index : 0);
       }
     },
-    [calendars, value],
+    [selectable, value],
   );
 
   // Keep the highlight inside the list as the filter narrows it.

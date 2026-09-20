@@ -88,3 +88,27 @@ describe('the task-list visibility switch', () => {
     expect(EDITOR).not.toContain('disabled={save.isPending || readOnly}');
   });
 });
+
+/*
+ * A hidden calendar reads as dimmed in the list.
+ *
+ * `isVisible === false` used to render like any other row, so the only way to
+ * tell a hidden calendar was to read its eye glyph. The row's content (swatch,
+ * name, subtitle) is now dimmed while the eye toggle itself stays at full
+ * strength, and the toggle carries `aria-pressed` so its state is announced as
+ * well as its Hide/Show label.
+ */
+describe('a hidden calendar is dimmed, and its toggle still speaks', () => {
+  it('dims the swatch and the name/subtitle block, but not the controls', () => {
+    expect(EDITOR).toContain("!calendar.isVisible && 'opacity-40'");
+    expect(EDITOR).toContain("!calendar.isVisible && 'opacity-60'");
+    // The trailing controls are a sibling of the dimmed block, so they keep full
+    // opacity and do not read as disabled.
+    expect(EDITOR).toContain('<span className="flex shrink-0 items-center">');
+  });
+
+  it('names the toggle state as well as its action', () => {
+    expect(EDITOR).toContain('aria-label={calendar.isVisible ? `Hide ${calendar.name}` : `Show ${calendar.name}`}');
+    expect(EDITOR).toContain('aria-pressed={calendar.isVisible}');
+  });
+});

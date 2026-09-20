@@ -208,8 +208,10 @@ describe('TaskRow — Tailwind through cn(), no hand-rolled divider', () => {
   });
 
   it('never invents a spacing value', () => {
-    // The row's horizontal inset is the layout token, not a number.
-    expect(ROW).toContain('px-row');
+    // The row's left inset is the layout token; its right is that token halved
+    // (`pr-1.5`) so the trailing date/time sits the same 10px from the section's
+    // edge as the collapse arrow does. Neither is a number.
+    expect(ROW).toContain('pl-row pr-1.5');
     expect(ROW).not.toMatch(/\bp[xytblr]?-\[\d/);
     expect(ROW).not.toMatch(/\bgap-\[\d/);
   });
@@ -355,6 +357,19 @@ describe('QuickAddBar — synchronous focus contract', () => {
   it('does not animate the dialog in — that delay is exactly what breaks the keyboard', () => {
     expect(QUICK_ADD).toContain('duration-0');
     expect(QUICK_ADD).toContain('data-[state=open]:animate-none');
+  });
+
+  it('does animate the sheet out — the entrance argument does not apply to the exit', () => {
+    /*
+     * The panel used to be switched off in both directions, so Radix saw no
+     * animation on close, kept it mounted for nothing and removed it a frame
+     * after the tap: the bottom sheet blinked out while its scrim was still
+     * fading. `slide-out-to-bottom` is the mirror of the GodUI `Drawer`'s exit
+     * — 100% of the panel's own height, off the bottom edge.
+     */
+    expect(QUICK_ADD).toContain('data-[state=closed]:animate-out');
+    expect(QUICK_ADD).toContain('data-[state=closed]:slide-out-to-bottom');
+    expect(QUICK_ADD).toContain('data-[state=closed]:duration-200');
   });
 
   it('cancels the framework’s deferred autofocus and takes the focus itself', () => {
@@ -589,6 +604,14 @@ describe('the converted screens', () => {
     expect(SECTION).toContain('sheen={0}');
     expect(SECTION).not.toContain('sheen={0.3}');
     expect(TODAY).toContain('sheen={0}');
+  });
+
+  it('draws no border on a section card at all', () => {
+    // The user asked for the section border gone. `border-0` overrides the
+    // vendored glass card's `border`, so only the tinted surface and its shadow
+    // separate a section from the page.
+    expect(SECTION).toContain('className="border-0 shadow-sm"');
+    expect(SECTION).not.toContain('className="border-border shadow-sm"');
   });
 
   it('manages task lists through the API the server already exposes', () => {
