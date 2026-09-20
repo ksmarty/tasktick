@@ -565,7 +565,7 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
       <div className="flex min-h-0 flex-1 flex-col">
         <CalendarToolbar
           label={monthLabel}
-          selectedLabel={fromDateOnly(selected, prefs.zone).toFormat('cccc d LLLL yyyy')}
+          selectedLabel={fromDateOnly(selected, prefs.zone).toFormat('cccc LLLL d yyyy')}
           year={shownMonth.year}
           month={shownMonth.month - 1}
           zone={zone}

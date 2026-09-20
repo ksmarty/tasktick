@@ -53,13 +53,13 @@ describe('dueLabel — relative inside Today, absolute outside it', () => {
       true,
     );
 
-    expect(due?.label).toBe('Mon 12 May');
+    expect(due?.label).toBe('Mon May 12');
     expect(due?.label).not.toContain(':');
   });
 
   it('never prints "Tomorrow" for a row outside Today', () => {
     expect(dueLabel(task({ dueDate: '2025-05-13' }), ZONE, '24h')?.label).toBe('Tomorrow');
-    expect(dueLabel(task({ dueDate: '2025-05-13' }), ZONE, '24h', true)?.label).toBe('Tue 13 May');
+    expect(dueLabel(task({ dueDate: '2025-05-13' }), ZONE, '24h', true)?.label).toBe('Tue May 13');
   });
 
   it('keeps the overdue tone whichever shape it takes', () => {
@@ -84,11 +84,11 @@ describe('absoluteDayLabel', () => {
     vi.useRealTimers();
   });
 
-  it('reads "Wed 30 Sep" — weekday, day, month', () => {
-    expect(absoluteDayLabel('2025-09-30', ZONE)).toBe('Tue 30 Sep');
+  it('reads "Tue Sep 30" — weekday, month, day', () => {
+    expect(absoluteDayLabel('2025-09-30', ZONE)).toBe('Tue Sep 30');
   });
 
   it('adds the year only when it is not the current one', () => {
-    expect(absoluteDayLabel('2026-09-30', ZONE)).toBe('Wed 30 Sep 2026');
+    expect(absoluteDayLabel('2026-09-30', ZONE)).toBe('Wed Sep 30 2026');
   });
 });

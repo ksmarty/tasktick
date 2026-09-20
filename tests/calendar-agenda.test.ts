@@ -54,16 +54,23 @@ describe('the gutter timeline', () => {
     // at each circle.
     /*
      * Anchored to the top of the entry, on its first line of text rather than
-     * its centre: the timeline reads as “the item starts here”. `top-3.5`
-     * (14px) is the entry's `pt-1.5` (6px) plus half the 16px box of the
-     * `text-xs` range line the timed rows lead with, so the node tracks the
-     * first line instead of a row-height-dependent centre.
+     * its centre: the timeline reads as “the item starts here”. The offset lives
+     * in one constant so the node and the gutter label cannot disagree —
+     * `top-3.5` (14px) is the entry's `pt-1.5` (6px) plus half the 16px box of
+     * the `text-xs` range line the timed rows lead with.
      */
-    expect(AGENDA).toContain(
-      'absolute top-3.5 left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full',
-    );
-    expect(AGENDA).toContain('flex shrink-0 items-center justify-end text-right');
+    expect(AGENDA).toContain("const TIMELINE_ANCHOR_TOP = 'top-3.5';");
+    expect(AGENDA).toContain('const TIMELINE_ANCHOR = `${TIMELINE_ANCHOR_TOP} -translate-y-1/2`;');
+    expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
     expect(AGENDA).toContain('style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}');
+  });
+
+  it('anchors the gutter time to the node, not to the row centre', () => {
+    // The label used to be `items-center` on a stretched column, which is the
+    // node's offset only while the entry is one line tall. It now shares
+    // `TIMELINE_ANCHOR` with the node, so a two-line title moves neither.
+    expect(AGENDA).toContain('TIMELINE_ANCHOR,');
+    expect(AGENDA).not.toContain('items-center justify-end text-right');
   });
 
   it('reads an all-day node as a hollow ring rather than a filled disc', () => {
@@ -75,7 +82,7 @@ describe('the gutter timeline', () => {
     // stops there, and a single item (both first and last) draws no rule at all.
     // Fixed offsets now that the node is anchored to the top; they still meet
     // the node at any row height, because the node no longer moves with it.
-    expect(AGENDA).toContain("index === 0 ? 'top-3.5' : 'top-0'");
+    expect(AGENDA).toContain("index === 0 ? TIMELINE_ANCHOR_TOP : 'top-0'");
     expect(AGENDA).toContain("index === items.length - 1 ? 'h-3.5' : '-bottom-3'");
     expect(AGENDA).toContain('items.length > 1 ? (');
   });
@@ -138,14 +145,37 @@ describe('the agenda entry’s padding', () => {
   });
 });
 
+describe('the title may run to two lines, and the description yields', () => {
+  it('clamps the title to two lines', () => {
+    // The user asked for the title to be allowed two lines. `truncate` pinned it
+    // to one and would also have fought the wrap (`white-space: nowrap`), so it
+    // is gone; the full title still travels in the button's accessible name.
+    expect(AGENDA).toContain('mt-0.5 line-clamp-2 text-sm text-foreground');
+    expect(AGENDA).not.toContain("'mt-0.5 block truncate text-sm text-foreground'");
+  });
+
+  it('lets the description share the clamp so it cannot add a third line', () => {
+    // Title and location are one `line-clamp-2` block: the second line belongs
+    // to the title whenever the title needs it, and the location only shows
+    // while the title fits on one. The location itself is still a single
+    // ellipsised line; it does not get a line of its own on top of two.
+    expect(AGENDA).toContain('<span className="mt-0.5 line-clamp-2 text-sm text-foreground">');
+    expect(AGENDA).toContain('block truncate text-xs text-muted-foreground');
+    expect(AGENDA).not.toContain('mt-0.5 block truncate text-xs text-muted-foreground');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* the old description-clamp test, ported                                         */
+/* -------------------------------------------------------------------------- */
+
 describe('the description is clamped to one line', () => {
-  it('truncates the title as well as the location', () => {
-    // The user asked for the card's description on one line. The location
-    // already carried `truncate`; the title was the last thing still wrapping
-    // and keeping the rows uneven, so it is clamped too. The full text still
-    // travels in the button's accessible name.
-    expect(AGENDA).toContain("'mt-0.5 block truncate text-sm text-foreground'");
-    expect(AGENDA).toContain('mt-0.5 block truncate text-xs text-muted-foreground');
+  it('keeps the location a single ellipsised line inside the shared clamp', () => {
+    // The user asked for the card's description on one line. The location still
+    // carries `truncate`; it now lives inside the title's two-line clamp rather
+    // than under it, so a two-line title does not push it onto a third line.
+    expect(AGENDA).toContain('block truncate text-xs text-muted-foreground');
+    expect(AGENDA).toContain('line-clamp-2');
   });
 });
 

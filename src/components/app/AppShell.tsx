@@ -448,7 +448,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ? // The screen scrolls its own list; the pane must not scroll too,
                   // or the grid it is keeping in place travels with the page.
                   'overflow-hidden'
-                : 'overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0',
+                : 'overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0',
             )}
           >
             {/*
@@ -555,10 +555,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
          * gutter and the action button to the right one, so neither edge jumps
          * when the label changes width; `justify-center` inside the pill still
          * centres the four tabs when the widest label is selected.
+         *
+         * The band is lifted `bottom-3.5` (14px) off the viewport edge rather
+         * than sitting at `bottom-0`. That is 25% of the pill's own 58px height
+         * (0.25 x 58 = 14.5px, rounded to the 14px the spacing scale carries),
+         * which is the reading of "move the navbar up by about 25%" that scales
+         * with the bar rather than with the 2px gap it happened to have. The
+         * offset is on the container, not folded into the safe-area padding:
+         * padding of `max(1rem, env(...))` would be swallowed by the inset on a
+         * phone with a home indicator, so the bar would not move there at all.
+         * The pane reservations below grew by the same 14px.
          */}
         <div
           className={cn(
-            'fixed inset-x-0 bottom-0 z-appbar flex items-center justify-between gap-2 px-gutter lg:hidden',
+            'fixed inset-x-0 bottom-3.5 z-appbar flex items-center justify-between gap-2 px-gutter lg:hidden',
             BOTTOM_BAND_CLEARANCE,
           )}
         >

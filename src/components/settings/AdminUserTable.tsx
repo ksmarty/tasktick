@@ -21,11 +21,13 @@
  * flips it back with a toast.
  */
 import { useState } from 'react';
+import { DateTime } from 'luxon';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatDayMonth } from '@/lib/dates';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/app/Toast';
@@ -134,7 +136,8 @@ export function AdminUserTable({ currentUserId }: AdminUserTableProps) {
                         {isSelf ? <span className="text-xs text-muted-foreground">you</span> : null}
                       </div>
                       <p className="text-xs break-all text-muted-foreground">
-                        {user.email} · joined {new Date(user.createdAt).toISOString().slice(0, 10)}
+                        {user.email} · joined{' '}
+                        {formatDayMonth(DateTime.fromMillis(user.createdAt), DateTime.now())}
                       </p>
                     </TableCell>
 

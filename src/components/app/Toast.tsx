@@ -101,14 +101,28 @@ const ToastContext = createContext<ToastContextValue | null>(null);
  * shorter than the 2.5s it replaces; the difference is measurable in the DOM
  * (see the item report), not just on the stopwatch in someone's head.
  *
- * Toasts that carry an action override this — the task-complete Undo asks for
- * 5s, because a 1.8s window is not long enough to read *and* hit Undo — and
- * `duration: 0` still means "until dismissed".
+ * Toasts that carry an action get a longer, still finite window: the
+ * task-complete Undo needs 5s, because a 1.8s window is not long enough to read
+ * the banner *and* hit Undo. That is the only override — the general default
+ * stays at 1.8s, and `duration: 0` still means "until dismissed". The Undo call
+ * sites no longer pass a number themselves: the rule lives here so every
+ * action-carrying banner gets the same window.
  *
  * Whatever the value, the auto-dismiss only works if the countdown starts: see
  * the pointer fix in `@/components/godui/toast`.
  */
 const DEFAULT_DURATION = 1800;
+
+/**
+ * Dwell time for a banner that carries an action.
+ *
+ * 5s, deliberately: the banner is two lines ("Task completed" / the task's
+ * title) and the action sits at its trailing edge, so the window has to cover
+ * reading it and reaching for Undo. It sits in the middle of the 4–6s range the
+ * user asked for, and it is finite — the Undo banner auto-dismisses like every
+ * other one once the pointer is not resting on the stack.
+ */
+const ACTION_DURATION = 5000;
 
 /** `setTimeout`'s ceiling — ~24.8 days, which is "until dismissed" in practice. */
 const PERSISTENT_DURATION = 2 ** 31 - 1;
@@ -126,12 +140,22 @@ function dismiss(id: string) {
  */
 function publish(options: ToastOptions | string): ToastHandle {
   const banner: ToastOptions = typeof options === 'string' ? { title: options } : options;
+  /*
+   * The dwell time, in one place: an explicit `duration` wins (and `0` means
+   * "until dismissed"), otherwise an action-carrying banner gets the longer
+   * `ACTION_DURATION`, otherwise the caller gets the wrapper's default by
+   * passing `undefined` through to GodUI.
+   */
+  const requestedDuration =
+    banner.duration === 0
+      ? PERSISTENT_DURATION
+      : banner.duration ?? (banner.action ? ACTION_DURATION : undefined);
   const id = goduiToast({
     title: banner.title,
     description: banner.description,
     variant:
       banner.variant === 'success' || banner.variant === 'error' ? banner.variant : 'default',
-    duration: banner.duration === 0 ? PERSISTENT_DURATION : banner.duration,
+    duration: requestedDuration,
     action: banner.action,
   });
   return { id: String(id), dismiss: () => dismiss(String(id)) };

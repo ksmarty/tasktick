@@ -126,17 +126,20 @@ export function rangeForView(
     case 'day':
       start = base.startOf('day');
       end = start.plus({ days: 1 });
-      label = base.toFormat('cccc d LLLL');
+      label = base.toFormat('cccc LLLL d');
       break;
 
     case 'week': {
       start = startOfWeek(base, weekStartsOn).startOf('day');
       end = start.plus({ weeks: 1 });
       const last = end.minus({ days: 1 });
+      // Month first, as everywhere else: `Oct 8–14 2026`. The month is stated
+      // once for a week inside one month and repeated across two, so the range
+      // never reads as a bare pair of days.
       label =
         start.hasSame(last, 'month')
-          ? `${start.toFormat('d')}–${last.toFormat('d LLLL yyyy')}`
-          : `${start.toFormat('d LLL')} – ${last.toFormat('d LLL yyyy')}`;
+          ? `${start.toFormat('LLL d')}–${last.toFormat('d yyyy')}`
+          : `${start.toFormat('LLL d')} – ${last.toFormat('LLL d yyyy')}`;
       break;
     }
 
@@ -260,16 +263,48 @@ export interface FormatPrefs {
 
 const timePattern = (prefs: FormatPrefs) => (prefs.timeFormat === '12h' ? 'h:mm a' : 'HH:mm');
 
+/**
+ * The app's short day format: weekday, month, day — `Sat Oct 8`.
+ *
+ * Month-first, like the long forms below it. The whole codebase used to read
+ * day-first (`8 Oct`); this is the one spelling of a day and every caller now
+ * goes through a helper that emits it.
+ */
+export const DAY_MONTH_FORMAT = 'ccc LLL d';
+
+/**
+ * `Sat Oct 8`, with the year appended only when `dt` is not in `today`'s
+ * calendar year — `Sat Oct 8 2026`.
+ *
+ * The year is the one thing that changes which day a bare date names, so it is
+ * shown exactly when it is not the year the reader is already in. A date that
+ * crosses a new year is unambiguous without every ordinary date carrying four
+ * extra digits; the rule is applied in one place so no surface can disagree
+ * with another about it.
+ */
+export function formatDayMonth(dt: DateTime, today: DateTime): string {
+  return dt.year === today.year ? dt.toFormat(DAY_MONTH_FORMAT) : dt.toFormat(`${DAY_MONTH_FORMAT} yyyy`);
+}
+
 export function formatTime(instantMs: Millis, prefs: FormatPrefs): string {
   return DateTime.fromMillis(instantMs, { zone: prefs.zone }).toFormat(timePattern(prefs));
 }
 
-export function formatDateTime(instantMs: Millis, prefs: FormatPrefs): string {
-  return DateTime.fromMillis(instantMs, { zone: prefs.zone }).toFormat(`d LLL ${timePattern(prefs)}`);
+export function formatDateTime(instantMs: Millis, prefs: FormatPrefs, now = nowIn(prefs.zone)): string {
+  const dt = DateTime.fromMillis(instantMs, { zone: prefs.zone });
+  return `${formatDayMonth(dt, now)} ${dt.toFormat(timePattern(prefs))}`;
 }
 
+/**
+ * The deliberately long form — `Saturday October 8 2026`.
+ *
+ * Month-first like everything else, but the weekday and month are spelled out
+ * and the year is kept: this is the label a screen reader announces for a
+ * selected day, where the full name is the point and the year is part of it.
+ * Not run through `formatDayMonth`, so it is never shortened to `Sat Oct 8`.
+ */
 export function formatFullDate(instantMs: Millis, prefs: FormatPrefs): string {
-  return DateTime.fromMillis(instantMs, { zone: prefs.zone }).toFormat('cccc d LLLL yyyy');
+  return DateTime.fromMillis(instantMs, { zone: prefs.zone }).toFormat('cccc LLLL d yyyy');
 }
 
 /**
@@ -287,8 +322,7 @@ export function relativeDayLabel(date: DateOnly, zone: string, now = nowIn(zone)
   if (diffDays > 1 && diffDays < 7) return target.toFormat('cccc');
   if (diffDays === 7) return 'Next ' + target.toFormat('cccc');
   if (diffDays < -1 && diffDays > -7) return `Last ${target.toFormat('cccc')}`;
-  if (target.year === today.year) return target.toFormat('ccc d LLL');
-  return target.toFormat('d LLL yyyy');
+  return formatDayMonth(target, today);
 }
 
 /** The instant a task should be sorted and displayed by. */
@@ -407,5 +441,5 @@ export function relativeTimeAgo(instantMs: Millis, nowMsValue = Date.now()): str
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86_400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604_800) return `${Math.floor(diff / 86_400)}d ago`;
-  return DateTime.fromMillis(instantMs).toFormat('d LLL yyyy');
+  return formatDayMonth(DateTime.fromMillis(instantMs), DateTime.fromMillis(nowMsValue));
 }

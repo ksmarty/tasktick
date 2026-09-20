@@ -21,7 +21,6 @@ import { CalDavAccountRow } from '@/components/settings/CalDavAccountRow';
 import { IcalSubscribeSection } from '@/components/settings/IcalSubscribeSection';
 import { CalDavAccountSheet } from '@/components/settings/CalDavAccountSheet';
 import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup';
-import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { AccountsPayload } from '@/lib/view-types';
 import type { CaldavAccount } from '@/lib/types';
 
@@ -39,52 +38,50 @@ export default function IntegrationsSettingsPage() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <SettingsTabs active="integrations">
-        {accounts.isInitialLoading ? (
-          <Skeleton className="h-32 w-full" />
-        ) : (
-          <SettingsGroup
-            title="CalDAV accounts"
-            action={
-              <Button size="sm" variant="ghost" onClick={() => openSheet(null)}>
+      {accounts.isInitialLoading ? (
+        <Skeleton className="h-32 w-full" />
+      ) : (
+        <SettingsGroup
+          title="CalDAV accounts"
+          action={
+            <Button size="sm" variant="ghost" onClick={() => openSheet(null)}>
+              <PlusIcon />
+              Add
+            </Button>
+          }
+          footer="TaskTick keeps both sides in step. Adding an account discovers its calendars and runs the first sync for you."
+        >
+          {list.length === 0 ? (
+            <SettingsRow stacked>
+              <span className="block text-sm">No accounts connected</span>
+              <span className="block text-xs text-muted-foreground">
+                Connect iCloud, Fastmail or any other CalDAV server to sync your calendars both ways.
+              </span>
+              <Button variant="outline" className="self-start" onClick={() => openSheet(null)}>
                 <PlusIcon />
-                Add
+                Add a CalDAV account
               </Button>
-            }
-            footer="TaskTick keeps both sides in step. Adding an account discovers its calendars and runs the first sync for you."
-          >
-            {list.length === 0 ? (
-              <SettingsRow stacked>
-                <span className="block text-sm">No accounts connected</span>
-                <span className="block text-xs text-muted-foreground">
-                  Connect iCloud, Fastmail or any other CalDAV server to sync your calendars both ways.
-                </span>
-                <Button variant="outline" className="self-start" onClick={() => openSheet(null)}>
-                  <PlusIcon />
-                  Add a CalDAV account
-                </Button>
-              </SettingsRow>
-            ) : (
-              list.map((account) => (
-                <CalDavAccountRow
-                  key={account.id}
-                  account={account}
-                  onEdit={() => openSheet(account)}
-                  onChanged={() => void accounts.refresh()}
-                />
-              ))
-            )}
-          </SettingsGroup>
-        )}
+            </SettingsRow>
+          ) : (
+            list.map((account) => (
+              <CalDavAccountRow
+                key={account.id}
+                account={account}
+                onEdit={() => openSheet(account)}
+                onChanged={() => void accounts.refresh()}
+              />
+            ))
+          )}
+        </SettingsGroup>
+      )}
 
-        {/*
-         * The inbound half of calendar integrations: pulling somebody else's
-         * feed in. It sits beside CalDAV because both answer "where do my
-         * events come from", and it is separate from the outgoing feed card on
-         * the Calendars tab because that one publishes rather than subscribes.
-         */}
-        <IcalSubscribeSection onChanged={() => void accounts.refresh()} />
-      </SettingsTabs>
+      {/*
+       * The inbound half of calendar integrations: pulling somebody else's
+       * feed in. It sits beside CalDAV because both answer "where do my
+       * events come from", and it is separate from the outgoing feed card on
+       * the Calendars tab because that one publishes rather than subscribes.
+       */}
+      <IcalSubscribeSection onChanged={() => void accounts.refresh()} />
 
       <CalDavAccountSheet
         open={sheetOpen}

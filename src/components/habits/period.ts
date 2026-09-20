@@ -86,7 +86,7 @@ function monthName(date: DateOnly): string {
 /* -------------------------------------------------------------------------- */
 
 /**
- * `12 March 2025` — the long form of a floating day.
+ * `March 12 2025` — the long form of a floating day.
  *
  * Used wherever a control has to name the day it acts on (the check-in
  * control's and the week strip's accessible names), because a reader that only
@@ -94,7 +94,7 @@ function monthName(date: DateOnly): string {
  */
 export function longDateLabel(date: DateOnly): string {
   const parsed = DateTime.fromFormat(date, 'yyyy-MM-dd');
-  return parsed.isValid ? parsed.toFormat('d LLLL yyyy') : date;
+  return parsed.isValid ? parsed.toFormat('LLLL d yyyy') : date;
 }
 
 /* -------------------------------------------------------------------------- */

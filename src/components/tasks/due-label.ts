@@ -17,7 +17,7 @@
  * The tone is independent of the format, so an overdue date stays destructive
  * whichever shape it takes.
  */
-import { formatTime, fromDateOnly, isOverdue, relativeDayLabel, taskDay, todayIn } from '@/lib/dates';
+import { formatDayMonth, formatTime, fromDateOnly, isOverdue, relativeDayLabel, taskDay, todayIn } from '@/lib/dates';
 import type { DateOnly, Task } from '@/lib/types';
 
 export type DueTone = 'danger' | 'tint' | 'secondary';
@@ -36,16 +36,17 @@ export type DueLabelTask = Pick<
 >;
 
 /**
- * The absolute day a row outside the Today section carries: `Wed 30 Sep`.
+ * The absolute day a row outside the Today section carries: `Tue Sep 30`.
  *
- * The year is added only when it is not the current one, so a date that crosses
- * a new year is unambiguous without every ordinary date carrying four extra
- * digits.
+ * The year is added only when it is not the current one (`Tue Sep 30 2026`),
+ * so a date that crosses a new year is unambiguous without every ordinary date
+ * carrying four extra digits. The spelling itself lives in `formatDayMonth`,
+ * next to the rest of the date convention.
  */
 export function absoluteDayLabel(day: DateOnly, zone: string): string {
   const target = fromDateOnly(day, zone);
   const today = fromDateOnly(todayIn(zone), zone);
-  return target.year === today.year ? target.toFormat('ccc d LLL') : target.toFormat('ccc d LLL yyyy');
+  return formatDayMonth(target, today);
 }
 
 /**

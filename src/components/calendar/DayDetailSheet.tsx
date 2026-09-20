@@ -65,7 +65,7 @@ export function DayDetailSheet({
 }: DayDetailSheetProps) {
   /** The resolved appearance, so an accent token maps to the right hex. */
   const dark = useAppearance().resolvedTheme === 'dark';
-  const title = fromDateOnly(date, prefs.zone).toFormat('cccc d LLLL');
+  const title = fromDateOnly(date, prefs.zone).toFormat('cccc LLLL d');
   const description = relativeDayLabel(date, prefs.zone);
 
   return (

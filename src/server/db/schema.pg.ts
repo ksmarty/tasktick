@@ -679,6 +679,21 @@ export const icalTokens = pgTable(
   (t) => [uniqueIndex('ical_tokens_token_idx').on(t.token), index('ical_tokens_user_idx').on(t.userId)],
 );
 
+/** Mirror of `api_tokens` in `schema.sqlite.ts` — see there for the rationale. */
+export const apiTokens = pgTable(
+  'api_tokens',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    tokenPrefix: text('token_prefix').notNull(),
+    lastUsedAtMs: bigint('last_used_at_ms', { mode: 'number' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('api_tokens_hash_idx').on(t.tokenHash)],
+);
+
 export const focusSessions = pgTable(
   'focus_sessions',
   {
@@ -762,4 +777,5 @@ export type UserSettingsRow = typeof userSettings.$inferSelect;
 export type TaskReminderRow = typeof taskReminders.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type IcalTokenRow = typeof icalTokens.$inferSelect;
+export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type InviteRow = typeof invites.$inferSelect;

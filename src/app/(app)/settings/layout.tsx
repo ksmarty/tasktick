@@ -11,11 +11,11 @@
  *
  * ## Why a layout rather than the same string on nine pages
  *
- * A `PageHeader` per page would be nine copies of one constant, and — more to
- * the point — nine chances to unmount and remount the published content as the
- * route changes, which is exactly the churn this removes. This segment persists
- * across `/settings/*` navigation, so the header mounts once and is never
- * re-published.
+ * A `PageHeader` per page would be one copy of one constant per section, and —
+ * more to the point — a chance per section to unmount and remount the published
+ * content as the route changes, which is exactly the churn this removes. This
+ * segment persists across `/settings/*` navigation, so the header mounts once and
+ * is never re-published.
  *
  * ## The back arrow is gone with it
  *
@@ -23,14 +23,20 @@
  * landing page did not (there is nowhere to go back *to* from the root, so the
  * link was a no-op there). That inconsistency is gone with the per-page headers:
  * the section list is always visible, so a control whose only job is to return
- * to a list you can already see is redundant on every one of the nine.
+ * to a list you can already see is redundant on every section.
  *
- * The layout renders nothing but the header publication — the pages keep their
- * own `px-gutter` column, since the calendar-style full-bleed screens and these
- * have different gutters and the shell deliberately applies neither.
+ * The layout renders the area's constant header and the settings shell — the
+ * pinned navigation plus the one scroll pane. The shell is a client component
+ * because it derives the open section from the pathname; keeping it here rather
+ * than on each page means the navigation is mounted once and never remounts as
+ * the user moves between sections.
+ *
+ * The pages keep their own `px-gutter` column, since the calendar-style
+ * full-bleed screens and these have different gutters and the shell deliberately
+ * applies neither.
  */
 import { PageHeader } from '@/components/app/PageHeader';
-import { SettingsScroll } from '@/components/settings/SettingsScroll';
+import { SettingsTabs } from '@/components/settings/SettingsTabs';
 
 /** The one title every settings section publishes. */
 const SETTINGS_TITLE = 'Settings';
@@ -39,7 +45,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <>
       <PageHeader title={SETTINGS_TITLE} />
-      <SettingsScroll>{children}</SettingsScroll>
+      <SettingsTabs>{children}</SettingsTabs>
     </>
   );
 }

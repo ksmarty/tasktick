@@ -34,21 +34,21 @@ function allDay(startDate: string, endDate: string): CalendarItem {
 
 describe('allDayDateLabel', () => {
   it('shows a single day for a one-day item', () => {
-    expect(allDayDateLabel(allDay('2025-09-18', '2025-09-19'), ZONE)).toBe('18 Sep');
+    expect(allDayDateLabel(allDay('2025-09-18', '2025-09-19'), ZONE)).toBe('Sep 18');
   });
 
   it('treats the exclusive end as the last day covered', () => {
     // 18th to the 20th inclusive is end = start of the 21st.
-    expect(allDayDateLabel(allDay('2025-09-18', '2025-09-21'), ZONE)).toBe('18–20 Sep');
+    expect(allDayDateLabel(allDay('2025-09-18', '2025-09-21'), ZONE)).toBe('Sep 18–20');
   });
 
   it('names both months when a span crosses one', () => {
-    expect(allDayDateLabel(allDay('2025-09-30', '2025-10-03'), ZONE)).toBe('30 Sep – 2 Oct');
+    expect(allDayDateLabel(allDay('2025-09-30', '2025-10-03'), ZONE)).toBe('Sep 30 – Oct 2');
   });
 
   it('never invents a day for a degenerate zero-length item', () => {
     const start = dateOnlyToMillis('2025-09-18', ZONE);
     const item: CalendarItem = { ...allDay('2025-09-18', '2025-09-19'), startMs: start, endMs: start };
-    expect(allDayDateLabel(item, ZONE)).toBe('18 Sep');
+    expect(allDayDateLabel(item, ZONE)).toBe('Sep 18');
   });
 });

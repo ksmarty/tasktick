@@ -13,15 +13,12 @@
  */
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
 import { MotionSettings } from '@/components/settings/MotionSettings';
-import { SettingsTabs } from '@/components/settings/SettingsTabs';
 
 export default function AppearanceSettingsPage() {
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <SettingsTabs active="appearance">
-        <AppearanceSettings />
-        <MotionSettings />
-      </SettingsTabs>
+      <AppearanceSettings />
+      <MotionSettings />
     </div>
   );
 }

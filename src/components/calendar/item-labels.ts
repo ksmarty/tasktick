@@ -20,17 +20,18 @@ import type { CalendarItem } from '@/lib/types';
 /**
  * The date an all-day item covers, as a short label for its accessible name.
  *
- * `18 Sep` for a single day; `18–20 Sep` inside one month; `30 Sep – 2 Oct`
- * across months. `endMs` is exclusive, so the last day covered is the instant
- * just before it — the same rule the calendar's reschedule uses when it moves
- * an all-day item by whole days.
+ * `Sep 18` for a single day; `Sep 18–20` inside one month; `Sep 30 – Oct 2`
+ * across months. Month-first, like every other date the app prints. `endMs` is
+ * exclusive, so the last day covered is the instant just before it — the same
+ * rule the calendar's reschedule uses when it moves an all-day item by whole
+ * days.
  */
 export function allDayDateLabel(item: CalendarItem, zone: string): string {
   const start = fromDateOnly(toDateOnly(item.startMs, zone), zone);
   // `Math.max` guards a degenerate zero-length item without inventing a day.
   const end = fromDateOnly(toDateOnly(Math.max(item.startMs, item.endMs - 1), zone), zone);
 
-  if (end.hasSame(start, 'day')) return start.toFormat('d LLL');
-  if (end.hasSame(start, 'month')) return `${start.toFormat('d')}–${end.toFormat('d LLL')}`;
-  return `${start.toFormat('d LLL')} – ${end.toFormat('d LLL')}`;
+  if (end.hasSame(start, 'day')) return start.toFormat('LLL d');
+  if (end.hasSame(start, 'month')) return `${start.toFormat('LLL d')}–${end.toFormat('d')}`;
+  return `${start.toFormat('LLL d')} – ${end.toFormat('LLL d')}`;
 }

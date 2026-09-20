@@ -15,6 +15,8 @@ function source(relative: string): string {
 
 const WRAPPER = source('components/app/Toast.tsx');
 const STACK = source('components/godui/toast.tsx');
+const TASKS_VIEW = source('components/tasks/TasksView.tsx');
+const TODAY_VIEW = source('components/tasks/TodayView.tsx');
 
 describe('the app toast dwell time', () => {
   it('sits in the 1.5-2s the user asked for', () => {
@@ -25,7 +27,26 @@ describe('the app toast dwell time', () => {
 
   it('leaves the deliberately persistent toast alone', () => {
     expect(WRAPPER).toContain('const PERSISTENT_DURATION = 2 ** 31 - 1;');
-    expect(WRAPPER).toContain('banner.duration === 0 ? PERSISTENT_DURATION : banner.duration');
+    // `duration: 0` still means "until dismissed" — the conversion is pinned
+    // structurally because there is no jsdom to fire a real timeout here.
+    expect(WRAPPER).toContain('banner.duration === 0');
+    expect(WRAPPER).toContain('? PERSISTENT_DURATION');
+  });
+
+  /*
+   * The Undo banner used to hard-code `duration: 5000` at each call site. It now
+   * relies on the wrapper's rule for action-carrying banners, so the window is
+   * stated once and stays finite — a future caller cannot accidentally pass
+   * `duration: 0` (persistent, ~24.8 days) and leave the banner up.
+   */
+  it('gives an action-carrying banner a finite, longer window', () => {
+    expect(WRAPPER).toContain('const ACTION_DURATION = 5000;');
+    expect(WRAPPER).toContain('banner.action ? ACTION_DURATION');
+    for (const view of [TASKS_VIEW, TODAY_VIEW]) {
+      expect(view).not.toMatch(/duration:\s*0\s*[,}]/);
+      expect(view).not.toContain('duration: 5000');
+      expect(view).toContain("action: { label: 'Undo'");
+    }
   });
 });
 

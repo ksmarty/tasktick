@@ -61,8 +61,8 @@ describe('habitWindowRange', () => {
 
 describe('longDateLabel', () => {
   it('spells a floating day out in full', () => {
-    expect(longDateLabel('2025-03-12')).toBe('12 March 2025');
-    expect(longDateLabel('2025-11-01')).toBe('1 November 2025');
+    expect(longDateLabel('2025-03-12')).toBe('March 12 2025');
+    expect(longDateLabel('2025-11-01')).toBe('November 1 2025');
   });
 
   it('falls back to the raw value when the day is unparseable', () => {

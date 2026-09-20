@@ -41,6 +41,7 @@ export const {
   syncConflicts,
   pushSubscriptions,
   icalTokens,
+  apiTokens,
   focusSessions,
   savedFilters,
   importKeys,
@@ -66,5 +67,6 @@ export type {
   TaskReminderRow,
   PushSubscriptionRow,
   IcalTokenRow,
+  ApiTokenRow,
   InviteRow,
 } from './schema.sqlite';

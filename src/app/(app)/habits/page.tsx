@@ -382,7 +382,7 @@ export default function HabitsPage() {
                 screen owns its own scroll now. */}
             <div
               data-habit-scroll
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0"
             >
               {list.length === 0 ? (
                 <div className="flex flex-col items-center gap-stack px-card py-6 text-center">

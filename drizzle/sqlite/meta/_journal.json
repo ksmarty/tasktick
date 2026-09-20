@@ -22,6 +22,13 @@
       "when": 1789827902831,
       "tag": "0002_simple_jocasta",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789929258575,
+      "tag": "0003_wonderful_greymalkin",
+      "breakpoints": true
     }
   ]
 }

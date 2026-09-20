@@ -14,15 +14,12 @@
  */
 import { CalendarListEditor } from '@/components/settings/CalendarListEditor';
 import { IcalSubscriptionCard } from '@/components/settings/IcalSubscriptionCard';
-import { SettingsTabs } from '@/components/settings/SettingsTabs';
 
 export default function CalendarSettingsPage() {
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <SettingsTabs active="calendars">
-        <CalendarListEditor />
-        <IcalSubscriptionCard />
-      </SettingsTabs>
+      <CalendarListEditor />
+      <IcalSubscriptionCard />
     </div>
   );
 }

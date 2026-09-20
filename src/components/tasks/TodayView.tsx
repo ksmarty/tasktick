@@ -122,7 +122,6 @@ export function TodayView() {
     toast({
       title: 'Task completed',
       description: task.title,
-      duration: 5000,
       action: { label: 'Undo', onClick: () => toggleTask({ ...task, status: 'completed' }) },
     });
   }
@@ -202,7 +201,7 @@ export function TodayView() {
        * mobile tab-bar clearance the pane used to carry, or the last row sits
        * under the band; at `lg` the band is gone, so the padding is too.
        */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0">
       {data ? (
         <div className="px-gutter pt-2 pb-1">
           {/*

@@ -665,6 +665,32 @@ export const icalTokens = sqliteTable(
   (t) => [uniqueIndex('ical_tokens_token_idx').on(t.token), index('ical_tokens_user_idx').on(t.userId)],
 );
 
+/**
+ * API token for the public GraphQL endpoint.
+ *
+ * Exactly one per account, so `userId` is the primary key rather than a
+ * surrogate id. Only a keyed hash of the token is stored — never the plaintext
+ * — so a stolen database cannot be replayed against the API. Cycling rewrites
+ * the row in place, which is what makes "one token per account" structural
+ * rather than a rule the repository has to remember.
+ */
+export const apiTokens = sqliteTable(
+  'api_tokens',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** Keyed HMAC-SHA256 of the plaintext token. The plaintext is never stored. */
+    tokenHash: text('token_hash').notNull(),
+    /** First characters of the plaintext, so the UI can identify a token. */
+    tokenPrefix: text('token_prefix').notNull(),
+    /** Last time the token authenticated a request; best-effort. */
+    lastUsedAtMs: integer('last_used_at_ms'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('api_tokens_hash_idx').on(t.tokenHash)],
+);
+
 export const focusSessions = sqliteTable(
   'focus_sessions',
   {
@@ -761,4 +787,5 @@ export type UserSettingsRow = typeof userSettings.$inferSelect;
 export type TaskReminderRow = typeof taskReminders.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type IcalTokenRow = typeof icalTokens.$inferSelect;
+export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type InviteRow = typeof invites.$inferSelect;

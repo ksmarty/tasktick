@@ -9,6 +9,9 @@ import {
   dueWindowBounds,
   eachDayInclusive,
   formatClock,
+  formatDateTime,
+  formatDayMonth,
+  formatFullDate,
   fromDateOnly,
   humanDuration,
   isOverdue,
@@ -257,8 +260,41 @@ describe('task presentation helpers', () => {
     expect(relativeDayLabel('2025-03-09', zone, now)).toBe('Yesterday');
     expect(relativeDayLabel('2025-03-13', zone, now)).toBe('Thursday');
     expect(relativeDayLabel('2025-03-17', zone, now)).toBe('Next Monday');
-    expect(relativeDayLabel('2025-06-01', zone, now)).toBe('Sun 1 Jun');
-    expect(relativeDayLabel('2026-06-01', zone, now)).toBe('1 Jun 2026');
+    expect(relativeDayLabel('2025-06-01', zone, now)).toBe('Sun Jun 1');
+    expect(relativeDayLabel('2026-06-01', zone, now)).toBe('Mon Jun 1 2026');
+  });
+
+  it('spells the short day month-first: weekday, month, day', () => {
+    // `Sat Oct 8` — the convention the whole app now uses. The timestamp is a
+    // real Saturday so the weekday is checkable by hand.
+    const today = DateTime.fromISO('2022-10-01T12:00:00', { zone });
+    expect(formatDayMonth(DateTime.fromISO('2022-10-08', { zone }), today)).toBe('Sat Oct 8');
+  });
+
+  it('shows the year exactly when the date is not in the current year', () => {
+    const now = DateTime.fromISO('2025-03-10T12:00:00', { zone });
+    // This year: no year.
+    expect(formatDayMonth(DateTime.fromISO('2025-10-08', { zone }), now)).toBe('Wed Oct 8');
+    // Another year: the year travels with it, so March 2026 cannot read as this
+    // year's March.
+    expect(formatDayMonth(DateTime.fromISO('2026-10-08', { zone }), now)).toBe('Thu Oct 8 2026');
+  });
+
+  it('keeps the year on the deliberately long full date', () => {
+    // The selected-day announcement is spelled out and never shortened; it is
+    // only reordered month-first like everything else.
+    const prefs = { zone, timeFormat: '24h' as const, weekStartsOn: 1 };
+    expect(formatFullDate(dateOnlyToMillis('2025-09-30', zone), prefs)).toBe('Tuesday September 30 2025');
+  });
+
+  it('puts the month before the day in a date and time', () => {
+    const prefs = { zone, timeFormat: '24h' as const, weekStartsOn: 1 };
+    expect(formatDateTime(dateOnlyToMillis('2025-09-30', zone), prefs, DateTime.fromISO('2025-03-10', { zone }))).toBe(
+      'Tue Sep 30 00:00',
+    );
+    expect(formatDateTime(dateOnlyToMillis('2026-09-30', zone), prefs, DateTime.fromISO('2025-03-10', { zone }))).toBe(
+      'Wed Sep 30 2026 00:00',
+    );
   });
 
   it('formats durations and clocks', () => {

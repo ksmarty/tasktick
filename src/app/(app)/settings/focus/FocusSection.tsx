@@ -18,7 +18,6 @@
 import { Skeleton } from '@/components/ui/skeleton';
 import { useResource } from '@/lib/store';
 import { FocusSettings } from '@/components/settings/FocusSettings';
-import { SettingsTabs } from '@/components/settings/SettingsTabs';
 import type { BootstrapPayload } from '@/lib/view-types';
 
 export function FocusSection() {
@@ -26,13 +25,11 @@ export function FocusSection() {
 
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <SettingsTabs active="focus">
-        {!bootstrap.data ? (
-          <Skeleton className="h-40 w-full" />
-        ) : (
-          <FocusSettings settings={bootstrap.data.settings} />
-        )}
-      </SettingsTabs>
+      {!bootstrap.data ? (
+        <Skeleton className="h-40 w-full" />
+      ) : (
+        <FocusSettings settings={bootstrap.data.settings} />
+      )}
     </div>
   );
 }

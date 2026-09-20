@@ -335,7 +335,7 @@ describe('the task screens own their own scroll', () => {
       expect(view).toContain('flex min-h-0 flex-1 flex-col');
       expect(view).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain');
       // The list restates the mobile tab-bar clearance the shell's pane carried.
-      expect(view).toContain('pb-[calc(env(safe-area-inset-bottom)_+_5.25rem)] lg:pb-0');
+      expect(view).toContain('pb-[calc(env(safe-area-inset-bottom)_+_6.125rem)] lg:pb-0');
     }
   });
 });
@@ -503,7 +503,7 @@ describe('the converted screens', () => {
   });
 
   it('reserves the clear control\'s 20px so a long value cannot run under the cross', () => {
-    // Measured at 390px with "Wed 30 Sep" in the date field: the value's box
+    // Measured at 390px with "Tue Sep 30" in the date field: the value's box
     // ended at 123.7px against a clear button starting at 111.7px — 12.0px of
     // overlap, and `scrollWidth` 86 against a 75px box, so the ellipsis itself
     // was painted under the glyph. The control is 16px at `right-1`, i.e. the

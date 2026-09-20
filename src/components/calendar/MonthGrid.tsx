@@ -681,7 +681,7 @@ function MonthPanel({ panel, page, selectedDate, today, prefs, live, gridRef, re
                       insetFill={dayMarkerInset}
                       itemCount={dayItems.length}
                       markerLabel={dayMarkerLabel?.(cell.date) ?? null}
-                      fullLabel={fromDateOnly(cell.date, prefs.zone).toFormat('cccc d LLLL yyyy')}
+                      fullLabel={fromDateOnly(cell.date, prefs.zone).toFormat('cccc LLLL d yyyy')}
                       tabIndex={live.focusDate === cell.date ? 0 : -1}
                       registerRef={(node) => live.registerDay(cell.date, node)}
                       activate={() => {

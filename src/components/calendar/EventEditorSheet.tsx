@@ -948,7 +948,7 @@ function DateField({
         <PopoverTrigger asChild>
           <Button id={id} type="button" variant="outline" className="w-full justify-start font-normal">
             <CalendarIcon className="size-4 text-base" disableHover />
-            <span className="truncate">{toDateTime(value, zone).toFormat('ccc d LLL yyyy')}</span>
+            <span className="truncate">{toDateTime(value, zone).toFormat('ccc LLL d yyyy')}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-auto p-0">
@@ -982,7 +982,7 @@ function DateField({
  * form's edge — and on a narrow phone the native control's own intrinsic width
  * could push past that edge. `w-36` keeps the two time columns identical and
  * still clears the control's content need, while leaving the date to its left
- * enough room for `ccc d LLL yyyy` on a 390px phone. The wrapper's `min-w-0`
+ * enough room for `ccc LLL d yyyy` on a 390px phone. The wrapper's `min-w-0`
  * means the column can always shrink it rather than letting a grid track
  * overflow.
  */
