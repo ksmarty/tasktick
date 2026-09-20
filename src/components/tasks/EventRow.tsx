@@ -5,10 +5,21 @@
  *
  * Events and tasks share the list, so the row has to say which is which without
  * a second legend. The one mark is the leading glyph: a task carries the shadcn
- * `Checkbox`, an event carries a calendar icon in the *same* 44px touch target
+ * `Checkbox`, an event carries a calendar glyph in the *same* 44px touch target
  * and at the same 20px (`size-5`) the checkbox paints. That is the whole
  * "not completable" signal — there is no checkbox, no swipe-to-complete and no
  * row menu here, because there is nothing to complete.
+ *
+ * ## The glyph is static, and that is what makes this row affordable
+ *
+ * The glyph came from `@svg-animated-icons/react`, passed `disableHover` because
+ * it is a label and not a control — so it never animated. It still cost like an
+ * animated icon: the library renders a `<style>` element inside every instance,
+ * so each of the 56 event rows on `/tasks` inserted its own copy of the same CSS
+ * (89 stylesheets, 71,942 bytes on the page) and drew the glyph in 12 nodes.
+ * It is now one plain `<svg>` from `./static-glyphs` with the same geometry, the
+ * same `size-5 text-xl` sizing and the same 44px target — and the row is 13 DOM
+ * nodes instead of 21. See that file for the measurement.
  *
  * The row keeps the list's shape (44px tall, the `px-row` inset, the same
  * press-highlight region, the rounded last corner) and adds the per-row colour
@@ -27,13 +38,13 @@
  * overruled (see `TaskRow`), so the two rows now agree on typography rather than
  * diverging here.
  */
-import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { itemHex } from '@/components/calendar/colors';
 import type { CalendarLookup } from '@/components/calendar/types';
 import { formatTime, toDateOnly } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { absoluteDayLabel } from './due-label';
+import { CalendarGlyph } from './static-glyphs';
 
 /** A stable empty lookup, so an event with no calendars passed still paints. */
 const EMPTY_CALENDARS: CalendarLookup = new Map();
@@ -96,56 +107,64 @@ export function EventRow({
       className={cn(
         // Only the last row sits on the card's corner, so only it rounds.
         'relative isolate overflow-hidden',
+        /*
+         * The row's own layout is on the `li` rather than on a wrapper `div`
+         * inside it. The wrapper painted and hit-tested identically — it was the
+         * same 44px flex box — but it was one element per event row, and on the
+         * demo list 56 of the 64 rows are events. `cn()` folds the doubled
+         * `relative`, and `isolate` keeps the `z-10` local to the row exactly as
+         * it was.
+         */
+        'relative z-10 flex min-h-11 w-full items-center gap-1 px-row',
         last && 'rounded-b-lg',
         className,
       )}
     >
-      <div className="relative z-10 flex min-h-11 w-full items-center gap-1 px-row">
-        {/* The per-row colour strip: the event's calendar colour, custom hexes
-            included (see `itemHex`). */}
+      {/* The per-row colour strip: the event's calendar colour, custom hexes
+          included (see `itemHex`). */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-1"
+        style={{ backgroundColor: itemHex(event, calendars ?? EMPTY_CALENDARS, dark) }}
+      />
+
+      {/*
+       * The calendar glyph stands where the checkbox stands on a task row —
+       * the same `-ml-3` + `size-11` target, so the two shapes line up down
+       * the list. Static, because the glyph is a label and not a control: the
+       * whole row is the hit target and nothing here animates (see the file
+       * doc).
+       */}
+      <span className="-ml-3 grid size-11 shrink-0 place-items-center text-muted-foreground">
+        <CalendarGlyph className="size-5 text-xl" />
+      </span>
+
+      <button
+        type="button"
+        onClick={() => onOpen?.(event)}
+        aria-label={accessibleName}
+        // `-ml-2` cancels the 4px track gap and the button's own 4px left
+        // padding, so the title begins 12px from the calendar glyph — the same
+        // 12px that separates the glyph from the colour strip (see `TaskRow`).
+        className="group/row-content relative -ml-2 flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {/* The same inset press region the task row uses; its top edge is
+            squared on the first row of the group (see `TaskRow`). */}
         <span
           aria-hidden
-          className="absolute inset-y-0 left-0 w-1"
-          style={{ backgroundColor: itemHex(event, calendars ?? EMPTY_CALENDARS, dark) }}
+          className={cn(
+            'pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50',
+            first && 'rounded-t-none',
+          )}
         />
-
-        {/*
-         * The calendar glyph stands where the checkbox stands on a task row —
-         * the same `-ml-3` + `size-11` target, so the two shapes line up down
-         * the list. `disableHover` because the glyph is a label, not a control:
-         * the whole row is the hit target.
-         */}
-        <span className="-ml-3 grid size-11 shrink-0 place-items-center text-muted-foreground">
-          <CalendarIcon className="size-5 text-xl" disableHover aria-hidden />
-        </span>
-
-        <button
-          type="button"
-          onClick={() => onOpen?.(event)}
-          aria-label={accessibleName}
-          // `-ml-2` cancels the 4px track gap and the button's own 4px left
-          // padding, so the title begins 12px from the calendar glyph — the same
-          // 12px that separates the glyph from the colour strip (see `TaskRow`).
-          className="group/row-content relative -ml-2 flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {/* The same inset press region the task row uses; its top edge is
-              squared on the first row of the group (see `TaskRow`). */}
-          <span
-            aria-hidden
-            className={cn(
-              'pointer-events-none absolute inset-x-1.5 inset-y-1 rounded-md bg-accent/0 transition-colors group-hover/row-content:bg-accent/30 group-active/row-content:bg-accent/50',
-              first && 'rounded-t-none',
-            )}
-          />
-          <span className="relative flex min-w-0 flex-1 items-center gap-1">
-            {/* Single line, ellipsised: an event is a point in time, not prose. */}
-            <span className="min-w-0 flex-1 truncate text-base leading-tight">{event.title}</span>
-            <span className="shrink-0 text-xs leading-5 whitespace-nowrap tabular-nums text-muted-foreground">
-              {timeLabel}
-            </span>
+        <span className="relative flex min-w-0 flex-1 items-center gap-1">
+          {/* Single line, ellipsised: an event is a point in time, not prose. */}
+          <span className="min-w-0 flex-1 truncate text-base leading-tight">{event.title}</span>
+          <span className="shrink-0 text-xs leading-5 whitespace-nowrap tabular-nums text-muted-foreground">
+            {timeLabel}
           </span>
-        </button>
-      </div>
+        </span>
+      </button>
     </li>
   );
 }

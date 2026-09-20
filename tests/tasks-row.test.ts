@@ -567,9 +567,15 @@ describe('the converted screens', () => {
     // date popover these are the quick picks that set the day directly. The task
     // list already groups by urgency and Today already has its own sections, so
     // new *list* sections would have duplicated both.
-    expect(EDITOR).toContain("{ label: 'Today', day: todayIn(zone) }");
-    expect(EDITOR).toContain("{ label: 'Tomorrow', day: addDaysToDateOnly(todayIn(zone), 1, zone) }");
-    expect(EDITOR).toContain("{ label: 'Next week', day: addDaysToDateOnly(todayIn(zone), 7, zone) }");
+    expect(EDITOR).toContain("{ label: 'Today', day: today }");
+    expect(EDITOR).toContain("{ label: 'Tomorrow', day: addDaysToDateOnly(today, 1, zone) }");
+    expect(EDITOR).toContain("{ label: 'Next week', day: addDaysToDateOnly(today, 7, zone) }");
+    // The anchor day is one memoized Luxon call keyed on the zone, not six calls
+    // on every render of the screen that owns this sheet — the sheet's element
+    // tree, closed dialog children included, is built on each of them.
+    expect(EDITOR).toContain('const today = useMemo(() => todayIn(zone), [zone]);');
+    expect(EDITOR).toContain('const quickPicks = useMemo(');
+    expect(EDITOR).toContain('{quickPicks.map((pick) => (');
     expect(EDITOR).toContain('onClick={() => pickDueDay(pick.day)}');
     expect(EDITOR).toContain('function pickDueDay(day: DateOnly)');
     // Above the calendar, not below it.

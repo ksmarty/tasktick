@@ -220,6 +220,15 @@ export interface MonthGestureOptions {
   onPagePreview?: (delta: -1 | 0 | 1) => void;
   /** Row index (0-based) that holds the selected day. */
   focusRow: number;
+  /**
+   * Start settled on the one-week strip instead of the full six-week month.
+   *
+   * This is the *initial* state, not a command: a caller that opens on the week
+   * (the habits screen) passes it so the first paint is already collapsed and
+   * there is no expanded frame to animate away from. The default is false, so
+   * the calendar screen still opens on the month.
+   */
+  initialCollapsed?: boolean;
   /** Shared gesture flags, so an item drag stops the surface gesture. */
   interaction: CalendarInteraction;
 }
@@ -251,15 +260,16 @@ export function useMonthGestures({
   onPageWeek,
   onPagePreview,
   focusRow,
+  initialCollapsed = false,
   interaction,
 }: MonthGestureOptions): MonthGestures {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(Boolean(initialCollapsed));
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<Session | null>(null);
   /** Set when a drag ends, so the click that follows it cannot select a day. */
   const suppressClickRef = useRef(false);
-  const heightRef = useRef(MONTH_EXPANDED_PX);
+  const heightRef = useRef(initialCollapsed ? MONTH_COLLAPSED_PX : MONTH_EXPANDED_PX);
   const translateRef = useRef(0);
   /**
    * Rows the collapsed strip has been rolled past the selected week, 0 when it

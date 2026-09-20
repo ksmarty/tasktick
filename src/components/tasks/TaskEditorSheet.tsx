@@ -145,7 +145,7 @@
  * The pickers for repeat, reminders, priority, list and tags are the shared
  * drawers in this folder.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { DateTime } from 'luxon';
 
 import { BellIcon } from '@svg-animated-icons/react/bell';
@@ -610,7 +610,25 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
   const activeList = lists.find((list) => list.id === listId) ?? null;
   const selectedTags = tags.filter((tag) => tagIds.includes(tag.id));
-  const repeatAnchorDay = weekdayOfDate(dueDate ?? todayIn(zone));
+  /*
+   * The anchor day and the three quick picks are Luxon work — `todayIn` builds a
+   * `DateTime` and formats it, `addDaysToDateOnly` parses, shifts and formats —
+   * and this component's whole element tree, the closed dialog's children
+   * included, is built on every render of the screen that owns it. Unmemoized,
+   * that was six Luxon calls per render of `/tasks` whether or not the editor
+   * was on screen. They depend on the zone and nothing else, so they are memoized
+   * on it once.
+   */
+  const today = useMemo(() => todayIn(zone), [zone]);
+  const quickPicks = useMemo(
+    () => [
+      { label: 'Today', day: today },
+      { label: 'Tomorrow', day: addDaysToDateOnly(today, 1, zone) },
+      { label: 'Next week', day: addDaysToDateOnly(today, 7, zone) },
+    ],
+    [today, zone],
+  );
+  const repeatAnchorDay = weekdayOfDate(dueDate ?? today);
 
   const disabled = !actions.online;
 
@@ -762,11 +780,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                      * and the pick that is already set reads as selected.
                      */}
                     <div className="flex gap-1 border-b border-border p-2">
-                      {[
-                        { label: 'Today', day: todayIn(zone) },
-                        { label: 'Tomorrow', day: addDaysToDateOnly(todayIn(zone), 1, zone) },
-                        { label: 'Next week', day: addDaysToDateOnly(todayIn(zone), 7, zone) },
-                      ].map((pick) => (
+                      {quickPicks.map((pick) => (
                         <Button
                           key={pick.label}
                           type="button"

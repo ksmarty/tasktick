@@ -11,13 +11,13 @@
  * server-shaped `days`. Nothing about dates is re-derived here: the grid is
  * handed the window `rangeForView` describes and nothing else.
  *
- * The grid is collapsed on open. `MonthGrid`'s collapse state is internal (the
- * gesture hook starts expanded so the calendar opens on the month), so the
- * habits screen activates the grid's own "Collapse to a week" grabber once, as
- * soon as the grid mounts. That is the very control a user would press — it is
- * not a reach into the calendar feature's internals — and it is why the click
- * only fires while the control still reads "Collapse to a week", so a future
- * `MonthGrid` that can start collapsed on its own simply no-ops it.
+ * The grid is collapsed on open, and it is collapsed on its *first paint*.
+ * `MonthGrid` takes an `initialCollapsed` prop and seeds it straight into the
+ * gesture hook's collapse state, so the grid is born as the one-week strip
+ * rather than rendering the full month and animating shut. Nothing is clicked
+ * and no effect runs — there is no expanded frame for the arrival to animate
+ * away from. The calendar screen leaves the prop false and still opens on the
+ * month.
  *
  * ## No events here, and no dots at all
  *
@@ -49,7 +49,7 @@
  * month sliding in under a paging swipe arrives already drawn rather than popping
  * a ring in after the swipe.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   MonthGrid,
   createInteraction,
@@ -64,9 +64,6 @@ import type { AccentColor, DateOnly, Habit } from '@/lib/types';
 import type { CalendarItemsPayload } from '@/lib/view-types';
 import { HabitDayRing } from './HabitDayRing';
 import { habitRingColours } from './period';
-
-/** The label of the grabber while the grid is expanded — see the file header. */
-const COLLAPSE_LABEL = 'Collapse to a week';
 
 /**
  * What the grid paints: nothing.
@@ -127,8 +124,6 @@ export function HabitMonthGrid({
   onPage,
   className,
 }: HabitMonthGridProps) {
-  const hostRef = useRef<HTMLDivElement>(null);
-
   // One shared gesture record, as the calendar screen has: the paging swipe and
   // an item drag would otherwise both claim the same surface. Nothing on this
   // screen is draggable, but the grid's contract is a single record either way.
@@ -237,25 +232,6 @@ export function HabitMonthGrid({
     [ringColours],
   );
 
-  /*
-   * Open the grid on the week.
-   *
-   * `MonthGrid` starts expanded, so this screen presses its own collapse control
-   * the moment the grid is on screen — see the file header for why this is a
-   * click and not an edit. The ref makes it once per mount: an effect that ran
-   * twice (a development double-invoke) would otherwise press the grabber again,
-   * which by then reads "Expand the month" and would toggle the grid straight
-   * back open.
-   */
-  const collapsedOnce = useRef(false);
-  useEffect(() => {
-    if (collapsedOnce.current) return;
-    const grabber = hostRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="${COLLAPSE_LABEL}"]`);
-    if (!grabber) return;
-    collapsedOnce.current = true;
-    grabber.click();
-  }, []);
-
   const handlePage = useCallback(
     (delta: number) => {
       if (delta !== 0) setPageSeq((value) => value + 1);
@@ -280,7 +256,7 @@ export function HabitMonthGrid({
   );
 
   return (
-    <div ref={hostRef} className={cn('flex min-h-0 shrink-0 flex-col', className)}>
+    <div className={cn('flex min-h-0 shrink-0 flex-col', className)}>
       <div className="flex items-center justify-between gap-2 px-2 pb-1">
         {/* The month under the finger, named while the drag is in flight. */}
         <h2 aria-live="polite" className="text-sm font-semibold">
@@ -308,6 +284,10 @@ export function HabitMonthGrid({
         onPagePreview={setPreview}
         renderDayMarker={renderDayMarker}
         dayMarkerLabel={dayMarkerLabel}
+        /* Born as the one-week strip: `initialCollapsed` seeds the gesture
+           hook's state, so the arrival has no expanded frame to animate away
+           from. */
+        initialCollapsed
         /* The ring is painted *around* the disc, so the today/selected fill is
            inset to leave a gap for it — the calendar screen, which has no ring,
            keeps its full-size disc. */

@@ -316,6 +316,15 @@ export interface MonthGridProps {
    * screen paints no marker and keeps its full 36px disc.
    */
   dayMarkerInset?: boolean;
+  /**
+   * Open on the one-week strip instead of the full month.
+   *
+   * Seeded straight into `useMonthGestures`' initial collapse state, so the very
+   * first paint is the strip and there is nothing to animate away from. The
+   * default (false) keeps the calendar screen opening on the month, and the
+   * habits screen passes true. See `HabitMonthGrid`.
+   */
+  initialCollapsed?: boolean;
 }
 
 export function MonthGrid({
@@ -336,6 +345,7 @@ export function MonthGrid({
   renderDayMarker,
   dayMarkerLabel,
   dayMarkerInset = false,
+  initialCollapsed = false,
 }: MonthGridProps) {
   const dayRefs = useRef(new Map<DateOnly, HTMLButtonElement>());
   /** The live month's lattice. The day buttons register into `dayRefs` from here. */
@@ -368,6 +378,7 @@ export function MonthGrid({
     onPageWeek: (delta) => onSelectDate(addDaysToDateOnly(selectedDate, delta * DAYS_PER_WEEK, prefs.zone)),
     onPagePreview,
     focusRow,
+    initialCollapsed,
     interaction,
   });
 

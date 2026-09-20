@@ -89,8 +89,14 @@ export interface ToastProviderProps {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-/** The app's original dwell time. GodUI's own default is 4s. */
-const DEFAULT_DURATION = 3200;
+/**
+ * The app's dwell time. GodUI's own default is 4s; the app's was 3.2s, and the
+ * user asked for shorter — long enough to read a title plus a one-line detail at
+ * a glance, short enough that a run of actions does not leave a wall of banners
+ * over the tab bar. Toasts that carry an action override this (the task-complete
+ * Undo asks for 5s) and `duration: 0` still means "until dismissed".
+ */
+const DEFAULT_DURATION = 2500;
 
 /** `setTimeout`'s ceiling — ~24.8 days, which is "until dismissed" in practice. */
 const PERSISTENT_DURATION = 2 ** 31 - 1;

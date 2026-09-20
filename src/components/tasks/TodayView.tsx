@@ -175,7 +175,7 @@ export function TodayView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="z-appbar shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
+      <header className="z-appbar shrink-0 bg-background pt-[env(safe-area-inset-top,0px)]">
         <div className="flex min-h-14 items-center gap-2 px-gutter">
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">Today</h1>
           <HeaderActionButton

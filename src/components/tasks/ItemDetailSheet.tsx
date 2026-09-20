@@ -35,7 +35,9 @@
  * (from the calendar record's `readOnly`), so no calendar lookup is needed; an
  * explicit `readOnly` prop from the caller wins. A task from the task list
  * carries no flag and stays editable — a mirrored item is the only thing that
- * loses the action.
+ * loses the action. The absence is not explained by a note: the sheet shows the
+ * item and, when it can be edited, the action; a read-only item simply has no
+ * action.
  *
  * ## The GodUI Drawer
  *
@@ -66,6 +68,14 @@
  * and desktop. A short `maps.app.goo.gl` link carries no readable data — the id
  * is a redirect — so it still renders and opens, but with no parsed place beside
  * it. A field with nothing to show is omitted entirely.
+ *
+ * ## Description links
+ *
+ * An event's `description` is free text and often carries a URL. It is split by
+ * `@/lib/linkify` and the URLs render as anchors — a real tap target with a
+ * tinted background rather than dead underlined text. Only `http(s)` and a bare
+ * `www.` host are matched, and the href is built from the matched scheme, so a
+ * `javascript:` value can never become a link.
  */
 import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
@@ -76,7 +86,6 @@ import { GlobeIcon } from '@svg-animated-icons/react/globe';
 import { InfoCircledIcon } from '@svg-animated-icons/react/info-circled';
 import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
 import { Link1Icon } from '@svg-animated-icons/react/link-1';
-import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { PeopleIcon } from '@svg-animated-icons/react/people';
@@ -87,6 +96,7 @@ import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
 import { formatDateTime, formatTime, humanDuration, relativeDayLabel, toDateOnly } from '@/lib/dates';
+import { linkify } from '@/lib/linkify';
 import { isHttpUrl, linkPreview } from '@/lib/links';
 import { describeRRule } from '@/lib/rrule';
 import { useResource } from '@/lib/store';
@@ -188,6 +198,38 @@ function LinkField({ url }: { url: string }) {
       </div>
       {coordinates ? <p className="pl-7 text-xs text-muted-foreground tabular-nums">{coordinates}</p> : null}
     </div>
+  );
+}
+
+/**
+ * A description, with its URLs as real anchors.
+ *
+ * The prose stays one `whitespace-pre-wrap` paragraph; only the matched URLs
+ * become anchors. The anchor is an inline box with its own padding and a tinted
+ * background — visually distinct, and a comfortable tap target rather than a
+ * bare line of underlined text. Vertical padding on an inline box grows the hit
+ * area without disturbing the paragraph's line rhythm, and `break-words` keeps a
+ * long URL from pushing the sheet wide while leaving a URL that fits intact.
+ */
+function LinkifiedDescription({ text }: { text: string }) {
+  return (
+    <p className="text-sm whitespace-pre-wrap text-foreground">
+      {linkify(text).map((segment, index) =>
+        segment.kind === 'link' ? (
+          <a
+            key={index}
+            href={segment.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="box-decoration-clone rounded-md bg-primary/10 px-1 py-1.5 font-medium text-primary break-words underline underline-offset-2 hover:bg-primary/15"
+          >
+            {segment.value}
+          </a>
+        ) : (
+          <span key={index}>{segment.value}</span>
+        ),
+      )}
+    </p>
   );
 }
 
@@ -546,7 +588,7 @@ function EventDetails({
 
       {detail?.description ? (
         <Block label="Description">
-          <p className="text-sm whitespace-pre-wrap text-foreground">{detail.description}</p>
+          <LinkifiedDescription text={detail.description} />
         </Block>
       ) : null}
     </>
@@ -619,12 +661,7 @@ export function ItemDetailSheet({
             />
           ) : null}
 
-          {isReadOnly ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <LockClosedIcon className="shrink-0 text-sm" aria-hidden disableHover />
-              Synced from a read-only calendar — it cannot be edited here.
-            </p>
-          ) : (
+          {isReadOnly ? null : (
             <Button type="button" className="mt-1 w-full" onClick={onEdit}>
               <Pencil1Icon className="size-4 text-base" disableHover />
               Edit

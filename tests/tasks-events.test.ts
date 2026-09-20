@@ -81,11 +81,28 @@ describe('visibleTasks — completed hidden by default', () => {
 
 describe('EventRow — an event is not a task', () => {
   it('draws the calendar glyph where the checkbox sits', () => {
-    expect(EVENT_ROW).toContain("from '@svg-animated-icons/react/calendar'");
-    expect(EVENT_ROW).toContain('<CalendarIcon');
+    // The glyph is a plain static `<svg>` (see `static-glyphs.tsx`). It was
+    // already using the animated set with `disableHover` — a label, never a
+    // control — and the animated set renders a `<style>` element inside every
+    // instance, so a 56-event list inserted 56 copies of the same CSS and drew
+    // each glyph in 12 nodes. The geometry is the library's, consolidated.
+    expect(EVENT_ROW).toContain("from './static-glyphs'");
+    expect(EVENT_ROW).toContain('<CalendarGlyph');
     // The same 44px target and the same 20px glyph as the task checkbox.
     expect(EVENT_ROW).toContain('size-5 text-xl');
     expect(EVENT_ROW).toContain('-ml-3 grid size-11 shrink-0 place-items-center');
+  });
+
+  it('draws that glyph without a stylesheet per row', () => {
+    const GLYPHS = source('static-glyphs.tsx');
+    // One `<svg>` and three paths: the frame+rule, the two tabs, the six dots.
+    // (The doc comment above the component names the injected `<style>` the
+    // animated set renders, so the check is scoped to the component itself.)
+    const glyph = GLYPHS.slice(GLYPHS.indexOf('export function CalendarGlyph'));
+    expect(glyph).not.toContain('<style');
+    expect(GLYPHS).toContain('viewBox="0 0 15 15"');
+    expect(GLYPHS).toContain('export function CalendarGlyph');
+    expect(glyph.match(/<path/g)?.length).toBe(3);
   });
 
   it('cannot be completed: no checkbox, no toggle, no swipe-to-complete', () => {
@@ -140,6 +157,13 @@ describe('TaskListSection — events render beside the tasks', () => {
     expect(SECTION).toContain('<EventRow');
     expect(SECTION).toContain('section.events.map');
     expect(SECTION.indexOf('section.tasks.map')).toBeLessThan(SECTION.indexOf('section.events.map'));
+  });
+
+  it('merges the row layout onto the li, one element per row', () => {
+    // An inner wrapper `div` carried the same 44px flex box; on the demo list 56
+    // of the 64 rows are events, so it was 56 elements per render for nothing.
+    expect(EVENT_ROW).toContain("'relative z-10 flex min-h-11 w-full items-center gap-1 px-row',");
+    expect(EVENT_ROW).not.toContain('<div className="relative z-10 flex min-h-11');
   });
 
   it('resolves each task row accent through the lookup it was given', () => {

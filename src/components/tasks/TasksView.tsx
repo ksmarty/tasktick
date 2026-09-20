@@ -297,10 +297,19 @@ export function TasksView() {
    * made it invisible (`visibleEvents` then trims the day groups to the selected
    * window, so this wider read cannot leak a far event into Next 7 days).
    */
-  const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', {
-    startMs: fromDateOnly(today, zone).toMillis(),
-    endMs: fromDateOnly(addDaysToDateOnly(today, EVENT_HORIZON_DAYS, zone), zone).toMillis(),
-  });
+  /*
+   * The bounds are memoized on the day and the zone: they are three Luxon calls
+   * (`fromDateOnly`, `addDaysToDateOnly`) that this screen rebuilt inline on
+   * every render, into a fresh object that is also the resource key.
+   */
+  const eventWindow = useMemo(
+    () => ({
+      startMs: fromDateOnly(today, zone).toMillis(),
+      endMs: fromDateOnly(addDaysToDateOnly(today, EVENT_HORIZON_DAYS, zone), zone).toMillis(),
+    }),
+    [today, zone],
+  );
+  const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', eventWindow);
   const events = useMemo(
     () => (calendarItems.data?.items ?? []).filter((item) => item.kind === 'event'),
     [calendarItems.data],
@@ -469,7 +478,7 @@ export function TasksView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="z-appbar shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top,0px)]">
+      <header className="z-appbar shrink-0 bg-background pt-[env(safe-area-inset-top,0px)]">
         <div className="flex min-h-14 items-center gap-2 px-gutter">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {activeList ? (

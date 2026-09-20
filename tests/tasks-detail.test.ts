@@ -138,10 +138,18 @@ describe('a mirrored item loses its Edit action', () => {
 
   it('removes the action rather than disabling it', () => {
     // A dead button that can never be enabled is worse than no button.
-    expect(DETAIL).toContain('{isReadOnly ? (');
+    expect(DETAIL).toContain('{isReadOnly ? null : (');
     expect(DETAIL).not.toMatch(/<Button[^>]*disabled/);
-    expect(DETAIL).toContain('cannot be edited here');
-    expect(DETAIL).toContain('LockClosedIcon');
+    expect(DETAIL).toContain('<Pencil1Icon');
+    expect(DETAIL).toContain('Edit');
+  });
+
+  it('does not explain the absence with a notice', () => {
+    // The muted "Synced from a read-only calendar" line and its lock icon were
+    // removed; only the Edit action goes.
+    expect(DETAIL).not.toContain('cannot be edited here');
+    expect(DETAIL).not.toContain('LockClosedIcon');
+    expect(DETAIL).not.toContain('lock-closed');
   });
 
   it('leaves the task list editable — a task carries no read-only flag', () => {
@@ -149,6 +157,19 @@ describe('a mirrored item loses its Edit action', () => {
     // TodayView (no `readOnly` prop) always keeps its Edit action.
     expect(DETAIL).toContain('<TaskDetails');
     expect(DETAIL).toContain('onEdit');
+  });
+});
+
+describe('a description renders its URLs as anchors', () => {
+  it('splits the description through the linkify helper', () => {
+    expect(DETAIL).toContain("from '@/lib/linkify'");
+    expect(DETAIL).toContain('linkify(text)');
+    expect(DETAIL).toContain('<LinkifiedDescription text={detail.description} />');
+  });
+
+  it('opens a link safely in a new tab', () => {
+    expect(DETAIL).toContain('target="_blank"');
+    expect(DETAIL).toContain('rel="noopener noreferrer"');
   });
 });
 

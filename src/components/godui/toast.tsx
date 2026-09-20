@@ -13,6 +13,9 @@
  *     list and the toaster region instead of string concatenation, so a caller
  *     can layer classes on with correct Tailwind conflict resolution.
  *  2. Quote style normalized to the repo's single quotes.
+ *  3. `PEEK` is 8 instead of 16, so a collapsed stack reads as one group rather
+ *     than as separate cards. See the `LOCAL CHANGE` comment at the constant; a
+ *     re-vendor must carry this over.
  *
  * The source's `z-toast` is kept as-is: `--z-index-toast` is defined in
  * `globals.css`, so the class resolves and the stack sits above the drawer's
@@ -109,7 +112,7 @@ const VARIANT_CLASS: Record<ToastVariant, string> = {
 
 // Stacking tuning.
 const GAP = 14; // px between toasts when expanded
-const PEEK = 16; // px each toast peeks out behind the front when collapsed
+const PEEK = 8; // LOCAL CHANGE: was 16 — px each toast peeks out behind the front when collapsed
 const SCALE_STEP = 0.05; // scale lost per depth when collapsed
 const MAX_VISIBLE = 3; // toasts shown behind the front when collapsed
 

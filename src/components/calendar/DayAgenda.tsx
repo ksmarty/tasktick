@@ -44,31 +44,27 @@
  *
  * ## The stripe
  *
- * The per-calendar stripe is a CSS left border (`border-l-4`) on the entry
- * itself, painted with the item's resolved hex written inline — the colour is a
- * runtime accent lookup, so it is the one thing here that genuinely cannot be a
- * class. The same colour is reused for the range line, so stripe and time always
- * agree.
+ * The per-calendar stripe is a real element — a fixed-width rectangle painted
+ * with the item's resolved hex — and the entry is a `rounded-sm overflow-hidden`
+ * frame around it. The colour is a runtime accent lookup, so it is the one thing
+ * here that genuinely cannot be a class. The same colour is reused for the range
+ * line, so stripe and time always agree.
  *
- * A left border is the only shape that satisfies all three things the stripe has
- * been asked for at once, and the last three attempts each paid for one with
- * another. It is *flush* with the entry's left edge, because it is the entry's
- * own edge. It is a *bar*, not a lozenge: the border follows the entry's corner
- * on its outer edge while its inner edge stays straight, so the only curve is
- * the small corner cap — `rounded-sm` resolves to 6px here (GodUI's
- * `--radius-sm`), close to the 4px border's own width. A larger radius visibly
- * bows the stripe's end into a lozenge; `rounded-md` (8px) and up were rendered
- * and rejected. And the entry keeps its *rounding* — all four corners — because
- * the border rides the corner instead of being covered by a separate square
- * element.
+ * The frame is what makes the shape work, and it is why this does not use the
+ * left border that preceded it. A left border is painted *inside* the entry's
+ * rounded border box, so its inner (right) edge is that corner's curve pushed
+ * inward: the stripe reads as a lozenge at its ends, which is the report this
+ * fixes. A separate square element fails the other way — flush it squares the
+ * entry's own left silhouette, and inset 4px it floats off the edge, which the
+ * user has already rejected.
  *
- * The two rejected shapes, for the record: a separate `rounded-none` element
- * *inset* 4px (`left-1`) leaves the rounding visible but lifts the stripe off
- * the edge, which is the report this restores; a separate square element
- * *flush* (`left-0`) keeps the stripe on the edge but its square corners become
- * the silhouette, so the entry's rounding is invisible. The border has neither
- * problem. `pl-3` (0.75rem) keeps the reading line exactly where the inset
- * stripe's `pl-4` put it: 4px of border plus 12px of padding is the same 16px.
+ * Clipping a straight strip with the entry's own radius has neither problem: the
+ * strip's *outer* corners are cut by the frame's rounding, so it reads as part
+ * of the card, while its *inner* edge is a plain vertical line whose ends are
+ * square, because the clip only reaches the corners the strip actually touches.
+ * The strip is `w-1` (4px — the width the border had), flush at the frame's left
+ * edge; `pl-3` (0.75rem) beside it puts the text back at the same 16px the
+ * border's 4px plus 12px did, so the reading line does not move.
  *
  * Dragging a row horizontally moves the item by whole days. It goes through the
  * same `useItemDrag` hook as before, so the lift threshold, the click-swallow
@@ -102,7 +98,7 @@
  * screen-reader announcement of the selected day lives in `CalendarToolbar`,
  * where it belongs.
  */
-import { useRef, type CSSProperties } from 'react';
+import { useRef } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { useAppearance } from '@/app/providers';
 import { addDaysToDateOnly, formatTime, fromDateOnly, toDateOnly } from '@/lib/dates';
@@ -309,53 +305,58 @@ export function DayAgenda({
                 </span>
 
                 {/*
-                 * `border-l-4` + `rounded-sm`: the stripe is the entry's own left
-                 * border, so it is flush with the left edge and follows the
-                 * corner's outer curve while its inner edge stays straight. See
-                 * "The stripe" at the top of this file for why this is the one
-                 * shape that is flush, rounded and a bar at the same time.
+                 * The stripe is its own element, clipped by the entry's rounded
+                 * frame (`overflow-hidden`), rather than the entry's left border.
+                 * A border's inner edge follows the corner, so the stripe bowed
+                 * into a lozenge at its ends; a plain strip clipped by the frame
+                 * keeps the stripe's outer corners on the card's curve while its
+                 * inner edge stays a straight, square-ended line. See "The
+                 * stripe" at the top of this file.
                  *
                  * The padding is asymmetric on purpose. `py-2` is the step below
-                 * the `py-3` that made the entries too tall. `pl-3` (0.75rem)
-                 * plus the 4px border is the same 16px the inset stripe's `pl-4`
-                 * put the text at, so the stripe returning to the edge does not
-                 * move the reading line. The right edge keeps `pr-row` — it is
-                 * the far side of that line and had no reason to move.
+                 * the `py-3` that made the entries too tall, and it lives on the
+                 * content beside the strip. `pl-3` (0.75rem) plus the `w-1` (4px)
+                 * strip is the same 16px the old border put the text at, so the
+                 * reading line does not move. The right edge keeps `pr-row` — it
+                 * is the far side of that line and had no reason to move.
                  */}
-                <span
-                  className="flex min-w-0 flex-1 flex-col justify-center rounded-sm border-l-4 bg-accent py-2 pr-row pl-3"
-                  style={{ borderLeftColor: hex } as CSSProperties}
-                >
-                  {/* An all-day row has no range to show; the gutter says it. */}
-                  {rangeLabel ? (
-                    <span className="block truncate text-xs font-semibold" style={{ color: hex }}>
-                      {rangeLabel}
+                <span className="flex min-w-0 flex-1 overflow-hidden rounded-sm bg-accent">
+                  <span aria-hidden className="w-1 shrink-0 self-stretch" style={{ backgroundColor: hex }} />
+
+                  <span className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-row pl-3">
+                    {/* An all-day row has no range to show; the gutter says it. */}
+                    {rangeLabel ? (
+                      <span className="block truncate text-xs font-semibold" style={{ color: hex }}>
+                        {rangeLabel}
+                      </span>
+                    ) : null}
+
+                    <span
+                      className={cn(
+                        /*
+                         * The title is clamped to one line like the location
+                         * below it: a wrapped title was the last thing keeping a
+                         * row taller than the timeline beside it, so the cards
+                         * were uneven. The full title still travels in the
+                         * button's accessible name above.
+                         */
+                        'mt-0.5 block truncate text-sm text-foreground',
+                        done && 'line-through',
+                      )}
+                    >
+                      {/*
+                       * No checkbox here. The agenda is a calendar, and a calendar shows what is
+                       * happening and when — a checkbox on this screen asks you to act on a task
+                       * from a view that exists to read the day. The task list is one tap away and
+                       * is where completing belongs.
+                       */}
+                      {item.title}
                     </span>
-                  ) : null}
 
-                  <span
-                    className={cn(
-                      /*
-                       * No `truncate`: an event title is the content of the
-                       * agenda, and ellipsising it hides the one word that tells
-                       * two similar entries apart. It wraps instead.
-                       */
-                      'mt-0.5 block text-sm text-foreground',
-                      done && 'line-through',
-                    )}
-                  >
-                    {/*
-                     * No checkbox here. The agenda is a calendar, and a calendar shows what is
-                     * happening and when — a checkbox on this screen asks you to act on a task
-                     * from a view that exists to read the day. The task list is one tap away and
-                     * is where completing belongs.
-                     */}
-                    {item.title}
+                    {item.location ? (
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.location}</span>
+                    ) : null}
                   </span>
-
-                  {item.location ? (
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.location}</span>
-                  ) : null}
                 </span>
               </button>
             </li>

@@ -83,33 +83,34 @@ describe('the gutter timeline', () => {
 describe('the agenda entry radius, and the stripe that must not follow it', () => {
   it('keeps the entry rounded on all four corners', () => {
     /*
-     * `rounded-sm` — all four corners. The entry was `rounded-r-sm` while the
-     * stripe was a separate flush element: squaring the left was the only way to
-     * keep that element a rectangle, and the user then reported the entry had
-     * lost its left rounding. The stripe is the entry's own left border now, so
-     * the radius and the bar are one decision and both survive.
+     * The entry is the frame: `rounded-sm overflow-hidden` around the content.
+     * The frame is what clips the strip's outer corners to the card's curve, so
+     * the radius and the bar are one decision and both survive. Squaring the
+     * left (`rounded-r-sm`, tried while the stripe was a separate flush element)
+     * is not the answer and must not come back.
      */
-    expect(AGENDA).toContain('flex min-w-0 flex-1 flex-col justify-center rounded-sm border-l-4 bg-accent');
+    expect(AGENDA).toContain('flex min-w-0 flex-1 overflow-hidden rounded-sm bg-accent');
     expect(AGENDA).not.toContain('rounded-r-sm');
   });
 
-  it('draws the stripe as the entry’s own left border, flush with its edge', () => {
+  it('draws the stripe as a clipped strip inside the rounded frame', () => {
     /*
-     * A left border is the only shape that is flush *and* leaves the entry
-     * rounded *and* stays a bar: it follows the corner on its outer edge and
-     * stays straight on its inner one. The two rejected shapes were a separate
-     * element inset 4px (off the edge — the report this restores) and a separate
-     * square element flush (its square edge is the silhouette, so the entry's
-     * rounding is invisible).
+     * The stripe is its own fixed-width element, flush at the frame's left edge,
+     * with no radius of its own — the frame's `overflow-hidden` curves only its
+     * outer corners, leaving its inner edge a straight, square-ended line. The
+     * two rejected shapes were a left border (its inner edge follows the corner,
+     * which bows the stripe into a lozenge) and a separate square element inset
+     * 4px (off the edge), so neither the border class nor `left-1` may return.
      */
-    expect(AGENDA).toContain('rounded-sm border-l-4 bg-accent');
+    expect(AGENDA).toContain('w-1 shrink-0 self-stretch');
+    expect(AGENDA).not.toContain('border-l-4');
     expect(AGENDA).not.toContain('bg-[var(--edge-color)]');
     expect(AGENDA).not.toContain('absolute inset-y-0 left-1 w-1');
   });
 
-  it('paints the border with the item’s resolved colour', () => {
+  it('paints the strip with the item’s resolved colour', () => {
     // The colour is a runtime accent lookup, so it genuinely cannot be a class.
-    expect(AGENDA).toContain('borderLeftColor: hex');
+    expect(AGENDA).toContain('backgroundColor: hex');
   });
 });
 
@@ -117,12 +118,12 @@ describe('the agenda entry’s padding', () => {
   it('is a step below the value that made the entries too tall, on the same text axis', () => {
     /*
      * `py-2` (0.5rem) is the step below the `py-3` (0.75rem) that raised the
-     * entries and then read as too tall. `pl-3` (0.75rem) plus the 4px stripe is
-     * exactly where the inset stripe's `pl-4` put the text — 16px in — so the
+     * entries and then read as too tall. `pl-3` (0.75rem) plus the `w-1` (4px)
+     * strip is exactly where the old border put the text — 16px in — so the
      * stripe returning to the entry's edge does not move the reading line. The
      * right edge keeps the row token.
      */
-    expect(AGENDA).toContain('bg-accent py-2 pr-row pl-3');
+    expect(AGENDA).toContain('justify-center py-2 pr-row pl-3');
     expect(AGENDA).not.toContain('bg-accent py-3');
   });
 
@@ -132,6 +133,17 @@ describe('the agenda entry’s padding', () => {
     // `py-2'` never matched and the entry lost its padding and its flex box.
     expect(AGENDA).not.toContain('className="/*');
     expect(AGENDA).toContain('className="flex min-w-0 flex-1 flex-col justify-center');
+  });
+});
+
+describe('the description is clamped to one line', () => {
+  it('truncates the title as well as the location', () => {
+    // The user asked for the card's description on one line. The location
+    // already carried `truncate`; the title was the last thing still wrapping
+    // and keeping the rows uneven, so it is clamped too. The full text still
+    // travels in the button's accessible name.
+    expect(AGENDA).toContain("'mt-0.5 block truncate text-sm text-foreground'");
+    expect(AGENDA).toContain('mt-0.5 block truncate text-xs text-muted-foreground');
   });
 });
 

@@ -425,7 +425,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
            * instead of sliding under it.
            */}
           {published ? (
-            <header className="shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top)]">
+            <header className="shrink-0 bg-background pt-[env(safe-area-inset-top)]">
               <div className="flex h-appbar items-center gap-2 px-gutter">
                 {published.leading}
 
