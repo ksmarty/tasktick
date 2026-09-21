@@ -44,6 +44,13 @@ you write code rather than after.
 
 The container this runs in is not a typical dev box. These are not preferences.
 
+- **The project root is `/workspace/tasktick`.** It was `/workspace` until the
+  repository was nested one level down, so anything older than that — a brief, a
+  scratch script, a note in `/tmp` — may still name the old path. The helper
+  scripts in `/tmp/tools` were repointed at the time of the move; a script written
+  before it that hardcodes `/workspace` will fail on a missing directory rather
+  than doing something subtly wrong, which is the good failure.
+
 - **`python3` is gone.** Use `node -e`, the `edit` tool, or `sed`. Several edits
   in this project's history half-applied because a script assumed Python.
 - **`git` is installed but was once missing** and had to be `apt-get install`ed.
