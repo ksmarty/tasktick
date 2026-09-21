@@ -40,6 +40,27 @@
  * from `/api/calendar/items`, drawn by `EventRow` with a calendar glyph where the
  * checkbox sits; they are never completable and never reordered.
  *
+ * ## Completion animates, and this is the one place that can make it
+ *
+ * `AnimatePresence` wraps the section's task rows — and only its tasks, since an
+ * event row never leaves for a completion. It is here rather than in either
+ * screen because this component owns the `<ul>` a row is a child of: presence
+ * only works on the direct children of the wrapper, so the wrapper has to sit
+ * between the `<ul>` and the rows. It renders no DOM of its own, so the rows stay
+ * the list's own children and nothing about the track's layout changes.
+ *
+ * One wrapper per section is also what makes the section move work. Ticking a
+ * task takes it out of *this* section's list in the commit that puts it into
+ * another one's, so the leaving row animates here (see `TaskRow`'s exit) while the
+ * arriving one plays its entrance in the other section — each independently, with
+ * no shared element stretched between two cards.
+ *
+ * `initial={false}` is deliberate and load-bearing: it suppresses the entrance of
+ * every row already present when the wrapper first mounts, so opening the tab or
+ * switching a filter paints the list in one frame instead of drawing it row by
+ * row. Rows that mount *later* — the completed task landing in the next section,
+ * or a task coming back from an Undo — still animate in.
+ *
  * ## The one edge on the card
  *
  * The glass card ships a 1px `border` *and* a static edge sheen — an inset
@@ -107,6 +128,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
+import { AnimatePresence } from 'framer-motion';
 import { Accordion } from '@/components/godui/accordion';
 import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import type { CalendarLookup } from '@/components/calendar/types';
@@ -365,29 +387,31 @@ export function TaskListSection({
                * rhythm instead.
                */
               <ul className="-mx-5 -mb-4 flex flex-col text-base text-foreground">
-                {section.tasks.map((task, index) => (
-                  <TaskRow
-                    key={task.id}
-                    ref={(node) => {
-                      if (node) rowRefs.current.set(task.id, node);
-                      else rowRefs.current.delete(task.id);
-                    }}
-                    task={task}
-                    zone={zone}
-                    timeFormat={timeFormat}
-                    onToggle={onToggle}
-                    onOpen={onOpen}
-                    accent={listColorFor?.(task) ?? null}
-                    onDelete={onDelete}
-                    onWontDo={onWontDo}
-                    onPin={onPin}
-                    disabled={disabled}
-                    drag={dragPropsFor(task)}
-                    first={index === 0}
-                    last={eventCount === 0 && index === taskCount - 1}
-                    showDate={showDate}
-                  />
-                ))}
+                <AnimatePresence initial={false}>
+                  {section.tasks.map((task, index) => (
+                    <TaskRow
+                      key={task.id}
+                      ref={(node) => {
+                        if (node) rowRefs.current.set(task.id, node);
+                        else rowRefs.current.delete(task.id);
+                      }}
+                      task={task}
+                      zone={zone}
+                      timeFormat={timeFormat}
+                      onToggle={onToggle}
+                      onOpen={onOpen}
+                      accent={listColorFor?.(task) ?? null}
+                      onDelete={onDelete}
+                      onWontDo={onWontDo}
+                      onPin={onPin}
+                      disabled={disabled}
+                      drag={dragPropsFor(task)}
+                      first={index === 0}
+                      last={eventCount === 0 && index === taskCount - 1}
+                      showDate={showDate}
+                    />
+                  ))}
+                </AnimatePresence>
                 {section.events.map((event, index) => (
                   <EventRow
                     key={event.key}

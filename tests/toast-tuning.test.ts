@@ -13,12 +13,30 @@ function source(relative: string): string {
   return readFileSync(new URL(`../src/${relative}`, import.meta.url), 'utf8');
 }
 
+/**
+ * The same source with its comments removed.
+ *
+ * A `toContain` on the raw file can be satisfied by a *comment* that mentions the
+ * thing — which happened here when the Undo's colour changed: the assertion still
+ * read `toContain('bg-secondary')` and still passed, because the new file's doc
+ * comment explained what the old colour had been. Anything that pins a value has
+ * to be checked against code, not prose.
+ */
+function code(relative: string): string {
+  return source(relative)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+}
+
 const WRAPPER = source('components/app/Toast.tsx');
 const STACK = source('components/godui/toast.tsx');
 const TASKS_VIEW = source('components/tasks/TasksView.tsx');
 const TODAY_VIEW = source('components/tasks/TodayView.tsx');
 const USE_TASK_ACTIONS = source('components/tasks/useTaskActions.ts');
 const COMPLETION_UNDO = source('components/tasks/CompletionUndo.tsx');
+const COMPLETION_UNDO_CODE = code('components/tasks/CompletionUndo.tsx');
 const QUICK_ADD_FAB = source('components/app/QuickAddFab.tsx');
 
 describe('the app toast dwell time', () => {
@@ -89,9 +107,21 @@ it('is an icon-only control the size of the action button, above it on the right
   // Icon only: no visible label text, and the name still carries the task.
   expect(COMPLETION_UNDO).toContain('aria-label={`Undo completing ${task.title}`}');
   expect(COMPLETION_UNDO).not.toMatch(/>\s*Undo\s*</);
-  // A different colour from the action button's `bg-primary`.
-  expect(COMPLETION_UNDO).toContain('bg-secondary');
+  /*
+   * A colour that is not the action button's `bg-primary`.
+   *
+   * PORTED from `bg-secondary`, which this assertion pinned until the colour
+   * changed. It was passing for the wrong reason at that point — the new file
+   * still contained the string `bg-secondary`, in the doc comment explaining what
+   * the colour had been — so it is asserted against comment-stripped code now,
+   * and the colour is pinned by its own contrast test as well
+   * (`tests/tasks-completion-animation.test.ts`).
+   */
+  expect(COMPLETION_UNDO_CODE).toContain('bg-chart-2 text-background');
+  expect(COMPLETION_UNDO_CODE).not.toContain('bg-secondary');
+  expect(COMPLETION_UNDO_CODE).not.toContain('bg-primary');
 });
+
 describe('the countdown actually starts', () => {
   /*
    * The bug this pins: `expanded` suppresses the dismiss timer, and the

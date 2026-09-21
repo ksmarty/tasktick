@@ -67,6 +67,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CompletionUndo } from './CompletionUndo';
 import { EmptyTasks } from './EmptyTasks';
+import { SectionFold } from './SectionFold';
 import { TaskFilterMenu } from './FilterMenu';
 import { HeaderActionButton } from './HeaderActionButton';
 import { ItemDetailSheet } from './ItemDetailSheet';
@@ -679,25 +680,32 @@ export function TasksView() {
         />
       ) : (
         <div className="flex flex-col gap-stack px-gutter py-3">
-          {sections.map((section) => (
-            <TaskListSection
-              key={section.id}
-              section={section}
-              zone={zone}
-              timeFormat={timeFormat}
-              onToggle={toggleTask}
-              onOpen={openTaskDetail}
-              listColorFor={accentForTask}
-              calendars={calendarLookup}
-              dark={dark}
-              onOpenEvent={openEventDetail}
-              onDelete={deleteTask}
-              onWontDo={wontDoTask}
-              onPin={pinTask}
-              onReorder={reorderSection}
-              disabled={!actions.online}
-            />
-          ))}
+          {/*
+           * Cards carry their own fold when a group empties; see `SectionFold`.
+           * `initial={false}` keeps the first paint of the list from cascading.
+           */}
+          <AnimatePresence initial={false}>
+            {sections.map((section) => (
+              <SectionFold key={section.id}>
+                <TaskListSection
+                  section={section}
+                  zone={zone}
+                  timeFormat={timeFormat}
+                  onToggle={toggleTask}
+                  onOpen={openTaskDetail}
+                  listColorFor={accentForTask}
+                  calendars={calendarLookup}
+                  dark={dark}
+                  onOpenEvent={openEventDetail}
+                  onDelete={deleteTask}
+                  onWontDo={wontDoTask}
+                  onPin={pinTask}
+                  onReorder={reorderSection}
+                  disabled={!actions.online}
+                />
+              </SectionFold>
+            ))}
+          </AnimatePresence>
         </div>
       )}
       </div>

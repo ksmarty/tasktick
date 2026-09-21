@@ -37,9 +37,12 @@
  * The node and the gutter label share one anchor: the vertical centre of the
  * entry's **first line of text**. That line is the range on a timed row and the
  * title on an all-day one, so the anchor is conditional — **16px** for a timed
- * row (`py-2` 8px top + half the `text-xs` range line, 16px) and **18px** for an
- * all-day row (`pt-1.5` 6px + the title's `mt-0.5` 2px + half the `text-sm`
- * title line, 20px). It is a distance from the top rather than a `top-1/2`
+ * row (`py-2` 8px top + half the `text-xs` range line, 16px) and **20px** for an
+ * all-day row (the same 8px + the title's `mt-0.5` 2px + half the `text-sm`
+ * title line, 20px). Every row pads `py-2` so the two start from the same
+ * place; the difference is only which line comes first. It is a distance from
+ * the top rather than a `top-1/2` centring, because a two-line entry is
+ * taller and a centred node would slide.
  * centring, because a two-line entry is taller and a centred node would slide
  * down with it; a fixed offset lets a two-line title grow downward without
  * dragging the node off the first line. Both values are **derived** from the
@@ -144,16 +147,16 @@ const GUTTER_WIDTH_CLASS = 'w-14';
  *   · `text-xs` is a 16px line box; `text-sm` is a 20px one.
  *   · The title always carries `mt-0.5` (2px), which is the title's own top edge
  *     inside the column even on an all-day row that has no range above it.
- *   · A timed row's column is `py-2` — 8px of padding top and bottom, even as
- *     the user asked. An all-day row's is `pt-1.5 pb-2` (6/8), unchanged.
+ *   · A row's column is `py-2` — 8px of padding top and bottom, the same
+ *     whether or not it has a range line, so the two anchors start from the
+ *     same place and can be compared.
  *
  * Change one of those classes and its px twin here must move with it.
  */
 const RANGE_LINE_PX = 16; // text-xs line box
 const TITLE_LINE_PX = 20; // text-sm line box
 const TITLE_GAP_PX = 2; // the title's mt-0.5
-const TIMED_PAD_TOP_PX = 8; // py-2
-const ALLDAY_PAD_TOP_PX = 6; // pt-1.5
+const ROW_PAD_TOP_PX = 8; // py-2, on every row
 
 /**
  * The anchor, stated once so the node, the gutter time and the rule's end trims
@@ -164,8 +167,8 @@ const ALLDAY_PAD_TOP_PX = 6; // pt-1.5
  * anchor whatever its height, so a two-line title grows downward without moving
  * the node.
  */
-const TIMED_ANCHOR_PX = TIMED_PAD_TOP_PX + RANGE_LINE_PX / 2; // 16px
-const ALLDAY_ANCHOR_PX = ALLDAY_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2; // 18px
+const TIMED_ANCHOR_PX = ROW_PAD_TOP_PX + RANGE_LINE_PX / 2; // 16px
+const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2; // 20px
 
 /** Places an anchored element's own centre on its `top`, whatever its height. */
 const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';
@@ -293,7 +296,7 @@ export function DayAgenda({
                 {/*
                  * The gutter label shares the node's anchor: the centre of the
                  * entry's first line of text (`anchorPx`, 16px on a timed row
-                 * and 18px on an all-day one) centres the label on the same
+                 * and 20px on an all-day one) centres the label on the same
                  * offset the node is drawn at, so the time and the dot agree and
                  * stay agreed when the title wraps to two. The label used to be
                  * centred on the whole entry, which is the same pixel only while
@@ -386,12 +389,15 @@ export function DayAgenda({
                  * inner edge stays a straight, square-ended line. See "The
                  * stripe" at the top of this file.
                  *
-                 * The padding is `py-2` (8px top and bottom) on a timed row:
-                 * even, because the user read the old `pt-1.5 pb-2` split as
-                 * "not enough at the top". An all-day row has no range line and
-                 * reads correctly with the original `pt-1.5 pb-2` (6/8), so it
-                 * keeps it — the asymmetry is now a deliberate all-day-only
-                 * shape rather than a correction applied to every row. `pl-3`
+                 * Every row pads `py-2` — 8px top and bottom. A timed row got there first,
+                 * because the user read the old `pt-1.5 pb-2` split as "not enough at the
+                 * top"; the all-day row kept 6px at the top as a deliberate all-day shape
+                 * until the user said that was the last thing stopping the timeline from
+                 * lining up. Equal top padding is what makes the two anchors comparable: a
+                 * timed row's first line is the range and an all-day row's is the title, and
+                 * they can only share one rule if they start at the same place. `pl-3`
+                 * (0.75rem) plus the `w-1` (4px) strip is the same 16px the old border put
+                 * the text at, so the reading line does not move.
                  * (0.75rem) plus the `w-1` (4px) strip is the same 16px the old
                  * border put the text at, so the reading line does not move. The
                  * right edge keeps `pr-row` — it is the far side of that line and
@@ -401,10 +407,7 @@ export function DayAgenda({
                   <span aria-hidden className="w-1 shrink-0 self-stretch" style={{ backgroundColor: hex }} />
 
                   <span
-                    className={cn(
-                      'flex min-w-0 flex-1 flex-col justify-center pr-row pl-3',
-                      rangeLabel ? 'py-2' : 'pt-1.5 pb-2',
-                    )}
+                    className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-row pl-3"
                   >
                     {/* An all-day row has no range to show; the gutter says it. */}
                     {rangeLabel ? (

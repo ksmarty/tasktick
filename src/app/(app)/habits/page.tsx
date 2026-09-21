@@ -22,11 +22,17 @@
  * at the same instant.
  *
  * Chrome: the shell renders the single top bar from the `PageHeader` published
- * here — the title, the list-options popover and "New habit" — so this screen
- * stacks no second header. The list options (including the archived switch) live
- * in that popover rather than in the page flow, because the archived filter is a
- * view setting on this screen and must not sit below the cards as a heading
- * attached to nothing.
+ * here — the title and the archived-habits eye, nothing else — so this screen
+ * stacks no second header. The archived filter is a view setting on this screen
+ * and must not sit below the cards as a heading attached to nothing, so it stays
+ * in the bar; it is a one-tap toggle there now, the same control the tasks screen
+ * uses for completed rows, rather than a switch inside an overflow popover. Its
+ * state is exposed through `aria-pressed` instead of being hidden behind a menu.
+ *
+ * There is no "New habit" in the bar either: creating a habit is the shell's
+ * action button, which this screen answers through `usePrimaryAction` — the same
+ * affordance tasks and calendar use. Its explanatory line about the archived
+ * filter moved down to the list, where it shows with the rows it explains.
  *
  * The one new piece of behaviour is the GodUI `Confetti` burst: the tap that
  * completes a habit's goal for the day is exactly the celebratory moment it
@@ -35,17 +41,15 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
-import { DotsHorizontalIcon } from '@svg-animated-icons/react/dots-horizontal';
+import { EyeNoneIcon } from '@svg-animated-icons/react/eye-none';
+import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { PageHeader } from '@/components/app/PageHeader';
 import { useShellPane } from '@/components/app/ShellPane';
 import { useSectionReset } from '@/components/calendar/section-reset';
 import { Confetti, type ConfettiHandle } from '@/components/godui/confetti';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import {
   HabitEditorSheet,
   HabitList,
@@ -54,6 +58,9 @@ import {
   checkInCompletes,
   type CheckInChange,
 } from '@/components/habits';
+// The header's circular action button, shared with the tasks screen: the archived
+// eye here is the same control as its completed-rows eye, not a copy of it.
+import { HeaderActionButton } from '@/components/tasks/HeaderActionButton';
 import { useToast } from '@/components/app/Toast';
 import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
@@ -99,8 +106,6 @@ export default function HabitsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Habit | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
-  /** Whether the list-options popover is open. */
-  const [optionsOpen, setOptionsOpen] = useState(false);
 
   // The shell's action button creates a HABIT here. Left to the default it would
   // open the task quick-add, which is the wrong object on this screen entirely.
@@ -156,6 +161,11 @@ export default function HabitsPage() {
   /* ---------------------------------------------------------------------- */
   /* month navigation                                                       */
   /* ---------------------------------------------------------------------- */
+
+  /** Shows or hides archived habits. The bar's eye is the whole filter now. */
+  function toggleArchived() {
+    setShowArchived((value) => !value);
+  }
 
   /** Selects a day, moving the shown month when the two disagree. */
   const selectDate = useCallback((date: DateOnly) => {
@@ -286,50 +296,20 @@ export default function HabitsPage() {
       <PageHeader
         title="Habits"
         actions={
-          <>
-            {/*
-             * List options live in the toolbar, not in the page flow. The
-             * archived filter is a view setting on this screen — the same kind
-             * of thing iOS keeps behind an overflow button — so it must not sit
-             * below the cards as a heading attached to nothing. One tap, and
-             * the switch keeps the popover open so the list behind it updates.
-             */}
-            <Popover open={optionsOpen} onOpenChange={setOptionsOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="icon"
-                  aria-label="Habit list options"
-                  aria-expanded={optionsOpen}
-                >
-                  <DotsHorizontalIcon />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="flex w-64 flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="habits-show-archived">Show archived habits</Label>
-                  <Switch
-                    id="habits-show-archived"
-                    checked={showArchived}
-                    onCheckedChange={setShowArchived}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Archived habits keep their history but are hidden from the check-in list.
-                </p>
-              </PopoverContent>
-            </Popover>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              aria-label="New habit"
-              onClick={() => openEditor(null)}
-            >
-              <PlusIcon />
-            </Button>
-          </>
+          /*
+           * The archived filter, as the tasks screen's completed-rows control is
+           * built: an eye in the bar that toggles the state in one tap, fills
+           * while it is on and says which way the tap goes. It replaces the
+           * list-options popover, whose only content this switch was — a menu
+           * holding a single switch is a tap tax for no second option.
+           */
+          <HeaderActionButton
+            aria-label={showArchived ? 'Hide archived habits' : 'Show archived habits'}
+            aria-pressed={showArchived}
+            icon={showArchived ? EyeOpenIcon : EyeNoneIcon}
+            variant={showArchived ? 'filled' : 'tinted'}
+            onClick={toggleArchived}
+          />
         }
       />
 
@@ -398,15 +378,30 @@ export default function HabitsPage() {
                   </Button>
                 </div>
               ) : (
-                <HabitList
-                  habits={list}
-                  date={activeDate}
-                  today={todayDate}
-                  pendingId={checkingIn}
-                  onCheckIn={(habit, change) => void checkIn(habit, change)}
-                  onEdit={openEditor}
-                  onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
-                />
+                <>
+                  {/*
+                   * The archived filter's one line of explanation, which used to
+                   * sit next to the switch in the popover. It appears with the
+                   * rows it explains — while archived habits are listed — rather
+                   * than permanently in the header, where a one-tap toggle has
+                   * nowhere to put it. The habit editor says the same thing at
+                   * the switch that actually archives a habit.
+                   */}
+                  {showArchived ? (
+                    <p className="pb-2 text-xs text-muted-foreground">
+                      Archived habits keep their history but are not part of the daily check-ins.
+                    </p>
+                  ) : null}
+                  <HabitList
+                    habits={list}
+                    date={activeDate}
+                    today={todayDate}
+                    pendingId={checkingIn}
+                    onCheckIn={(habit, change) => void checkIn(habit, change)}
+                    onEdit={openEditor}
+                    onReorder={async (orderedIds) => Boolean(await reorder.run(orderedIds))}
+                  />
+                </>
               )}
             </div>
           </>

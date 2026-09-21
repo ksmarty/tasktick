@@ -137,6 +137,24 @@ const TABS: { value: TabValue; label: string; icon: React.ReactNode }[] = [
   { value: 'settings', label: 'Settings', icon: <GearIcon className="size-5 text-xl" /> },
 ];
 
+/**
+ * The primary action the bottom band offers, per tab.
+ *
+ * Only a tab whose screen subscribes to `requestPrimaryAction` appears here: an
+ * entry without a listener is a button that renders and does nothing, which is
+ * the failure this map exists to prevent. Settings has no entry — nothing on
+ * that tab subscribes — so there the band falls back to the tab bar alone.
+ *
+ * Habits was missing from this for a while on purpose: the screen carried its
+ * own "New habit" button in its header, so the band's was a duplicate. The
+ * header's is gone, so the entry is back and the action is stated once.
+ */
+const PRIMARY_ACTION_LABEL: Partial<Record<TabValue, string>> = {
+  tasks: 'Add a task',
+  calendar: 'New event',
+  habits: 'New habit',
+};
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -191,6 +209,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    */
   const [pendingTab, setPendingTab] = useState<TabValue | null>(null);
   const activeTab: TabValue = pendingTab ?? routeTab;
+
+  /*
+   * The band's action for the current tab, read once so the name and the
+   * decision to render it cannot disagree.
+   */
+  const primaryActionLabel = PRIMARY_ACTION_LABEL[activeTab];
 
   useEffect(() => {
     if (pendingTab && routeTab === pendingTab) setPendingTab(null);
@@ -588,21 +612,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {/*
            * The button is contextual, so both its name and whether it belongs
-           * on the screen are.
+           * on the screen are — both come from `PRIMARY_ACTION_LABEL`.
            *
            * It dispatches `requestPrimaryAction`, which whichever screen is
-           * mounted handles. Tasks and Calendar both subscribe, so there it keeps
-           * its place and its per-screen name. Settings subscribes to nothing, so
-           * on that tab the button was dead; Habits already carries its own "New
-           * habit" control in the header, so there it was a duplicate. It is
-           * therefore not rendered on those two tabs at all, and the band falls
-           * back to the tab bar alone.
+           * mounted handles. Tasks, Calendar and Habits each subscribe and each
+           * names the object it creates; Settings subscribes to nothing, so on
+           * that tab the button was dead and is not rendered at all. The band
+           * then falls back to the tab bar alone.
+           *
+           * Habits used to be excluded with Settings — see the map above for
+           * why it is not any more.
            */}
-          {activeTab === 'tasks' ? (
-            <QuickAddFab label="Add a task" />
-          ) : activeTab === 'calendar' ? (
-            <QuickAddFab label="New event" />
-          ) : null}
+          {primaryActionLabel ? <QuickAddFab label={primaryActionLabel} /> : null}
         </div>
       </div>
       </ShellPaneContext.Provider>

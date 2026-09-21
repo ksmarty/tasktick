@@ -11,6 +11,44 @@
  * shadcn `ContextMenu` of the extra actions; never both, so a finger drag is
  * never mistaken for a context menu.
  *
+ * ## The completion beat, and why the row now folds out instead of vanishing
+ *
+ * Ticking a task moves it out of this section in the same commit — `visibleTasks`
+ * filters completed work out of `/tasks`, and the Today agenda moves the row into
+ * its "Completed today" bucket — so the row used to blink out of existence with
+ * no transition at all, and the rows below it jumped up by its height. The row's
+ * own `exit` transition is what fixes that: its height animates to zero as it
+ * fades, so the list closes the gap *continuously* rather than after the fact (a
+ * plain fade would only postpone the jump). No `layout` animation is involved on
+ * purpose — animating the collapsing height moves the siblings for free, where
+ * `layout` would put a measured transform on every row in the list and re-measure
+ * them all on every frame of the animation.
+ *
+ * `AnimatePresence` lives in `TaskListSection`, around the task rows of one
+ * section's `<ul>`, so a row removed from the data stays mounted for the length
+ * of this exit. That placement is what copes with the section move: a row leaving
+ * this section animates out *here* while the same task, as a new row in another
+ * section's list, animates in there — one `AnimatePresence` per section, no
+ * shared-element trickery across two cards, and the section's count and the
+ * row's own leaving animation are decided in the same commit.
+ *
+ * Three cases are deliberately distinguished:
+ *
+ *  - **A one-off completion** gets the whole beat: the checkbox pop (below),
+ *    a 3% shrink and the fold. That is the "finished" animation.
+ *  - **A recurring task gets no beat.** Ticking one does not finish it — the
+ *    series rolls forward to its next occurrence, and the row it will occupy on
+ *    that date is not this row. So it is not given a completion animation at
+ *    all: no pop, no shrink, just the fold that closes the gap.
+ *  - **Anything else that removes a row** (a swipe-Delete, a filter that no
+ *    longer matches) folds out the same way, with no completion beat — it is a
+ *    row leaving, not a task finishing.
+ *
+ * The return path is `AnimatePresence`'s own: a task that comes back inside the
+ * Undo window is re-added under the same key, which cancels the exit mid-flight
+ * and animates the row back to its resting height — so a complete-then-undo
+ * gesture never fights the departure it interrupted.
+ *
  * ## The press highlight is a region, not the button
  *
  * The hover/press accent used to be painted by the content button itself, so it
@@ -74,7 +112,7 @@
  * Radix's own touch long-press would race this row's lift.
  */
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { CrossCircledIcon } from '@svg-animated-icons/react/cross-circled';
 import { DragHandleDots1Icon } from '@svg-animated-icons/react/drag-handle-dots-1';
@@ -82,6 +120,7 @@ import { DrawingPinIcon } from '@svg-animated-icons/react/drawing-pin';
 import { SewingPinIcon } from '@svg-animated-icons/react/sewing-pin';
 import { useMediaQuery } from '@/lib/store';
 import { accentHex } from '@/lib/colors';
+import { useReducedMotion } from '@/lib/motion';
 import type { AccentColor, Task } from '@/lib/types';
 import {
   ContextMenu,
@@ -102,6 +141,18 @@ const LONG_PRESS_MS = 550;
 const GESTURE_SLOP_PX = 8;
 /** True only on a device whose primary input can hover and point precisely. */
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
+
+/**
+ * How long a row takes to fold out of the list, in seconds.
+ *
+ * Short on purpose: it is the slot between the tap and the list settling, and the
+ * user is usually already looking at the next row. The curve is the same
+ * `cubic-bezier(0.32, 0.72, 0, 1)` the swipe settle uses, so a row leaving and a
+ * swipe snapping back move with one another.
+ */
+const ROW_EXIT_SECONDS = 0.24;
+/** The ease the row leaves and returns on — the swipe's own settle curve. */
+const ROW_EASE = [0.32, 0.72, 0, 1] as const;
 
 /** Reorder wiring, supplied by `TaskListSection`. */
 export interface TaskRowDrag {
@@ -226,7 +277,13 @@ export function TaskRow({
 
   function toggle() {
     if (disabled) return;
-    if (!completed) setJustCompleted(true);
+    /*
+     * The pop is the "task finished" beat, so a recurring task does not get it:
+     * its tick rolls the series forward to the next occurrence rather than
+     * completing anything (see the file doc, and `TasksView`/`TodayView`, which
+     * suppress the Undo for the same reason).
+     */
+    if (!completed && !task.recurrenceRule) setJustCompleted(true);
     onToggle(task);
   }
 
@@ -312,6 +369,50 @@ export function TaskRow({
   }
 
   const lifted = Boolean(drag?.isLifted);
+
+  /*
+   * The row's own presence animation, as props on the `<li>`.
+   *
+   * This is only ever played by the `AnimatePresence` in `TaskListSection`: a row
+   * that mounts into a section the presence wrapper has already seen (the same
+   * task arriving in "Completed today", or coming back from an Undo) grows in from
+   * zero height, and one that leaves folds to zero. Rows present at that
+   * wrapper's first render — every row on a tab switch — are suppressed by its
+   * `initial={false}`, so a list still paints in one frame rather than drawing
+   * itself row by row.
+   *
+   * Under the app's motion preference the row is simply there and simply gone:
+   * `initial={false}`, a zero-duration exit. The global clamp in `globals.css`
+   * only covers the OS query, so this component has to honour the in-app setting
+   * itself, which is why the decision comes from `@/lib/motion`.
+   */
+  const presence = reduceMotion
+    ? {
+        initial: false as const,
+        animate: { opacity: 1 },
+        exit: { opacity: 0, transition: { duration: 0 } },
+        transition: { duration: 0 },
+      }
+    : {
+        initial: { opacity: 0, height: 0 },
+        animate: { opacity: 1, height: 'auto' as const },
+        exit: {
+          opacity: 0,
+          height: 0,
+          // Only a task that actually finished shrinks as it goes. A recurring
+          // task that rolled forward — or any other row being removed — folds
+          // away without the completion flourish.
+          ...(task.recurrenceRule ? {} : { scale: 0.97 }),
+          transition: {
+            height: { duration: ROW_EXIT_SECONDS, ease: ROW_EASE },
+            opacity: { duration: ROW_EXIT_SECONDS * 0.6, ease: 'easeIn' as const },
+            scale: { duration: ROW_EXIT_SECONDS, ease: 'easeIn' as const },
+          },
+        },
+        // The return path (and the arrival path): the same curve, no overshoot,
+        // so a row coming back from an Undo does not bounce into place.
+        transition: { duration: ROW_EXIT_SECONDS, ease: ROW_EASE },
+      };
 
   const row = (
     <div
@@ -480,8 +581,9 @@ export function TaskRow({
   );
 
   return (
-    <li
+    <motion.li
       ref={ref}
+      {...presence}
       className={cn(
         // Only the last row sits on the card's corner, so only it rounds. The
         // first row's strip must stay square: it is mid-card, under the header.
@@ -620,6 +722,6 @@ export function TaskRow({
       ) : (
         row
       )}
-    </li>
+    </motion.li>
   );
 }

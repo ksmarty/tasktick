@@ -66,10 +66,10 @@ describe('the gutter timeline', () => {
     expect(AGENDA).toContain('const RANGE_LINE_PX = 16;');
     expect(AGENDA).toContain('const TITLE_LINE_PX = 20;');
     expect(AGENDA).toContain('const TITLE_GAP_PX = 2;');
-    expect(AGENDA).toContain('const TIMED_PAD_TOP_PX = 8;');
-    expect(AGENDA).toContain('const ALLDAY_PAD_TOP_PX = 6;');
-    expect(AGENDA).toContain('const TIMED_ANCHOR_PX = TIMED_PAD_TOP_PX + RANGE_LINE_PX / 2;');
-    expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ALLDAY_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2;');
+    expect(AGENDA).toContain('const ROW_PAD_TOP_PX = 8;');
+    expect(AGENDA).not.toContain('ALLDAY_PAD_TOP_PX');
+    expect(AGENDA).toContain('const TIMED_ANCHOR_PX = ROW_PAD_TOP_PX + RANGE_LINE_PX / 2;');
+    expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2;');
     expect(AGENDA).toContain("const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';");
     expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
     expect(AGENDA).toContain('item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }');
@@ -79,15 +79,15 @@ describe('the gutter timeline', () => {
     /*
      * The resolved numbers, not just the expressions that build them.
      *
-     * The assertions above check that the source *says* `padTop + line / 2`;
-     * they would all still pass if `TIMED_PAD_TOP_PX` were changed from 8 to
-     * 10, and the anchor would silently drift by 2px — which is the failure this
-     * geometry has already had three times. So the arithmetic is evaluated here and
-     * the answer pinned. The numbers below are the ones measured on the built app,
-     * where the node's centre and the first line's centre agreed to the pixel on a
-     * one-line and a two-line entry alike.
+     * The assertions above check that the source *says* `padTop + line / 2`; they
+     * would all still pass if the padding constant were changed from 8 to 10 and
+     * the anchor silently drifted 2px — which is the failure this geometry has
+     * already had three times. So the arithmetic is evaluated here and the answer
+     * pinned. The numbers are the ones measured on the built app, where the node's
+     * centre and the entry's first line of text agreed to the pixel on a one-line
+     * and a two-line entry alike.
      */
-    it('resolves the anchor to the measured 16px and 18px, and keeps the padding even', () => {
+    it('resolves the anchors to 16px and 20px from one shared top padding', () => {
       const px = (name: string): number => {
         const m = AGENDA.match(new RegExp(`const ${name} = (\\d+);`));
         if (!m) throw new Error(`no ${name} in DayAgenda.tsx`);
@@ -96,17 +96,21 @@ describe('the gutter timeline', () => {
       const rangeLine = px('RANGE_LINE_PX');
       const titleLine = px('TITLE_LINE_PX');
       const titleGap = px('TITLE_GAP_PX');
-      const timedPad = px('TIMED_PAD_TOP_PX');
-      const alldayPad = px('ALLDAY_PAD_TOP_PX');
+      const rowPad = px('ROW_PAD_TOP_PX');
 
       // The values measured on the built app.
-      expect(timedPad + rangeLine / 2).toBe(16);
-      expect(alldayPad + titleGap + titleLine / 2).toBe(18);
+      expect(rowPad + rangeLine / 2).toBe(16);
+      expect(rowPad + titleGap + titleLine / 2).toBe(20);
 
-      // A timed row's padding is even — the spacing fix the user asked for. The
-      // all-day row was already right and is deliberately left asymmetric.
-      expect(timedPad).toBe(8);
-      expect(alldayPad).toBe(6);
+      /*
+       * One padding constant, used by both anchors. This is the invariant the user
+       * asked for last: "the top padding on the items to be the same whether they
+       * have a time or not". While there were two constants the all-day row started
+       * 2px higher and no anchor could line the two up. Asserting a single constant
+       * is what stops a second one being introduced for a "just this one case"
+       * reason, which is how the two came apart the first time.
+       */
+      expect(rowPad).toBe(8);
     });
 
   it('anchors the gutter time to the node, not to the row centre', () => {
@@ -181,7 +185,8 @@ describe('the agenda entry’s padding', () => {
      * the stripe returning to the entry's edge does not move the reading line.
      * The right edge keeps the row token.
      */
-    expect(AGENDA).toContain("rangeLabel ? 'py-2' : 'pt-1.5 pb-2'");
+    expect(AGENDA).toContain('justify-center py-2 pr-row pl-3');
+    expect(AGENDA).not.toContain("rangeLabel ? 'py-2'");
     expect(AGENDA).not.toContain('bg-accent py-3');
   });
 
@@ -190,7 +195,7 @@ describe('the agenda entry’s padding', () => {
     // string) but made the class list `/* … */ 'flex …'`, so `'flex` and
     // `py-2'` never matched and the entry lost its padding and its flex box.
     expect(AGENDA).not.toContain('className="/*');
-    expect(AGENDA).toContain("'flex min-w-0 flex-1 flex-col justify-center pr-row pl-3'");
+    expect(AGENDA).toContain('className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-row pl-3"');
   });
 });
 

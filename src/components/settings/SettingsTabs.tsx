@@ -231,7 +231,7 @@ export function SettingsTabs({ children }: SettingsTabsProps) {
        */}
       <div
         data-settings-nav
-        className="flex shrink-0 flex-col gap-1.5 border-b border-border bg-background px-gutter pt-3 pb-2"
+        className="flex shrink-0 flex-col gap-1.5 bg-background px-gutter pt-3 pb-2"
       >
         {/*
          * Three links, not tabs: each changes the group and navigates to a real

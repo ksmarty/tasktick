@@ -17,6 +17,7 @@
 import { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { AnimatePresence } from 'framer-motion';
 import { ExclamationCircledIcon } from '@svg-animated-icons/react/exclamation-circled';
 import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -33,6 +34,7 @@ import { LiquidGlassCard } from '@/components/godui/liquid-glass-card';
 import { CompletionUndo } from './CompletionUndo';
 import { EmptyTasks } from './EmptyTasks';
 import { HeaderActionButton } from './HeaderActionButton';
+import { SectionFold } from './SectionFold';
 import { ItemDetailSheet } from './ItemDetailSheet';
 import { QuickAddBar } from './QuickAddBar';
 import { TaskEditorSheet } from './TaskEditorSheet';
@@ -319,22 +321,29 @@ export function TodayView() {
         />
       ) : (
         <div className="flex flex-col gap-stack px-gutter py-3">
-          {sections.map((section) => (
-            <TaskListSection
-              key={section.id}
-              section={section}
-              zone={zone}
-              timeFormat={timeFormat}
-              onToggle={toggleTask}
-              onOpen={setDetail}
-              listColorFor={accentForTask}
-              onDelete={deleteTask}
-              onWontDo={wontDoTask}
-              onPin={pinTask}
-              onReorder={reorderSection}
-              disabled={!actions.online}
-            />
-          ))}
+          {/*
+           * Cards carry their own fold when a group empties; see `SectionFold`.
+           * `initial={false}` keeps the first paint of the list from cascading.
+           */}
+          <AnimatePresence initial={false}>
+            {sections.map((section) => (
+              <SectionFold key={section.id}>
+                <TaskListSection
+                  section={section}
+                  zone={zone}
+                  timeFormat={timeFormat}
+                  onToggle={toggleTask}
+                  onOpen={setDetail}
+                  listColorFor={accentForTask}
+                  onDelete={deleteTask}
+                  onWontDo={wontDoTask}
+                  onPin={pinTask}
+                  onReorder={reorderSection}
+                  disabled={!actions.online}
+                />
+              </SectionFold>
+            ))}
+          </AnimatePresence>
         </div>
       )}
       </div>
