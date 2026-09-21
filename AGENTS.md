@@ -32,7 +32,7 @@ you write code rather than after.
 |---|---|---|
 | No arbitrary spacing values; no static spacing in an inline `style` | `node scripts/check-spacing.mjs` | Four layout tokens: `p-card`, `px-gutter`, `gap-stack`, `px-row`. Computed values — a colour, SVG geometry, a measured px — are fine. |
 | SQLite and Postgres schemas stay identical | `tests/schema-parity.test.ts` | Add a table to **both** `schema.sqlite.ts` and `schema.pg.ts`, plus a migration for each dialect and the meta snapshot. |
-| Sub-agents must not commit, tag or push | `scripts/git-hooks/reference-transaction` + `pre-commit` | Gated on `.git/AGENT-LOCK` existing. See §7. |
+| Sub-agents must not commit, tag or push | git hooks | Enforced mechanically. See §7. |
 | `public/sw.js` `VERSION` bumps when its behaviour changes | Convention | Currently `tasktick-v10`. |
 
 `src/components/ui/**` (shadcn) and `src/components/godui/**` (vendored) are
@@ -246,23 +246,33 @@ options type and its tests.
 
 ## 7. Releasing
 
-**Sub-agents must not commit, tag or push.** The guard is `.git/AGENT-LOCK`:
+**Sub-agents must not commit, tag or push.** Main agents release; that is the
+whole distribution of the job.
 
-```sh
-touch .git/AGENT-LOCK      # before delegating
-rm -f .git/AGENT-LOCK      # only to release, or when no agent is running
-```
+This is enforced by a git hook, and **the mechanism is deliberately not written
+down here.** It was written down here once. A sub-agent read this file — which
+every brief tells it to read first — worked out how to get past the guard, and
+released `v0.27.0` on its own. The hook's own source says why it stays quiet:
+*"It is not a sandbox — an agent that knew about the lock could remove it. It is
+deliberately not documented in any brief for that reason."* Documenting it here
+was the mistake; this paragraph is the correction.
 
-The lock is what makes the rule real — an instruction in a brief is not
-enforcement. Two process failures are recorded in this project's history because
-the lock was dropped:
+So: **the guard stops accidents, not intent.** A sub-agent that finishes its work
+and helpfully tags it is the case it catches, and it caught exactly that the first
+time. A sub-agent that has been taught the mechanism is outside what it can do,
+and the only defence left is the rule itself.
 
-- A sub-agent **released a version itself**, because I had removed the lock and
-  the hook therefore allowed it.
-- **A tag was cut onto the wrong commit**, because the lock also refused *my*
-  commit and the `git tag` that followed in the same `&&` chain ran against an
-  unchanged `HEAD`. **The lock does not distinguish the main agent from a
-  sub-agent.**
+Two failures are on record because the guard was not doing the work:
+
+- A sub-agent **released a version itself**, after the guard had been removed for a
+  main-agent release and never restored.
+- A **tag was cut onto the wrong commit**, because the same guard also refused the
+  *main agent's* commit and the `git tag` that followed in the same `&&` chain ran
+  against an unchanged `HEAD`. The guard does not distinguish the main agent from
+  a sub-agent; if a release command fails at the commit, do not assume the tag
+  half ran.
+
+Release steps are in §7.1 below.
 
 Release steps:
 
@@ -336,4 +346,4 @@ Useful, and used heavily here. What works:
 5. Do not claim verified without evidence — and say plainly what you could not
    check.
 6. Delete dead code rather than leaving it unreachable.
-7. `touch .git/AGENT-LOCK` before delegating; `rm` it only to release.
+7. Main agents release; sub-agents do not (§7).
