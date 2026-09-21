@@ -76,6 +76,39 @@ describe('the gutter timeline', () => {
     expect(AGENDA).toContain('top: `${anchorPx}px`');
   });
 
+    /*
+     * The resolved numbers, not just the expressions that build them.
+     *
+     * The assertions above check that the source *says* `padTop + line / 2`;
+     * they would all still pass if `TIMED_PAD_TOP_PX` were changed from 8 to
+     * 10, and the anchor would silently drift by 2px — which is the failure this
+     * geometry has already had three times. So the arithmetic is evaluated here and
+     * the answer pinned. The numbers below are the ones measured on the built app,
+     * where the node's centre and the first line's centre agreed to the pixel on a
+     * one-line and a two-line entry alike.
+     */
+    it('resolves the anchor to the measured 16px and 18px, and keeps the padding even', () => {
+      const px = (name: string): number => {
+        const m = AGENDA.match(new RegExp(`const ${name} = (\\d+);`));
+        if (!m) throw new Error(`no ${name} in DayAgenda.tsx`);
+        return Number(m[1]);
+      };
+      const rangeLine = px('RANGE_LINE_PX');
+      const titleLine = px('TITLE_LINE_PX');
+      const titleGap = px('TITLE_GAP_PX');
+      const timedPad = px('TIMED_PAD_TOP_PX');
+      const alldayPad = px('ALLDAY_PAD_TOP_PX');
+
+      // The values measured on the built app.
+      expect(timedPad + rangeLine / 2).toBe(16);
+      expect(alldayPad + titleGap + titleLine / 2).toBe(18);
+
+      // A timed row's padding is even — the spacing fix the user asked for. The
+      // all-day row was already right and is deliberately left asymmetric.
+      expect(timedPad).toBe(8);
+      expect(alldayPad).toBe(6);
+    });
+
   it('anchors the gutter time to the node, not to the row centre', () => {
     // The label used to be `items-center` on a stretched column, which is the
     // node's offset only while the entry is one line tall. It now shares
