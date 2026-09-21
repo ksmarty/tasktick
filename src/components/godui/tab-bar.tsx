@@ -31,12 +31,13 @@
  *     The blob is projected with a transform, so the hint keeps it on its own
  *     compositor layer for the duration of the slide.
  *
- * The label's `layout` prop is NOT a local change: upstream has it, and it is
- * what keeps the reveal off the layout path. A previous local edit removed it in
- * favour of tweening `width`, which animates a layout property on every frame
- * and drags the blob's projection along with it (the whole button resizes as the
- * label grows). It is back to upstream's shape deliberately — see the `motion.span`
- * below.
+ * The label's `layout` prop is NOT a local change: upstream has it, and a
+ * previous local edit had removed it in favour of tweening `width` alone. That
+ * is the drift this file had accumulated; it is restored to upstream's shape
+ * deliberately — see the `motion.span` below. (Measured: the restore did not
+ * move the frame numbers, because the tab switch is dominated by React
+ * rendering the destination route rather than by the bar's own animation. It is
+ * kept because it matches the registry source, not because it is a perf win.)
  */
 import { motion } from 'framer-motion';
 import * as React from 'react';
@@ -156,17 +157,13 @@ const TabBar = React.forwardRef<HTMLElement, TabBarProps>(
                     * `layout`, as upstream ships it — restored deliberately.
                     *
                     * A previous local edit removed this and tweened `width`
-                    * instead, on the theory that it was "the same result for
-                    * less work". It is the opposite: `width` is a layout
-                    * property, so the tween re-laid-out the label (and its
-                    * button, and the blob sized `inset-0` inside it) on every
-                    * frame of the spring. Framer's projection then re-measured a
-                    * box that was moving every frame, and the tab switch spent its
-                    * budget in layout instead of on the compositor. `layout` does
-                    * one measurement and projects the change as a transform.
-                    *
-                    * The `width` target stays, because that is what tells framer
-                    * the box the label should settle at.
+                    * instead. `width` is a layout property, so the tween
+                    * re-laid-out the label (and its button, and the blob sized
+                    * `inset-0` inside it) on every frame of the spring; with
+                    * `layout`, framer does one measurement and projects the
+                    * change as a transform instead. This is the vendored file's
+                    * drift from the registry source, and the reason it looked
+                    * different from the site.
                     */
                   layout
                   initial={

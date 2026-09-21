@@ -176,84 +176,119 @@ export function resolveReducedMotion(
 /* low power inference                                                        */
 /* -------------------------------------------------------------------------- */
 
-/** A frame that took longer than this was a suspended tab, not a slow one. */
-export const MAX_MEASURED_FRAME_MS = 250;
+/**
+ * The error an autoplay rejection carries when it was *refused* rather than
+ * failed. On iOS, Low Power Mode blocks autoplay even for a muted inline video,
+ * and this is the name the rejection comes back with — so the rejection is not a
+ * failure to handle, it is the signal.
+ */
+const AUTOPLAY_REFUSED = 'NotAllowedError';
 
-export interface FrameTimingOptions {
-  /** The display's expected frame interval; 60 fps by default. */
-  expectedFrameMs?: number;
-  /** How much slower than expected the mean must be to read as low power. */
-  threshold?: number;
-  /** Below this many usable samples the answer is "not enough evidence". */
-  minSamples?: number;
+export interface LowPowerProbeResult {
+  lowPower: boolean;
+  /** False when the probe could not reach a verdict and `lowPower` is a default. */
+  answered: boolean;
 }
 
 /**
- * Infers Low Power Mode from frame intervals. Returns false when there is not
- * enough evidence, so an unknown state never silently reduces motion.
+ * Reads Low Power Mode off an autoplay attempt.
  *
- * The threshold is deliberately loose (1.5x): a 60 fps display under Low Power
- * Mode reports ~33 ms frames (2x), while ordinary jitter on a healthy device
- * stays well under 25 ms.
+ * Takes the `play` function rather than a video element so the rule is testable
+ * without a DOM: the caller supplies a promise that resolves when playback
+ * starts and rejects with `NotAllowedError` when the platform refuses.
+ *
+ * **This replaced an inference from frame timings**, which sampled
+ * `requestAnimationFrame` deltas and read a slow mean as Low Power Mode. That
+ * was a guess: a slow device, a busy main thread and a background tab all look
+ * the same as Low Power Mode, and any of them silently turned the user's
+ * animations off. An autoplay refusal is the platform stating the fact.
+ *
+ * A rejection for any *other* reason answers nothing, and the caller keeps
+ * whatever it had — an unrelated failure must never be read as "low power",
+ * because the cost of a wrong yes is the user's motion preference being
+ * overridden.
  */
-export function detectLowPowerFromFrameDeltas(
-  deltas: readonly number[],
-  options: FrameTimingOptions = {},
-): boolean {
-  const { expectedFrameMs = 1000 / 60, threshold = 1.5, minSamples = 10 } = options;
-  const usable = deltas.filter((delta) => Number.isFinite(delta) && delta > 0 && delta < MAX_MEASURED_FRAME_MS);
-  if (usable.length < minSamples) return false;
-  const mean = usable.reduce((total, delta) => total + delta, 0) / usable.length;
-  return mean > expectedFrameMs * threshold;
+export async function probeLowPower(play: () => Promise<unknown>): Promise<LowPowerProbeResult> {
+  try {
+    await play();
+    return { lowPower: false, answered: true };
+  } catch (error) {
+    const name = (error as { name?: unknown } | null | undefined)?.name;
+    if (name === AUTOPLAY_REFUSED) return { lowPower: true, answered: true };
+    return { lowPower: false, answered: false };
+  }
 }
 
-/** How many frames one sample window measures. */
-const SAMPLE_FRAMES = 30;
-
-/** How often to re-measure while the opt-in is on, so LPM turning on is noticed. */
+/** How often to re-probe while the opt-in is on, so LPM turning on is noticed. */
 const RESAMPLE_INTERVAL_MS = 60_000;
 
 let samplerUsers = 0;
-let rafHandle: number | null = null;
 let resampleTimer: ReturnType<typeof setInterval> | null = null;
-let sampling = false;
-let deltas: number[] = [];
-let lastFrameTime = 0;
-let framesSeen = 0;
+let probing = false;
+let probeGeneration = 0;
 
-function stopSampling(): void {
-  sampling = false;
-  if (rafHandle !== null) {
-    cancelAnimationFrame(rafHandle);
-    rafHandle = null;
-  }
+/**
+ * A muted, inline, invisible video, created only to be asked to play.
+ *
+ * It is never in the shipped HTML — it exists for the length of one probe and is
+ * removed as soon as the answer arrives. `sr-only` rather than inline styles does
+ * the hiding: the element is 1px, clipped and out of flow, so neither it nor the
+ * play button iOS paints over a refused autoplay can be seen. That is also why no
+ * `::-webkit-media-controls` rule is needed here — there is nothing on screen for
+ * controls to sit on.
+ */
+function createProbeVideo(): HTMLVideoElement | null {
+  if (typeof document === 'undefined' || !document.body) return null;
+  const video = document.createElement('video');
+  video.muted = true;
+  video.defaultMuted = true;
+  video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('aria-hidden', 'true');
+  video.tabIndex = -1;
+  video.preload = 'auto';
+  video.className = 'sr-only';
+  document.body.appendChild(video);
+  return video;
 }
 
-function onFrame(time: number): void {
-  if (!sampling) return;
-  if (lastFrameTime > 0) deltas.push(time - lastFrameTime);
-  lastFrameTime = time;
-  framesSeen += 1;
-
-  if (framesSeen >= SAMPLE_FRAMES) {
-    setLowPowerInferred(detectLowPowerFromFrameDeltas(deltas));
-    stopSampling();
-    return;
-  }
-  rafHandle = requestAnimationFrame(onFrame);
+/**
+ * Ends the current probe's authority. An in-flight answer is dropped rather than
+ * applied, so a probe that started before the app was hidden cannot set the
+ * preference afterwards.
+ */
+function stopSampling(): void {
+  probeGeneration += 1;
+  probing = false;
 }
 
 function startSampling(): void {
-  if (typeof window === 'undefined' || typeof requestAnimationFrame !== 'function') return;
-  // A hidden tab is throttled by the browser by design; measuring it would
-  // report low power on every background tab.
+  if (typeof document === 'undefined') return;
+  /*
+   * A hidden tab is throttled by the browser by design. The old frame-timing
+   * probe had to guard against that explicitly; an autoplay refusal is unaffected
+   * by throttling, but a probe in a hidden tab is still wasted work that can be
+   * refused for reasons which are not Low Power Mode, so it is skipped.
+   */
   if (document.visibilityState !== 'visible') return;
-  stopSampling();
-  deltas = [];
-  lastFrameTime = 0;
-  framesSeen = 0;
-  sampling = true;
-  rafHandle = requestAnimationFrame(onFrame);
+  if (probing) return;
+
+  const video = createProbeVideo();
+  if (!video || typeof video.play !== 'function') {
+    video?.remove();
+    return;
+  }
+
+  probing = true;
+  const generation = probeGeneration;
+  void probeLowPower(() => video.play()).then(({ lowPower, answered }) => {
+    video.remove();
+    if (generation !== probeGeneration) return;
+    probing = false;
+    // An unanswered probe leaves the previous value alone: only the platform
+    // saying "no" may turn the user's motion off.
+    if (answered) setLowPowerInferred(lowPower);
+  });
 }
 
 function onVisibilityChange(): void {
@@ -285,7 +320,7 @@ function detachSampler(): void {
 
 /**
  * Ref-counted so the (potentially many) components that call the motion hook
- * share exactly one sampling loop rather than each running their own.
+ * share exactly one probe rather than each running their own.
  */
 function useLowPowerSampler(enabled: boolean): void {
   useEffect(() => {

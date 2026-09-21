@@ -53,26 +53,35 @@ describe('the gutter timeline', () => {
     // is never split around it — the line connects through rather than stopping
     // at each circle.
     /*
-     * The anchor is the centre of a **one-line** entry, not its first text line:
-     * a one-line entry renders 52px tall (`pt-1.5` 6px + the `text-xs` range line
-     * 16px + `mt-0.5` 2px + the `text-sm` title line 20px + `pb-2` 8px), so the
-     * centre is 26px — `6.5` on the spacing scale. Keeping it a fixed offset,
+     * The anchor is the centre of the entry's **first line of text**, not of a
+     * one-line entry: on a timed row that line is the range (`py-2` 8px + half
+     * the `text-xs` 16px line), on an all-day row it is the title (`pt-1.5` 6px
+     * + the title's `mt-0.5` 2px + half the `text-sm` 20px line). Both values are
+     * derived from those numbers in the source, so they cannot be two magic
+     * numbers that happen to look right. Keeping a fixed offset from the top,
      * rather than a `top-1/2` centring, is what lets a two-line entry anchor the
-     * same distance from the top. The offset lives in one constant so the node
-     * and the gutter label cannot disagree.
+     * same way, and the constants are shared with the gutter label so the two
+     * cannot disagree.
      */
-    expect(AGENDA).toContain("const TIMELINE_ANCHOR_TOP = 'top-6.5';");
-    expect(AGENDA).toContain("const TIMELINE_ANCHOR_HEIGHT = 'h-6.5';");
-    expect(AGENDA).toContain('const TIMELINE_ANCHOR = `${TIMELINE_ANCHOR_TOP} -translate-y-1/2`;');
+    expect(AGENDA).toContain('const RANGE_LINE_PX = 16;');
+    expect(AGENDA).toContain('const TITLE_LINE_PX = 20;');
+    expect(AGENDA).toContain('const TITLE_GAP_PX = 2;');
+    expect(AGENDA).toContain('const TIMED_PAD_TOP_PX = 8;');
+    expect(AGENDA).toContain('const ALLDAY_PAD_TOP_PX = 6;');
+    expect(AGENDA).toContain('const TIMED_ANCHOR_PX = TIMED_PAD_TOP_PX + RANGE_LINE_PX / 2;');
+    expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ALLDAY_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2;');
+    expect(AGENDA).toContain("const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';");
     expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
-    expect(AGENDA).toContain('style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}');
+    expect(AGENDA).toContain('item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }');
+    expect(AGENDA).toContain('top: `${anchorPx}px`');
   });
 
   it('anchors the gutter time to the node, not to the row centre', () => {
     // The label used to be `items-center` on a stretched column, which is the
     // node's offset only while the entry is one line tall. It now shares
-    // `TIMELINE_ANCHOR` with the node, so a two-line title moves neither.
-    expect(AGENDA).toContain('TIMELINE_ANCHOR,');
+    // `TIMELINE_ANCHOR_TRANSFORM` with the node, and the same `anchorPx`, so a
+    // two-line title moves neither.
+    expect(AGENDA).toContain('TIMELINE_ANCHOR_TRANSFORM,');
     expect(AGENDA).not.toContain('items-center justify-end text-right');
   });
 
@@ -81,13 +90,15 @@ describe('the gutter timeline', () => {
   });
 
   it('trims the rule to the first and last nodes so it does not dangle', () => {
-    // First row starts its rule at the node's own top-aligned offset, last row
-    // stops there (`TIMELINE_ANCHOR_HEIGHT`, the same 26px as the node), and a
-    // single item (both first and last) draws no rule at all. Fixed offsets now
-    // that the node is anchored to the top; they still meet the node at any row
+    // First row starts its rule at the node's own offset, last row stops there
+    // (the same `anchorPx` as a height), and a single item (both first and last)
+    // draws no rule at all. The offsets are inline and computed from `anchorPx`
+    // now that the anchor is conditional; they still meet the node at any row
     // height, because the node no longer moves with it.
-    expect(AGENDA).toContain("index === 0 ? TIMELINE_ANCHOR_TOP : 'top-0'");
-    expect(AGENDA).toContain("index === items.length - 1 ? TIMELINE_ANCHOR_HEIGHT : '-bottom-3'");
+    expect(AGENDA).toContain("index === 0 ? null : 'top-0'");
+    expect(AGENDA).toContain("index === items.length - 1 ? null : '-bottom-3'");
+    expect(AGENDA).toContain('index === 0 ? { top: `${anchorPx}px` } : null');
+    expect(AGENDA).toContain('index === items.length - 1 ? { height: `${anchorPx}px` } : null');
     expect(AGENDA).toContain('items.length > 1 ? (');
   });
 });
@@ -127,16 +138,17 @@ describe('the agenda entry radius, and the stripe that must not follow it', () =
 });
 
 describe('the agenda entry’s padding', () => {
-  it('is a step below the value that made the entries too tall, on the same text axis', () => {
+  it('is even top and bottom on a timed row, and untouched on an all-day one', () => {
     /*
-     * `pt-1.5 pb-2` (6px top, 8px bottom) is the `py-2` step below the `py-3`
-     * (0.75rem) that raised the entries, with 2px shaved off the top so the
-     * optically-lower equal padding reads as centred. `pl-3` (0.75rem) plus the
-     * `w-1` (4px) strip is exactly where the old border put the text — 16px in —
-     * so the stripe returning to the entry's edge does not move the reading
-     * line. The right edge keeps the row token.
+     * A timed row carries the range line, so its column is `py-2` — 8px top and
+     * bottom, even. The old `pt-1.5 pb-2` (6/8) read as "not enough at the top",
+     * exactly as the user described. An all-day row has no range and reads
+     * correctly at `pt-1.5 pb-2`, so it keeps that shape. `pl-3` (0.75rem) plus
+     * the `w-1` (4px) strip is where the old border put the text — 16px in — so
+     * the stripe returning to the entry's edge does not move the reading line.
+     * The right edge keeps the row token.
      */
-    expect(AGENDA).toContain('justify-center pt-1.5 pb-2 pr-row pl-3');
+    expect(AGENDA).toContain("rangeLabel ? 'py-2' : 'pt-1.5 pb-2'");
     expect(AGENDA).not.toContain('bg-accent py-3');
   });
 
@@ -145,7 +157,7 @@ describe('the agenda entry’s padding', () => {
     // string) but made the class list `/* … */ 'flex …'`, so `'flex` and
     // `py-2'` never matched and the entry lost its padding and its flex box.
     expect(AGENDA).not.toContain('className="/*');
-    expect(AGENDA).toContain('className="flex min-w-0 flex-1 flex-col justify-center');
+    expect(AGENDA).toContain("'flex min-w-0 flex-1 flex-col justify-center pr-row pl-3'");
   });
 });
 

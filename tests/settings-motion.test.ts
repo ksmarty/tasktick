@@ -8,9 +8,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   applyServerMotionPreferences,
-  detectLowPowerFromFrameDeltas,
   getMotionPreferences,
   parseReducedMotion,
+  probeLowPower,
   resolveReducedMotion,
   setMotionPreferences,
 } from '@/lib/motion';
@@ -51,30 +51,40 @@ describe('parseReducedMotion', () => {
   });
 });
 
-describe('detectLowPowerFromFrameDeltas', () => {
-  const frames = (deltaMs: number, count = 30) => Array.from({ length: count }, () => deltaMs);
-
-  it('reports low power for ~30 fps frames', () => {
-    expect(detectLowPowerFromFrameDeltas(frames(1000 / 30))).toBe(true);
+describe('probeLowPower', () => {
+  it('reads Low Power Mode off an autoplay refusal', async () => {
+    const refusal = Object.assign(new Error('play() failed'), { name: 'NotAllowedError' });
+    await expect(probeLowPower(() => Promise.reject(refusal))).resolves.toEqual({
+      lowPower: true,
+      answered: true,
+    });
   });
 
-  it('reports normal for ~60 fps frames', () => {
-    expect(detectLowPowerFromFrameDeltas(frames(1000 / 60))).toBe(false);
+  it('reports normal when playback starts', async () => {
+    await expect(probeLowPower(() => Promise.resolve(undefined))).resolves.toEqual({
+      lowPower: false,
+      answered: true,
+    });
   });
 
-  it('reports normal when there is not enough evidence', () => {
-    expect(detectLowPowerFromFrameDeltas(frames(1000 / 30, 5))).toBe(false);
+  /*
+   * The important case. A rejection for any other reason says nothing about the
+   * battery, and answering "low power" anyway would switch the user's motion off
+   * on the strength of an unrelated failure.
+   */
+  it('answers nothing when the rejection is not an autoplay refusal', async () => {
+    const other = Object.assign(new Error('no source'), { name: 'NotSupportedError' });
+    await expect(probeLowPower(() => Promise.reject(other))).resolves.toEqual({
+      lowPower: false,
+      answered: false,
+    });
   });
 
-  it('ignores suspended-tab gaps instead of reading them as slow frames', () => {
-    // Ten ~1000 ms gaps (a hidden tab) plus real 60 fps frames must not trip it.
-    const deltas = [...frames(1000, 10), ...frames(1000 / 60, 20)];
-    expect(detectLowPowerFromFrameDeltas(deltas)).toBe(false);
-  });
-
-  it('ignores non-positive and non-finite samples', () => {
-    const deltas = [0, -1, Number.NaN, Number.POSITIVE_INFINITY, ...frames(1000 / 60, 20)];
-    expect(detectLowPowerFromFrameDeltas(deltas)).toBe(false);
+  it('answers nothing when the failure is not an error object at all', async () => {
+    await expect(probeLowPower(() => Promise.reject('nope'))).resolves.toEqual({
+      lowPower: false,
+      answered: false,
+    });
   });
 });
 

@@ -47,6 +47,17 @@ const SCOPE_META_KEY = 'session-scope';
 /** The session endpoint used to learn the scope. Never cached, never queued. */
 export const SESSION_ENDPOINT = '/api/auth/get-session';
 
+/**
+ * How long `get-session` may hold up the offline machinery before the stored
+ * scope is used instead.
+ *
+ * A healthy server answers in a few hundred milliseconds. Bounding it matters on
+ * a link that hangs rather than refuses, where no `offline` event fires: an
+ * unbounded handshake delayed connectivity reporting, the write queue and the
+ * IndexedDB restore until the browser's own timeout. See `fetchLiveScope`.
+ */
+const SESSION_TIMEOUT_MS = 3000;
+
 export type ScopeEvent =
   | { type: 'resolved'; scope: string }
   | { type: 'changed'; from: string; to: string }
@@ -210,22 +221,45 @@ function postToServiceWorker(message: unknown): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 async function fetchLiveScope(): Promise<string | null> {
+  /*
+   * Bounded on purpose. This is the FIRST thing the page waits for: announcing
+   * connectivity, starting the write queue and restoring IndexedDB all begin
+   * only once `runInit` gets past it. On a link that hangs — accepted, never
+   * answered, so no `offline` event ever fires — an unbounded fetch here meant
+   * the worker was told nothing and the stored data was never restored until the
+   * browser gave up. The stored scope is a perfectly good answer in that case.
+   */
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SESSION_TIMEOUT_MS);
   try {
     const response = await fetch(SESSION_ENDPOINT, {
       credentials: 'same-origin',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
+      signal: controller.signal,
     });
     if (!response.ok) return null;
     return sessionScopeFromPayload(await response.json());
   } catch {
-    // Offline, or the server is down: the stored scope is the best answer.
+    // Offline, the server is down, or the handshake timed out: the stored scope
+    // is the best answer.
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 async function runInit(): Promise<void> {
   if (typeof window === 'undefined') return;
+
+  /*
+   * Started before anything else, and before the session handshake below can
+   * block. Connectivity is what the worker needs to choose cache-first, so the
+   * listeners must be up even while `get-session` is still in flight; waiting
+   * for it was exactly the gap that made an immediate offline request pay the
+   * full timeout.
+   */
+  trackConnectivity();
 
   const [stored, live] = await Promise.all([readStoredScope(), fetchLiveScope()]);
 
@@ -271,14 +305,8 @@ async function runInit(): Promise<void> {
 
   startQueuePump();
   resumeQueue();
-  /*
-   * Started here rather than by a component: everything the worker does when
-   * the network drops depends on it knowing that it dropped.
-   */
-  trackConnectivity();
 }
 
-/** Resolves the session scope and starts the offline machinery. Idempotent. */
 /**
  * Keeps the worker's idea of connectivity in step with the browser's.
  *
@@ -287,7 +315,8 @@ async function runInit(): Promise<void> {
  * full timeout waiting for a network that was not coming — which is what made
  * offline mode unusable rather than merely limited. The page knows, so it says.
  *
- * Called once, and it removes its own listeners when the app unmounts.
+ * Called once, from the very start of `runInit`, and it removes its own
+ * listeners when the app unmounts.
  */
 export function trackConnectivity(): () => void {
   if (typeof window === 'undefined') return () => undefined;
@@ -301,6 +330,7 @@ export function trackConnectivity(): () => void {
   };
 }
 
+/** Resolves the session scope and starts the offline machinery. Idempotent. */
 export function ensureOfflineSupport(): Promise<void> {
   if (!initialised) initialised = runInit().catch((error) => console.warn('[offline] init failed', error));
   return initialised;

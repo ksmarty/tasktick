@@ -19,6 +19,7 @@ const TASKS_VIEW = source('components/tasks/TasksView.tsx');
 const TODAY_VIEW = source('components/tasks/TodayView.tsx');
 const USE_TASK_ACTIONS = source('components/tasks/useTaskActions.ts');
 const COMPLETION_UNDO = source('components/tasks/CompletionUndo.tsx');
+const QUICK_ADD_FAB = source('components/app/QuickAddFab.tsx');
 
 describe('the app toast dwell time', () => {
   it('sits in the 1.5-2s the user asked for', () => {
@@ -54,7 +55,7 @@ describe('the app toast dwell time', () => {
   /*
    * PORTED from the old `action: { label: 'Undo' }` assertions. The completion
    * path used to raise a full toast with an Undo action; it now raises the small
-   * left-edge `CompletionUndo` instead, and the re-add (undo) path raises nothing.
+   * `CompletionUndo` control instead, and the re-add (undo) path raises nothing.
    * The point of the original assertion survives: the completion feedback is
    * still present, still undoable, and still has no persistent banner.
    */
@@ -66,11 +67,31 @@ describe('the app toast dwell time', () => {
       expect(view).not.toContain('duration: 5000');
     }
     expect(USE_TASK_ACTIONS).not.toContain('Marked as not done');
-    // The 1.2s window the user asked for is the constant the control reads.
-    expect(COMPLETION_UNDO).toContain('const COMPLETION_UNDO_MS = 1200;');
+    // The 2s window the user asked for is the constant the control reads.
+    expect(COMPLETION_UNDO).toContain('const COMPLETION_UNDO_MS = 2000;');
   });
 });
 
+
+/*
+ * The control's shape, which the user specified: the same size as the action
+ * button, icon only, and stacked above it on the right rather than at the left
+ * edge. Pinned because the geometry is the requirement, and it had already
+ * drifted twice.
+ */
+it('is an icon-only control the size of the action button, above it on the right', () => {
+  // The action button is `size-14`; this must match it, not approximate it.
+  expect(QUICK_ADD_FAB).toContain('size-14');
+  expect(COMPLETION_UNDO).toContain('size-14');
+  // Stacked above the band, sharing the action button gutter.
+  expect(COMPLETION_UNDO).toContain('right-gutter');
+  expect(COMPLETION_UNDO).not.toContain('left-gutter');
+  // Icon only: no visible label text, and the name still carries the task.
+  expect(COMPLETION_UNDO).toContain('aria-label={`Undo completing ${task.title}`}');
+  expect(COMPLETION_UNDO).not.toMatch(/>\s*Undo\s*</);
+  // A different colour from the action button's `bg-primary`.
+  expect(COMPLETION_UNDO).toContain('bg-secondary');
+});
 describe('the countdown actually starts', () => {
   /*
    * The bug this pins: `expanded` suppresses the dismiss timer, and the

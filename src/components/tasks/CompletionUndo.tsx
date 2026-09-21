@@ -41,7 +41,7 @@ import { Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** How long the control stays after a completion, in ms. */
-export const COMPLETION_UNDO_MS = 1200;
+export const COMPLETION_UNDO_MS = 2000;
 
 export interface CompletionUndoTask {
   id: string;
@@ -62,8 +62,8 @@ export function CompletionUndo({ task, onUndo, onDismiss, className }: Completio
   /*
    * `onDismiss` is read through a ref so the timer effect can depend only on the
    * task. Callers pass it inline, and an inline callback is a new function every
-   * render — depending on it would restart the 1.2s countdown on every render
-   * and the control would outlive its window.
+   * render — depending on it would restart the 2s countdown on every render and
+   * the control would outlive its window.
    */
   const dismissRef = useRef(onDismiss);
   useEffect(() => {
@@ -84,7 +84,16 @@ export function CompletionUndo({ task, onUndo, onDismiss, className }: Completio
     <div
       aria-live="polite"
       className={cn(
-        'fixed left-gutter bottom-[calc(env(safe-area-inset-bottom,0px)_+_5.5rem)] z-appbar',
+        /*
+         * Directly above the action button, sharing its right-hand gutter.
+         *
+         * It used to sit at the screen's left edge as a small pill, which put it
+         * as far as possible from the thumb that had just ticked the task off. The
+         * action button is the place a thumb already is, so the Undo stacks on it.
+         * The `5.5rem` clears the band: the pill is 60px tall sitting 2px off the
+         * bottom, so anything less would overlap it.
+         */
+        'fixed right-gutter bottom-[calc(env(safe-area-inset-bottom,0px)_+_5.5rem)] z-appbar',
         'animate-in fade-in duration-100',
         className,
       )}
@@ -98,12 +107,20 @@ export function CompletionUndo({ task, onUndo, onDismiss, className }: Completio
         }}
         aria-label={`Undo completing ${task.title}`}
         className={cn(
-          'inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground shadow-sm',
+          /*
+           * The same 56px circle the action button is, so the pair reads as one
+           * stack, but on `secondary` rather than `primary`: in light mode that is
+           * a pale disc with a dark glyph under a near-black one, and in dark mode
+           * it inverts the same way, so the two are told apart in both themes.
+           * No text — the accessible name carries the task title, which is what a
+           * bare "Undo" could not.
+           */
+          'inline-flex size-14 shrink-0 items-center justify-center rounded-full',
+          'border border-border bg-secondary text-secondary-foreground shadow-lg',
           'outline-none focus-visible:ring-2 focus-visible:ring-ring',
         )}
       >
-        <Undo2 className="size-3.5" aria-hidden />
-        Undo
+        <Undo2 className="size-6" aria-hidden />
       </button>
     </div>
   );

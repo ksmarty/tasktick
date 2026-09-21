@@ -34,17 +34,18 @@
  * rule its own clearance while staying legible; the values stay right-aligned
  * against the rule.
  *
- * The node and the gutter label share one anchor: a fixed `top-6.5` (26px) from
- * the entry's top — the vertical centre of a **one-line** entry. It is a
- * distance from the top rather than a `top-1/2` centring, because a two-line
- * entry is taller and a centred node would slide down with it; the rule the user
- * asked for is "centre a one-line entry, and keep a two-line entry the same
- * distance from the top", which only a fixed offset can satisfy both ways. The
- * offset is the entry's own height halved: a one-line entry renders **52px**
- * tall (`pt-1.5` 6px + the `text-xs` range line 16px + `mt-0.5` 2px + the
- * `text-sm` title line 20px + `pb-2` 8px), so the centre is 26px. That is `6.5`
- * on the spacing scale — a token, not an arbitrary value — and the one constant
- * below is where it lives.
+ * The node and the gutter label share one anchor: the vertical centre of the
+ * entry's **first line of text**. That line is the range on a timed row and the
+ * title on an all-day one, so the anchor is conditional — **16px** for a timed
+ * row (`py-2` 8px top + half the `text-xs` range line, 16px) and **18px** for an
+ * all-day row (`pt-1.5` 6px + the title's `mt-0.5` 2px + half the `text-sm`
+ * title line, 20px). It is a distance from the top rather than a `top-1/2`
+ * centring, because a two-line entry is taller and a centred node would slide
+ * down with it; a fixed offset lets a two-line title grow downward without
+ * dragging the node off the first line. Both values are **derived** from the
+ * measured line boxes and padding — the constants below are the arithmetic, not
+ * two numbers picked to look right — so a class and its px twin can only drift
+ * together.
  *
  * Colour is never the only signal. A task is drawn with a checkbox glyph and a
  * softer card surface than an event's, so "a to-do I scheduled" is never
@@ -136,23 +137,38 @@ const DRAG_COLUMNS = 7;
 const GUTTER_WIDTH_CLASS = 'w-14';
 
 /**
- * The timeline's anchor, stated once so the node, the gutter time and the rule's
- * end trims cannot drift apart: half a one-line entry's measured 52px height —
- * its true vertical centre, `6.5` spacing units = 26px below the entry's top.
- * `-translate-y-1/2` puts each element's own centre on that offset, whatever
- * its height, which is what makes a one-line and a two-line entry anchor
- * identically. Re-measure the entry and move this one number if its line boxes
- * change again.
+ * The entry's line boxes and padding, in px — the measurements the timeline
+ * anchor is derived from, so it is arithmetic over the geometry rather than a
+ * number picked to look right. Each mirrors a class on the entry below:
+ *
+ *   · `text-xs` is a 16px line box; `text-sm` is a 20px one.
+ *   · The title always carries `mt-0.5` (2px), which is the title's own top edge
+ *     inside the column even on an all-day row that has no range above it.
+ *   · A timed row's column is `py-2` — 8px of padding top and bottom, even as
+ *     the user asked. An all-day row's is `pt-1.5 pb-2` (6/8), unchanged.
+ *
+ * Change one of those classes and its px twin here must move with it.
  */
-const TIMELINE_ANCHOR_TOP = 'top-6.5';
+const RANGE_LINE_PX = 16; // text-xs line box
+const TITLE_LINE_PX = 20; // text-sm line box
+const TITLE_GAP_PX = 2; // the title's mt-0.5
+const TIMED_PAD_TOP_PX = 8; // py-2
+const ALLDAY_PAD_TOP_PX = 6; // pt-1.5
+
 /**
- * The same 26px as a height, for the last rule segment, which stops at the node
- * instead of crossing the row. It is written as its own literal because Tailwind
- * scans classes as source text and does not interpolate, so the two must be
- * moved together.
+ * The anchor, stated once so the node, the gutter time and the rule's end trims
+ * cannot drift apart: the centre of the entry's first line of text, in px below
+ * its top. It is conditional because a timed row's first line is the range and
+ * an all-day row's is the title — the two rows have neither the same first line
+ * nor the same padding. `-translate-y-1/2` puts each element's own centre on the
+ * anchor whatever its height, so a two-line title grows downward without moving
+ * the node.
  */
-const TIMELINE_ANCHOR_HEIGHT = 'h-6.5';
-const TIMELINE_ANCHOR = `${TIMELINE_ANCHOR_TOP} -translate-y-1/2`;
+const TIMED_ANCHOR_PX = TIMED_PAD_TOP_PX + RANGE_LINE_PX / 2; // 16px
+const ALLDAY_ANCHOR_PX = ALLDAY_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2; // 18px
+
+/** Places an anchored element's own centre on its `top`, whatever its height. */
+const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';
 
 export interface DayAgendaProps {
   /** `payload.days[date] ?? []`, straight from the server. */
@@ -234,6 +250,10 @@ export function DayAgenda({
               // noisy, so the card carries only the title for an all-day row.
               null
             : `${formatTime(item.startMs, prefs)} – ${formatTime(item.endMs, prefs)}`;
+          // The timeline anchor: the centre of the first line of text, which is
+          // the range on a timed row and the title on an all-day one. See the
+          // derived constants at the top of the file for the arithmetic.
+          const anchorPx = rangeLabel ? TIMED_ANCHOR_PX : ALLDAY_ANCHOR_PX;
           const accessibleName = [
             item.isAllDay
               ? `All-day, ${allDayDateLabel(item, prefs.zone)}`
@@ -271,22 +291,23 @@ export function DayAgenda({
                 style={dragging ? { transform: `translate3d(${drag.ghost?.offsetX ?? 0}px, 0, 0)` } : undefined}
               >
                 {/*
-                 * The gutter label shares the node's anchor: `TIMELINE_ANCHOR`
-                 * (26px from the entry's top) centres the label on the same
-                 * offset the node is drawn at, so the time and the dot agree on
-                 * a one-line entry and stay agreed when the title wraps to two.
-                 * The label used to be centred on the whole entry, which is the
-                 * same pixel only while the entry is exactly one line tall —
-                 * every taller row put the time and the node 13-21px apart.
-                 * Absolute inside the full-height gutter column, so it never
-                 * depends on the row's height.
+                 * The gutter label shares the node's anchor: the centre of the
+                 * entry's first line of text (`anchorPx`, 16px on a timed row
+                 * and 18px on an all-day one) centres the label on the same
+                 * offset the node is drawn at, so the time and the dot agree and
+                 * stay agreed when the title wraps to two. The label used to be
+                 * centred on the whole entry, which is the same pixel only while
+                 * the entry is exactly one line tall — every taller row put the
+                 * time and the node apart. Absolute inside the full-height gutter
+                 * column, so it never depends on the row's height.
                  */}
                 <span className={cn(GUTTER_WIDTH_CLASS, 'relative shrink-0')}>
                   <span
                     className={cn(
                       'absolute inset-x-0 text-right text-[0.6875rem] text-muted-foreground tabular-nums',
-                      TIMELINE_ANCHOR,
+                      TIMELINE_ANCHOR_TRANSFORM,
                     )}
+                    style={{ top: `${anchorPx}px` }}
                   >
                     {gutterLabel}
                   </span>
@@ -308,13 +329,11 @@ export function DayAgenda({
                  *
                  * First and last are trimmed to their nodes rather than the row
                  * edges: the first row starts its rule at the node's own offset
-                 * (`TIMELINE_ANCHOR_TOP`, exactly where the node is drawn) and
-                 * the last stops there (`TIMELINE_ANCHOR_HEIGHT`, the same 26px,
-                 * no bridge), so nothing dangles above the first entry or past
-                 * the final one. The offset is a fixed distance from the top now
-                 * that the node is anchored there rather than centred on a row
-                 * whose height varies — it is the centre of the one-line entry
-                 * and stays put when the title wraps to two. A single-item day is
+                 * (`anchorPx`, exactly where the node is drawn) and the last
+                 * stops there (the same `anchorPx` as a height, no bridge), so
+                 * nothing dangles above the first entry or past the final one.
+                 * The offset is the centre of the entry's first line of text, so
+                 * it stays put when the title wraps to two. A single-item day is
                  * both first and last and draws no rule at all, only its node.
                  */}
                 <span aria-hidden className="relative w-px shrink-0 self-stretch">
@@ -322,19 +341,22 @@ export function DayAgenda({
                     <span
                       className={cn(
                         'absolute left-0 w-px bg-border',
-                        index === 0 ? TIMELINE_ANCHOR_TOP : 'top-0',
-                        index === items.length - 1 ? TIMELINE_ANCHOR_HEIGHT : '-bottom-3',
+                        index === 0 ? null : 'top-0',
+                        index === items.length - 1 ? null : '-bottom-3',
                       )}
+                      style={{
+                        ...(index === 0 ? { top: `${anchorPx}px` } : null),
+                        ...(index === items.length - 1 ? { height: `${anchorPx}px` } : null),
+                      }}
                     />
                   ) : null}
                   {/*
-                   * Anchored to a fixed distance from the top, not centred on the
-                   * whole entry: the anchor is the centre of a one-line entry
-                   * (`top-6.5`, 26px = half the 52px a one-line entry renders),
-                   * so a two-line title grows downward without dragging the node
-                   * off the middle of the short case. It uses the same
-                   * `TIMELINE_ANCHOR` the gutter label does, so the two cannot
-                   * disagree.
+                   * Anchored to the centre of the entry's first line of text,
+                   * not to the whole entry: `anchorPx` is the range's centre on
+                   * a timed row and the title's on an all-day one, so a two-line
+                   * title grows downward without dragging the node off the first
+                   * line. It uses the same `anchorPx` the gutter label does, so
+                   * the two cannot disagree.
                    *
                    * The circle on the line. A timed item is a filled disc in
                    * the item's own colour; an all-day item is a hollow ring of
@@ -345,10 +367,13 @@ export function DayAgenda({
                   <span
                     className={cn(
                       'absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full',
-                      TIMELINE_ANCHOR,
+                      TIMELINE_ANCHOR_TRANSFORM,
                       item.isAllDay && 'border-2 bg-background',
                     )}
-                    style={item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }}
+                    style={{
+                      ...(item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }),
+                      top: `${anchorPx}px`,
+                    }}
                   />
                 </span>
 
@@ -361,20 +386,26 @@ export function DayAgenda({
                  * inner edge stays a straight, square-ended line. See "The
                  * stripe" at the top of this file.
                  *
-                 * The padding is asymmetric on purpose. `pt-1.5 pb-2` (6px top,
-                 * 8px bottom) is the `py-2` step below the `py-3` that made the
-                 * entries too tall, with 2px shaved off the top: equal padding
-                 * reads as sitting low, so the optical correction lifts the text
-                 * block without the geometric centre changing much. The bottom
-                 * keeps the full 8px. `pl-3` (0.75rem) plus the `w-1` (4px)
-                 * strip is the same 16px the old border put the text at, so the
-                 * reading line does not move. The right edge keeps `pr-row` — it
-                 * is the far side of that line and had no reason to move.
+                 * The padding is `py-2` (8px top and bottom) on a timed row:
+                 * even, because the user read the old `pt-1.5 pb-2` split as
+                 * "not enough at the top". An all-day row has no range line and
+                 * reads correctly with the original `pt-1.5 pb-2` (6/8), so it
+                 * keeps it — the asymmetry is now a deliberate all-day-only
+                 * shape rather than a correction applied to every row. `pl-3`
+                 * (0.75rem) plus the `w-1` (4px) strip is the same 16px the old
+                 * border put the text at, so the reading line does not move. The
+                 * right edge keeps `pr-row` — it is the far side of that line and
+                 * had no reason to move.
                  */}
                 <span className="flex min-w-0 flex-1 overflow-hidden rounded-sm bg-accent">
                   <span aria-hidden className="w-1 shrink-0 self-stretch" style={{ backgroundColor: hex }} />
 
-                  <span className="flex min-w-0 flex-1 flex-col justify-center pt-1.5 pb-2 pr-row pl-3">
+                  <span
+                    className={cn(
+                      'flex min-w-0 flex-1 flex-col justify-center pr-row pl-3',
+                      rangeLabel ? 'py-2' : 'pt-1.5 pb-2',
+                    )}
+                  >
                     {/* An all-day row has no range to show; the gutter says it. */}
                     {rangeLabel ? (
                       <span className="block truncate text-xs font-semibold" style={{ color: hex }}>
