@@ -30,12 +30,9 @@ if (!SW_VERSION) throw new Error('could not read VERSION out of public/sw.js');
 /** Read too, so "the ceiling" in a test is the one the worker actually uses. */
 const NAVIGATION_TIMEOUT_MS = Number(/const NAVIGATION_TIMEOUT_MS = (\d+)/.exec(SOURCE)?.[1]);
 if (!NAVIGATION_TIMEOUT_MS) throw new Error('could not read NAVIGATION_TIMEOUT_MS out of public/sw.js');
-/** The cached-read ceiling — the one that decides how long a tab tap waits. */
+/** The cached-read ceiling — the hard ceiling for a read with nothing cached. */
 const API_TIMEOUT_MS = Number(/const API_TIMEOUT_MS = (\d+)/.exec(SOURCE)?.[1]);
 if (!API_TIMEOUT_MS) throw new Error('could not read API_TIMEOUT_MS out of public/sw.js');
-/** How long a response that ALREADY has a cached copy waits for the network. */
-const CACHED_RESPONSE_GRACE_MS = Number(/const CACHED_RESPONSE_GRACE_MS = (\d+)/.exec(SOURCE)?.[1]);
-if (!CACHED_RESPONSE_GRACE_MS) throw new Error('could not read CACHED_RESPONSE_GRACE_MS out of public/sw.js');
 const PRECACHE = `precache-${SW_VERSION}`;
 const RUNTIME = `runtime-${SW_VERSION}`;
 const META = `meta-${SW_VERSION}`;
@@ -132,13 +129,13 @@ interface Harness {
   /** Fire `install` with the network presumably up. */
   install(route: (url: string, request: FakeRequest) => FakeResponse | Error): Promise<void>;
   activate(): Promise<void>;
-  navigation(url: string, route: Route, preload?: Promise<FakeResponse | undefined>): Promise<FakeResponse | undefined>;
+  navigation(url: string, route: Route, preload?: Promise<FakeResponse | undefined>, awaitWaits?: boolean): Promise<FakeResponse | undefined>;
   get(url: string, route: Route, init?: { mode?: string; headers?: Record<string, string>; awaitWaits?: boolean }): Promise<FakeResponse | undefined>;
   request(url: string, init?: { method?: string }): Promise<FakeResponse | undefined>;
   /** Point the fake network at a route without dispatching anything. */
   setRoute(route: Route): void;
   /** Deliver a `message` event from the page (session scope, sign-out, …). */
-  message(data: unknown): Promise<void>;
+  message(data: unknown, ports?: unknown[]): Promise<void>;
 }
 
 type Route = (url: string, request: FakeRequest) => FakeResponse | Error;
@@ -282,9 +279,9 @@ function createHarness(): Harness {
       await dispatch('activate', { waitUntil: (value: Promise<unknown>) => void waits.push(value) });
       await Promise.all(waits);
     },
-    async navigation(url, navigationRoute, preload) {
+    async navigation(url, navigationRoute, preload, awaitWaits = true) {
       route = navigationRoute;
-      return dispatch('fetch', makeEvent(new FakeRequest(url, { mode: 'navigate' }), preload as never));
+      return dispatch('fetch', makeEvent(new FakeRequest(url, { mode: 'navigate' }), preload as never), awaitWaits);
     },
     async get(url, getRoute, init = {}) {
       route = getRoute;
@@ -296,10 +293,11 @@ function createHarness(): Harness {
     setRoute(next) {
       route = next;
     },
-    async message(data) {
+    async message(data, ports = []) {
       const waits: Promise<unknown>[] = [];
       await dispatch('message', {
         data,
+        ports,
         waits,
         waitUntil(value: Promise<unknown>) {
           waits.push(value);
@@ -377,7 +375,7 @@ function json(body: string, status = 200): FakeResponse {
   });
 }
 
-describe('/api/** reads are network-first with a per-session cache', () => {
+describe('/api/** reads are cache-first with a per-session cache', () => {
   it('stores nothing before the worker knows which session it is caching for', async () => {
     const harness = createHarness();
     const response = await harness.get(`${ORIGIN}/api/tasks`, () => json('[1,2,3]'));
@@ -399,7 +397,7 @@ describe('/api/** reads are network-first with a per-session cache', () => {
     expect(offline?.body).toBe('[1,2,3]');
   });
 
-  it('falls back to the cached copy after the short grace, well before the hard ceiling', async () => {
+  it('serves the cached copy immediately, without waiting for the network', async () => {
     vi.useFakeTimers();
     try {
       const harness = createHarness();
@@ -413,17 +411,12 @@ describe('/api/** reads are network-first with a per-session cache', () => {
       const pending = harness.get(`${ORIGIN}/api/tasks`, () => slow as never, { awaitWaits: false });
 
       // Let the worker's own async setup (reading the scope, opening the cache)
-      // finish before the clock moves, or the timeout timer would be created
-      // after the jump and lose the race it is supposed to win.
+      // finish. If a cached copy still waited on a grace, `pending` would not
+      // resolve until that timer fired — and the clock has only moved 1ms.
       await vi.advanceTimersByTimeAsync(1);
-      /*
-       * Just past the GRACE: the cached copy is what the page gets. That the
-       * page does not wait the full hard ceiling is the whole point of the
-       * grace — on a link that hangs, that ceiling was the multi-second freeze.
-       */
-      await vi.advanceTimersByTimeAsync(CACHED_RESPONSE_GRACE_MS + 50);
       const response = await pending;
       expect(response?.body).toBe('["cached"]');
+
       // The slow answer is still used to refresh the cache for next time.
       await vi.advanceTimersByTimeAsync(10_000);
       expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/api/tasks`)?.body).toBe('["fresh"]');
@@ -432,41 +425,88 @@ describe('/api/** reads are network-first with a per-session cache', () => {
     }
   });
 
-  it('serves a cached read after a failed request without waiting at all', async () => {
+  it('serves a cached read without waiting, whether or not the link is known to be down', async () => {
     const harness = createHarness();
     await announce(harness, 's1');
     await harness.get(`${ORIGIN}/api/tasks`, () => json('[1,2,3]'));
-    // One settled failure is enough for the worker to learn the link is down.
+    // A settled failure used to be what let the worker skip the grace; with
+    // cache-first it changes nothing, which is the point.
     await harness.get(`${ORIGIN}/api/habits`, () => new Error('offline'));
 
     vi.useFakeTimers();
     try {
-      // A network that never answers. If the worker had not learned, this would
-      // wait out the grace before serving the cache.
+      // A network that never answers. The cached copy is the answer anyway.
       const pending = harness.get(`${ORIGIN}/api/tasks`, () => new Promise<FakeResponse>(() => undefined) as never, {
         awaitWaits: false,
       });
       const response = await pending;
       expect(response?.body).toBe('[1,2,3]');
-      // Nothing on the clock: no timer was created, so no wait was paid.
+      // Nothing on the clock: no fallback timer was armed for a cache hit.
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('keeps the cached-response grace short, and the hard ceilings bounded', () => {
-    // The grace is the number a person feels on a link that hangs. It must stay
-    // small enough to be imperceptible next to the old multi-second freeze,
-    // while a healthy connection (measured ~250ms for a tab tap, ~330ms for a
-    // document navigation) still wins the race.
-    expect(CACHED_RESPONSE_GRACE_MS).toBeLessThanOrEqual(1000);
-    expect(CACHED_RESPONSE_GRACE_MS).toBeLessThan(API_TIMEOUT_MS);
-    // Six seconds was the reported "~5 seconds"; the hard ceiling is pinned so
-    // it cannot creep back up unnoticed.
+  it('drops the cached reads a write invalidated, so the next read is fresh', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks?window=today`, () => json('["before"]'));
+    expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/api/tasks?window=today`)?.body).toBe('["before"]');
+
+    await harness.message({ type: 'invalidate', prefixes: ['/api/tasks'] });
+
+    // Cache-first must not replay the pre-write body: the entry is gone, so the
+    // read waits for the network and gets the new value.
+    const after = await harness.get(`${ORIGIN}/api/tasks?window=today`, () => json('["after"]'));
+    expect(after?.body).toBe('["after"]');
+  });
+
+  it('invalidates only the prefixes the write named', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks`, () => json('["tasks"]'));
+    await harness.get(`${ORIGIN}/api/habits`, () => json('["habits"]'));
+
+    await harness.message({ type: 'invalidate', prefixes: ['/api/tasks'] });
+
+    const cache = harness.caches.get(API_CACHE)!;
+    expect(cache.get(`${ORIGIN}/api/tasks`)).toBeUndefined();
+    expect(cache.get(`${ORIGIN}/api/habits`)?.body).toBe('["habits"]');
+  });
+
+  it('never lets an API write evict a route document', async () => {
+    const harness = await installedHarness();
+    await announce(harness, 's1');
+    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+
+    // `/tasks` is not under `/api/`, so a stray prefix must be ignored. Serving
+    // the route from cache is the whole point of the document store.
+    await harness.message({ type: 'invalidate', prefixes: ['/tasks', '/calendar'] });
+    const reload = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
+    expect(reload?.body).toBe('<html>tasks</html>');
+  });
+
+  it('acknowledges an invalidate on the port it was given', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+
+    const replies: unknown[] = [];
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (event) => replies.push(event.data);
+    await harness.message({ type: 'invalidate', prefixes: ['/api/tasks'] }, [channel.port2]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The acknowledgement is what lets `revalidate()` in the store refetch only
+    // after the worker has actually dropped the entry.
+    expect(replies).toEqual([{ ok: true }]);
+    channel.port1.close();
+  });
+
+  it('keeps the hard ceilings bounded for reads with nothing cached', () => {
+    // A read with nothing cached still needs a ceiling, but it should not be an
+    // open-ended one; six seconds was the reported "~5 seconds".
     expect(API_TIMEOUT_MS).toBeLessThanOrEqual(2000);
-    // A navigation with nothing cached still needs a ceiling, but it should not
-    // be an open-ended one.
     expect(NAVIGATION_TIMEOUT_MS).toBeLessThanOrEqual(5000);
   });
 
@@ -614,31 +654,29 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(harness.writes).toEqual([]); // navigations are never written at runtime
   });
 
-  it('races a hanging navigation preload against the grace instead of awaiting it forever', async () => {
+  it('serves a cached document immediately even when the navigation preload hangs', async () => {
     vi.useFakeTimers();
     try {
       const harness = await installedHarness();
       await announce(harness, 's1');
-      // A visit that cached the document, so there is something valid to fall
-      // back to.
+      // A visit that cached the document, so there is something valid to serve.
       await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
 
       /*
        * Navigation preload is the request that is actually in flight, so a link
        * that HANGS rather than fails used to hold the screen for as long as the
        * browser's own request timeout: `event.preloadResponse` was awaited
-       * AHEAD of the race. Measured against a link delayed by 20s, the
-       * navigation never resolved at all (>40s) even though the document was
-       * already cached.
+       * AHEAD of the race. Cache-first makes the cached document the answer
+       * regardless of the preload, which is the stronger guarantee.
        */
       const preload = new Promise<FakeResponse | undefined>(() => undefined);
-      const pending = harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'), preload);
+      // A hanging preload is a background refresh here, so do not await its
+      // `waitUntil` — the assertion is about the response the page got.
+      const pending = harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'), preload, false);
 
-      // Let the worker's own async setup run, then step past the GRACE. A
-      // cached document is served on the grace, not the 3s hard ceiling.
+      // Let the worker's own async setup run. Nothing on the clock beyond that:
+      // a cached document must not wait out any fallback timer.
       await vi.advanceTimersByTimeAsync(1);
-      await vi.advanceTimersByTimeAsync(CACHED_RESPONSE_GRACE_MS + 50);
-
       const response = await pending;
       expect(response?.status).toBe(200);
       expect(response?.body).toBe('<html>tasks</html>');
@@ -653,18 +691,17 @@ describe('navigations are network-first with a shell fallback', () => {
       const harness = await installedHarness();
       await announce(harness, 's1');
 
-      // /settings has never been cached. Its document answers later than the
-      // grace but well inside the hard ceiling — a slow-but-ALIVE link.
+      // /settings has never been cached. Its document answers slowly but well
+      // inside the hard ceiling — a slow-but-ALIVE link.
       const slow = new Promise<FakeResponse>((resolve) => {
-        setTimeout(() => resolve(html('<html>settings</html>')), CACHED_RESPONSE_GRACE_MS + 500);
+        setTimeout(() => resolve(html('<html>settings</html>')), 1000);
       });
       const pending = harness.navigation(`${ORIGIN}/settings`, () => slow as never);
 
       await vi.advanceTimersByTimeAsync(1);
-      // Past the grace: an uncached route must NOT be answered with the offline
-      // redirect just because the link is slow. Only a document we already have
-      // may be served early.
-      await vi.advanceTimersByTimeAsync(CACHED_RESPONSE_GRACE_MS + 100);
+      // An uncached route must NOT be answered with the offline redirect just
+      // because the link is slow. Only a document we already have is served
+      // without the network.
       await vi.advanceTimersByTimeAsync(1000);
 
       const response = await pending;

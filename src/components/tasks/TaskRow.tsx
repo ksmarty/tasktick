@@ -60,7 +60,7 @@
  * (`group-hover`/`group-active`), so hover on a pointer and press on a finger
  * both still light it up.
  *
- * ## The swipe reveals as it goes
+ * ## The swipe reveals as it goes, and comes back the same way
  *
  * The action trio used to sit parked outside the card until a release decided
  * the swipe, so a drag moved the row over the bare card and the buttons were
@@ -71,14 +71,33 @@
  * the trio's width it settles open, otherwise it snaps back, and the 200ms
  * transition is disabled only while the finger is down.
  *
+ * Closing is the same gesture in reverse, and it did not exist. A pointerdown on
+ * an open row used to close it on the spot — *before* the gesture was armed — so
+ * the row snapped shut the instant it was touched and the finger's own movement
+ * did nothing at all: the reported "isn't smooth when closing it". The row is now
+ * armed from the revealed position (`fromRevealed`), the drag carries it back 1:1
+ * like any other, and the same half-width rule decides which end it settles at.
+ * A tap still closes it, in `onPointerUp`, and a press *inside* the row no longer
+ * counts as the "anywhere else" that dismisses it — otherwise the row could
+ * never be dragged back.
+ *
+ * That dismissal listener also used to swallow the trio's own buttons: it fired
+ * on the capture phase of every `pointerdown`, slid the buttons out from under
+ * the finger, and the click that followed landed on the row behind them. Tapping
+ * the revealed Complete did not complete anything, it just closed the row. The
+ * listener now ignores presses inside the row, so the three buttons are
+ * reachable by touch at all.
+ *
  * The Pin/Unpin action is the third of those buttons, between Complete and the
  * destructive Delete. Its label tracks the task: it reads "Pin" while the task
  * is loose and "Unpin" once it is pinned, so the same gesture both does and
  * undoes the pin.
  *
  * The long-press lift and the horizontal swipe still share the row without
- * fighting: the axis lock at `GESTURE_SLOP_PX` decides once, a vertical gesture
- * hands the row back to the scroller, and the lift keeps the pointer captured.
+ * fighting: `resolveSwipeAxis` decides the axis, a vertical gesture is handed
+ * back to the scroller, and the lift keeps the pointer captured. The axis is no
+ * longer decided once and never revisited — see that function for the rule and
+ * the measurements behind it.
  *
  * ## The pin marker is on the section header now
  *
@@ -131,14 +150,20 @@ import {
 } from '@/components/ui/context-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
+import { resolveSwipeAxis, type SwipeAxis } from './swipe-axis';
 import { DueDateLabel, TaskMeta } from './TaskMeta';
 
 /** Width of the revealed Complete + Pin/Unpin + Delete trio (3 × 76px, i.e. `w-57`). */
 export const SWIPE_ACTION_WIDTH = 228;
 /** How long a press must last before it lifts the row. */
 const LONG_PRESS_MS = 550;
-/** Movement that cancels a long press and decides the gesture axis. */
-const GESTURE_SLOP_PX = 8;
+/**
+ * How long after a drag the click it emits is treated as that drag's own click
+ * rather than a fresh tap. The click a touch emits after a gesture lands in the
+ * same turn as the gesture itself, so this only has to outlast the browser's own
+ * click synthesis; a real tap always presses down again first and clears it.
+ */
+const CLICK_AFTER_GESTURE_MS = 500;
 /** True only on a device whose primary input can hover and point precisely. */
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
 
@@ -234,7 +259,33 @@ export function TaskRow({
   const [swiping, setSwiping] = useState(false);
 
   const contentRef = useRef<HTMLDivElement>(null);
-  const gesture = useRef({ x: 0, y: 0, active: false, axis: null as null | 'x' | 'y', timer: 0, lifted: false });
+  const gesture = useRef({
+    x: 0,
+    y: 0,
+    active: false,
+    axis: null as SwipeAxis | null,
+    locked: false,
+    /**
+     * The reveal state when the finger went down. A drag starts from this, not
+     * from the live `revealed`, so closing an open row is a drag of the row back
+     * rather than a decision taken out of the finger's hands.
+     */
+    fromRevealed: false,
+    /** Holding the pointer capture, so it is taken and released exactly once. */
+    captured: false,
+    timer: 0,
+    lifted: false,
+  });
+  /**
+   * When the last drag that decided an axis ended, or `-Infinity`.
+   *
+   * A drag is not a tap. The click a touch emits when it lifts must not also run
+   * the content button, which would open the sheet after a swipe that snapped
+   * back — or, on an open row, close it a second time. Timestamped rather than a
+   * flag so it cannot go stale: a press inside the row clears it, and so does
+   * the passage of `CLICK_AFTER_GESTURE_MS`.
+   */
+  const gestureEndedAt = useRef(Number.NEGATIVE_INFINITY);
 
   const reduceMotion = useReducedMotion();
   const completed = task.status === 'completed';
@@ -254,10 +305,17 @@ export function TaskRow({
   // A press that outlives the component must not touch a detached node.
   useEffect(() => () => window.clearTimeout(gesture.current.timer), []);
 
-  // A click anywhere else, or a scroll, puts the revealed actions away.
+  // A click anywhere else, or a scroll, puts the revealed actions away. A press
+  // *inside* this row is not "anywhere else": on an open row it is the start of
+  // the drag that closes it again, so the row follows the finger instead of
+  // snapping shut under it.
   useEffect(() => {
     if (!revealed) return;
-    const close = () => closeReveal();
+    const close = (event: PointerEvent) => {
+      const row = contentRef.current?.parentElement;
+      if (row && event.target instanceof Node && row.contains(event.target)) return;
+      closeReveal();
+    };
     document.addEventListener('pointerdown', close, true);
     return () => document.removeEventListener('pointerdown', close, true);
   }, [revealed]);
@@ -275,6 +333,31 @@ export function TaskRow({
     }
   }
 
+  function capturePointer(pointerId: number) {
+    const state = gesture.current;
+    if (state.captured) return;
+    state.captured = true;
+    const node = contentRef.current;
+    if (node && !node.hasPointerCapture(pointerId)) node.setPointerCapture(pointerId);
+  }
+
+  /**
+   * Gives the pointer back, either because the axis went vertical again before
+   * it was committed or because the gesture is over.
+   */
+  function releasePointer(pointerId: number) {
+    const state = gesture.current;
+    if (!state.captured) return;
+    state.captured = false;
+    const node = contentRef.current;
+    if (node?.hasPointerCapture(pointerId)) node.releasePointerCapture(pointerId);
+  }
+
+  /** True when a click arriving now is the tail of the drag that just ended. */
+  function clickFollowsDrag(): boolean {
+    return performance.now() - gestureEndedAt.current < CLICK_AFTER_GESTURE_MS;
+  }
+
   function toggle() {
     if (disabled) return;
     /*
@@ -289,10 +372,6 @@ export function TaskRow({
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (disabled) return;
-    if (revealed) {
-      closeReveal();
-      return;
-    }
     if (event.button !== 0 && event.pointerType === 'mouse') return;
 
     const state = gesture.current;
@@ -300,17 +379,32 @@ export function TaskRow({
     state.y = event.clientY;
     state.active = true;
     state.axis = null;
+    state.locked = false;
+    /*
+     * Reaching an open row used to close it here, before the finger had decided
+     * anything: the row snapped shut on the first touch and could not then be
+     * swiped back, because the gesture returned without ever being armed. It now
+     * arms as usual, from the revealed position — a tap still closes it, in
+     * `onPointerUp`, and a drag follows the finger back.
+     */
+    state.fromRevealed = revealed;
+    state.captured = false;
     state.lifted = false;
     state.timer = 0;
+    // A new press is a new gesture; the previous one's click tail is done.
+    gestureEndedAt.current = Number.NEGATIVE_INFINITY;
 
-    if (!draggable || !drag) return;
+    // An open row's press is about the reveal, not about reordering: the lift
+    // used to be unreachable there too, because the press closed the row first.
+    if (!draggable || !drag || state.fromRevealed) return;
     state.timer = window.setTimeout(() => {
       state.timer = 0;
       // The extra actions are the pointer's long press and live on the
       // `ContextMenu` above; this timer is the touch lift only.
       if (event.pointerType === 'mouse') return;
       state.lifted = true;
-      contentRef.current?.setPointerCapture(event.pointerId);
+      cancelLongPress();
+      capturePointer(event.pointerId);
       drag.onLiftStart(event);
     }, LONG_PRESS_MS);
   }
@@ -326,29 +420,100 @@ export function TaskRow({
 
     const dx = event.clientX - state.x;
     const dy = event.clientY - state.y;
+    const base = state.fromRevealed ? -SWIPE_ACTION_WIDTH : 0;
 
-    if (state.axis === null) {
-      if (Math.abs(dx) < GESTURE_SLOP_PX && Math.abs(dy) < GESTURE_SLOP_PX) return;
-      state.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-      cancelLongPress();
-      if (state.axis === 'y') {
-        // The user is scrolling the list, not the row.
-        state.active = false;
-        return;
-      }
-      contentRef.current?.setPointerCapture(event.pointerId);
-    }
+    const resolved = resolveSwipeAxis({ dx, dy, axis: state.axis, locked: state.locked });
+    if (!resolved) return;
 
-    if (state.axis === 'x') {
-      const base = revealed ? -SWIPE_ACTION_WIDTH : 0;
+    const first = state.axis === null;
+    state.axis = resolved.axis;
+    state.locked = resolved.locked;
+    // The long press is over the moment the finger commits to a direction.
+    if (first) cancelLongPress();
+
+    if (resolved.axis === 'x') {
+      capturePointer(event.pointerId);
       setSwiping(true);
       setOffsetX(clamp(base + dx, -SWIPE_ACTION_WIDTH, 0));
+      return;
+    }
+
+    // Vertical: put the row back where the touch found it (with its transition
+    // on) and let the scroller have it. Anything the row had already travelled
+    // is given up here — a takeover must not leave it holding a half-swiped row.
+    if (state.captured) {
+      releasePointer(event.pointerId);
+      setSwiping(false);
+      setOffsetX(base);
+    }
+    // Unambiguously a scroll now: the row is out for the rest of the touch, and
+    // whatever click this lift emits belongs to the drag, not to a tap.
+    if (resolved.handOff) {
+      state.active = false;
+      gestureEndedAt.current = performance.now();
     }
   }
 
   function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const state = gesture.current;
     cancelLongPress();
+    // No armed gesture means this lift belongs to nothing (a press that was
+    // ignored, or one the row already let go of).
+    if (!state.active) return;
+
+    if (state.lifted) {
+      releasePointer(event.pointerId);
+      state.active = false;
+      state.lifted = false;
+      drag?.onLiftEnd(event);
+      return;
+    }
+
+    const base = state.fromRevealed ? -SWIPE_ACTION_WIDTH : 0;
+
+    if (state.axis === 'x') {
+      /*
+       * The release position comes from the event's own coordinates rather than
+       * from `offsetX` state. `pointermove` is a continuous event, so its state
+       * updates are not guaranteed to have been rendered by the time the lift
+       * arrives; reading the state can latch the row the wrong way after a fast
+       * drag, where the last move and the lift land in the same frame.
+       */
+      const dragged = clamp(base + (event.clientX - state.x), -SWIPE_ACTION_WIDTH, 0);
+      const open = dragged <= -SWIPE_ACTION_WIDTH / 2;
+      setRevealed(open);
+      setOffsetX(open ? -SWIPE_ACTION_WIDTH : 0);
+      setSwiping(false);
+    } else if (state.axis === 'y') {
+      setOffsetX(base);
+      setSwiping(false);
+    } else if (state.fromRevealed) {
+      // A tap on a swiped-open row puts the actions away, the way iOS does —
+      // and the click that follows must not then open the sheet, which is what
+      // it would do now that the reveal is closed before the click is decided.
+      gestureEndedAt.current = performance.now();
+      closeReveal();
+    }
+
+    // A drag is not a tap: the click that follows it must not open the sheet.
+    if (state.axis !== null) gestureEndedAt.current = performance.now();
+    releasePointer(event.pointerId);
+    state.active = false;
+    state.axis = null;
+    state.locked = false;
+  }
+
+  /**
+   * The browser taking the touch for a scroll, or the pointer going away.
+   *
+   * There is no position in this event to settle to (`clientX`/`clientY` are
+   * zero), so the row goes back to where the touch found it — and an open row
+   * closes, because a scroll is one of the things that puts the actions away.
+   */
+  function onPointerCancel(event: ReactPointerEvent<HTMLDivElement>) {
+    const state = gesture.current;
+    cancelLongPress();
+    releasePointer(event.pointerId);
 
     if (state.lifted) {
       state.active = false;
@@ -357,15 +522,18 @@ export function TaskRow({
       return;
     }
 
-    if (state.axis === 'x') {
-      const open = offsetX <= -SWIPE_ACTION_WIDTH / 2;
-      setRevealed(open);
-      setOffsetX(open ? -SWIPE_ACTION_WIDTH : 0);
+    if (state.fromRevealed) closeReveal();
+    else {
+      setOffsetX(0);
       setSwiping(false);
     }
 
+    // The scroll that took the touch also emits no click, but a long press that
+    // ends here can, so guard it the same way.
+    if (state.axis !== null) gestureEndedAt.current = performance.now();
     state.active = false;
     state.axis = null;
+    state.locked = false;
   }
 
   const lifted = Boolean(drag?.isLifted);
@@ -422,7 +590,7 @@ export function TaskRow({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerCancel={onPointerCancel}
       style={{
         transform: `translate(${offsetX}px, ${lifted ? (drag?.liftOffset ?? 0) : 0}px)`,
         transition: swiping || lifted ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
@@ -474,6 +642,8 @@ export function TaskRow({
         type="button"
         onClick={() => {
           if (disabled) return;
+          // The click a drag emits is that drag's tail, not a fresh tap.
+          if (clickFollowsDrag()) return;
           // A tap on a swiped-open row just puts the actions away, the way iOS does.
           if (revealed) {
             closeReveal();

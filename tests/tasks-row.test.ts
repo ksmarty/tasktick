@@ -767,3 +767,87 @@ describe('section-aware trailing label', () => {
     expect(SECTION).toContain("section.id !== 'today'");
   });
 });
+
+/**
+ * The swipe's closing half, and the tap that used to be mistaken for it.
+ *
+ * What a real touch sequence measured on the old build (Chromium 153, 390×844,
+ * `hasTouch`, CDP touch events), tapping the way a thumb does rather than
+ * calling `click()` from the console:
+ *
+ * | gesture | measured before |
+ * |---|---|
+ * | open a row, then drag it right by 170px | the row jumped `-228px → 0px` in one frame at the first touch, and the 9 `pointermove`s that followed moved it nowhere — the close was not a drag |
+ * | open a row, then tap the revealed **Complete** | row closed, task *not* completed (the touch's click was delivered to the row behind the button) |
+ * | open a row, then tap the row's own content | row closed — and the sheet opened in one probe and not in another, because the click's target is whatever happens to be under it after the row has slid away |
+ * | open a row, then tap where the revealed buttons are | row closed, **and the task's detail sheet opened** |
+ * | swipe 14px (one move past the slop), release | row snapped back, **and the sheet opened** |
+ *
+ * The old probe missed all of it because it drove the rows' own `click()` from
+ * `page.evaluate`, which never runs the `pointerdown` listener the real gesture
+ * goes through. These pins are on the source because the behaviour they stand
+ * for needs a browser; the axis arithmetic next to the swipe is pinned by
+ * resolved value in `tasks-swipe-axis.test.ts`.
+ */
+describe('TaskRow — closing a revealed row is the swipe in reverse', () => {
+  /** The body of one handler, so a pin cannot match the same text elsewhere. */
+  function handler(name: string, nextAnchor: string): string {
+    const start = ROW.indexOf(`function ${name}(`);
+    const end = ROW.indexOf(nextAnchor);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return ROW.slice(start, end);
+  }
+
+  it('arms the gesture from the revealed position instead of closing on press', () => {
+    // Pressing an open row used to close it before the gesture was armed, so the
+    // row snapped shut on the first touch and could not be swiped back at all.
+    const down = handler('onPointerDown', 'function onPointerMove(');
+    expect(down).toContain('state.fromRevealed = revealed;');
+    expect(down).not.toContain('closeReveal');
+  });
+
+  it('still closes it on a tap, on release, with the click that follows swallowed', () => {
+    const up = handler('onPointerUp', 'function onPointerCancel(');
+    expect(up).toContain('} else if (state.fromRevealed) {');
+    expect(up).toContain('closeReveal();');
+    expect(up).toContain('if (state.axis !== null) gestureEndedAt.current = performance.now();');
+    // The content button is what would otherwise open the sheet on that click.
+    expect(ROW).toContain('if (clickFollowsDrag()) return;');
+    expect(ROW).toContain('CLICK_AFTER_GESTURE_MS');
+    expect(ROW).toContain('gestureEndedAt');
+  });
+
+  it('dismisses the reveal only for a press outside the row', () => {
+    // The capture-phase `pointerdown` listener fired for presses *inside* the
+    // row too, which slid the revealed buttons out from under the finger before
+    // the click landed: tapping Complete closed the row instead of completing.
+    expect(ROW).toContain('const row = contentRef.current?.parentElement;');
+    expect(ROW).toContain('if (row && event.target instanceof Node && row.contains(event.target)) return;');
+  });
+
+  it('settles a release from the pointer, not from state that may not have rendered', () => {
+    // `pointermove` is a continuous event, so its state update is not guaranteed
+    // to have been committed when the lift arrives; reading `offsetX` there can
+    // latch a fast drag the wrong way.
+    const up = handler('onPointerUp', 'function onPointerCancel(');
+    expect(up).toContain('clamp(base + (event.clientX - state.x), -SWIPE_ACTION_WIDTH, 0)');
+    expect(up).not.toMatch(/const open = offsetX/);
+  });
+
+  it('gives a cancelled pointer its own settle, never the cancel event\'s 0,0', () => {
+    // `pointercancel` carries `clientX`/`clientY` of zero, so running it through
+    // the release maths would read as a huge leftward drag and latch the row open.
+    expect(ROW).toContain('onPointerCancel={onPointerCancel}');
+    const cancel = handler('onPointerCancel', 'const lifted = Boolean(');
+    expect(cancel).not.toContain('clientX');
+    expect(cancel).toContain('if (state.fromRevealed) closeReveal();');
+    expect(ROW).not.toContain('onPointerCancel={onPointerUp}');
+  });
+
+  it('leaves the axis rule to one function, so the constants cannot drift back inline', () => {
+    expect(ROW).toContain("from './swipe-axis'");
+    expect(ROW).toContain('resolveSwipeAxis({ dx, dy, axis: state.axis, locked: state.locked })');
+    expect(ROW).not.toMatch(/state\.axis = Math\.abs\(dx\)/);
+  });
+});

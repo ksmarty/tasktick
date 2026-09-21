@@ -69,7 +69,7 @@ describe('the gutter timeline', () => {
     expect(AGENDA).toContain('const ROW_PAD_TOP_PX = 8;');
     expect(AGENDA).not.toContain('ALLDAY_PAD_TOP_PX');
     expect(AGENDA).toContain('const TIMED_ANCHOR_PX = ROW_PAD_TOP_PX + RANGE_LINE_PX / 2;');
-    expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2;');
+    expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_LINE_PX / 2;');
     expect(AGENDA).toContain("const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';");
     expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
     expect(AGENDA).toContain('item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }');
@@ -87,7 +87,7 @@ describe('the gutter timeline', () => {
      * centre and the entry's first line of text agreed to the pixel on a one-line
      * and a two-line entry alike.
      */
-    it('resolves the anchors to 16px and 20px from one shared top padding', () => {
+    it('resolves the anchors to 16px and 18px from one shared top padding', () => {
       const px = (name: string): number => {
         const m = AGENDA.match(new RegExp(`const ${name} = (\\d+);`));
         if (!m) throw new Error(`no ${name} in DayAgenda.tsx`);
@@ -96,11 +96,24 @@ describe('the gutter timeline', () => {
       const rangeLine = px('RANGE_LINE_PX');
       const titleLine = px('TITLE_LINE_PX');
       const titleGap = px('TITLE_GAP_PX');
+  
+    // The gap is the timed row's title spacing only: on an all-day row there is
+    // nothing above the title, so the margin is not applied and both rows start
+    // their first line of text at the same 8px.
+    expect(AGENDA).toContain("rangeLabel ? 'mt-0.5' : '-mt-px'");
+    expect(AGENDA).not.toContain('mt-0.5 line-clamp-2');
+    /*
+     * The `-mt-px` is an optical correction, not a stray. The title is `text-sm`
+     * in a 20px line box and the range is `text-xs` in a 16px one, so with equal
+     * padding the title glyphs still sat 1px lower — measured with a Range, and
+     * the two now agree to 0.0px. Removing it re-opens the gap the user reported.
+     */
+    expect(AGENDA).toContain('-mt-px');
       const rowPad = px('ROW_PAD_TOP_PX');
 
       // The values measured on the built app.
       expect(rowPad + rangeLine / 2).toBe(16);
-      expect(rowPad + titleGap + titleLine / 2).toBe(20);
+      expect(rowPad + titleLine / 2).toBe(18);
 
       /*
        * One padding constant, used by both anchors. This is the invariant the user
@@ -204,7 +217,7 @@ describe('the title may run to two lines, and the description yields', () => {
     // The user asked for the title to be allowed two lines. `truncate` pinned it
     // to one and would also have fought the wrap (`white-space: nowrap`), so it
     // is gone; the full title still travels in the button's accessible name.
-    expect(AGENDA).toContain('mt-0.5 line-clamp-2 text-sm text-foreground');
+    expect(AGENDA).toContain("cn('line-clamp-2 text-sm text-foreground', rangeLabel ? 'mt-0.5' : '-mt-px')");
     expect(AGENDA).not.toContain("'mt-0.5 block truncate text-sm text-foreground'");
   });
 
@@ -213,7 +226,7 @@ describe('the title may run to two lines, and the description yields', () => {
     // to the title whenever the title needs it, and the location only shows
     // while the title fits on one. The location itself is still a single
     // ellipsised line; it does not get a line of its own on top of two.
-    expect(AGENDA).toContain('<span className="mt-0.5 line-clamp-2 text-sm text-foreground">');
+    expect(AGENDA).toContain("rangeLabel ? 'mt-0.5' : '-mt-px'");
     expect(AGENDA).toContain('block truncate text-xs text-muted-foreground');
     expect(AGENDA).not.toContain('mt-0.5 block truncate text-xs text-muted-foreground');
   });

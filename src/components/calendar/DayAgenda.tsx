@@ -37,12 +37,12 @@
  * The node and the gutter label share one anchor: the vertical centre of the
  * entry's **first line of text**. That line is the range on a timed row and the
  * title on an all-day one, so the anchor is conditional — **16px** for a timed
- * row (`py-2` 8px top + half the `text-xs` range line, 16px) and **20px** for an
- * all-day row (the same 8px + the title's `mt-0.5` 2px + half the `text-sm`
- * title line, 20px). Every row pads `py-2` so the two start from the same
- * place; the difference is only which line comes first. It is a distance from
- * the top rather than a `top-1/2` centring, because a two-line entry is
- * taller and a centred node would slide.
+ * row (`py-2` 8px top + half the `text-xs` range line, 16px) and **18px** for an
+ * all-day row (the same 8px + half the `text-sm` title line, 20px). The title's
+ * `mt-0.5` applies only when a range sits above it, so both rows put their first
+ * line of text at the same 8px — which is what makes the two comparable. It is a
+ * distance from the top rather than a `top-1/2` centring, because a two-line
+ * entry is taller and a centred node would slide.
  * centring, because a two-line entry is taller and a centred node would slide
  * down with it; a fixed offset lets a two-line title grow downward without
  * dragging the node off the first line. Both values are **derived** from the
@@ -145,8 +145,8 @@ const GUTTER_WIDTH_CLASS = 'w-14';
  * number picked to look right. Each mirrors a class on the entry below:
  *
  *   · `text-xs` is a 16px line box; `text-sm` is a 20px one.
- *   · The title always carries `mt-0.5` (2px), which is the title's own top edge
- *     inside the column even on an all-day row that has no range above it.
+ *   · The title carries `mt-0.5` (2px) **only when a range line is above it** — on
+ *     an all-day row it is not applied, so both rows start their first line at 8px.
  *   · A row's column is `py-2` — 8px of padding top and bottom, the same
  *     whether or not it has a range line, so the two anchors start from the
  *     same place and can be compared.
@@ -155,7 +155,7 @@ const GUTTER_WIDTH_CLASS = 'w-14';
  */
 const RANGE_LINE_PX = 16; // text-xs line box
 const TITLE_LINE_PX = 20; // text-sm line box
-const TITLE_GAP_PX = 2; // the title's mt-0.5
+const TITLE_GAP_PX = 2; // the title's mt-0.5, timed rows only
 const ROW_PAD_TOP_PX = 8; // py-2, on every row
 
 /**
@@ -168,7 +168,7 @@ const ROW_PAD_TOP_PX = 8; // py-2, on every row
  * the node.
  */
 const TIMED_ANCHOR_PX = ROW_PAD_TOP_PX + RANGE_LINE_PX / 2; // 16px
-const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_GAP_PX + TITLE_LINE_PX / 2; // 20px
+const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_LINE_PX / 2; // 18px
 
 /** Places an anchored element's own centre on its `top`, whatever its height. */
 const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';
@@ -428,7 +428,7 @@ export function DayAgenda({
                      * measurement and no JavaScript; the full title still travels
                      * in the button's accessible name above.
                      */}
-                    <span className="mt-0.5 line-clamp-2 text-sm text-foreground">
+                    <span className={cn('line-clamp-2 text-sm text-foreground', rangeLabel ? 'mt-0.5' : '-mt-px')}>
                       {/*
                        * No checkbox here. The agenda is a calendar, and a calendar shows what is
                        * happening and when — a checkbox on this screen asks you to act on a task

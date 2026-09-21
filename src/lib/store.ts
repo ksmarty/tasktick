@@ -35,7 +35,7 @@ import { api, errorMessage } from './api-client';
 import { isQueueUsable, matchesPrefix, pathnameOf, pendingAffects, subscribeQueue } from './offline-queue';
 import { encodeEntry, persistEntry as persistRecord, forgetPersistedEntry, loadPersistedEntries, shouldApplyHydrated, clearPersistedEntries } from './offline-store';
 import { insertProjectedEntity, projectQueuedCreate } from './offline-projections';
-import { ensureOfflineSupport, onScopeEvent, scopeForWrites } from './session-scope';
+import { ensureOfflineSupport, invalidateServiceWorker, onScopeEvent, scopeForWrites } from './session-scope';
 
 type Listener = () => void;
 
@@ -291,8 +291,17 @@ function registerLoader(key: string, loader: Loader): () => void {
   };
 }
 
-/** Imperatively refreshes every cached key matching a prefix. */
-export function invalidate(prefix: string): void {
+/**
+ * Imperatively refreshes every cached key matching a prefix.
+ *
+ * Marks the client entries stale AND drops the service worker's cached copy of
+ * the same reads. The worker cannot see a write — non-GET requests are never
+ * intercepted — so without this a cache-first read would answer the next mount
+ * with the body from before the write. The returned promise resolves once the
+ * worker has actually dropped its copy; `revalidate()` waits on it, and callers
+ * that only need the local entries stale can ignore it.
+ */
+export function invalidate(prefix: string): Promise<void> {
   for (const key of cache.keys()) {
     if (matchesPrefix(key, prefix)) {
       const entry = getEntry(key);
@@ -300,6 +309,7 @@ export function invalidate(prefix: string): void {
     }
   }
   emit();
+  return invalidateServiceWorker([prefix]);
 }
 
 /**
@@ -308,13 +318,18 @@ export function invalidate(prefix: string): void {
  * `invalidate()` alone only marks entries stale, which is enough when the
  * caller is about to read them again. A write replayed from the offline queue
  * has no such caller, so this is the version it uses.
+ *
+ * The refetch waits for the worker to drop its cached copy first. This is the
+ * one caller that refetches immediately, and a cache-first read racing the drop
+ * would replay exactly the pre-write body the flush replaced.
  */
-export function revalidate(prefix: string): void {
-  invalidate(prefix);
-  for (const [key, callbacks] of loaders) {
-    if (!matchesPrefix(key, prefix)) continue;
-    for (const callback of [...callbacks]) void callback(true);
-  }
+export function revalidate(prefix: string): Promise<void> {
+  return invalidate(prefix).then(() => {
+    for (const [key, callbacks] of loaders) {
+      if (!matchesPrefix(key, prefix)) continue;
+      for (const callback of [...callbacks]) void callback(true);
+    }
+  });
 }
 
 /** Drops a cached entry entirely (e.g. after a delete). */

@@ -182,6 +182,52 @@ export function requestDocumentCache(url?: string): void {
 }
 
 /**
+ * Tells the worker to drop the cached reads a write just invalidated.
+ *
+ * The worker cannot see a write — non-GET requests are never intercepted — so
+ * the page that performed it says which read prefixes are now stale. This is
+ * what lets reads be cache-first without replaying the pre-write body after a
+ * completed task or an edited event.
+ *
+ * The returned promise resolves once the worker has actually deleted the
+ * entries. `revalidate()` awaits it before refetching, so a forced refresh can
+ * never be answered from the copy the write just invalidated. When there is no
+ * worker — or it does not answer — the promise still resolves: the invalidation
+ * is what keeps the cache honest, not a precondition for the app to work.
+ */
+export function invalidateServiceWorker(prefixes: readonly string[]): Promise<void> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return Promise.resolve();
+  const list = prefixes.filter((prefix) => typeof prefix === 'string' && prefix.length > 0);
+  if (list.length === 0) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    // A worker that is not running, or is mid-restart, must not hold a refetch
+    // hostage: the fallback is the cache-first read it would have done anyway.
+    const timer = setTimeout(finish, 1000);
+
+    // Keep `port1` for the reply and transfer `port2`; a transferred port is no
+    // longer usable on the sending side.
+    let transfer: Transferable[] = [];
+    if (typeof MessageChannel !== 'undefined') {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        clearTimeout(timer);
+        finish();
+      };
+      transfer = [channel.port2];
+    }
+
+    void postToServiceWorker({ type: 'invalidate', prefixes: list }, transfer).catch(finish);
+  });
+}
+
+/**
  * Serialises messages to the worker and delivers them in the order they were
  * queued.
  *
@@ -195,7 +241,7 @@ export function requestDocumentCache(url?: string): void {
  */
 let postQueue: Promise<void> = Promise.resolve();
 
-function postToServiceWorker(message: unknown): Promise<void> {
+function postToServiceWorker(message: unknown, transfer: Transferable[] = []): Promise<void> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return Promise.resolve();
 
   const deliver = async (): Promise<void> => {
@@ -206,7 +252,7 @@ function postToServiceWorker(message: unknown): Promise<void> {
     }
     if (!target) return;
     try {
-      target.postMessage(message);
+      target.postMessage(message, transfer);
     } catch (error) {
       console.warn('[offline] could not message the service worker', error);
     }
@@ -222,12 +268,12 @@ function postToServiceWorker(message: unknown): Promise<void> {
 
 async function fetchLiveScope(): Promise<string | null> {
   /*
-   * Bounded on purpose. This is the FIRST thing the page waits for: announcing
-   * connectivity, starting the write queue and restoring IndexedDB all begin
-   * only once `runInit` gets past it. On a link that hangs — accepted, never
-   * answered, so no `offline` event ever fires — an unbounded fetch here meant
-   * the worker was told nothing and the stored data was never restored until the
-   * browser gave up. The stored scope is a perfectly good answer in that case.
+   * Bounded on purpose. This is the FIRST thing the page waits for: starting the
+   * write queue and restoring IndexedDB both begin only once `runInit` gets past
+   * it. On a link that hangs — accepted, never answered, so no `offline` event
+   * ever fires — an unbounded fetch here meant the stored data was never
+   * restored until the browser gave up. The stored scope is a perfectly good
+   * answer in that case.
    */
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SESSION_TIMEOUT_MS);
@@ -251,15 +297,6 @@ async function fetchLiveScope(): Promise<string | null> {
 
 async function runInit(): Promise<void> {
   if (typeof window === 'undefined') return;
-
-  /*
-   * Started before anything else, and before the session handshake below can
-   * block. Connectivity is what the worker needs to choose cache-first, so the
-   * listeners must be up even while `get-session` is still in flight; waiting
-   * for it was exactly the gap that made an immediate offline request pay the
-   * full timeout.
-   */
-  trackConnectivity();
 
   const [stored, live] = await Promise.all([readStoredScope(), fetchLiveScope()]);
 
@@ -305,29 +342,6 @@ async function runInit(): Promise<void> {
 
   startQueuePump();
   resumeQueue();
-}
-
-/**
- * Keeps the worker's idea of connectivity in step with the browser's.
- *
- * A service worker has no \`navigator.onLine\`. Without this it could not tell a
- * slow connection from a dead one, so every read and every navigation spent its
- * full timeout waiting for a network that was not coming — which is what made
- * offline mode unusable rather than merely limited. The page knows, so it says.
- *
- * Called once, from the very start of `runInit`, and it removes its own
- * listeners when the app unmounts.
- */
-export function trackConnectivity(): () => void {
-  if (typeof window === 'undefined') return () => undefined;
-  const send = () => postToServiceWorker({ type: 'connectivity', online: navigator.onLine });
-  send();
-  window.addEventListener('online', send);
-  window.addEventListener('offline', send);
-  return () => {
-    window.removeEventListener('online', send);
-    window.removeEventListener('offline', send);
-  };
 }
 
 /** Resolves the session scope and starts the offline machinery. Idempotent. */

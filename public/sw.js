@@ -20,14 +20,12 @@
  * ---------------------------------------------------------------------------
  *
  *   navigations (request.mode === 'navigate')
- *       network-first, then this session's copy of the SAME URL, then the
- *       precached app shell (`/`), then `/offline`. `event.preloadResponse`
- *       (navigation preload) is preferred over a second fetch so the request is
- *       not serialised behind worker startup — and it is part of the SAME
- *       `NAVIGATION_TIMEOUT_MS` race, not awaited ahead of it. Awaiting it on its
- *       own meant a link that HANGS (rather than fails) held the navigation for
- *       as long as the browser's own request timeout: measured at over 40s on a
- *       link delayed by 20s, with the documented 3s ceiling never reached. The
+ *       cache-first when this session already has a document for the SAME URL,
+ *       with the network refresh handed to `event.waitUntil`; otherwise the
+ *       network, bounded by `NAVIGATION_TIMEOUT_MS`, then the precached app
+ *       shell (`/`), then `/offline`. `event.preloadResponse` (navigation
+ *       preload) is preferred over a second fetch so the request is not
+ *       serialised behind worker startup. The
  *       exact-URL rule is the whole
  *       safety argument: a Next.js App Router document carries the RSC payload
  *       for one specific route, so a cached document may only ever be served at
@@ -47,12 +45,17 @@
  *       background for the next visit.
  *
  *   /api/**
- *       network-first with a per-session cache fallback. A read that already has
- *       a cached copy is answered on `CACHED_RESPONSE_GRACE_MS` if the network
- *       has not answered by then (the request stays in flight to refresh it); a
- *       read with nothing cached is bounded by `API_TIMEOUT_MS`. Only a read
- *       with nothing cached and no answer returns 503 `{ "offline": true }`, so
- *       the client can still tell "offline" apart from "server said no".
+ *       cache-first for this session's reads, with the network refresh handed to
+ *       `event.waitUntil`; a read with nothing cached is bounded by
+ *       `API_TIMEOUT_MS`. Only a read with nothing cached and no answer returns
+ *       503 `{ "offline": true }`, so the client can still tell "offline" apart
+ *       from "server said no".
+ *
+ *       Cache-first is only safe because a write invalidates the reads it
+ *       affects: the page posts `{ type: 'invalidate', prefixes }` after a
+ *       write lands, and the worker deletes the matching entries before the
+ *       next read can be answered with the pre-write body. Without that,
+ *       completing a task and navigating back would replay the pre-write list.
  *
  *       The previous version of this file refused to cache the API at all, and
  *       the reason it gave was correct: ONE cache shared by every account on the
@@ -65,11 +68,10 @@
  *
  *   route payloads (RSC)
  *       the App Router's own fetches for a client-side route change
- *       (`?_rsc=…`, `RSC: 1`) — network-first, with the session cache as the
- *       fallback, exactly like an API read. They are per-user route data, so they
- *       live in the session cache and are deleted with it. Without them a tab tap
- *       with no connection cannot render anything: the router has no payload for
- *       the route it was asked for.
+ *       (`?_rsc=…`, `RSC: 1`) — cache-first, exactly like an API read. They are
+ *       per-user route data, so they live in the session cache and are deleted
+ *       with it. Without them a tab tap with no connection cannot render
+ *       anything: the router has no payload for the route it was asked for.
  *
  *   /api/auth/**
  *       network-only, never cached, never replaced with an offline response.
@@ -142,7 +144,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v10';
+const VERSION = 'tasktick-v11';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -156,12 +158,12 @@ const SESSION_KEY = '/__session';
  * How long a read with NOTHING cached waits for the network before answering
  * the machine-readable "offline" response.
  *
- * A read that already has a cached copy is answered on the much shorter
- * `CACHED_RESPONSE_GRACE_MS` below; this is the hard ceiling for the case with
- * no local copy to fall back on, so a link that HANGS rather than refuses still
- * resolves instead of holding the screen until the browser's own timeout. It
- * keeps running and warms the entry for the next read, so a connection that
- * recovers mid-request is not wasted.
+ * A read that already has a cached copy is answered from it immediately (the
+ * network refresh is a background concern); this is the hard ceiling for the
+ * case with no local copy to fall back on, so a link that HANGS rather than
+ * refuses still resolves instead of holding the screen until the browser's own
+ * timeout. It keeps running and warms the entry for the next read, so a
+ * connection that recovers mid-request is not wasted.
  *
  * The value is a latency budget, not an availability one: "bad cell service" is
  * a latency problem first. A healthy connection answers well inside this window.
@@ -177,73 +179,6 @@ const API_TIMEOUT_MS = 1500;
  * is what turns "everything froze, then it switched" into a screen that appears.
  */
 const NAVIGATION_TIMEOUT_MS = 3000;
-/**
- * How long a request that ALREADY HAS a cached answer waits for the network
- * before that answer is served.
- *
- * This is the number a person feels. The hard ceilings above exist for the case
- * with nothing to fall back on; a cached answer does not need them to learn the
- * network is not coming. Measured on a link that accepts the connection and then
- * goes silent (which is what a weak signal does, and where `navigator.onLine`
- * stays `true` so no `offline` event ever fires): a cold document navigation
- * spent the full `NAVIGATION_TIMEOUT_MS` (document response at 3010ms) with the
- * document already in the cache.
- *
- * A healthy connection answers far inside this window (measured: a document
- * navigation in ~330ms, a tab tap in ~250ms), so online the fresh response still
- * wins and nothing about what is cached changes. On a link slower than this the
- * cached copy is served and the outstanding request is kept alive to refresh the
- * entry — the deliberate cost of not freezing, and the same trade the old
- * ceiling made, just paid sooner.
- */
-const CACHED_RESPONSE_GRACE_MS = 700;
-/**
- * Whether the page currently believes it has a network.
- *
- * A service worker has no `navigator.onLine`, so the page tells us: it posts on
- * `online`/`offline` and once on registration. Before we hear anything the
- * assumption is online, because guessing "offline" on a good connection would
- * serve stale data to everyone.
- *
- * This is the difference between "offline mode works" and "offline mode is
- * usable". Network-first with six seconds of patience is right on a working
- * connection and wrong on a broken one: every read and every navigation paid the
- * full timeout before falling back to data already on the device.
- */
-let networkOnline = true;
-
-/**
- * Learn the connection's state from requests, not only from the page.
- *
- * The page's `online`/`offline` events are the best signal when they fire, but
- * on a weak signal they never do: the OS still reports a connection, every
- * request just hangs, and `navigator.onLine` stays `true`. A request that has
- * actually settled is the truth — one that rejects proves the link is down, one
- * that answers proves it is up. Feeding those outcomes back is what makes the
- * worker stop waiting out a ceiling it can already see is hopeless, and what
- * lets it recover on its own the moment the network answers again.
- */
-function noteReachable() {
-  networkOnline = true;
-}
-
-function noteUnreachable() {
-  networkOnline = false;
-}
-
-/** `fetch`, with the worker's connectivity flag updated from the outcome. */
-function trackedFetch(request, init) {
-  return fetch(request, init).then(
-    (response) => {
-      noteReachable();
-      return response;
-    },
-    (error) => {
-      noteUnreachable();
-      throw error;
-    },
-  );
-}
 
 /** Older entries are dropped once the API cache grows past this many reads. */
 const API_CACHE_MAX_ENTRIES = 120;
@@ -407,7 +342,8 @@ self.addEventListener('activate', (event) => {
 /* The update prompt in `ServiceWorkerRegistrar` asks the waiting worker to take
  * over; the page reloads on `controllerchange`. The `session`/`sign-out`
  * messages are the page telling this worker which session the local data belongs
- * to — see "Session scoping" at the top of the file. */
+ * to, and `invalidate` is the page telling it which reads a write has just
+ * made stale — see "Session scoping" at the top of the file. */
 self.addEventListener('message', (event) => {
   const data = event.data;
   if (!data || typeof data !== 'object') return;
@@ -417,10 +353,20 @@ self.addEventListener('message', (event) => {
     return;
   }
 
-    if (data.type === 'connectivity') {
-      networkOnline = data.online !== false;
-      return;
-    }
+  /*
+   * A write landed in the page, so the reads it affects must go before the next
+   * cache-first read can replay the pre-write body. The page may transfer a
+   * port to wait for the deletion (see `revalidate()` in `src/lib/store.ts`), so
+   * acknowledging it is what lets a forced refetch not race the drop.
+   */
+  if (data.type === 'invalidate' && Array.isArray(data.prefixes)) {
+    const work = invalidateSessionReads(data.prefixes).then(() => {
+      const port = event.ports && event.ports[0];
+      if (port) port.postMessage({ ok: true });
+    });
+    if (typeof event.waitUntil === 'function') event.waitUntil(work);
+    return;
+  }
 
   const work =
     data.type === 'session' && typeof data.scope === 'string' && data.scope
@@ -497,6 +443,34 @@ async function clearSessionScope() {
   await Promise.all(names.filter((name) => name.startsWith(API_CACHE_PREFIX)).map((name) => caches.delete(name)));
 }
 
+/**
+ * Drops this session's cached reads whose pathname a write invalidated.
+ *
+ * The worker never sees a write — non-GET requests are deliberately not
+ * intercepted — so the page that performed it says which read prefixes are now
+ * stale. This is the other half of making reads cache-first: without it, a read
+ * answered from cache would keep returning the body from before the write.
+ *
+ * Only pathnames are matched, and only within this session's cache. Route
+ * documents and RSC payloads do not start with `/api/`, so a data write cannot
+ * accidentally evict the route the user is on.
+ */
+async function invalidateSessionReads(prefixes) {
+  const wanted = prefixes.filter((prefix) => typeof prefix === 'string' && prefix.startsWith(API_PREFIX));
+  if (wanted.length === 0) return;
+
+  const scope = await readSessionScope();
+  if (!scope) return;
+
+  const cache = await caches.open(apiCacheName(scope));
+  const keys = await cache.keys();
+  const doomed = keys.filter((key) => {
+    const pathname = new URL(key.url).pathname;
+    return wanted.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  });
+  await Promise.all(doomed.map((key) => cache.delete(key)));
+}
+
 /* ==========================================================================
  * fetch
  * ========================================================================== */
@@ -544,8 +518,9 @@ self.addEventListener('fetch', (event) => {
  * ========================================================================== */
 
 /**
- * Navigation: network-first, then this session's copy of the same URL, then the
- * precached shell, then `/offline`.
+ * Navigation: cache-first when this session already has the exact URL, else the
+ * network bounded by `NAVIGATION_TIMEOUT_MS`, then the precached shell, then
+ * `/offline`.
  *
  * `event.preloadResponse` is the request the browser already made for us.
  */
@@ -575,47 +550,36 @@ async function navigationNetworkFirst(event) {
     const network = (async () => {
       const preloaded = await event.preloadResponse;
       if (preloaded) return preloaded;
-      return trackedFetch(request);
+      return fetch(request);
     })();
-    // Both branches above settle for real reasons; learn from either.
-    void network.then(noteReachable, noteUnreachable);
-    /*
-     * Offline, or the network is hanging: answer from the cache first.
-     *
-     * Without this the handler awaited a fetch with no ceiling, so a weak
-     * signal meant the screen froze until the browser gave up. The cache is
-     * consulted first when the page (or a settled request) has told us there is
-     * no network, and the fetch is raced against a grace otherwise — a cached
-     * screen now or a fresh one shortly, never neither.
-     *
-     * The request is kept alive even here, so a connection that recovers while
-     * the cached document is on screen refreshes the entry for the next visit
-     * instead of leaving the worker stuck believing the link is dead.
-     */
-    if (!networkOnline && cache) {
-      const offlineCopy = await cache.match(key);
-      if (offlineCopy) {
-        if (typeof event.waitUntil === 'function') event.waitUntil(storeDocument(cache, key, network));
-        return offlineCopy;
-      }
-    }
     /*
      * The loser of the race must not surface later as an unhandled rejection:
-     * if the grace or ceiling wins, the request is still in flight and may yet
+     * when the cached copy is served, the request is still in flight and may yet
      * fail.
      */
     void network.catch(() => undefined);
     /*
-     * A document we already have does not wait out the hard ceiling: the grace
-     * is enough to know the network is not answering, and the request stays in
-     * flight to refresh the cache. Whether the SHORT grace applies is decided by
-     * whether THIS URL has a cached document, not merely whether a session scope
-     * exists — a first visit to an uncached route on a slow link must still get
-     * the fresh document rather than be pushed to /offline early.
+     * Cache-first: a document this session already has for this exact URL is the
+     * answer, and the request stays alive to refresh it for the next visit.
+     *
+     * This is the whole point of the change. The previous version waited out
+     * a cached-response grace on the network before falling back, and a
+     * screen whose reads are chained — document, then bootstrap, then the
+     * route's own data — paid that grace once per link in the chain.
      */
-    const cachedDocument = cache ? await cache.match(key) : null;
-    const ceiling = cachedDocument ? CACHED_RESPONSE_GRACE_MS : NAVIGATION_TIMEOUT_MS;
-    const winner = await Promise.race([network, delay(ceiling)]);
+    if (cache) {
+      const cachedDocument = await cache.match(key);
+      if (cachedDocument) {
+        if (typeof event.waitUntil === 'function') event.waitUntil(storeDocument(cache, key, network));
+        return cachedDocument;
+      }
+    }
+    /*
+     * Nothing cached: wait for the network, but not forever. A first visit to an
+     * uncached route on a slow-but-alive link must still get the fresh document
+     * rather than be pushed to /offline early.
+     */
+    const winner = await Promise.race([network, delay(NAVIGATION_TIMEOUT_MS)]);
     if (!winner) throw new Error('navigation-timeout');
     const response = winner;
     if (cache && isDocumentCacheable(response)) {
@@ -716,7 +680,7 @@ async function cacheFirst(request) {
   const cached = await cache.match(request);
   if (cached) return cached;
 
-  const response = await trackedFetch(request);
+  const response = await fetch(request);
   if (isCacheable(request, response)) await cache.put(request, response.clone());
   return response;
 }
@@ -725,8 +689,7 @@ async function cacheFirst(request) {
  * Stores a document that arrived after the cached copy was already served.
  *
  * The same background write the navigation strategy does when the fresh
- * response wins the race — here it is the *loser* of the race (or a request
- * started while the worker believed it was offline) that has to land.
+ * response wins the race — here it is the *loser* of the race that has to land.
  */
 function storeDocument(cache, key, network) {
   return network
@@ -746,7 +709,7 @@ async function staleWhileRevalidate(request, event) {
   const cache = await caches.open(RUNTIME_CACHE);
   const cached = await cache.match(request);
 
-  const revalidation = trackedFetch(request)
+  const revalidation = fetch(request)
     .then(async (response) => {
       if (isCacheable(request, response)) await cache.put(request, response.clone());
       return response;
@@ -782,13 +745,16 @@ function isRoutePayloadRequest(request, url) {
  *   1. no session scope yet -> network-only. Caching a read before the worker
  *      knows which session it belongs to is how a cache leaks between accounts,
  *      so the honest default is to store nothing.
- *   2. network answers within the timeout -> return it (and store it for later).
- *   3. network fails or is too slow, and this session has a copy -> return the
- *      copy. The outstanding network request is kept alive so the cache is
- *      refreshed for the next read.
+ *   2. this session already has a copy -> return it now, and refresh it in the
+ *      background. A tab switch waits on this read, so it must not wait for the
+ *      network at all.
+ *   3. nothing cached -> wait for the network, bounded by `API_TIMEOUT_MS`; a
+ *      read that is going to fail must not hold a screen until the browser's own
+ *      timeout decides. With no copy and no answer, the 503 with the
+ *      machine-readable `offline` flag goes back, exactly as before.
  *
- * With no copy and no network there is nothing honest to return, so the 503 with
- * the machine-readable `offline` flag goes back, exactly as before.
+ * The copy in (2) can only be trusted because a write invalidates it first — see
+ * `invalidateSessionReads` and the `invalidate` message.
  */
 async function sessionRead(request, event) {
   const scope = await readSessionScope();
@@ -835,7 +801,7 @@ async function sessionRead(request, event) {
   const key = new Request(request.url, { method: 'GET' });
   const cached = await cache.match(key);
 
-  const network = trackedFetch(request)
+  const network = fetch(request)
     .then((response) => {
       if (isSessionReadCacheable(request, response)) {
         /*
@@ -853,45 +819,28 @@ async function sessionRead(request, event) {
     .catch(() => undefined);
 
   /*
-   * Offline: the cache is the answer, and a miss is an answer too.
+   * Cache-first. A copy this session already has is the answer, and the request
+   * is kept alive to refresh it for the next read. The page is not held for a
+   * network round trip it did not ask for — that wait is the lag.
    *
-   * `network` is already in flight above and stores whatever it gets, so a
-   * connection that returns mid-request still warms the entry. What must not
-   * happen is the *page* waiting for it — that wait is the freeze.
+   * `network` is started above and stores whatever it gets, so a connection that
+   * returns mid-request still warms the entry.
    */
-  if (!networkOnline) {
-    if (cached) {
-      // Keep the request alive so a connection that returns mid-flight still
-      // warms the entry rather than being cancelled by the early return.
-      if (typeof event.waitUntil === 'function') event.waitUntil(network);
-      return cached;
-    }
-    return (await network) || offlineResponse();
-  }
-
-  if (!cached) {
-    /*
-     * Nothing cached to serve sooner, so wait for the network — but not
-     * forever. A read that is going to fail should not hold a screen until the
-     * browser's own timeout decides; the hard ceiling turns it into the
-     * machine-readable offline answer the client already understands.
-     */
-    const fresh = await Promise.race([network, delay(API_TIMEOUT_MS)]);
-    if (fresh) return fresh;
+  if (cached) {
     if (typeof event.waitUntil === 'function') event.waitUntil(network);
-    return offlineResponse();
+    return cached;
   }
 
   /*
-   * A cached answer is served after the short grace, not the hard ceiling: the
-   * cached copy is on its way out to the page, and the request that is still in
-   * flight is kept alive so the entry is fresh next time.
+   * Nothing cached to serve sooner, so wait for the network — but not forever. A
+   * read that is going to fail should not hold a screen until the browser's own
+   * timeout decides; the hard ceiling turns it into the machine-readable offline
+   * answer the client already understands.
    */
-  const winner = await Promise.race([network, delay(CACHED_RESPONSE_GRACE_MS)]);
-  if (winner) return winner;
-
-  event.waitUntil(network);
-  return cached;
+  const fresh = await Promise.race([network, delay(API_TIMEOUT_MS)]);
+  if (fresh) return fresh;
+  if (typeof event.waitUntil === 'function') event.waitUntil(network);
+  return offlineResponse();
 }
 
 /**
@@ -932,7 +881,7 @@ async function primeDocument(cache, url) {
   try {
     const key = new Request(url, { method: 'GET' });
     if (await cache.match(key)) return;
-    const response = await trackedFetch(key, { credentials: 'same-origin' });
+    const response = await fetch(key, { credentials: 'same-origin' });
     if (!isDocumentCacheable(response)) return;
     await cache.put(key, response.clone());
     await trimApiCache(cache);
@@ -982,7 +931,7 @@ async function trimApiCache(cache) {
 /** `/api/**` with no session scope, or with nothing cached: network, or nothing. */
 async function apiNetworkOnly(request) {
   try {
-    return await trackedFetch(request);
+    return await fetch(request);
   } catch (error) {
     return offlineResponse();
   }
