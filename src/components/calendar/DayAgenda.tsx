@@ -156,7 +156,8 @@ const GUTTER_WIDTH_CLASS = 'w-14';
 const RANGE_LINE_PX = 16; // text-xs line box
 const TITLE_LINE_PX = 20; // text-sm line box
 const TITLE_GAP_PX = 2; // the title's mt-0.5, timed rows only
-const ROW_PAD_TOP_PX = 8; // py-2, on every row
+const ROW_PAD_TOP_PX = 8; // py-2, an all-day row
+const TIMED_PAD_TOP_PX = 10; // pt-2.5, a timed row
 
 /**
  * The anchor, stated once so the node, the gutter time and the rule's end trims
@@ -167,7 +168,7 @@ const ROW_PAD_TOP_PX = 8; // py-2, on every row
  * anchor whatever its height, so a two-line title grows downward without moving
  * the node.
  */
-const TIMED_ANCHOR_PX = ROW_PAD_TOP_PX + RANGE_LINE_PX / 2; // 16px
+const TIMED_ANCHOR_PX = TIMED_PAD_TOP_PX + RANGE_LINE_PX / 2; // 18px
 const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_LINE_PX / 2; // 18px
 
 /** Places an anchored element's own centre on its `top`, whatever its height. */
@@ -407,7 +408,15 @@ export function DayAgenda({
                   <span aria-hidden className="w-1 shrink-0 self-stretch" style={{ backgroundColor: hex }} />
 
                   <span
-                    className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-row pl-3"
+                    className={cn(
+                      'flex min-w-0 flex-1 flex-col justify-center pr-row pl-3',
+                      // A timed row starts with the range, which is 'text-xs' in a 16px box;
+                      // an all-day row starts with the title, 'text-sm' in a 20px one. Equal
+                      // padding therefore reads as unequal, because the smaller type carries more
+                      // leading — so the timed row takes 2px more at the top. Measured: the two
+                      // first lines then put their ink at the same place.
+                      rangeLabel ? 'pt-2.5 pb-2' : 'py-2',
+                    )}
                   >
                     {/* An all-day row has no range to show; the gutter says it. */}
                     {rangeLabel ? (

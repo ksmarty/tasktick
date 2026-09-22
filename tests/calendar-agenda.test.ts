@@ -68,7 +68,7 @@ describe('the gutter timeline', () => {
     expect(AGENDA).toContain('const TITLE_GAP_PX = 2;');
     expect(AGENDA).toContain('const ROW_PAD_TOP_PX = 8;');
     expect(AGENDA).not.toContain('ALLDAY_PAD_TOP_PX');
-    expect(AGENDA).toContain('const TIMED_ANCHOR_PX = ROW_PAD_TOP_PX + RANGE_LINE_PX / 2;');
+    expect(AGENDA).toContain('const TIMED_ANCHOR_PX = TIMED_PAD_TOP_PX + RANGE_LINE_PX / 2;');
     expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_LINE_PX / 2;');
     expect(AGENDA).toContain("const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';");
     expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
@@ -110,9 +110,10 @@ describe('the gutter timeline', () => {
      */
     expect(AGENDA).toContain('-mt-px');
       const rowPad = px('ROW_PAD_TOP_PX');
+      const timedPad = px('TIMED_PAD_TOP_PX');
 
       // The values measured on the built app.
-      expect(rowPad + rangeLine / 2).toBe(16);
+      expect(timedPad + rangeLine / 2).toBe(18);
       expect(rowPad + titleLine / 2).toBe(18);
 
       /*
@@ -198,7 +199,7 @@ describe('the agenda entry’s padding', () => {
      * the stripe returning to the entry's edge does not move the reading line.
      * The right edge keeps the row token.
      */
-    expect(AGENDA).toContain('justify-center py-2 pr-row pl-3');
+    expect(AGENDA).toContain("rangeLabel ? 'pt-2.5 pb-2' : 'py-2'");
     expect(AGENDA).not.toContain("rangeLabel ? 'py-2'");
     expect(AGENDA).not.toContain('bg-accent py-3');
   });
@@ -208,7 +209,7 @@ describe('the agenda entry’s padding', () => {
     // string) but made the class list `/* … */ 'flex …'`, so `'flex` and
     // `py-2'` never matched and the entry lost its padding and its flex box.
     expect(AGENDA).not.toContain('className="/*');
-    expect(AGENDA).toContain('className="flex min-w-0 flex-1 flex-col justify-center py-2 pr-row pl-3"');
+    expect(AGENDA).toContain("rangeLabel ? 'pt-2.5 pb-2' : 'py-2'");
   });
 });
 
