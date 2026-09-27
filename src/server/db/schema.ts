@@ -45,6 +45,11 @@ export const {
   focusSessions,
   savedFilters,
   importKeys,
+  periodSettings,
+  periodCycles,
+  periodDayLogs,
+  contraceptionMethods,
+  contraceptionDays,
 } = schema;
 
 export type {
@@ -69,4 +74,9 @@ export type {
   IcalTokenRow,
   ApiTokenRow,
   InviteRow,
+  PeriodSettingsRow,
+  PeriodCycleRow,
+  PeriodDayLogRow,
+  ContraceptionMethodRow,
+  ContraceptionDayRow,
 } from './schema.sqlite';

@@ -83,6 +83,7 @@ export type SettingsTab =
   | 'account'
   | 'appearance'
   | 'date-time'
+  | 'period'
   | 'notifications'
   | 'calendars'
   | 'integrations'
@@ -96,6 +97,7 @@ const TAB_HREF: Record<SettingsTab, string> = {
   account: '/settings',
   appearance: '/settings/appearance',
   'date-time': '/settings/date-time',
+  period: '/settings/period',
   notifications: '/settings/notifications',
   calendars: '/settings/calendars',
   integrations: '/settings/integrations',
@@ -126,6 +128,11 @@ interface SettingsSectionGroup {
  * notifications elsewhere, then the settings that change how the app behaves or
  * hand you your data. At most four sections per group is also what keeps both
  * rows one clean line at 390px.
+ *
+ * Period tracking is its own section rather than a row inside Appearance because
+ * it is not a preference the app already has — it is a second interface, and the
+ * one thing a user must be able to find again is the switch that turned it on.
+ * Its period-side settings live inside the mode, on `/period/settings`.
  */
 const SECTION_GROUPS: SettingsSectionGroup[] = [
   {
@@ -134,6 +141,7 @@ const SECTION_GROUPS: SettingsSectionGroup[] = [
       { value: 'account', label: 'Account' },
       { value: 'appearance', label: 'Appearance' },
       { value: 'date-time', label: 'Date & time' },
+      { value: 'period', label: 'Period' },
     ],
   },
   {

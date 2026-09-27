@@ -240,13 +240,18 @@ type RowTypeParity = [
   Expect<Equal<sqliteSchema.FocusSessionRow, pgSchema.FocusSessionRow>>,
   Expect<Equal<sqliteSchema.SavedFilterRow, pgSchema.SavedFilterRow>>,
   Expect<Equal<sqliteSchema.ImportKeyRow, pgSchema.ImportKeyRow>>,
+  Expect<Equal<sqliteSchema.PeriodSettingsRow, pgSchema.PeriodSettingsRow>>,
+  Expect<Equal<sqliteSchema.PeriodCycleRow, pgSchema.PeriodCycleRow>>,
+  Expect<Equal<sqliteSchema.PeriodDayLogRow, pgSchema.PeriodDayLogRow>>,
+  Expect<Equal<sqliteSchema.ContraceptionMethodRow, pgSchema.ContraceptionMethodRow>>,
+  Expect<Equal<sqliteSchema.ContraceptionDayRow, pgSchema.ContraceptionDayRow>>,
 ];
 
 /**
  * One `true` per `RowTypeParity` entry. Presence in an `it` keeps the tuple from
  * being tree-shaken out of type checking.
  */
-const rowTypeParity: RowTypeParity = new Array(21).fill(true) as RowTypeParity;
+const rowTypeParity: RowTypeParity = new Array(26).fill(true) as RowTypeParity;
 
 /* -------------------------------------------------------------------------- */
 /* tests                                                                      */
@@ -255,7 +260,7 @@ const rowTypeParity: RowTypeParity = new Array(21).fill(true) as RowTypeParity;
 describe('schema parity: module surface', () => {
   it('exports the same tables from both dialects', () => {
     expect([...pgTables.keys()].sort()).toEqual([...sqliteTables.keys()].sort());
-    expect(tableNames).toHaveLength(25);
+    expect(tableNames).toHaveLength(30);
     expect([...pgByName.keys()].sort()).toEqual(tableNames);
   });
 

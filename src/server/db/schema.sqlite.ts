@@ -29,6 +29,14 @@ import type {
   TaskStatus,
   FocusKind,
 } from '@/lib/types';
+import type {
+  CervicalMucus,
+  ContraceptionDayStatus,
+  ContraceptionMethod,
+  ContraceptionSchedule,
+  LhTestResult,
+  PeriodFlow,
+} from '@/lib/period-types';
 
 /* -------------------------------------------------------------------------- */
 /* shared column groups                                                       */
@@ -766,6 +774,152 @@ export const importKeys = sqliteTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* optional period tracking                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-user switch and model settings for the period feature.
+ *
+ * One row per user, like `user_settings`, so `userId` is the primary key rather
+ * than a surrogate id. `enabled` defaults to **false**: the interface is
+ * separate and opt-in, and a user who never turns it on has no other period
+ * rows written.
+ */
+export const periodSettings = sqliteTable('period_settings', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  /**
+   * Number of most-recent cycles the prediction uses, or null for all of them.
+   * Recent cycles describe the body a person has now.
+   */
+  predictionCycleCount: integer('prediction_cycle_count'),
+  /**
+   * Days from ovulation to the next period. 14 is the population mean; 12–14 is
+   * the usual range. Stored because the luteal phase is the stable part of one
+   * person's cycle, and the ovulation estimate is derived from it.
+   */
+  lutealPhaseDays: integer('luteal_phase_days').notNull().default(14),
+  /**
+   * Whether contraception is in use. This changes what a prediction *means*
+   * (a hormonal method suppresses ovulation) rather than how it is computed,
+   * which is why every prediction carries a `meaning` string for the UI.
+   */
+  contraceptionInUse: integer('contraception_in_use', { mode: 'boolean' }).notNull().default(false),
+  ...timestamps,
+});
+
+/** A menstrual cycle, identified by its first day of bleeding. */
+export const periodCycles = sqliteTable(
+  'period_cycles',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** `YYYY-MM-DD`, the first day of bleeding. Floating day, never an instant. */
+    startDate: text('start_date').notNull(),
+    /** Inclusive last day of bleeding, or null when only the start is known. */
+    endDate: text('end_date'),
+    /** Overall intensity; per-day intensity lives on `period_day_logs.flow`. */
+    flowIntensity: text('flow_intensity').$type<PeriodFlow>().notNull().default('medium'),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  // One cycle per start date per user: re-importing history updates rather than
+  // duplicating, and two cycles cannot begin on the same day.
+  (t) => [uniqueIndex('period_cycles_user_start_idx').on(t.userId, t.startDate)],
+);
+
+/**
+ * Observations for one calendar day. At most one row per user per day.
+ *
+ * Columns hold the single-valued, ordinal/numeric observations the maths can
+ * consume (`flow`, `temperatureC`, `lhTest`, `mucus`, `intimacy`,
+ * `ovulationPain`, `weightKg`). `symptoms` and `mood` are open-ended *sets* and
+ * live in JSON arrays — see the rationale in `src/lib/period-types.ts`.
+ */
+export const periodDayLogs = sqliteTable(
+  'period_day_logs',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    flow: text('flow').$type<PeriodFlow>(),
+    symptoms: text('symptoms', { mode: 'json' }).$type<string[]>(),
+    mood: text('mood', { mode: 'json' }).$type<string[]>(),
+    /** Basal body temperature in °C. */
+    temperatureC: real('temperature_c'),
+    lhTest: text('lh_test').$type<LhTestResult>(),
+    mucus: text('mucus').$type<CervicalMucus>(),
+    intimacy: integer('intimacy', { mode: 'boolean' }).notNull().default(false),
+    ovulationPain: integer('ovulation_pain', { mode: 'boolean' }).notNull().default(false),
+    weightKg: real('weight_kg'),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('period_day_logs_user_date_idx').on(t.userId, t.date)],
+);
+
+/**
+ * One continuous stretch of using one contraception method.
+ *
+ * Switching methods creates a second row and closes the first with `endDate`, so
+ * the history survives the change instead of being overwritten. `schedule` is
+ * null for methods with no on/off rhythm (a daily pill, a copper IUD) and set
+ * for a ring, patch or cyclic pill pack — the 21-on/7-off shape the feature was
+ * asked for.
+ */
+export const contraceptionMethods = sqliteTable(
+  'contraception_methods',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    method: text('method').$type<ContraceptionMethod>().notNull(),
+    /** Brand or user label, e.g. "Nuvaring". */
+    label: text('label'),
+    startDate: text('start_date').notNull(),
+    /** Inclusive last day of use; null means still in use. */
+    endDate: text('end_date'),
+    schedule: text('schedule', { mode: 'json' }).$type<ContraceptionSchedule>(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [index('contraception_methods_user_idx').on(t.userId, t.startDate)],
+);
+
+/**
+ * What was actually logged for one day of one method — a pill taken or missed,
+ * a ring day on or off. Separate from the generated schedule, which is derived
+ * from the method's `startDate` and never stored.
+ */
+export const contraceptionDays = sqliteTable(
+  'contraception_days',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    methodId: text('method_id')
+      .notNull()
+      .references(() => contraceptionMethods.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    status: text('status').$type<ContraceptionDayStatus>().notNull(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('contraception_days_user_method_date_idx').on(t.userId, t.methodId, t.date),
+    index('contraception_days_user_date_idx').on(t.userId, t.date),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
 /* inferred row types                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -790,3 +944,8 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type IcalTokenRow = typeof icalTokens.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type InviteRow = typeof invites.$inferSelect;
+export type PeriodSettingsRow = typeof periodSettings.$inferSelect;
+export type PeriodCycleRow = typeof periodCycles.$inferSelect;
+export type PeriodDayLogRow = typeof periodDayLogs.$inferSelect;
+export type ContraceptionMethodRow = typeof contraceptionMethods.$inferSelect;
+export type ContraceptionDayRow = typeof contraceptionDays.$inferSelect;

@@ -16,6 +16,10 @@ import { SECTION_RETAP_EVENT, requestSectionReset } from '@/components/calendar/
 const SCREEN = readFileSync(new URL('../src/components/calendar/CalendarScreen.tsx', import.meta.url), 'utf8');
 const SHELL = readFileSync(new URL('../src/components/app/AppShell.tsx', import.meta.url), 'utf8');
 const MODULE = readFileSync(new URL('../src/components/calendar/section-reset.ts', import.meta.url), 'utf8');
+const PERIOD_MONTH = readFileSync(
+  new URL('../src/components/period/PeriodCalendarScreen.tsx', import.meta.url),
+  'utf8',
+);
 
 afterEach(() => {
   delete (globalThis as unknown as { window?: unknown }).window;
@@ -57,7 +61,33 @@ describe('the shell raises the re-tap', () => {
     // raise it before returning.
     expect(SHELL).toContain("import { requestSectionReset } from '@/components/calendar/section-reset';");
     expect(SHELL).toContain('if (next === routeTab) {');
-    expect(SHELL).toContain("if (next === 'calendar' || next === 'habits') requestSectionReset(next);");
+    //
+    // Ported when period mode arrived: its cycle month has a selected day to
+    // return to, so it joins this one list rather than getting an event of its
+    // own — one gesture, one channel, one vocabulary.
+    expect(SHELL).toContain(
+      "if (next === 'calendar' || next === 'habits' || next === 'period-cycle') {\n        requestSectionReset(next);\n      }",
+    );
+
+    // And it is still raised *before* the early return that ends the tap — the
+    // half that was missing twice.
+    const gate = SHELL.indexOf('if (next === routeTab) {');
+    const raise = SHELL.indexOf('requestSectionReset(next);', gate);
+    const earlyReturn = SHELL.indexOf('return;', gate);
+    expect(raise).toBeGreaterThan(gate);
+    expect(raise).toBeLessThan(earlyReturn);
+  });
+});
+
+describe('the period cycle month answers the same re-tap', () => {
+  it('registers under its own section and returns to today', () => {
+    expect(PERIOD_MONTH).toContain("useSectionReset('period-cycle', () => {");
+    expect(PERIOD_MONTH).toContain('setAnchor(today);');
+    expect(PERIOD_MONTH).toContain('setSelectedDate(today);');
+  });
+
+  it('is a section the event module knows about', () => {
+    expect(MODULE).toContain("export type SectionTab = 'calendar' | 'habits' | 'period-cycle';");
   });
 });
 

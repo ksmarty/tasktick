@@ -42,6 +42,14 @@ import type {
   TaskStatus,
   FocusKind,
 } from '@/lib/types';
+import type {
+  CervicalMucus,
+  ContraceptionDayStatus,
+  ContraceptionMethod,
+  ContraceptionSchedule,
+  LhTestResult,
+  PeriodFlow,
+} from '@/lib/period-types';
 
 /* -------------------------------------------------------------------------- */
 /* shared column groups                                                       */
@@ -756,6 +764,107 @@ export const importKeys = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* optional period tracking                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** Mirror of `period_settings` in `schema.sqlite.ts` — see there for the rationale. */
+export const periodSettings = pgTable(
+  'period_settings',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    enabled: boolean('enabled').notNull().default(false),
+    predictionCycleCount: bigint('prediction_cycle_count', { mode: 'number' }),
+    lutealPhaseDays: bigint('luteal_phase_days', { mode: 'number' }).notNull().default(14),
+    contraceptionInUse: boolean('contraception_in_use').notNull().default(false),
+    ...timestamps,
+  },
+);
+
+/** Mirror of `period_cycles` in `schema.sqlite.ts` — see there for the rationale. */
+export const periodCycles = pgTable(
+  'period_cycles',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    startDate: text('start_date').notNull(),
+    endDate: text('end_date'),
+    flowIntensity: text('flow_intensity').$type<PeriodFlow>().notNull().default('medium'),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('period_cycles_user_start_idx').on(t.userId, t.startDate)],
+);
+
+/** Mirror of `period_day_logs` in `schema.sqlite.ts` — see there for the rationale. */
+export const periodDayLogs = pgTable(
+  'period_day_logs',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    flow: text('flow').$type<PeriodFlow>(),
+    symptoms: jsonb('symptoms').$type<string[]>(),
+    mood: jsonb('mood').$type<string[]>(),
+    temperatureC: doublePrecision('temperature_c'),
+    lhTest: text('lh_test').$type<LhTestResult>(),
+    mucus: text('mucus').$type<CervicalMucus>(),
+    intimacy: boolean('intimacy').notNull().default(false),
+    ovulationPain: boolean('ovulation_pain').notNull().default(false),
+    weightKg: doublePrecision('weight_kg'),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('period_day_logs_user_date_idx').on(t.userId, t.date)],
+);
+
+/** Mirror of `contraception_methods` in `schema.sqlite.ts` — see there for the rationale. */
+export const contraceptionMethods = pgTable(
+  'contraception_methods',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    method: text('method').$type<ContraceptionMethod>().notNull(),
+    label: text('label'),
+    startDate: text('start_date').notNull(),
+    endDate: text('end_date'),
+    schedule: jsonb('schedule').$type<ContraceptionSchedule>(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [index('contraception_methods_user_idx').on(t.userId, t.startDate)],
+);
+
+/** Mirror of `contraception_days` in `schema.sqlite.ts` — see there for the rationale. */
+export const contraceptionDays = pgTable(
+  'contraception_days',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    methodId: text('method_id')
+      .notNull()
+      .references(() => contraceptionMethods.id, { onDelete: 'cascade' }),
+    date: text('date').notNull(),
+    status: text('status').$type<ContraceptionDayStatus>().notNull(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('contraception_days_user_method_date_idx').on(t.userId, t.methodId, t.date),
+    index('contraception_days_user_date_idx').on(t.userId, t.date),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
 /* inferred row types                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -780,3 +889,8 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type IcalTokenRow = typeof icalTokens.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type InviteRow = typeof invites.$inferSelect;
+export type PeriodSettingsRow = typeof periodSettings.$inferSelect;
+export type PeriodCycleRow = typeof periodCycles.$inferSelect;
+export type PeriodDayLogRow = typeof periodDayLogs.$inferSelect;
+export type ContraceptionMethodRow = typeof contraceptionMethods.$inferSelect;
+export type ContraceptionDayRow = typeof contraceptionDays.$inferSelect;
