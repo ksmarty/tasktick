@@ -126,7 +126,15 @@ export function useTaskActions(zone: string): TaskActions {
            * store rather than the media query, so the user's preference and Low Power
            * Mode both turn it off.
            */
-          fireConfetti();
+          /*
+           * Wrapped because this runs inside a mutation handler: a canvas that cannot
+           * be created must cost the user a burst, not the rest of the success path.
+           */
+          try {
+            fireConfetti();
+          } catch {
+            // A missing 2d context is not worth surfacing.
+          }
         }
         // Un-completing is deliberately silent: the row reappearing (and, on the
         // lists, the left-edge Undo going away) is the feedback. A "Marked as

@@ -5,6 +5,7 @@
  * the OS query is the whole feature, and the heuristic is a guess that must be
  * measurable rather than asserted from a screenshot.
  */
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   applyServerMotionPreferences,
@@ -51,6 +52,38 @@ describe('parseReducedMotion', () => {
   });
 });
 
+/*
+ * The regression that cost the user every animation.
+ *
+ * The probe video is created without a src. On desktop a sourceless play()
+ * rejects as NotSupportedError and answers nothing, but on iOS Safari it rejects
+ * with NotAllowedError — the same error Low Power Mode produces. The probe
+ * reported low power on a healthy phone, and because resolveReducedMotion folds
+ * that into every motion decision, the completion burst AND the row collapse both
+ * disappeared. One unverifiable guess, silently, and the symptom looked like two
+ * unrelated bugs.
+ *
+ * The gate is HAVE_METADATA, and it is pinned here rather than left to a comment:
+ * a video with no media may not answer at all, so the failure direction is the
+ * safe one — no verdict, no change, animations keep running.
+ */
+describe('the low-power verdict needs real media', () => {
+  const SOURCE = readFileSync(new URL('../src/lib/motion.ts', import.meta.url), 'utf8');
+
+  it('refuses to answer from a video that never loaded', () => {
+    expect(SOURCE).toContain('if (answered && video.readyState >= 1) setLowPowerInferred(lowPower);');
+    // The ungated form is what shipped, and is what must not come back.
+    expect(SOURCE).not.toContain('if (answered) setLowPowerInferred(lowPower);');
+  });
+
+  it('creates its probe without media, which is why the gate is load-bearing', () => {
+    // If a real source is ever added, this test should be replaced by one that
+    // pins the media instead — not simply deleted.
+    const probe = SOURCE.slice(SOURCE.indexOf('function createProbeVideo'));
+    const body = probe.slice(0, probe.indexOf('return video;'));
+    expect(body).not.toContain('.src = ');
+  });
+});
 describe('probeLowPower', () => {
   it('reads Low Power Mode off an autoplay refusal', async () => {
     const refusal = Object.assign(new Error('play() failed'), { name: 'NotAllowedError' });

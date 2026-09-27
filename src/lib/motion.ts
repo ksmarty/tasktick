@@ -287,7 +287,28 @@ function startSampling(): void {
     probing = false;
     // An unanswered probe leaves the previous value alone: only the platform
     // saying "no" may turn the user's motion off.
-    if (answered) setLowPowerInferred(lowPower);
+    /*
+     * **Only a video that actually has media may answer.**
+     *
+     * This element is created without a src, and that turned out to matter
+     * enormously: a sourceless play() rejects, and on iOS Safari it rejects with
+     * NotAllowedError — the same error Low Power Mode produces. The probe
+     * therefore reported low power on a healthy phone, and because
+     * resolveReducedMotion folds that into every motion decision, ALL animation
+     * switched off: the completion burst, the row collapse, everything. One
+     * unverifiable guess turned the motion off silently.
+     *
+     * HAVE_METADATA is the gate. A video with no source never reaches it, so it
+     * can no longer answer at all, and the failure mode is the safe direction: no
+     * verdict means the previous value stands and animations keep running. The
+     * referenced method plays a real file, which is what makes its rejection
+     * meaningful; without one there is nothing to interpret.
+     *
+     * The honest consequence is that Low Power Mode is NOT detected while this
+     * element has no media — a known gap rather than a silent one, and far better
+     * than a false positive that costs the user every animation.
+     */
+    if (answered && video.readyState >= 1) setLowPowerInferred(lowPower);
   });
 }
 
