@@ -38,6 +38,7 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+        - run: npm run verify:sw
 
       - name: Unit tests
         run: npx vitest run

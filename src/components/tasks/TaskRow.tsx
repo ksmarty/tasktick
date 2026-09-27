@@ -570,11 +570,23 @@ export function TaskRow({
           // Only a task that actually finished shrinks as it goes. A recurring
           // task that rolled forward — or any other row being removed — folds
           // away without the completion flourish.
-          ...(task.recurrenceRule ? {} : { scale: 0.97 }),
+          /*
+           * No `scale` here, deliberately.
+           *
+           * It used to shrink the row to 0.97 as it folded — a flourish worth about
+           * three pixels. It cost a re-raster of the row's whole contents on every frame
+           * of the fold, because scaling changes the raster scale and the row is inside
+           * `overflow-hidden` with its own stacking context. The height animation is
+           * already layout-bound; making the browser re-raster as well was the part worth
+           * removing, and the user reported the collapse as laggy.
+           *
+           * The recurring-task check that used to guard this is kept as a comment rather
+           * than silently dropped: a recurring task that rolled forward still folds away
+           * without a completion flourish, which is now simply the default for every row.
+           */
           transition: {
             height: { duration: ROW_EXIT_SECONDS, ease: ROW_EASE },
             opacity: { duration: ROW_EXIT_SECONDS * 0.6, ease: 'easeIn' as const },
-            scale: { duration: ROW_EXIT_SECONDS, ease: 'easeIn' as const },
           },
         },
         // The return path (and the arrival path): the same curve, no overshoot,

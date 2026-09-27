@@ -204,7 +204,17 @@ describe('completing a task animates the row, and the recurring case does not', 
     expect(ROW).toContain('if (!completed && !task.recurrenceRule) setJustCompleted(true);');
     // The exit's shrink is gated the same way: a recurring row folds, but it is
     // not given the completion flourish.
-    expect(ROW).toContain('...(task.recurrenceRule ? {} : { scale: 0.97 })');
+    /*
+     * The exit no longer shrinks. `scale: 0.97` was a three-pixel flourish that
+     * cost a re-raster of the row every frame of the fold, because scaling changes
+     * the raster scale and the row sits inside `overflow-hidden` with its own
+     * stacking context. The user reported the collapse as laggy; the height
+     * animation is layout-bound already, and this was the part worth removing.
+     *
+     * The gate it carried is gone with it, which is why this asserts an absence:
+     * a recurring row folds without a flourish, and now so does every row.
+     */
+    expect(ROW).not.toContain('scale: 0.97');
     // The pop itself is the existing animation, untouched.
     expect(ROW).toMatch(/animate=\{justCompleted && !reduceMotion \? \{ scale: \[0\.82, 1\.12, 1\] \} : \{ scale: 1 \}\}/);
   });

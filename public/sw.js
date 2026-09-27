@@ -139,12 +139,18 @@
  * this string alone does not simply serve a stale page: because `sw.js` itself
  * is byte-identical, the browser never installs a new worker at all, so existing
  * clients stay pinned to the old shell AND the old content-hashed chunks
- * indefinitely. `npm run verify:sw` guards this in CI.
+ * indefinitely.
+ *
+ * This comment used to claim `npm run verify:sw` guarded it. **No such
+ * script existed**, so nothing did, and three releases shipped with a
+ * byte-identical sw.js — the user ran an app three versions old and reported
+ * its features as broken. There is a real `npm run verify:sw`
+ * (`scripts/check-sw-version.mjs`) now, and it refuses exactly this.
  *
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v11';
+const VERSION = 'tasktick-v12';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;

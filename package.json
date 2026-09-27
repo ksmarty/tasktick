@@ -1,6 +1,6 @@
 {
   "name": "tasktick",
-  "version": "0.28.1",
+  "version": "0.28.2",
   "private": true,
   "description": "Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync. iOS-flavoured PWA.",
   "license": "AGPL-3.0-or-later",
@@ -24,7 +24,8 @@
     "smoke:api": "node scripts/smoke/api.mjs",
     "smoke:pages": "node scripts/smoke/pages.mjs",
     "smoke:origins": "node scripts/smoke/origins.mjs",
-    "build:standalone": "BUILD_STANDALONE=1 next build"
+    "build:standalone": "BUILD_STANDALONE=1 next build",
+    "verify:sw": "node scripts/check-sw-version.mjs"
   },
   "dependencies": {
     "@svg-animated-icons/react": "^0.1.2",
