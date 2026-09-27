@@ -19,6 +19,7 @@ import { useMutation, useOnline } from '@/lib/store';
 import type { AccentColor, List, Tag, Task } from '@/lib/types';
 import type { CompleteTaskPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
+import { fireConfetti } from '@/components/godui/confetti';
 import type { BulkAction, BulkPayload, CreateTaskPayload, ListPatch, TaskPatch } from './payloads';
 
 export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. They will work again once you reconnect.';
@@ -104,7 +105,7 @@ export function useTaskActions(zone: string): TaskActions {
     },
     {
       invalidates: INVALIDATES,
-      onSuccess: (result, [task]) => {
+      onSuccess: (result, [task, undo]) => {
         if (!result) return;
         if (result.recurred && result.task?.dueDate) {
           toast({
@@ -112,6 +113,20 @@ export function useTaskActions(zone: string): TaskActions {
             description: `“${task.title}” repeats, so it rolled forward.`,
             variant: 'success',
           });
+        } else if (!undo) {
+          /*
+           * A real completion gets the burst — GodUI's confetti, at the canvas's own
+           * default origin.
+           *
+           * Two cases deliberately get nothing: an **un-completion**, which is the reverse
+           * of a celebration, and a **recurring** task that rolled forward, which was
+           * never finished. Both are handled by the branches above.
+           *
+           * `disableForReducedMotion` is on by default and reads the app's own motion
+           * store rather than the media query, so the user's preference and Low Power
+           * Mode both turn it off.
+           */
+          fireConfetti();
         }
         // Un-completing is deliberately silent: the row reappearing (and, on the
         // lists, the left-edge Undo going away) is the feedback. A "Marked as
