@@ -13,7 +13,8 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
-import { isDemoRequest, resolveSampleUserId, SAMPLE_EMAIL } from '@/server/demo';
+import { isDemoRequest, rememberSampleUserId, resolveSampleUserId, SAMPLE_EMAIL } from '@/server/demo';
+import { ensureSampleAccount } from '@/server/demo-sample';
 import { getAuth } from './auth';
 import { getEnv, isAppUrlDefault } from '@/lib/env';
 import type { ApiResult, SessionUser } from '@/lib/types';
@@ -148,7 +149,11 @@ export function route(handler: AuthedHandler, options: RouteOptions = {}) {
          * nothing else. See 'src/server/demo.ts'.
          */
         if (isDemoRequest(req)) {
-          const sampleId = await resolveSampleUserId();
+          let sampleId = await resolveSampleUserId();
+  if (!sampleId) {
+    sampleId = await ensureSampleAccount();
+    if (sampleId) rememberSampleUserId(sampleId);
+  }
           if (sampleId) user = { ...user, id: sampleId, name: 'Demo', email: SAMPLE_EMAIL, isAdmin: false };
           /*
            * No sample account means this database predates the feature. Fall through as

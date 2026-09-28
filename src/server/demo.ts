@@ -61,10 +61,22 @@ export async function resolveSampleUserId(): Promise<string | null> {
     .where(eq(user.email, SAMPLE_EMAIL))
     .limit(1);
   cachedSampleId = row?.id ?? null;
+  // `null` is cached deliberately: `route()` provisions on a miss, and the id it
+  // gets back is stored below rather than re-queried on every request.
   return cachedSampleId;
 }
 
 /** Test seam: forget the cached lookup so a fresh database is re-read. */
+/**
+ * Remembers an id that was provisioned after this module had already cached a
+ * miss. Without it, `resolveSampleUserId` would return the cached `null` on every
+ * subsequent request and `route()` would try to create the sample account again
+ * each time — which is a write per request on the demo path.
+ */
+export function rememberSampleUserId(id: string): void {
+  cachedSampleId = id;
+}
+
 export function resetSampleCache(): void {
   cachedSampleId = undefined;
 }

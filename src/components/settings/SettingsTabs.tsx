@@ -188,6 +188,9 @@ export function SettingsNav({
     groups.find((group) => group.sections.some((section) => section.value === active))?.label ??
     visibleGroups[0]?.label;
 
+  /** The last-resort destination: a real route, never an empty string. */
+  const fallbackHref = Object.values(href)[0] ?? '/';
+
   const activeSections = visibleGroups.find((group) => group.label === activeGroup)?.sections ?? [];
 
   /**
@@ -240,7 +243,14 @@ export function SettingsNav({
             return (
               <Link
                 key={group.label}
-                href={(current ? href[active] : first && href[first.value]) ?? ''}
+                /*
+ * Never an empty href. `?? ''` used to be the fallback, and a `<Link` with an
+ * empty href is a navigation to a URL that matches no route — which renders the
+ * App Router's not-found page. Falling back to the current path is always a real
+ * route, so a group whose section is somehow unresolvable cannot 404. The floor
+ * is the first href in the map, which is always a route that exists.
+ */
+href={(current ? href[active] : first && href[first.value]) ?? fallbackHref}
                 aria-current={current ? 'page' : undefined}
                 className={cn(
                   'flex h-7 min-w-0 flex-1 items-center justify-center truncate rounded-md px-2 text-sm font-medium transition-colors',
