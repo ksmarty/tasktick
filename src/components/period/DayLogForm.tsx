@@ -254,7 +254,9 @@ export function DayLogForm({
       {/* 4 — Weight: one number, and not a cycle observation. */}
       {shows('weight') ? (
         <FormCard title="Weight">
-          <Field label="Weight" hint="kg">
+          {/* The card already says "Weight"; the field's own label says which
+              day's, so the two do not read as a repeated heading. */}
+          <Field label="Today" hint="kg">
             <NumberField
               id={`period-weight-${date}`}
               value={value.weightKg ?? null}

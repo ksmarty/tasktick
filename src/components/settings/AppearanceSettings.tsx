@@ -45,6 +45,7 @@ import type { AccentPreference } from '@/lib/types';
 import { useAppearance } from '@/app/providers';
 import type { AccentColor, UserSettings } from '@/lib/types';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
+import { DemoModeCard } from './DemoModeCard';
 import { AccentSwatches } from './swatches';
 
 type ThemePreference = 'light' | 'dark' | 'system';
@@ -134,6 +135,12 @@ export function AppearanceSettings() {
           dark appearance, so nothing loses contrast when you switch.
         </p>
       </SettingsRow>
+
+      {/*
+       * Demo mode lives here rather than in a section of its own: it is a choice
+       * about what the app shows you, which is what the rest of this screen is.
+       */}
+      <DemoModeCard />
     </SettingsGroup>
   );
 }

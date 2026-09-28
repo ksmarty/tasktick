@@ -9,6 +9,9 @@
  *   npm run db:seed
  *   SEED_EMAIL=me@example.com SEED_PASSWORD=... npm run db:seed
  */
+import { periodSettings } from '@/server/db/schema';
+import { periodCycles } from '@/server/db/schema';
+import { DateTime } from 'luxon';
 import { getDb, closeDb } from '@/server/db';
 import {
   calendarEvents,
@@ -346,11 +349,115 @@ async function seed(userId: string) {
   );
 }
 
+const SAMPLE_EMAIL = 'sample@tasktick.local';
+
+/**
+ * The sample account demo mode shows.
+ *
+ * Deliberately a **separate account** from the one a person signs in as. Demo
+ * mode swaps the request identity to this account (see `src/server/demo.ts`), so
+ * the user's own rows are never read or written.
+ *
+ * Inserted directly, with **no credential row at all**. `signUpEmail` cannot be
+ * used here: registration on this instance is invite-only once the first account
+ * exists, so it refuses — and that refusal is right. An account that exists purely
+ * to be *looked at* should not be sign-in-able, and with no `account` row there is
+ * no password hash to attack. Demo mode reaches it by id, server-side, which is
+ * the only way in.
+ *
+ * `isAdmin: false` on purpose: it can see nothing but its own rows.
+ */
+async function seedSampleAccount(): Promise<string> {
+  const db = getDb();
+  const [existing] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, SAMPLE_EMAIL))
+    .limit(1);
+  if (existing) {
+    console.log(`[seed] reusing existing sample account ${SAMPLE_EMAIL}`);
+    return existing.id;
+  }
+
+  const id = newId();
+  await db.insert(user).values({
+    id,
+    name: 'Sample Data',
+    email: SAMPLE_EMAIL,
+    emailVerified: true,
+    isAdmin: false,
+    timezone: ZONE,
+  });
+  await ensureUserBootstrap(id, ZONE, 1);
+  console.log(`[seed] created sample account ${SAMPLE_EMAIL} (no credential)`);
+  return id;
+}
+
+/**
+ * Cycle history for the sample account.
+ *
+ * The period screens are the least interesting when empty — a chart with no points
+ * and a prediction that says "not enough data" — and demo mode exists so the user
+ * can see how the app *looks*. So the sample gets a plausible history: eight cycles
+ * of roughly 28 days with the variation a real one has, which is what makes the
+ * prediction render as a **range** rather than a date.
+ *
+ * Relative to today, not hard-coded, or it would look stale within a month.
+ */
+async function seedSamplePeriod(id: string): Promise<void> {
+  const db = getDb();
+  const now = DateTime.now().setZone(ZONE);
+
+  /* Roughly a month apart, with the odd short and long cycle. */
+  const lengths = [28, 27, 29, 28, 26, 30, 28, 27];
+  let start = now.minus({ days: lengths.reduce((a, b) => a + b, 0) });
+
+  for (const [index, length] of lengths.entries()) {
+    const end = start.plus({ days: 4 });
+    await db
+      .insert(periodCycles)
+      .values({
+        id: newId(),
+        userId: id,
+        startDate: start.toFormat('yyyy-MM-dd'),
+        endDate: end.toFormat('yyyy-MM-dd'),
+        flowIntensity: index % 3 === 0 ? 'heavy' : 'medium',
+      })
+      .onConflictDoNothing();
+    start = start.plus({ days: length });
+  }
+  console.log(`[seed] ${lengths.length} cycles for the sample account`);
+}
+
+async function setPeriodModeEnabled(userId: string, enabled: boolean): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(periodSettings)
+    .values({ userId, enabled })
+    .onConflictDoUpdate({ target: periodSettings.userId, set: { enabled } });
+  console.log(`[seed] period mode ${enabled ? 'on' : 'off'} for the sample account`);
+}
 async function main() {
   assertNotProduction();
   try {
     const userId = await findOrCreateUser();
     await seed(userId);
+    /*
+     * The sample account demo mode shows.
+     *
+     * Seeded only when absent — `seed()` is **not** idempotent (its tag insert
+     * trips a unique index on a second run), so calling it twice against the same
+     * account fails. A fresh account is therefore the only safe way to seed it.
+     */
+    const sampleId = await seedSampleAccount();
+    await seed(sampleId);
+    await seedSamplePeriod(sampleId);
+    /*
+     * Period mode on for the sample, so the demo can actually show the period
+     * interface. It is a per-user setting, and the sample has its own — without
+     * this, /period redirects to the task list and the demo shows nothing new.
+     */
+    await setPeriodModeEnabled(sampleId, true);
     console.log(`\n[seed] done. Sign in with:\n  email:    ${EMAIL}\n  password: ${PASSWORD}\n`);
   } catch (error) {
     console.error('[seed] failed:', error instanceof Error ? error.message : error);

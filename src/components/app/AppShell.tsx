@@ -78,6 +78,7 @@ import { whenScopeReady } from '@/lib/session-scope';
 import { useResource } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
+import { DemoModeBanner } from '@/components/settings/DemoModeCard';
 import { PageHeaderContext, type PageHeaderContent } from './PageHeader';
 import { ShellPaneContext } from './ShellPane';
 import { QuickAddFab } from './QuickAddFab';
@@ -618,6 +619,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
            */}
           {published || periodMode ? (
             <header className="shrink-0 bg-background pt-[env(safe-area-inset-top)]">
+              <DemoModeBanner />
               <div className="flex h-appbar items-center gap-2 px-gutter">
                 {published ? published.leading : null}
 

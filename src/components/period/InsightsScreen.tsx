@@ -401,8 +401,9 @@ function BodySignsGroup({ stats }: { stats: PeriodStats }) {
       </ChartRow>
       <NoteRow>
         <p className="text-muted-foreground">
-          Basal temperature, cervical mucus, an LH test and ovulation pain are recorded in the daily log. Turn Body
-          signs on in period settings to see them there.
+          Basal temperature, cervical mucus, an LH test and ovulation pain are recorded in the daily log — this is
+          where those readings end up. Switching Body signs off in period settings hides this card and those inputs,
+          and removes nothing.
         </p>
       </NoteRow>
     </SettingsGroup>

@@ -13,6 +13,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
+import { isDemoRequest, resolveSampleUserId, SAMPLE_EMAIL } from '@/server/demo';
 import { getAuth } from './auth';
 import { getEnv, isAppUrlDefault } from '@/lib/env';
 import type { ApiResult, SessionUser } from '@/lib/types';
@@ -137,6 +138,25 @@ export function route(handler: AuthedHandler, options: RouteOptions = {}) {
       if (auth) {
         user = await getSessionUser(req);
         if (!user) return fail('You must be signed in.', 401, 'unauthorized');
+        /*
+         * Demo mode swaps whose data this request touches, and it is done HERE rather
+         * than in any repository so no handler can forget it. Every authenticated
+         * route in the app comes through this function.
+         *
+         * The sample account is resolved server-side from a fixed address; the cookie
+         * carries only a boolean, so a forged one can reach the sample data and
+         * nothing else. See 'src/server/demo.ts'.
+         */
+        if (isDemoRequest(req)) {
+          const sampleId = await resolveSampleUserId();
+          if (sampleId) user = { ...user, id: sampleId, name: 'Demo', email: SAMPLE_EMAIL, isAdmin: false };
+          /*
+           * No sample account means this database predates the feature. Fall through as
+           * the signed-in user rather than inventing an identity — but the UI says so,
+           * because a demo that quietly shows your real data is worse than one that
+           * does not start.
+           */
+        }
         if (admin && !user.isAdmin) return fail('Administrator access required.', 403, 'forbidden');
       }
 
