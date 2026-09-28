@@ -104,15 +104,29 @@ describe('the interface switch lives only in the settings', () => {
 
   it('keeps the way back on the period settings screen, which every period screen reaches', () => {
     const card = source('components/period/PeriodModeCard.tsx');
-    // The `period` variant carries the row unconditionally — including when the
-    // settings read failed — so a network problem cannot strand the user.
-    expect(card).toContain("variant === 'period'");
-    expect(card).toContain('Back to tasks');
-    expect(card).toContain('<a href="/tasks">');
+    /*
+     * **The switch itself is the way back, and it is the same switch in both
+     * interfaces.** The user asked for exactly that: a toggle that flips between
+     * the two UIs, identical on both sides, and no button naming a destination.
+     * The two former variants — an "Open the period interface" row and a "Back to
+     * tasks" row — are gone, so what is pinned here is that the card renders ONE
+     * switch and that turning it off navigates out.
+     *
+     * The stranded-user property the old assertion protected still holds, and now
+     * holds more simply: `setEnabled` pushes `/tasks` whenever the switch goes off,
+     * so leaving does not depend on a second control existing.
+     */
+    expect(card).toContain('onCheckedChange={setEnabled}');
+    expect(card).toContain("router.push('/tasks')");
+    expect(card).toContain("router.push('/period')");
+    // One switch, no destination buttons.
+    expect(card).not.toContain('Back to tasks');
+    expect(card).not.toContain('Open the period interface');
+    expect(card).not.toContain("variant === 'period'");
     // The mode's own Settings tab always reaches that screen, and the nav lands on
     // Tracking by default, so the way out is never behind another control.
     expect(SHELL).toContain("'period-settings': '/period/settings'");
-    expect(PERIOD_SETTINGS).toContain('<PeriodModeCard variant="period" />');
+    expect(PERIOD_SETTINGS).toContain('<PeriodModeCard />');
     expect(PERIOD_SETTINGS).toContain("mode: '/period/settings'");
     expect(PERIOD_SETTINGS).toContain("label: 'Tracking'");
   });

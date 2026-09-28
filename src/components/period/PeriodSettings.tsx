@@ -151,7 +151,7 @@ export function PeriodSettingsNav({ children }: { children: React.ReactNode }) {
 export function PeriodModeSection() {
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-      <PeriodModeCard variant="period" />
+      <PeriodModeCard />
       {/*
        * Demo mode belongs here rather than in the app's Appearance section: it is a
        * choice about the *period* interface, which is where the user looked for it.
@@ -400,10 +400,10 @@ export function PeriodContraceptionSection() {
               </label>
               <p className="pt-0.5 text-xs text-muted-foreground">
                 {current.contraceptionInUse
-                  ? 'On. Predictions are labelled so a fertile-window estimate is not read as a contraceptive guarantee.'
+                  ? 'On — so a fertile-window estimate is not read as a contraceptive guarantee. Hormonal methods suppress ovulation, which the calendar arithmetic cannot see.'
                   : hormonalMethodActive
                     ? 'Off — but a hormonal method below is still in use, so predictions already treat contraception as in use. Turn this on to say so explicitly.'
-                    : 'Off. The calendar method on its own has a typical-use failure rate of about 24% a year — it is not a contraceptive plan.'}
+                    : 'Off.'}
               </p>
             </div>
             <Switch

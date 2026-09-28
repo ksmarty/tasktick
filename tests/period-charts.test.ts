@@ -26,6 +26,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   backtestBars,
+  barIndexAt,
   cycleFinding,
   cyclePhases,
   dayNumber,
@@ -33,6 +34,7 @@ import {
   forecastFinding,
   mean,
   meanAbsoluteError,
+  nearestIndex,
   paddedDomain,
   phaseBars,
   phaseFinding,
@@ -42,6 +44,7 @@ import {
   projectY,
   seriesPath,
   seriesPoints,
+  stackOffsets,
   temperatureFinding,
   DEFAULT_BLEEDING_DAYS,
   type Box,
@@ -163,6 +166,102 @@ describe('backtestBars', () => {
 
   it('is empty in, empty out', () => {
     expect(backtestBars([], BOX)).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* hit testing                                                                */
+/* -------------------------------------------------------------------------- */
+
+describe('nearestIndex', () => {
+  const positions = [10, 50, 90];
+
+  it('picks the position a touch landed nearest, not the first or the last', () => {
+    expect(nearestIndex(10, positions)).toBe(0);
+    expect(nearestIndex(51, positions)).toBe(1);
+    expect(nearestIndex(89, positions)).toBe(2);
+    // Before the first and past the last: the edge points, not nothing.
+    expect(nearestIndex(-40, positions)).toBe(0);
+    expect(nearestIndex(1000, positions)).toBe(2);
+  });
+
+  it('answers a tie with the lower index, so one tap always gives one answer', () => {
+    expect(nearestIndex(30, positions)).toBe(0);
+    expect(nearestIndex(70, positions)).toBe(1);
+  });
+
+  it('selects the only point however far away the touch was', () => {
+    // One measured cycle is a dot in the middle of the chart; a tap anywhere on
+    // that chart must still read it.
+    expect(nearestIndex(0, [160])).toBe(0);
+    expect(nearestIndex(320, [160])).toBe(0);
+  });
+
+  it('selects the first of a set that is all one value, and nothing of an empty set', () => {
+    expect(nearestIndex(50, [28, 28, 28])).toBe(0);
+    expect(nearestIndex(50, [])).toBeNull();
+  });
+
+  it('never returns NaN for a pointer read before layout', () => {
+    expect(nearestIndex(Number.NaN, positions)).toBe(0);
+  });
+});
+
+describe('barIndexAt', () => {
+  // Deliberately uneven: 5 days, 4, 6, 13 — the shape `cyclePhases` produces.
+  const bars = [
+    { x: 0, width: 50 },
+    { x: 50, width: 40 },
+    { x: 90, width: 60 },
+    { x: 150, width: 130 },
+  ];
+
+  it('uses the span, not the nearest centre, so a day lands in its own segment', () => {
+    // x=95 is 5 from the second bar's centre (70) and 25 from the third's (120);
+    // nearest-centre would name the wrong phase.
+    expect(barIndexAt(95, bars)).toBe(2);
+    expect(barIndexAt(5, bars)).toBe(0);
+    expect(barIndexAt(100, bars)).toBe(2);
+    expect(barIndexAt(200, bars)).toBe(3);
+  });
+
+  it('includes the very last edge, so day 28 of 28 is reachable', () => {
+    expect(barIndexAt(280, bars)).toBe(3);
+    // ...and nothing beyond it.
+    expect(barIndexAt(280.5, bars)).toBeNull();
+  });
+
+  it('selects nothing for an empty row or a touch in the gutter', () => {
+    expect(barIndexAt(10, [])).toBeNull();
+    expect(barIndexAt(40, [bars[1]!])).toBeNull();
+    expect(barIndexAt(60, [{ x: 70, width: 0 }])).toBeNull();
+  });
+});
+
+describe('stackOffsets', () => {
+  it('centres a stack of repeats instead of walking it downwards', () => {
+    expect(stackOffsets(1)).toEqual([0]);
+    expect(stackOffsets(2)).toEqual([-2, 2]);
+    expect(stackOffsets(3)).toEqual([-4, 0, 4]);
+  });
+
+  it('is symmetric, so the stack cannot drift out of the strip it sits in', () => {
+    for (const count of [1, 2, 3, 4, 8]) {
+      const offsets = stackOffsets(count);
+      const sum = offsets.reduce((total, offset) => total + offset, 0);
+      expect(Math.abs(sum)).toBeLessThan(1e-9);
+    }
+  });
+
+  it('clamps to the room the strip has, so the fifth repeat is still on the dot row', () => {
+    // 16-unit strip, 3-unit dots: 5 units either side of the centre.
+    expect(stackOffsets(3, 4, 5)).toEqual([-4, 0, 4]);
+    expect(stackOffsets(5, 4, 5)).toEqual([-5, -4, 0, 4, 5]);
+    for (const offset of stackOffsets(9, 4, 5)) expect(Math.abs(offset)).toBeLessThanOrEqual(5);
+  });
+
+  it('has nothing to stack for no repeats', () => {
+    expect(stackOffsets(0)).toEqual([]);
   });
 });
 

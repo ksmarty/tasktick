@@ -55,6 +55,13 @@ export const updatePeriodSettingsSchema = z
      * repository, so a repeated entry is harmless.
      */
     hiddenTodayCategories: z.array(todayCategory).max(TODAY_CATEGORIES.length).optional(),
+    /**
+     * The user's own chip vocabularies. Free-form strings, like the day log's
+     * `symptoms`/`mood`, because the same word has to survive being recorded and
+     * then edited out of the list — see `PeriodSettings.symptomOptions`.
+     */
+    symptomOptions: tagList.optional(),
+    moodOptions: tagList.optional(),
   })
   .strict();
 
@@ -99,6 +106,11 @@ export const periodDayLogSchema = z
     intimacy: z.boolean().optional(),
     /** Nullable: `null` is "not stated", which is what the old boolean means. */
     intimacyProtection: intimacyProtection.nullable().optional(),
+    /**
+     * The day's occurrences, replacing the stored list when present. A `null`
+     * element is one recorded before protection was a field.
+     */
+    intimacyOccurrences: z.array(intimacyProtection.nullable()).max(20).optional(),
     ovulationPain: z.boolean().optional(),
     weightKg: z.number().min(20).max(500).nullable().optional(),
     notes: z.string().max(2000).nullable().optional(),

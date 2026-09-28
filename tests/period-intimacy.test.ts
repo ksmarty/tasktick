@@ -12,11 +12,14 @@
  *    protection information and either value would be invented;
  *  · setting a level implies the fact (you cannot record protected sex on a day
  *    that says sex did not happen), while clearing the level alone does not erase
- *    the fact.
+ *    the fact;
+ *  · a day holds a **list** of occurrences now, one level each, and the old
+ *    boolean + single level are derived from it — a legacy row becomes one
+ *    occurrence on read, which is the migration.
  *
  * The repository is pinned from source because it cannot be executed here, and
- * the migration is read as text for the one thing that must *not* be in it: an
- * UPDATE that fills the column in.
+ * the migrations are read as text for the one thing that must *not* be in them: an
+ * UPDATE that fills the columns in.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -37,6 +40,13 @@ const day = (intimacy: boolean, intimacyProtection: 'protected' | 'unprotected' 
   intimacyProtection,
 });
 
+/** The same, plus the occurrence list the form and the repository now carry. */
+const dayWith = (
+  intimacy: boolean,
+  intimacyProtection: 'protected' | 'unprotected' | null,
+  intimacyOccurrences: ('protected' | 'unprotected' | null)[],
+) => ({ intimacy, intimacyProtection, intimacyOccurrences });
+
 describe('the model', () => {
   it('is an enum of exactly the two states a user can record', () => {
     expect(INTIMACY_PROTECTION).toEqual(['protected', 'unprotected']);
@@ -52,6 +62,13 @@ describe('the model', () => {
     expect(updatePeriodDayLogSchema.safeParse({ intimacyProtection: 'unspecified' }).success).toBe(false);
     // Still a strict object: a typo must not be silently ignored.
     expect(updatePeriodDayLogSchema.safeParse({ intimacyy: true }).success).toBe(false);
+  });
+
+  it('accepts several occurrences, each a level or an explicit null', () => {
+    expect(updatePeriodDayLogSchema.safeParse({ intimacyOccurrences: ['protected', 'unprotected'] }).success).toBe(true);
+    expect(updatePeriodDayLogSchema.safeParse({ intimacyOccurrences: [null] }).success).toBe(true);
+    expect(updatePeriodDayLogSchema.safeParse({ intimacyOccurrences: [] }).success).toBe(true);
+    expect(updatePeriodDayLogSchema.safeParse({ intimacyOccurrences: ['unspecified'] }).success).toBe(false);
   });
 });
 
@@ -75,28 +92,49 @@ describe('what a day reads as', () => {
     expect(hasUnstatedProtection(day(true, 'protected'))).toBe(false);
     expect(hasUnstatedProtection(day(false, null))).toBe(false);
   });
+
+  it('counts several occurrences rather than pretending one level describes them', () => {
+    expect(
+      intimacyLabel(dayWith(true, null, ['protected', 'unprotected'])),
+    ).toBe('2 occurrences (1 protected, 1 unprotected)');
+    expect(intimacyLabel(dayWith(true, null, [null, 'protected']))).toBe(
+      '2 occurrences (1 protected, 1 not stated)',
+    );
+    // A single occurrence still reads as its level, whichever field carries it.
+    expect(intimacyLabel(dayWith(true, 'protected', ['protected']))).toBe('Protected');
+    // "Unstated" is about the occurrence, not about the summary field being null
+    // because the kinds differ.
+    expect(hasUnstatedProtection(dayWith(true, null, [null, 'protected']))).toBe(true);
+    expect(hasUnstatedProtection(dayWith(true, null, ['protected', 'unprotected']))).toBe(false);
+  });
 });
 
 describe('the storage', () => {
-  it('carries the value out of the row, with null for the rows that predate it', () => {
-    expect(repo).toContain('intimacyProtection: row.intimacyProtection ?? null,');
+  it('carries the occurrence list out of the row, and migrates a legacy row on read', () => {
+    // The list is authoritative when the column has one.
+    expect(repo).toContain('row.intimacyOccurrences != null');
+    // A row written before the column existed becomes one occurrence derived from
+    // the old boolean — the existing single value is preserved, never dropped.
+    expect(repo).toContain('? [row.intimacyProtection ?? null]');
+    // And the single level the CSV and the day detail read is derived from the list.
+    expect(repo).toContain('intimacyProtection: occurrences.length === 1 ? occurrences[0] : null,');
   });
 
-  it('maps it onto the form value, where a missing line compiles silently', () => {
+  it('maps the list onto the form value, where a missing line compiles silently', () => {
     // `DayLogValue`'s fields are all optional, so forgetting this mapping does not
-    // fail the typecheck — it renders every recorded day as "not stated", which
-    // the probe found by tapping an already-set chip and watching it *set* rather
-    // than clear.
+    // fail the typecheck — it renders every recorded day as "not stated".
     expect(source('components/period/data.ts')).toContain(
-      'intimacyProtection: log?.intimacyProtection ?? null,',
+      'intimacyOccurrences: log?.intimacyOccurrences ?? [],',
     );
   });
 
   it('treats a protection level as the statement that it happened', () => {
-    expect(repo).toContain('input.intimacyProtection != null');
-    expect(repo).toContain('? true');
-    // Absent field: keep what is stored. Explicit null: clear the level only.
-    expect(repo).toContain('intimacyProtection:\n      input.intimacyProtection === undefined');
+    expect(repo).toContain('occurrences = [input.intimacyProtection];');
+    // Absent list: the older pair is mapped onto it, so a caller that predates
+    // the list (the CSV importer) keeps working.
+    expect(repo).toContain(
+      'occurrences = input.intimacy ? (storedOccurrences.length > 0 ? storedOccurrences : [null]) : [];',
+    );
   });
 
   it('never invents a value for existing rows', () => {
@@ -108,12 +146,18 @@ describe('the storage', () => {
     expect(migration).not.toMatch(/UPDATE\s+`?period_day_logs`?\s+SET/i);
     // And the default is genuinely absent, not `false`-ish.
     expect(migration).not.toMatch(/intimacy_protection.*DEFAULT/i);
+
+    // The occurrence list is added empty for the same reason: the read derives
+    // one occurrence from the old boolean, so nothing needs writing back.
+    const occurrences = readFileSync(new URL('../drizzle/sqlite/0007_crazy_solo.sql', import.meta.url), 'utf8');
+    expect(occurrences).toContain('ADD `intimacy_occurrences` text');
+    expect(occurrences).not.toMatch(/UPDATE\s+`?period_day_logs`?\s+SET/i);
   });
 
   it('keeps the old boolean working for the CSV and the calendar', () => {
     // The `intimacy` column stays: it is the CSV's vocabulary and the day
-    // detail's "did anything happen" flag, derived from the level.
-    expect(repo).toContain('intimacy: row.intimacy,');
+    // detail's "did anything happen" flag, derived from the list.
+    expect(repo).toContain('intimacy: occurrences.length > 0,');
   });
 });
 

@@ -129,6 +129,12 @@ function fromServer(log: PeriodDayLog | null | undefined, date: DateOnly): DayLo
      * to compile — it silently renders every day as "not stated".
      */
     intimacyProtection: log?.intimacyProtection ?? null,
+    /*
+     * The list is what the form renders and writes; the single level beside it is
+     * the summary other surfaces read. Defaulting to `[]` (not `[null]`) is what
+     * makes a day with nothing recorded empty rather than "one unstated".
+     */
+    intimacyOccurrences: log?.intimacyOccurrences ?? [],
     ovulationPain: log?.ovulationPain ?? false,
     weightKg: log?.weightKg ?? null,
     notes: log?.notes ?? null,

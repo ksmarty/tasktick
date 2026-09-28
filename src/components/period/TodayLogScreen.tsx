@@ -40,7 +40,7 @@
  * boolean and nothing else.
  */
 import { useMemo, useState } from 'react';
-import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { RotateCounterClockwiseIcon } from '@svg-animated-icons/react/rotate-counter-clockwise';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { PageHeader } from '@/components/app/PageHeader';
 import { useToast } from '@/components/app/Toast';
@@ -309,10 +309,7 @@ function PeriodCard({
               <TrashIcon className="size-4 text-base" />
               Remove this period
             </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-9 gap-1.5 px-2" onClick={onAddPast}>
-              <PlusIcon className="size-4 text-base" />
-              Add a past period
-            </Button>
+            <AddPastPeriodButton onClick={onAddPast} />
           </div>
         </>
       ) : (
@@ -320,18 +317,44 @@ function PeriodCard({
           <p className="text-sm text-muted-foreground">
             No period in progress. If one starts today, record it here and the day is marked on the cycle month.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" className="h-9" disabled={cycleStartsToday} onClick={onStart}>
               My period started today
             </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-9 gap-1.5 px-2" onClick={onAddPast}>
-              <PlusIcon className="size-4 text-base" />
-              Add a past period
-            </Button>
+            <AddPastPeriodButton onClick={onAddPast} />
           </div>
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * The rewind control: the past-period entry point, as an icon.
+ *
+ * The label used to be spelled out, which made a rarely-used action the widest
+ * thing in the card. Icon-only, so the accessible name carries the meaning —
+ * "Add a past period" — and it floats to the trailing edge (`ml-auto`) of
+ * whatever action the card is showing: beside "My period started today" when no
+ * period is open, and beside "My period ended today" / "Remove this period"
+ * when one is.
+ *
+ * The icon is the counter-clockwise rotation arrow: the meaning is "go back and
+ * enter something from before", which is what a rewind glyph reads as. It is
+ * deliberately not a plus — a plus would say "new", and this is the opposite.
+ */
+function AddPastPeriodButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="ml-auto h-9 w-9 shrink-0 px-0 text-muted-foreground"
+      aria-label="Add a past period"
+      onClick={onClick}
+    >
+      <RotateCounterClockwiseIcon className="size-4 text-base" />
+    </Button>
   );
 }
 

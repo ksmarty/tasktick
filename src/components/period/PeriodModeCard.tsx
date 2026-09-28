@@ -29,23 +29,13 @@
  * interface — and never the data.
  */
 import { useRouter } from 'next/navigation';
-import { Link as LinkIcon } from 'lucide-react';
 import { HeartIcon } from '@svg-animated-icons/react/heart';
 import { useToast } from '@/components/app/Toast';
-import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { SettingsGroup, SettingsRow } from '@/components/settings';
 import { useUpdatePeriodSettings, usePeriodSettings } from './data';
 
-export interface PeriodModeCardProps {
-  /**
-   * `app` is the copy shown in the normal settings area (enabling/re-enabling);
-   * `period` is the copy inside the mode, where the switch is the way out.
-   */
-  variant?: 'app' | 'period';
-}
-
-export function PeriodModeCard({ variant = 'app' }: PeriodModeCardProps) {
+export function PeriodModeCard() {
   const router = useRouter();
   const { toast } = useToast();
   const settings = usePeriodSettings();
@@ -85,15 +75,22 @@ export function PeriodModeCard({ variant = 'app' }: PeriodModeCardProps) {
     });
   }
 
+  /*
+   * **One switch, identical in both interfaces.**
+   *
+   * There used to be two variants: the app's copy carried an "Open the period
+   * interface" button The user
+   * asked for neither — a button that names a destination is not a mode switch, and
+   * two different cards cannot be the same switch. The switch itself already goes
+   * where it says (`/period` on, `/tasks` off), so the buttons were a second way to
+   * do what the switch had just done.
+   *
+   * The label and the hint are therefore state, not destination: they say which
+   * interface you are in, which is true from either side and reads the same from
+   * either side.
+   */
   return (
-    <SettingsGroup
-      title="Period tracking"
-      footer={
-        enabled
-          ? 'Turning this off closes the period interface and returns you to your tasks. Nothing you have recorded is deleted, and turning it back on finds it all as it was.'
-          : 'A separate interface for cycle tracking: its own screens, its own navigation, and nothing recorded until you turn it on. Your tasks are not affected either way.'
-      }
-    >
+    <SettingsGroup title="Interface">
       <SettingsRow>
         <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
           <HeartIcon className="size-5 text-xl" />
@@ -101,55 +98,21 @@ export function PeriodModeCard({ variant = 'app' }: PeriodModeCardProps) {
 
         <div className="min-w-0 flex-1">
           <label htmlFor="period-mode-switch" className="block text-sm font-medium">
-            Period tracking
+            Period interface
           </label>
           <p className="pt-0.5 text-xs text-muted-foreground">
-            {enabled
-              ? 'On. The app opens in the period interface and its navigation replaces the task tabs.'
-              : 'Off. The period screens exist but are not part of your navigation.'}
+            {enabled ? 'On — showing cycle tracking' : 'Off — showing tasks'}
           </p>
         </div>
 
         <Switch
           id="period-mode-switch"
-          aria-label="Period tracking"
+          aria-label="Period interface"
           checked={enabled}
           disabled={settings.isInitialLoading}
           onCheckedChange={setEnabled}
         />
       </SettingsRow>
-
-      {enabled ? (
-        <SettingsRow>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Open the period interface</p>
-            <p className="pt-0.5 text-xs text-muted-foreground">
-              Today’s log, the cycle month and the predictions. The way back to your tasks is in the period
-              settings, on the Tracking section.
-            </p>
-          </div>
-          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 gap-1.5">
-            <a href="/period">
-              <LinkIcon className="size-4" />
-              Open
-            </a>
-          </Button>
-        </SettingsRow>
-      ) : null}
-
-      {variant === 'period' ? (
-        <SettingsRow>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Back to tasks</p>
-            <p className="pt-0.5 text-xs text-muted-foreground">
-              Leave the period interface without turning it off. Period tracking stays on, so the app still opens here.
-            </p>
-          </div>
-          <Button asChild variant="outline" size="sm" className="h-9 shrink-0">
-            <a href="/tasks">Tasks</a>
-          </Button>
-        </SettingsRow>
-      ) : null}
     </SettingsGroup>
   );
 }

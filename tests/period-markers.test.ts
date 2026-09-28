@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { dayMarks, hasMarks, markWords, marksForDays } from '@/components/period/markers';
 import { daysBetween, rangeLabel, plusMinus } from '@/components/period/labels';
 import type { PeriodCycle, PeriodDayLog, PeriodOverview, PeriodPrediction } from '@/lib/period-types';
+import { PERIOD_MOODS, PERIOD_SYMPTOMS } from '@/lib/period-types';
 
 function prediction(overrides: Partial<PeriodPrediction> = {}): PeriodPrediction {
   return {
@@ -95,6 +96,8 @@ function dayLog(overrides: Partial<PeriodDayLog>): PeriodDayLog {
     /* The column the old boolean could not carry; null is "protection not
      * stated", which is what a row written before it existed reads as. */
     intimacyProtection: null,
+    /* The list the form reads and writes; empty means nothing recorded. */
+    intimacyOccurrences: [],
     ovulationPain: false,
     weightKg: null,
     notes: null,
@@ -113,6 +116,8 @@ function overview(partial: Partial<PeriodOverview> = {}): PeriodOverview {
       contraceptionInUse: false,
       bodySigns: false,
       hiddenTodayCategories: [],
+      symptomOptions: [...PERIOD_SYMPTOMS],
+      moodOptions: [...PERIOD_MOODS],
     },
     cycles: [cycle({})],
     dayLogs: [],

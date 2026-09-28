@@ -114,6 +114,64 @@ export function projectIndex(index: number, count: number, box: Box): number {
 }
 
 /* -------------------------------------------------------------------------- */
+/* hit testing — what a touch or a cursor lands on                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The index of the position in `positions` nearest to `x`, or null when there is
+ * nothing to land on.
+ *
+ * This is the whole of the charts' hit test, kept here rather than in the
+ * component for the same reason the scales are: it is arithmetic that can be
+ * wrong in a way a screenshot cannot show. A tap one pixel from the last point on
+ * a 300-pixel chart must not select the first one, and a chart with one point
+ * must select it wherever the finger is — an off-by-one here reads as "the
+ * tooltip shows the wrong week".
+ *
+ * Degenerate inputs are answers, not errors: an empty series has nothing to
+ * select (`null`), and a single position is always the nearest one. A tie — a tap
+ * exactly between two points — resolves to the lower index, so the same tap
+ * always gives the same answer. A `NaN` `x` (a pointer event read before layout)
+ * also answers with the first index rather than `NaN`.
+ */
+export function nearestIndex(x: number, positions: number[]): number | null {
+  if (positions.length === 0) return null;
+  let best = 0;
+  let bestDistance = Math.abs(positions[0]! - x);
+  for (let index = 1; index < positions.length; index += 1) {
+    const distance = Math.abs(positions[index]! - x);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index;
+    }
+  }
+  return best;
+}
+
+/**
+ * The index of the bar whose horizontal span contains `x`, or null.
+ *
+ * Bars are **not** evenly spaced by value — the phase bar's bleeding segment is
+ * five days and its luteal one is thirteen — so "nearest centre" would put a tap
+ * at day 7 in the fertile window. The span decides instead, and a tap outside
+ * every bar (in the gutter beside a row of bars) selects nothing rather than
+ * snapping to the nearest segment, which would name a day the user did not touch.
+ *
+ * A bar occupies `[x, x + width)`; the last bar's right edge is included so the
+ * final day of a cycle is reachable. An empty list has nothing to select, and
+ * zero-width bars are never matched.
+ */
+export function barIndexAt(x: number, bars: { x: number; width: number }[]): number | null {
+  for (let index = 0; index < bars.length; index += 1) {
+    const bar = bars[index]!;
+    if (bar.width <= 0 || x < bar.x) continue;
+    if (x < bar.x + bar.width) return index;
+    if (index === bars.length - 1 && x <= bar.x + bar.width) return index;
+  }
+  return null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* series                                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -384,6 +442,27 @@ export function meanAbsoluteError(errors: ForecastError[]): number | null {
   const measured = errors.map((entry) => entry.error).filter((error): error is number => error !== null);
   if (measured.length === 0) return null;
   return round1(mean(measured.map(Math.abs))!);
+}
+
+/**
+ * How far each repeated value is offset from the centre of its stack.
+ *
+ * The range strip draws one dot per cycle, and two cycles of the same length land
+ * on the same x — so a repeat is made visible by stacking the dots vertically.
+ * The offsets are symmetric about the centre (`count = 3` gives `-4, 0, +4`)
+ * rather than marching downwards, because a stack that only grows downwards walks
+ * its third dot out of the strip it is supposed to be sitting in, which is what
+ * the first version did.
+ *
+ * `spacing` is the distance between neighbours; a single dot has offset 0. `limit`
+ * clamps the outermost offsets, so a history with five 28-day cycles draws them
+ * inside the strip rather than walking the last two off its edge.
+ */
+export function stackOffsets(count: number, spacing = 4, limit = Number.POSITIVE_INFINITY): number[] {
+  if (count <= 1) return count === 1 ? [0] : [];
+  const middle = (count - 1) / 2;
+  const clamp = (offset: number) => Math.min(limit, Math.max(-limit, offset));
+  return Array.from({ length: count }, (_, index) => clamp((index - middle) * spacing));
 }
 
 /**

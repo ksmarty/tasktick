@@ -8,13 +8,21 @@
  * **A prediction is never a single confident date.** The contract computes
  * `nextPeriodStart` *and* an `uncertainty` half-width from the user's own spread
  * (or a documented default when there is not enough history), and this component
- * renders both together or not at all: "around 14–17 Oct, ± 3 days, from your last
+ * renders both together or not at all: "around 14–17 Oct ± 3 days, from your last
  * 6 cycles, average 29 days". A bare `14 Oct` in 24pt type would be the app
  * asserting something the data does not support, and it is the failure mode the
  * whole prediction API was shaped to avoid.
  *
- * The `±` comes from `uncertainty.days`, and whether it is the user's own spread
- * or a default is stated in words — `observed` and `default` are different claims.
+ * ## The ± sits beside the range
+ *
+ * It used to sit under it, in a sentence: the range on one line, then
+ * `Around ± 3 days from your own cycles. Expected in 4 days.` on the next. The
+ * user asked for the ± to the right of the date range instead, so the two are one
+ * line — range at the card's own size, ± small and muted beside it — and what
+ * follows the date is the timing alone. The `±` still comes from
+ * `uncertainty.days`, and whether it is the user's own spread or a default is still
+ * stated in words (`(a default)`), because `observed` and `default` are different
+ * claims.
  *
  * ## Why the ovulation estimate carries the same band
  *
@@ -91,17 +99,26 @@ export function PredictionSummary({ prediction, today, variant = 'compact', clas
 
       {prediction.dataSufficient && prediction.nextPeriodStart ? (
         <>
-          {/* The range and the band, stated together. */}
-          <p className="text-lg font-semibold" aria-live="polite">
-            {rangeLabel(prediction.nextPeriodStart, prediction.nextPeriodEnd ?? prediction.nextPeriodStart)}
+          {/* The range and the band on one line, stated together — the range at
+              the card's own size, the ± small beside it. It used to be the range
+              on one line and `Around ± 3 days from your own cycles.` on the next,
+              which is the pair the user asked to have moved together; the prose
+              half of that sentence is gone with it. */}
+          <p className="flex flex-wrap items-baseline gap-x-2" aria-live="polite">
+            <span className="text-lg font-semibold">
+              {rangeLabel(prediction.nextPeriodStart, prediction.nextPeriodEnd ?? prediction.nextPeriodStart)}
+            </span>
+            {uncertainty ? (
+              <span className="text-sm font-medium text-muted-foreground tabular-nums">
+                {plusMinus(uncertainty.days)}
+                {uncertainty.source === 'default' ? ' (a default)' : ''}
+              </span>
+            ) : null}
           </p>
 
+          {/* What is left of the sentence under the date: when it is expected, or
+              how late the estimate is. Nothing here repeats the ±. */}
           <p className="text-sm text-muted-foreground">
-            {uncertainty
-              ? `Around ${plusMinus(uncertainty.days)}${
-                  uncertainty.source === 'default' ? ' (a default, until there are more cycles)' : ' from your own cycles'
-                }.`
-              : null}{' '}
             {prediction.overdueDays && prediction.overdueDays > 0
               ? `The estimate passed ${prediction.overdueDays} ${prediction.overdueDays === 1 ? 'day' : 'days'} ago, so this is the next expected date.`
               : inDaysLabel(prediction.nextPeriodStart, today) === 'today'

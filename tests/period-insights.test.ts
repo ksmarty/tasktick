@@ -23,6 +23,7 @@ function source(relative: string): string {
 
 const INSIGHTS = source('components/period/InsightsScreen.tsx');
 const CHARTS = source('components/period/charts.tsx');
+const PREDICTION = source('components/period/PredictionSummary.tsx');
 const TODAY = source('components/period/TodayLogScreen.tsx');
 const FORM = source('components/period/DayLogForm.tsx');
 const IMPORT = source('components/period/ImportCard.tsx');
@@ -55,11 +56,72 @@ describe('the charts replaced paragraphs', () => {
     expect(INSIGHTS).not.toContain('value={daysLabel(interval.days)}');
   });
 
-  it('keeps the uncertainty in words, because a chart cannot say which kind it is', () => {
-    expect(INSIGHTS).toContain('The ± is measured from the spread of your own cycles.');
-    expect(INSIGHTS).toContain('fewer than three cycles have been measured');
-    // And the start still never appears bare.
-    expect(INSIGHTS).toContain('startWithUncertainty(prediction)');
+  it('puts the ± on the line the date is on, and deletes the prose between them', () => {
+    // What the user asked for: `29 Sep – 3 Oct   ± 2 days`, one line, range at
+    // the card's own size and the ± small beside it.
+    expect(INSIGHTS).toContain('{rangeLabel(start, end)}');
+    expect(INSIGHTS).toContain('{plusMinus(uncertainty.days)}');
+    const head = INSIGHTS.slice(INSIGHTS.indexOf('{rangeLabel(start, end)}'));
+    const plusMinusAt = head.indexOf('{plusMinus(uncertainty.days)}');
+    expect(plusMinusAt).toBeGreaterThan(0);
+    expect(plusMinusAt).toBeLessThan(head.indexOf('</p>'));
+    // The sentence that used to sit between the date and the numbers is gone.
+    expect(INSIGHTS).not.toContain('The ± is measured from the spread of your own cycles.');
+    expect(INSIGHTS).not.toContain('fewer than three cycles have been measured');
+    expect(INSIGHTS).not.toContain('uncertaintySourceLabel');
+    // The row that repeated the two rows under it is gone too.
+    expect(INSIGHTS).not.toContain('hint={rangeLabel(uncertainty.earliest, uncertainty.latest)}');
+  });
+
+  it('keeps saying which of the contract’s two widths the ± is, where that is still said', () => {
+    // `observed` and `default` are different claims, so the default is still
+    // named on the Today/calendar card — the one place the header cannot say it
+    // by arithmetical shape alone.
+    expect(PREDICTION).toContain("uncertainty.source === 'default' ? ' (a default)' : ''");
+    expect(PREDICTION).toContain('{plusMinus(uncertainty.days)}');
+    expect(PREDICTION).toContain('{rangeLabel(prediction.nextPeriodStart');
+    // And the sentence that carried the ± under the range is gone from both.
+    expect(PREDICTION).not.toContain('Around ${plusMinus(uncertainty.days)}');
+  });
+
+  it('lets a label/value row wrap instead of compressing both sides', () => {
+    // Measured at 390px before this: `Calendar-method window (Ogino–Knaus)` was
+    // squeezed to 66px and broke over five lines beside a two-line value. The
+    // rule is the pair's own width, so the row wraps rather than shrinking the
+    // label, and `ml-auto` keeps the value hard right on both lines.
+    expect(INSIGHTS).toContain('<SettingsRow className="flex-wrap">');
+    expect(INSIGHTS).toContain('min-w-0 flex-auto text-sm text-muted-foreground');
+    expect(INSIGHTS).toContain('ml-auto flex min-w-0 flex-col items-end');
+  });
+
+  it('gives every chart a scrubber that works with a pointer and with a keyboard', () => {
+    // Five charts, five scrubbable SVGs — a touch-only affordance would be
+    // broken on the desktop this phone app also runs on.
+    expect(CHARTS.match(/= useScrub\(/g)?.length).toBe(5);
+    expect(CHARTS.match(/tabIndex=\{0\}/g)?.length).toBe(5);
+    expect(CHARTS.match(/onPointerDown/g)?.length).toBe(1);
+    expect(CHARTS.match(/onKeyDown/g)?.length).toBe(1);
+    expect(CHARTS).toContain("event.key === 'ArrowRight'");
+    expect(CHARTS).toContain("'Escape'");
+    // Horizontal drags scrub; vertical ones stay the scroller's.
+    expect(CHARTS).toContain('touch-pan-y');
+    // The reading is text, so a screen reader and a screenshot both get it.
+    expect(CHARTS).toContain('aria-live="polite"');
+    // And the hit test is the pure one, not an inline nearest-centre.
+    expect(CHARTS).toContain('nearestIndex(userX');
+    expect(CHARTS).toContain('barIndexAt(userX, bars)');
+  });
+
+  it('keeps the reference labels out of the plot area, where they collided', () => {
+    // `average 28` overlapped the first data point; the label now sits above
+    // `inset`, which the padded domain cannot put a point into.
+    expect(CHARTS).toContain('y={LINE_BOX.inset - 8}');
+    // `on the average` overlapped the tallest bar; it is a key under the picture.
+    expect(CHARTS).toContain("label: 'on the average'");
+    // And the range strip no longer reserves a whole day either side of itself.
+    expect(CHARTS).toContain('const RANGE_PAD = 0.5;');
+    // A cycle that landed exactly on the average is drawn rather than vanishing.
+    expect(CHARTS).toContain('const ZERO_BAR_HEIGHT = 2;');
   });
 
   it('gives every chart an accessible name that states its finding', () => {
@@ -101,12 +163,22 @@ describe('the caveats survive every cut', () => {
     expect(INSIGHTS).toContain("'Calendar window (not a fertility estimate here)'");
   });
 
-  it('keeps the prediction meaning, and adds the one sentence the screen must never lose', () => {
+  it('keeps the prediction meaning, and one plain sentence about what the dates are', () => {
     // `prediction.meaning` is derived from the contraception setting server-side.
-    expect(INSIGHTS).toContain('footer={prediction.meaning}');
-    // The screen-level caveat: not medical advice, not a contraceptive plan.
-    expect(INSIGHTS).toContain('not medical advice');
-    expect(INSIGHTS).toContain('typical-use failure rate of about 24% a year');
+    // The Next period card is the date and the numbers, with no paragraph after them.
+  expect(INSIGHTS).not.toContain('footer={prediction.meaning}');
+  expect(INSIGHTS).toContain('<SettingsGroup title="Next period">');
+    /*
+     * The user asked for the warnings gone and was right about most of it — the
+     * disclaimer styling, the icon, the medical-advice sentence. What stays is the
+     * one fact that is not a disclaimer: a fertile-window estimate is arithmetic
+     * over recorded cycles, not an observation of the body, so it cannot be read as
+     * contraception. Pinned so it is not mistaken for leftover boilerplate.
+     */
+    expect(INSIGHTS).toContain('not observations of your body');
+    // And the warning treatment is gone, not merely reworded.
+    expect(INSIGHTS).not.toContain('not medical advice');
+    expect(INSIGHTS).not.toContain('failure rate');
   });
 
   it('still refuses to invent a date when there is not enough history', () => {
@@ -117,16 +189,23 @@ describe('the caveats survive every cut', () => {
 describe('body signs, off by default', () => {
   it('reads the switch as strictly on, so an unanswered read is off', () => {
     expect(INSIGHTS).toContain('const showBodySigns = settings.data?.bodySigns === true;');
-    expect(INSIGHTS).toContain('{history ? showBodySigns ? <BodySignsGroup stats={history} /> : <BodySignsHiddenRow stats={history} /> : null}');
+    expect(INSIGHTS).toContain('{history && (showBodySigns || hasBodySignsData(history)) ? <BodySignsGroup stats={history} /> : null}');
   });
 
-  it('does not hide recorded data in a way that looks lost', () => {
-    // With the switch off, the body-signs card is replaced by a row that says
-    // where the data still is. It never says "nothing recorded".
-    expect(INSIGHTS).toContain('function BodySignsHiddenRow');
-    expect(INSIGHTS).toContain('Nothing has been removed');
-    expect(INSIGHTS).toContain('still on the calendar');
-    expect(INSIGHTS).not.toContain('No body signs recorded yet');
+  it('hides the card when off and empty, and never hides a reading', () => {
+    /*
+     * The user asked for the card gone when the switch is off and nothing was
+     * recorded — no heading, no note, no warning. The second half of that is the
+     * part that matters: a display setting must never hide a reading, so the gate
+     * is `showBodySigns || hasBodySignsData`, and the count behind it covers every
+     * body sign rather than temperature alone.
+     */
+    expect(INSIGHTS).toContain('const showBodySigns = settings.data?.bodySigns === true;');
+    expect(INSIGHTS).toContain('const hasBodySignsData = (stats: PeriodStats) => stats.bodySignDays > 0;');
+    expect(INSIGHTS).toContain('history && (showBodySigns || hasBodySignsData(history))');
+    // The warning that used to stand in its place is gone, not merely restyled.
+    expect(INSIGHTS).not.toContain('BodySignsHiddenRow');
+    expect(INSIGHTS).not.toContain('Nothing has been removed');
   });
 
   it('hides the inputs in the form, under one switch', () => {

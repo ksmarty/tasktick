@@ -106,41 +106,47 @@ function daysLabel(value: number | null): string {
   return `${value} ${value === 1 ? 'day' : 'days'}`;
 }
 
-/** "Thu 30 Oct ± 3 days" — the contract's own form, so a start is never bare. */
-function startWithUncertainty(prediction: PeriodPrediction): string {
-  const start = prediction.nextPeriodStart;
-  if (!start) return '—';
-  const base = weekdayDateLabel(start);
-  if (!prediction.uncertainty) return base;
-  return `${base} ${plusMinus(prediction.uncertainty.days)}`;
-}
-
 /**
- * Where the `±` came from, in the contract's own two terms.
+ * Where the `±` came from — deleted as prose.
  *
- * One short line, because the *size* of the band is the chart's job now: the
- * cycle-length chart draws the spread the ± is derived from. What still has to be
- * said in words is which of the two kinds of width this is — a measured spread is
- * a different claim from a default.
+ * The card's header now prints the half-width beside the range
+ * (`29 Sep – 3 Oct   ± 2 days`), and *which* of the contract's two kinds of width
+ * it is no longer needs a sentence: the cycle-length chart draws the spread it was
+ * derived from, and the basis card names it. What the user asked for was the date
+ * and the numbers; this was the sentence between them. The note stays so the next
+ * reader knows it was a decision rather than an oversight.
  */
-function uncertaintySourceLabel(prediction: PeriodPrediction): string {
-  const uncertainty = prediction.uncertainty;
-  if (!uncertainty) return 'The prediction did not include an uncertainty range.';
-  return uncertainty.source === 'observed'
-    ? 'The ± is measured from the spread of your own cycles.'
-    : 'The ± is a default width: fewer than three cycles have been measured to derive a spread from.';
-}
 
 /* -------------------------------------------------------------------------- */
 /* small presentational pieces                                                */
 /* -------------------------------------------------------------------------- */
 
-/** A label/value row: the shape every number on this screen takes. */
+/**
+ * A label/value row: the shape every number on this screen takes.
+ *
+ * ## Why this row can wrap
+ *
+ * A non-stacked `SettingsRow` is a flex row whose value column is `shrink-0`, so
+ * the *label* absorbed every bit of pressure: measured at 390px, "Calendar-method
+ * window (Ogino–Knaus)" was squeezed to 66px and broke over five lines beside a
+ * value block of two, and "Fertile window (calendar estimate)" got 88px and three.
+ * That is the compression the user described, and it is why the row is now
+ * `flex-wrap` with a content-sized label (`flex-auto`, not `flex-1`): when the two
+ * sides do not fit, the value block moves to a line of its own instead of the
+ * label being crushed to fit beside it.
+ *
+ * The rule is the pair's own width, not a breakpoint: a row wraps exactly when its
+ * label and value cannot share a line, so short rows are still one line at any
+ * viewport and the same rows wrap on every phone. `ml-auto` keeps the value hard
+ * right on both lines, so a wrapped row reads as label / value rather than as two
+ * left-aligned fragments, and the label still fits on one line at full width in
+ * every row on this screen — which is what keeps the two sides balanced.
+ */
 function ValueRow({ label, value, hint }: { label: ReactNode; value: ReactNode; hint?: ReactNode }) {
   return (
-    <SettingsRow>
-      <span className="min-w-0 flex-1 text-sm text-muted-foreground">{label}</span>
-      <span className="flex shrink-0 flex-col items-end text-sm font-medium tabular-nums">
+    <SettingsRow className="flex-wrap">
+      <span className="min-w-0 flex-auto text-sm text-muted-foreground">{label}</span>
+      <span className="ml-auto flex min-w-0 flex-col items-end text-sm font-medium tabular-nums">
         <span>{value}</span>
         {/* A second line under the value, for what the number means. */}
         {hint ? <span className="text-xs font-normal text-muted-foreground">{hint}</span> : null}
@@ -212,25 +218,33 @@ function NextPeriodGroup({ prediction }: { prediction: PeriodPrediction }) {
   const uncertainty = prediction.uncertainty;
 
   return (
-    <SettingsGroup title="Next period" footer={prediction.meaning}>
+    <SettingsGroup title="Next period">
       <SettingsRow stacked>
-        {/* The predicted bleeding itself, as a range. */}
-        <p className="text-2xl font-semibold tabular-nums">{rangeLabel(start, end)}</p>
-        {/* The most likely start never appears on its own: it carries the
-            contract's own `date ± days` form. */}
-        <p className="text-sm font-medium tabular-nums">
-          {startWithUncertainty(prediction)} · {inDaysLabel(start, prediction.asOf)}
+        {/* The predicted bleeding and its half-width on one line — the range at
+            the card's own size, the ± small beside it. It used to be two lines:
+            the range, then `Tue 29 Sep ± 2 days · tomorrow`, then a sentence
+            explaining what the ± was measured from. The sentence is gone (the
+            user asked for the date and the numbers) and the ± moved up here, so
+            the contract's `date ± days` form is set as the card's header. */}
+        <p className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-2xl font-semibold tabular-nums">{rangeLabel(start, end)}</span>
+          {uncertainty ? (
+            <span className="text-sm font-medium text-muted-foreground tabular-nums">
+              {plusMinus(uncertainty.days)}
+            </span>
+          ) : null}
         </p>
-        <p className="text-xs text-muted-foreground">{uncertaintySourceLabel(prediction)}</p>
+        {/* The most likely start, and how far off it is. The ± is the line above
+            rather than a second copy here. */}
+        <p className="text-sm font-medium tabular-nums">
+          {weekdayDateLabel(start)} · {inDaysLabel(start, prediction.asOf)}
+        </p>
       </SettingsRow>
 
-      {uncertainty ? (
-        <ValueRow
-          label="Earliest start"
-          value={weekdayDateLabel(uncertainty.earliest)}
-          hint={rangeLabel(uncertainty.earliest, uncertainty.latest)}
-        />
-      ) : null}
+      {/* Two rows, no hint: the hint that used to sit under "Earliest start" was
+          `rangeLabel(uncertainty.earliest, uncertainty.latest)`, which is exactly
+          the span the two rows below it already state. */}
+      {uncertainty ? <ValueRow label="Earliest start" value={weekdayDateLabel(uncertainty.earliest)} /> : null}
       {uncertainty ? <ValueRow label="Latest start" value={weekdayDateLabel(uncertainty.latest)} /> : null}
 
       <ValueRow label="Cycle length used" value={daysLabel(prediction.predictedCycleLengthDays)} />
@@ -251,7 +265,7 @@ function NextPeriodGroup({ prediction }: { prediction: PeriodPrediction }) {
 
 function NotEnoughDataGroup({ prediction }: { prediction: PeriodPrediction }) {
   return (
-    <SettingsGroup title="Next period" footer={prediction.meaning}>
+    <SettingsGroup title="Next period">
       <SettingsRow stacked>
         <div className="flex items-start gap-3">
           <span aria-hidden className="inline-flex shrink-0 text-muted-foreground">
@@ -311,7 +325,7 @@ function TodayPhaseGroup({ prediction }: { prediction: PeriodPrediction }) {
   return (
     <SettingsGroup
       title="Where today sits"
-      footer="Calendar arithmetic from your recorded cycles, not an observation of your body."
+
     >
       <ChartRow>
         <CyclePhaseBar
@@ -419,25 +433,6 @@ function BodySignsGroup({ stats }: { stats: PeriodStats }) {
  * mucus or LH tests — so it states what it can count, points at where the rest
  * still lives, and never claims "nothing recorded".
  */
-function BodySignsHiddenRow({ stats }: { stats: PeriodStats }) {
-  const readings = stats.temperatureSeries.length;
-  return (
-    <SettingsGroup title="Body signs">
-      <NoteRow icon={<LockClosedIcon className="size-5" />}>
-        <p className="font-medium">
-          {readings > 0
-            ? `${readings} temperature ${readings === 1 ? 'reading' : 'readings'} recorded`
-            : 'Body signs are switched off'}
-        </p>
-        <p className="text-muted-foreground">
-          Nothing has been removed: every temperature, mucus, LH-test and ovulation-pain day is still on the calendar
-          day it was recorded on. Turn Body signs on in period settings to bring them back to this screen and to the
-          daily log.
-        </p>
-      </NoteRow>
-    </SettingsGroup>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /* fertility                                                                  */
@@ -635,6 +630,17 @@ export function InsightsScreen() {
    */
   const showBodySigns = settings.data?.bodySigns === true;
 
+  /*
+   * Whether anything was ever recorded against a body sign.
+   *
+   * The card is hidden when the switch is off **and** nothing was recorded: for
+   * someone who does not track fertility-awareness signs it is a heading and a
+   * paragraph about nothing. The second half of that condition is the important
+   * one — a display setting must never hide a reading the user took, which is why
+   * the server counts every body sign and not just temperature.
+   */
+  const hasBodySignsData = (stats: PeriodStats) => stats.bodySignDays > 0;
+
   /**
    * Nothing recorded at all: the importer leads, exactly as it does on Today.
    *
@@ -710,22 +716,27 @@ export function InsightsScreen() {
 
         {historyCards}
 
-        {history ? showBodySigns ? <BodySignsGroup stats={history} /> : <BodySignsHiddenRow stats={history} /> : null}
+        {history && (showBodySigns || hasBodySignsData(history)) ? <BodySignsGroup stats={history} /> : null}
 
         {value ? <BasisGroup prediction={value} /> : null}
         {value && value.notes.length > 0 ? <NotesGroup notes={value.notes} /> : null}
 
         {history ? <LoggedDaysGroup stats={history} /> : null}
 
-        {/* The caveat that must survive every cut: no reading of this screen is a
-            contraceptive guarantee or medical advice. It is a footer rather than
-            a paragraph in the middle, and it is not conditional. */}
-        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-          <InfoCircledIcon className="mt-0.5 size-4 shrink-0 text-base" />
-          <span>
-            Every date here is an estimate from the cycles you recorded. It is not medical advice and it is not a
-            contraceptive plan — the calendar method on its own has a typical-use failure rate of about 24% a year.
-          </span>
+        {/*
+         * One plain line, not a warning block.
+         *
+         * The user asked for the warnings gone — "there's no legality issues and it
+         * just clutters things up" — and they were right about most of it: the
+         * disclaimer styling, the icon, the medical-advice sentence. What is kept is
+         * the one fact that is not a disclaimer but a fact: a fertile-window estimate
+         * is arithmetic over recorded cycles, not an observation of the body, so it
+         * cannot be read as contraception. Stated plainly, in the same small type as
+         * every other aside on the screen, and named here so it is not mistaken for
+         * leftover boilerplate and cut later.
+         */}
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Dates are estimates from the cycles you recorded, not observations of your body.
         </p>
       </div>
     </>

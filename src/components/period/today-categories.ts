@@ -57,8 +57,15 @@ export const TODAY_CATEGORY_HINT: Record<TodayCategory, string> = {
   notes: 'Anything else worth remembering about the day.',
 };
 
-/** The settings this depends on — the two fields, not the whole payload. */
-export type TodayLogSettings = Pick<PeriodSettings, 'bodySigns' | 'hiddenTodayCategories'>;
+/**
+ * The settings this depends on — the two switches, plus the chip vocabularies.
+ *
+ * `symptomOptions` / `moodOptions` are optional so an older payload (or a test
+ * fixture that predates them) reads as the contract's defaults rather than as an
+ * empty row — the form falls back with `?? PERIOD_SYMPTOMS`.
+ */
+export type TodayLogSettings = Pick<PeriodSettings, 'bodySigns' | 'hiddenTodayCategories'> &
+  Partial<Pick<PeriodSettings, 'symptomOptions' | 'moodOptions'>>;
 
 /**
  * Whether a section is shown.

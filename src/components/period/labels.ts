@@ -7,10 +7,12 @@
  * underscore, so every enum is spelled out here once instead of in each screen —
  * a second copy is how "Spotted" and "spotting" end up in the same list.
  *
- * Where the contract defines an order (`PERIOD_FLOW_LEVELS`, `PERIOD_SYMPTOMS`,
- * `PERIOD_MOODS`, `LH_TEST_RESULTS`, `CERVICAL_MUCUS_TYPES`), these maps are keyed
- * by the same constants and the order comes from those arrays, so a value added
- * to the contract cannot silently go missing from the UI.
+ * Where the contract defines an order (`PERIOD_FLOW_LEVELS`, `LH_TEST_RESULTS`,
+ * `CERVICAL_MUCUS_TYPES`), these maps are keyed by the same constants and the
+ * order comes from those arrays, so a value added to the contract cannot silently
+ * go missing from the UI. Symptoms and mood are deliberately absent: their chip
+ * lists are the user's own editable vocabulary now (see `PeriodSettings`), and
+ * `humanise` is the one display rule they share.
  */
 import {
   CERVICAL_MUCUS_TYPES,
@@ -18,8 +20,6 @@ import {
   CONTRACEPTION_METHODS,
   LH_TEST_RESULTS,
   PERIOD_FLOW_LEVELS,
-  PERIOD_MOODS,
-  PERIOD_SYMPTOMS,
   type CervicalMucus,
   type ContraceptionDayStatus,
   type ContraceptionMethod,
@@ -110,39 +110,6 @@ export const LH_OPTIONS = LH_TEST_RESULTS;
 export const MUCUS_OPTIONS = CERVICAL_MUCUS_TYPES;
 export const METHOD_OPTIONS = CONTRACEPTION_METHODS;
 export const DAY_STATUS_OPTIONS = CONTRACEPTION_DAY_STATUSES;
-
-/**
- * The symptoms the UI suggests, subdivided.
- *
- * `PERIOD_SYMPTOMS` is one flat list of thirteen, which at 390px is three rows of
- * chips before the user has logged anything. The split is presentation only — the
- * stored value is the flat list, and a user can add their own word to either
- * group — but it means the common ones (cramps, headache, bloating) are in the
- * first row instead of sharing it with constipation.
- */
-export const SYMPTOM_GROUPS: { title: string; values: readonly string[] }[] = [
-  { title: 'Common', values: PERIOD_SYMPTOMS.slice(0, 5) },
-  { title: 'Also', values: PERIOD_SYMPTOMS.slice(5) },
-];
-
-export const MOOD_OPTIONS = PERIOD_MOODS;
-
-/**
- * Display names for the suggested vocabularies.
- *
- * The chip rows are built from the contract's arrays, so every value it offers is
- * offered here — and every one of them needs a word rather than its storage form.
- * `breast_tenderness` on a chip is a bug the eye slides past because the chip still
- * works; these maps are what stop it, and `humanise` is the fallback for a value
- * the user imported that we do not know.
- */
-export const SYMPTOM_LABELS: Record<string, string> = Object.fromEntries(
-  PERIOD_SYMPTOMS.map((symptom) => [symptom, humanise(symptom)]),
-);
-
-export const MOOD_LABELS: Record<string, string> = Object.fromEntries(
-  PERIOD_MOODS.map((mood) => [mood, humanise(mood)]),
-);
 
 /** `'2025-10-14'` -> `14 Oct`. */
 export function shortDate(date: string): string {

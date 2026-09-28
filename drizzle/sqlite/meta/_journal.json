@@ -50,6 +50,13 @@
       "when": 1790556160664,
       "tag": "0006_pink_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790569663374,
+      "tag": "0007_crazy_solo",
+      "breakpoints": true
     }
   ]
 }

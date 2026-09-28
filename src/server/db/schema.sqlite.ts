@@ -34,6 +34,7 @@ import type {
   ContraceptionDayStatus,
   ContraceptionMethod,
   ContraceptionSchedule,
+  IntimacyOccurrence,
   IntimacyProtection,
   LhTestResult,
   PeriodFlow,
@@ -820,6 +821,13 @@ export const periodSettings = sqliteTable('period_settings', {
    * Null (a row written before the column existed) reads as "nothing hidden".
    */
   hiddenTodayCategories: text('hidden_today_categories', { mode: 'json' }).$type<TodayCategory[]>(),
+  /**
+   * The user's own symptom/mood chip vocabularies, or null for the defaults.
+   * JSON lists for the same reason the day log's are: they are labels the user
+   * may edit, not foreign keys, so a removed option cannot orphan history.
+   */
+  symptomOptions: text('symptom_options', { mode: 'json' }).$type<string[]>(),
+  moodOptions: text('mood_options', { mode: 'json' }).$type<string[]>(),
   ...timestamps,
 });
 
@@ -875,6 +883,13 @@ export const periodDayLogs = sqliteTable(
      * information, so a value would have to be invented.
      */
     intimacyProtection: text('intimacy_protection').$type<IntimacyProtection>(),
+    /**
+     * Every occurrence of intercourse that day: the list, with a null entry for
+     * one recorded before protection was a field. Null for a row written before
+     * the column existed, which reads as one occurrence from `intimacy` — the
+     * existing single value is migrated, never dropped.
+     */
+    intimacyOccurrences: text('intimacy_occurrences', { mode: 'json' }).$type<IntimacyOccurrence[]>(),
     ovulationPain: integer('ovulation_pain', { mode: 'boolean' }).notNull().default(false),
     weightKg: real('weight_kg'),
     notes: text('notes'),

@@ -37,6 +37,7 @@ import type {
   ContraceptionMethodRecord,
   ContraceptionMethodUpdate,
   ContraceptionScheduleDay,
+  IntimacyOccurrence,
   PeriodCycle,
   PeriodCycleInput,
   PeriodCycleUpdate,
@@ -49,7 +50,7 @@ import type {
   PeriodSettingsUpdate,
   PeriodStats,
 } from '@/lib/period-types';
-import { TODAY_CATEGORIES, type TodayCategory } from '@/lib/period-types';
+import { PERIOD_MOODS, PERIOD_SYMPTOMS, TODAY_CATEGORIES, type TodayCategory } from '@/lib/period-types';
 import type { DateOnly } from '@/lib/types';
 
 /* -------------------------------------------------------------------------- */
@@ -75,6 +76,19 @@ function rowToCycle(row: CycleRow): PeriodCycle {
 }
 
 function rowToDayLog(row: DayLogRow): PeriodDayLog {
+  /*
+   * The occurrences are the source of truth. A row written before the column
+   * existed has `null` in it and is read as one occurrence derived from the old
+   * boolean — that is the migration, and it invents nothing: an unstated
+   * protection stays `null`.
+   */
+  const occurrences: IntimacyOccurrence[] =
+    row.intimacyOccurrences != null
+      ? row.intimacyOccurrences
+      : row.intimacy
+        ? [row.intimacyProtection ?? null]
+        : [];
+
   return {
     id: row.id,
     userId: row.userId,
@@ -86,9 +100,13 @@ function rowToDayLog(row: DayLogRow): PeriodDayLog {
     temperatureC: row.temperatureC ?? null,
     lhTest: row.lhTest ?? null,
     mucus: row.mucus ?? null,
-    intimacy: row.intimacy,
-    /** Null on every row written before protection was a field — see the type. */
-    intimacyProtection: row.intimacyProtection ?? null,
+    intimacy: occurrences.length > 0,
+    /**
+     * One level for one occurrence, and `null` otherwise: several occurrences of
+     * different kinds have no single answer, and the day detail says so.
+     */
+    intimacyProtection: occurrences.length === 1 ? occurrences[0] : null,
+    intimacyOccurrences: occurrences,
     ovulationPain: row.ovulationPain,
     weightKg: row.weightKg ?? null,
     notes: row.notes,
@@ -137,6 +155,9 @@ export const DEFAULT_PERIOD_SETTINGS: PeriodSettings = {
   /** Both off/empty: see `PeriodSettings.bodySigns` and `hiddenTodayCategories`. */
   bodySigns: false,
   hiddenTodayCategories: [],
+  /** The contract's own vocabulary, so a new user never meets an empty row. */
+  symptomOptions: [...PERIOD_SYMPTOMS],
+  moodOptions: [...PERIOD_MOODS],
 };
 
 /**
@@ -151,6 +172,29 @@ export const DEFAULT_PERIOD_SETTINGS: PeriodSettings = {
 function toTodayCategories(value: TodayCategory[] | null | undefined): TodayCategory[] {
   if (!Array.isArray(value)) return [];
   return TODAY_CATEGORIES.filter((category) => value.includes(category));
+}
+
+/**
+ * A stored chip vocabulary.
+ *
+ * A `null`/missing column is "never customised" and reads as the contract's
+ * default list, which is what every row written before the column existed means.
+ * An empty list is kept: that is a user who removed every option on purpose, and
+ * the day log still renders the values already recorded as "your own" chips, so
+ * emptying the list cannot hide history. Trimmed and de-duplicated, because the
+ * list is compared against recorded strings by exact match.
+ */
+function toOptionList(value: string[] | null | undefined, fallback: readonly string[]): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of value) {
+    const word = entry.trim();
+    if (word === '' || seen.has(word)) continue;
+    seen.add(word);
+    out.push(word);
+  }
+  return out;
 }
 
 /** Settings always exist; a missing row is created from the defaults. */
@@ -173,6 +217,10 @@ export async function getPeriodSettings(userId: string): Promise<PeriodSettings>
        */
       bodySigns: row.bodySigns ?? false,
       hiddenTodayCategories: toTodayCategories(row.hiddenTodayCategories),
+      // Same reasoning as `bodySigns`: a field this response does not name would
+      // be `undefined` on an older client, which is not the same as "defaults".
+      symptomOptions: toOptionList(row.symptomOptions, PERIOD_SYMPTOMS),
+      moodOptions: toOptionList(row.moodOptions, PERIOD_MOODS),
     };
   }
   await db.insert(periodSettings).values({ userId, ...DEFAULT_PERIOD_SETTINGS }).onConflictDoNothing();
@@ -196,6 +244,12 @@ export async function updatePeriodSettings(userId: string, input: PeriodSettings
   if (input.bodySigns !== undefined) patch.bodySigns = input.bodySigns;
   if (input.hiddenTodayCategories !== undefined) {
     patch.hiddenTodayCategories = toTodayCategories(input.hiddenTodayCategories);
+  }
+  if (input.symptomOptions !== undefined) {
+    patch.symptomOptions = toOptionList(input.symptomOptions, PERIOD_SYMPTOMS);
+  }
+  if (input.moodOptions !== undefined) {
+    patch.moodOptions = toOptionList(input.moodOptions, PERIOD_MOODS);
   }
 
   await db.update(periodSettings).set(patch).where(eq(periodSettings.userId, userId));
@@ -331,6 +385,33 @@ export async function upsertPeriodDayLog(userId: string, input: PeriodDayLogInpu
   const db = getDb();
   const existing = await getPeriodDayLog(userId, input.date);
 
+  /*
+   * The day's occurrences, and the one place the list and the old pair are
+   * reconciled.
+   *
+   * `intimacyOccurrences` is authoritative when the caller sends it. Otherwise
+   * the older `intimacyProtection` / `intimacy` pair is mapped onto it, so a
+   * caller that predates the list (the CSV importer, a cached client) keeps
+   * working and nothing already stored is dropped. Setting a level *is* the
+   * statement that intercourse happened; clearing the level alone means "I no
+   * longer say which" and keeps the occurrence count.
+   */
+  const storedOccurrences = existing?.intimacyOccurrences ?? [];
+  let occurrences: IntimacyOccurrence[];
+  if (input.intimacyOccurrences !== undefined) {
+    occurrences = input.intimacyOccurrences ?? [];
+  } else if (input.intimacyProtection !== undefined) {
+    if (input.intimacyProtection === null) {
+      occurrences = input.intimacy === false ? [] : storedOccurrences.map(() => null);
+    } else {
+      occurrences = [input.intimacyProtection];
+    }
+  } else if (input.intimacy !== undefined) {
+    occurrences = input.intimacy ? (storedOccurrences.length > 0 ? storedOccurrences : [null]) : [];
+  } else {
+    occurrences = storedOccurrences;
+  }
+
   const values = {
     flow: input.flow === undefined ? (existing?.flow ?? null) : input.flow,
     symptoms: input.symptoms === undefined ? (existing?.symptoms ?? null) : input.symptoms,
@@ -339,25 +420,15 @@ export async function upsertPeriodDayLog(userId: string, input: PeriodDayLogInpu
     lhTest: input.lhTest === undefined ? (existing?.lhTest ?? null) : input.lhTest,
     mucus: input.mucus === undefined ? (existing?.mucus ?? null) : input.mucus,
     /*
-     * Setting a protection level *is* the statement that intercourse happened, so
-     * `protection` implies `intimacy`. Clearing the protection alone (an explicit
-     * `null`) does not erase the fact that it happened — the UI sends both fields
-     * together when it clears the field, and a caller that only clears the level
-     * is saying "I no longer say which", not "it did not happen".
-     *
-     * No backfill: a row written before the column exists stays null, which reads
-     * as "protection not stated" rather than as an invented value.
+     * Derived from the occurrence list, never set independently: the boolean and
+     * the single level are the CSV's vocabulary and the day detail's one-line
+     * summary, and a second source of truth is how they drift apart. A row with
+     * no occurrences is `false`; several occurrences of mixed kinds have no
+     * single level and read `null`.
      */
-    intimacy:
-      input.intimacyProtection != null
-        ? true
-        : input.intimacy === undefined
-          ? (existing?.intimacy ?? false)
-          : input.intimacy,
-    intimacyProtection:
-      input.intimacyProtection === undefined
-        ? (existing?.intimacyProtection ?? null)
-        : input.intimacyProtection,
+    intimacy: occurrences.length > 0,
+    intimacyProtection: occurrences.length === 1 ? occurrences[0] : null,
+    intimacyOccurrences: occurrences,
     ovulationPain: input.ovulationPain === undefined ? (existing?.ovulationPain ?? false) : input.ovulationPain,
     weightKg: input.weightKg === undefined ? (existing?.weightKg ?? null) : input.weightKg,
     notes: input.notes === undefined ? (existing?.notes ?? null) : input.notes,
@@ -682,6 +753,13 @@ export async function buildPeriodStats(userId: string, options: PeriodStatsOptio
   const flowCounts: Record<PeriodFlow, number> = { none: 0, spotting: 0, light: 0, medium: 0, heavy: 0 };
   const symptomTally = new Map<string, number>();
   const temperatureSeries: { date: DateOnly; temperatureC: number }[] = [];
+  /*
+   * Days carrying **any** body sign — temperature, mucus, an LH test or ovulation
+   * pain. The Insights screen hides its body-signs card when the switch is off,
+   * and it must not hide readings: temperature alone would let a user who records
+   * only mucus have their data disappear behind a display setting.
+   */
+  let bodySignDays = 0;
 
   for (const log of dayLogs) {
     if (log.flow) flowCounts[log.flow] += 1;
@@ -689,6 +767,14 @@ export async function buildPeriodStats(userId: string, options: PeriodStatsOptio
       symptomTally.set(symptom, (symptomTally.get(symptom) ?? 0) + 1);
     }
     if (log.temperatureC !== null) temperatureSeries.push({ date: log.date, temperatureC: log.temperatureC });
+    if (
+      log.temperatureC !== null ||
+      log.lhTest !== null ||
+      log.mucus !== null ||
+      log.ovulationPain === true
+    ) {
+      bodySignDays += 1;
+    }
   }
 
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -706,6 +792,7 @@ export async function buildPeriodStats(userId: string, options: PeriodStatsOptio
       .map(([symptom, days]) => ({ symptom, days }))
       .sort((a, b) => b.days - a.days || a.symptom.localeCompare(b.symptom)),
     temperatureSeries: temperatureSeries.sort((a, b) => a.date.localeCompare(b.date)),
+    bodySignDays,
     loggedDays: dayLogs.length,
   };
 }

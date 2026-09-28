@@ -21,6 +21,7 @@ import {
   scheduledDayState,
 } from '@/lib/period-math';
 import type { ContraceptionMethodRecord, PeriodSettings } from '@/lib/period-types';
+import { PERIOD_MOODS, PERIOD_SYMPTOMS } from '@/lib/period-types';
 
 const settings = (overrides: Partial<PeriodSettings> = {}): PeriodSettings => ({
   enabled: true,
@@ -30,6 +31,8 @@ const settings = (overrides: Partial<PeriodSettings> = {}): PeriodSettings => ({
   /* Both off/empty by default — see `PeriodSettings`. */
   bodySigns: false,
   hiddenTodayCategories: [],
+  symptomOptions: [...PERIOD_SYMPTOMS],
+  moodOptions: [...PERIOD_MOODS],
   ...overrides,
 });
 
@@ -276,7 +279,12 @@ describe('contraception changes the meaning, not the maths', () => {
     const contraception = [{ id: 'm1', method: 'fertility_awareness' as const, startDate: '2026-01-01', endDate: null }];
     const prediction = buildPeriodPrediction({ asOf: '2026-03-01', settings: settings(), cycles, contraception });
     expect(prediction.contraception.hormonal).toBe(false);
-    expect(prediction.meaning).toMatch(/24%/);
+    /*
+     * The user asked for the warnings gone; what stays is the arithmetic, stated
+     * without the failure-rate clause. The classification is still exercised here.
+     */
+    expect(prediction.meaning).toMatch(/Ovulation is estimated/i);
+    expect(prediction.meaning).not.toMatch(/24%/);
   });
 
   it('honours the setting even with no method row', () => {
@@ -287,7 +295,7 @@ describe('contraception changes the meaning, not the maths', () => {
       contraception: [],
     });
     expect(prediction.contraception.inUse).toBe(true);
-    expect(prediction.meaning).toMatch(/calendar estimate/i);
+    expect(prediction.meaning).toMatch(/Ovulation is estimated/i);
   });
 
   it('classifies methods into the two families', () => {

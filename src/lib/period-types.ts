@@ -185,6 +185,17 @@ export const INTIMACY_PROTECTION = ['protected', 'unprotected'] as const;
 export type IntimacyProtection = (typeof INTIMACY_PROTECTION)[number];
 
 /**
+ * One recorded occurrence of intercourse on a day.
+ *
+ * It is the protection level, with `null` for an occurrence recorded before the
+ * app asked which kind — the same honest "not stated" the single
+ * {@link PeriodDayLog.intimacyProtection} field has always carried. A day can
+ * hold several; the list is the source of truth and the boolean + single level
+ * are derived from it so the CSV and the calendar keep working unchanged.
+ */
+export type IntimacyOccurrence = IntimacyProtection | null;
+
+/**
  * The sections of the Today log form, in the order the form presents them.
  *
  * The list is part of the settings contract because a user may switch any of
@@ -260,7 +271,9 @@ export interface PeriodCycleUpdate {
  * `flow`, `temperatureC`, `lhTest`, `mucus`, `intimacy`, `intimacyProtection`,
  * `ovulationPain`, `weightKg`. They are single-valued per day and ordinal or
  * numeric, so the prediction can read them without a join and a future model can
- * train on them directly.
+ * train on them directly. `intimacyOccurrences` is the one list among them, and
+ * the boolean + single level beside it are derived from it rather than stored
+ * independently — see the field.
  *
  * `symptoms` and `mood` are open-ended *sets* — a user may log three symptoms
  * and two moods, may invent their own, and no current computation looks at
@@ -294,10 +307,23 @@ export interface PeriodDayLog {
    * Whether that intercourse was protected.
    *
    * `null` means "not stated" — either nothing was recorded, or it was recorded
-   * through the old boolean. It is never a chip the user can pick; see
-   * {@link INTIMACY_PROTECTION}.
+   * through the old boolean, or several occurrences of different kinds were
+   * recorded (in which case no single value is true). It is never a chip the
+   * user can pick; see {@link INTIMACY_PROTECTION}. Kept in step with
+   * {@link intimacyOccurrences} by the repository, because it is the CSV's
+   * vocabulary and the day detail's one-line summary.
    */
   intimacyProtection: IntimacyProtection | null;
+  /**
+   * Every occurrence recorded for the day, oldest first.
+   *
+   * `intimacyOccurrences.length` is the count; a `null` entry is an occurrence
+   * recorded before protection was a field. The list is authoritative when the
+   * row has it; a row written before the column existed (null) is read as one
+   * occurrence derived from the old boolean, which is the migration — nothing is
+   * dropped, and no value is invented for it.
+   */
+  intimacyOccurrences: IntimacyOccurrence[];
   /** Mittelschmerz (ovulation pain). */
   ovulationPain: boolean;
   weightKg: number | null;
@@ -316,6 +342,12 @@ export interface PeriodDayLogInput {
   mucus?: CervicalMucus | null;
   intimacy?: boolean;
   intimacyProtection?: IntimacyProtection | null;
+  /**
+   * Replaces the day's occurrences wholesale when present. Absent keeps what is
+   * stored (and the older `intimacy` / `intimacyProtection` pair is mapped onto
+   * it, so a caller that predates the list keeps working).
+   */
+  intimacyOccurrences?: IntimacyOccurrence[] | null;
   ovulationPain?: boolean;
   weightKg?: number | null;
   notes?: string | null;
@@ -481,6 +513,19 @@ export interface PeriodSettings {
    * one section is one control too many.
    */
   hiddenTodayCategories: TodayCategory[];
+  /**
+   * The symptom chips the day log offers, in the order it offers them.
+   *
+   * The stored day log keeps symptom *strings*, never a foreign key to this
+   * list, so editing or removing an option cannot touch history: a value that
+   * leaves the list still renders as one of "your own" chips on the days that
+   * carry it. This is the user's own vocabulary (the default is
+   * {@link PERIOD_SYMPTOMS}); `null`/missing on the wire means "the defaults",
+   * which is what every existing row means.
+   */
+  symptomOptions: string[];
+  /** Mood chips, with the same free-form rule as {@link symptomOptions}. */
+  moodOptions: string[];
 }
 
 export type PeriodSettingsUpdate = Partial<PeriodSettings>;
@@ -616,6 +661,8 @@ export interface PeriodStats {
   temperatureSeries: { date: DateOnly; temperatureC: number }[];
   /** Logged days in the window. */
   loggedDays: number;
+    /** Days carrying any body sign: temperature, mucus, an LH test or ovulation pain. */
+    bodySignDays: number;
 }
 
 /* -------------------------------------------------------------------------- */

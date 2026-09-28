@@ -27,8 +27,9 @@
  *   7. **Notes** — free text, last, because a keyboard is the slowest thing on
  *      the screen.
  *
- * Everything is a chip except the numeric fields and the note, which is what
- * makes the common case (flow + a symptom + taken my pill) three taps.
+ * Everything is a chip except the numeric fields, the note and flow, which is a
+ * slider over its ordered levels — so the common case (flow + a symptom + taken
+ * my pill) is a drag and two taps.
  *
  * ## The user decides which of those sections exist
  *
@@ -48,12 +49,15 @@
  * ## Unknown values are preserved, not offered
  *
  * Symptoms and mood are stored as free-form `string[]` — the contract says so —
- * and a user may have imported a word we do not know (`PERIOD_SYMPTOMS` is only a
- * suggestion list). Those values are rendered as chips in their own "Your own"
+ * and the chips offered for them are the *user's own* editable vocabulary
+ * (`settings.symptomOptions` / `moodOptions`), not a fixed list. A value the
+ * current list does not contain — an imported word, or one the user recorded and
+ * then removed from their options — is rendered as a chip in its own "Your own"
  * group rather than dropped, so opening a day never silently discards something
- * the user recorded.
+ * the user recorded. `valuesOutsideOptions` is the rule; see its test.
  */
 import { useEffect, useState } from 'react';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { Button } from '@/components/ui/button';
@@ -61,17 +65,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { cn } from '@/lib/utils';
 import { hasDayPlan, isDailyMethod } from '@/lib/period-math';
 import {
   INTIMACY_PROTECTION,
+  PERIOD_MOODS,
+  PERIOD_SYMPTOMS,
   type ContraceptionDayStatus,
   type ContraceptionMethodRecord,
   type ContraceptionScheduleDay,
-  type IntimacyProtection,
+  type IntimacyOccurrence,
 } from '@/lib/period-types';
 import type { DateOnly } from '@/lib/types';
-import { ChipMultiRow, ChipRow } from './chips';
+import { ChipMultiRow, ChipRow, FlowSlider, valuesOutsideOptions } from './chips';
 import type { DayLogDraft, DayLogValue } from './data';
 import {
   isTodayCategoryVisible,
@@ -85,12 +92,8 @@ import {
   LH_LABEL,
   LH_OPTIONS,
   METHOD_LABEL,
-  MOOD_OPTIONS,
   MUCUS_LABEL,
   MUCUS_OPTIONS,
-  SYMPTOM_GROUPS,
-  SYMPTOM_LABELS,
-  MOOD_LABELS,
   humanise,
   longDate,
 } from './labels';
@@ -139,14 +142,29 @@ export function DayLogForm({
 }: DayLogFormProps) {
   const symptoms = value.symptoms ?? [];
   const mood = value.mood ?? [];
+  /*
+   * The user's own chip vocabularies, or the contract's defaults when the
+   * settings read has not landed — never an empty row for a new user, and never
+   * a reason to hide a recorded value (see `customSymptoms` below).
+   */
+  const symptomOptions: readonly string[] = settings?.symptomOptions ?? PERIOD_SYMPTOMS;
+  const moodOptions: readonly string[] = settings?.moodOptions ?? PERIOD_MOODS;
 
   const shows = (category: Parameters<typeof isTodayCategoryVisible>[1]) =>
     isTodayCategoryVisible(settings, category);
   const visible = visibleTodayCategories(settings);
 
-  /* Values the contract's vocabulary does not contain, so they are not lost. */
-  const customSymptoms = symptoms.filter((symptom) => !ALL_KNOWN_SYMPTOMS.includes(symptom));
-  const customMoods = mood.filter((entry) => !MOOD_OPTIONS.includes(entry as (typeof MOOD_OPTIONS)[number]));
+  /*
+   * Values outside the *user's current* options, so they are not lost.
+   *
+   * Deliberately measured against the configured list, not the contract's fixed
+   * vocabulary: if the user removes `cramps` from their options, a day that
+   * already recorded it must keep rendering it, as one of "your own". Filtering
+   * against `PERIOD_SYMPTOMS` instead is exactly how an edited-away option
+   * would silently vanish from a past day.
+   */
+  const customSymptoms = valuesOutsideOptions(symptomOptions, symptoms);
+  const customMoods = valuesOutsideOptions(moodOptions, mood);
 
   function toggle(list: string[], entry: string): string[] {
     return list.includes(entry) ? list.filter((item) => item !== entry) : [...list, entry];
@@ -177,18 +195,31 @@ export function DayLogForm({
       {/* 1 — Flow. The one observation the cycle maths is built on. */}
       {shows('flow') ? (
         <FormCard title="Flow" hint={longDate(date)}>
-          <ChipRow
+          {/* The slider carries the current level as its accessible value, and
+              the labels under the track name every stop — so the description
+              line the old chip row needed is gone. */}
+          <FlowSlider
             label="Flow intensity"
             options={FLOW_OPTIONS}
             labels={FLOW_CHIP_LABEL}
             value={value.flow ?? null}
             onChange={(next) => onChange({ flow: next as DayLogDraft['flow'] })}
           />
-          <p className="text-xs text-muted-foreground">
-            {value.flow === null || value.flow === 'none'
-              ? 'Nothing logged. Tap a level, or leave it blank if there is nothing to record.'
-              : 'Spotting is kept separate from light flow: it often means something else.'}
-          </p>
+          {/* A slider always shows a position, so the empty state needs its own
+              way back: `none` is a recorded level, and clearing is not the same
+              as recording it. */}
+          {value.flow !== null ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-fit gap-1.5 px-2 text-muted-foreground"
+              onClick={() => onChange({ flow: null })}
+            >
+              <Cross1Icon className="size-4 text-base" />
+              Clear flow
+            </Button>
+          ) : null}
         </FormCard>
       ) : null}
 
@@ -198,16 +229,16 @@ export function DayLogForm({
       {/* 3 — Symptoms and mood. */}
       {shows('symptoms') ? (
         <FormCard title="Symptoms" hint={symptoms.length > 0 ? `${symptoms.length} logged` : undefined}>
-          {SYMPTOM_GROUPS.map((group) => (
-            <ChipMultiRow
-              key={group.title}
-              label={`${group.title} symptoms`}
-              options={group.values}
-              labels={SYMPTOM_LABELS}
-              values={symptoms}
-              onToggle={(entry) => onChange({ symptoms: toggle(symptoms, entry) })}
-            />
-          ))}
+          {/* One row over the user's own list; the vocabulary is editable in
+              period settings. A value edited out of the list still renders
+              below, from the day that recorded it. */}
+          <ChipMultiRow
+            label="Symptoms"
+            options={symptomOptions}
+            labels={Object.fromEntries(symptomOptions.map((entry) => [entry, humanise(entry)]))}
+            values={symptoms}
+            onToggle={(entry) => onChange({ symptoms: toggle(symptoms, entry) })}
+          />
           {customSymptoms.length > 0 ? (
             <ChipMultiRow
               label="Your own symptoms"
@@ -229,8 +260,8 @@ export function DayLogForm({
         <FormCard title="Mood" hint={mood.length > 0 ? `${mood.length} logged` : undefined}>
           <ChipMultiRow
             label="Mood"
-            options={MOOD_OPTIONS}
-            labels={MOOD_LABELS}
+            options={moodOptions}
+            labels={Object.fromEntries(moodOptions.map((entry) => [entry, humanise(entry)]))}
             values={mood}
             onToggle={(entry) => onChange({ mood: toggle(mood, entry) })}
           />
@@ -323,31 +354,22 @@ export function DayLogForm({
       ) : null}
 
       {/*
-        6 — Sex. Two chips rather than a switch, because the useful fact is
-        *which* — an unprotected day in the fertile window is a different
-        observation from a protected one, and a boolean cannot say it.
+        6 — Sex. A segmented control for the protected/unprotected distinction,
+        because the useful fact is *which* — an unprotected day in the fertile
+        window is a different observation from a protected one, and a boolean
+        cannot say it.
+
+        Multiple occurrences are supported without taxing the common case: with
+        nothing recorded the card is one control and one tap, and "Add another
+        occurrence" only appears once an occurrence exists. Each occurrence gets
+        its own level, so a mixed day is representable instead of collapsed into
+        one answer.
       */}
       {shows('intimacy') ? (
-        <FormCard title="Sex">
-          <ChipRow
-            label="Sex today"
-            options={INTIMACY_PROTECTION}
-            labels={INTIMACY_PROTECTION_LABEL}
-            value={value.intimacyProtection ?? null}
-            onChange={(next) =>
-              onChange(
-                next === null
-                  ? { intimacy: false, intimacyProtection: null }
-                  : { intimacy: true, intimacyProtection: next as IntimacyProtection },
-              )
-            }
-          />
-          <p className="text-xs text-muted-foreground">
-            {value.intimacy === true && (value.intimacyProtection ?? null) === null
-              ? 'This day is recorded as sex from before the app asked which kind. Nothing is lost — choose protected or unprotected above to fill it in, or tap again to clear the day.'
-              : 'Both are recorded as your own observation. Protected and unprotected are kept apart because an unprotected day inside the fertile window is a different fact from a protected one.'}
-          </p>
-        </FormCard>
+        <SexField
+          occurrences={value.intimacyOccurrences ?? []}
+          onChange={(next) => onChange({ intimacyOccurrences: next })}
+        />
       ) : null}
 
       {/* 7 — Notes. Last, because the keyboard is the slowest control here. */}
@@ -366,14 +388,106 @@ export function DayLogForm({
   );
 }
 
-/** The two protection values, spelled out for a chip. */
-const INTIMACY_PROTECTION_LABEL: Record<IntimacyProtection, string> = {
-  protected: 'Protected',
-  unprotected: 'Unprotected',
-};
+/** The two protection values, in the order the segmented control shows them. */
+const SEX_OPTIONS: SegmentedOption[] = INTIMACY_PROTECTION.map((value) => ({
+  value,
+  label: value === 'protected' ? 'Protected' : 'Unprotected',
+}));
 
-/** Every value the chip rows already offer, so "your own" means exactly that. */
-const ALL_KNOWN_SYMPTOMS: string[] = SYMPTOM_GROUPS.flatMap((group) => [...group.values]);
+/* -------------------------------------------------------------------------- */
+/* pieces                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sex, as one segmented control per occurrence.
+ *
+ * ## Single first
+ *
+ * With nothing recorded the card is a single control and a single tap — the
+ * common case never sees the multi-entry machinery. "Add another occurrence"
+ * appears only once an occurrence exists, so the everyday path stays one tap and
+ * a mixed day is still representable. Each occurrence carries its own level
+ * rather than a shared one, because "one protected and one unprotected" is a
+ * real day that one answer cannot describe.
+ *
+ * ## The empty control is not a record
+ *
+ * With nothing recorded the control is shown with no option selected, and
+ * nothing is written until a level is picked. `null` on an occurrence is a
+ * different state — it is an occurrence that happened before the app asked which
+ * kind — so the copy only mentions it once something is recorded.
+ *
+ * ## Removal is per occurrence
+ *
+ * A segmented control cannot be un-set by tapping the selected half again, so
+ * each recorded occurrence carries its own remove control. Removing the last one
+ * clears the day, which is how the old two-chip row's "tap again to clear"
+ * behaviour is preserved.
+ */
+function SexField({
+  occurrences,
+  onChange,
+}: {
+  occurrences: IntimacyOccurrence[];
+  onChange: (next: IntimacyOccurrence[]) => void;
+}) {
+  const recorded = occurrences.length > 0;
+  const rows: IntimacyOccurrence[] = recorded ? occurrences : [null];
+  const unstated = recorded && rows.some((entry) => entry === null);
+
+  function setAt(index: number, level: IntimacyOccurrence) {
+    onChange(rows.map((entry, i) => (i === index ? level : entry)));
+  }
+
+  return (
+    <FormCard title="Sex" hint={occurrences.length > 1 ? `${occurrences.length} occurrences` : undefined}>
+      {rows.map((entry, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <SegmentedControl
+            aria-label={occurrences.length > 1 ? `Occurrence ${index + 1} protection` : 'Sex today'}
+            className="min-w-0 flex-1 [&>button]:flex-1"
+            options={SEX_OPTIONS}
+            value={entry ?? ''}
+            onChange={(next) => setAt(index, next as IntimacyOccurrence)}
+          />
+          {recorded ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-9 w-9 shrink-0 px-0 text-muted-foreground"
+              aria-label={
+                occurrences.length > 1 ? `Remove occurrence ${index + 1}` : 'Clear today’s sex record'
+              }
+              onClick={() => onChange(occurrences.filter((_, i) => i !== index))}
+            >
+              <Cross1Icon className="size-4 text-base" />
+            </Button>
+          ) : null}
+        </div>
+      ))}
+
+      {recorded ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-fit gap-1.5 px-2 text-muted-foreground"
+          onClick={() => onChange([...occurrences, null])}
+        >
+          <PlusIcon className="size-4 text-base" />
+          Add another occurrence
+        </Button>
+      ) : null}
+
+      <p className="text-xs text-muted-foreground">
+        {unstated
+          ? 'An occurrence here was recorded before the app asked which kind. Nothing is lost — choose protected or unprotected to fill it in, or remove it.'
+          : 'Protected and unprotected are kept apart because an unprotected day inside the fertile window is a different fact from a protected one.'}
+      </p>
+    </FormCard>
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 /* pieces                                                                     */

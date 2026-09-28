@@ -469,12 +469,12 @@ export function buildPeriodPrediction(input: PeriodPredictionInput): PeriodPredi
       return 'Not enough recorded history to estimate a date yet. Logging two or more period starts is what makes a prediction possible.';
     }
     if (hormonal) {
-      return 'Hormonal contraception suppresses ovulation, so these dates are a calendar estimate only and are not a statement about your fertility.';
+      return 'A calendar estimate: hormonal contraception suppresses ovulation, so this is not a statement about your fertility.';
     }
     if (inUse) {
-      return `These dates are a calendar estimate, not a contraceptive guarantee — the calendar method alone has a typical-use failure rate of about 24% per year. Ovulation is estimated ${settings.lutealPhaseDays} days before the next predicted period.`;
+      return `Ovulation is estimated ${settings.lutealPhaseDays} days before the next predicted period.`;
     }
-    return `These dates assume a regular cycle with a ${settings.lutealPhaseDays}-day luteal phase. Individual cycles vary; the range shown is from your own recorded history.`;
+    return `Assumes a ${settings.lutealPhaseDays}-day luteal phase. The range is the spread of your own recorded cycles.`;
   };
 
   /* ---- not enough data: say so, do not invent a date ---- */

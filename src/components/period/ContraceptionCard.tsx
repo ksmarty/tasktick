@@ -45,6 +45,22 @@
  * switch is "end this one, then add the next one". The list is then the visible
  * history the contract describes, and no write here ever invents a second one.
  *
+ * ## Empty is a real value, for the fields that have one
+ *
+ * The label, the end date and the on/off plan are all nullable in the contract,
+ * so each of them gets one obvious way back to empty (`ClearableInput`, and one
+ * control for the plan's two halves — clearing half a plan is the half-entered
+ * state the validation calls a typo). The method and the start date are required,
+ * so they deliberately have no clear control: clearing them would produce a
+ * record the API rejects, and the way to change a required value is to type a
+ * new one.
+ *
+ * ## The on/off pair is a grid, not a flex row
+ *
+ * Two number inputs side by side relied on their content being shrinkable, and an
+ * input's intrinsic width is not something this code controls. Grid tracks are
+ * the container's width by construction, so the pair cannot push past the sheet.
+ *
  * ## Shape
  *
  * One `SettingsGroup` of rows (the settings area's own rhythm), one godui
@@ -54,6 +70,7 @@
  * invalidate the period prefix) and every failure is surfaced with the toast.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { ExclamationCircledIcon } from '@svg-animated-icons/react/exclamation-circled';
 import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -217,10 +234,84 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
+    <div className={cn('flex min-w-0 flex-col gap-2', className)}>
       <Label htmlFor={id}>{label}</Label>
       {children}
       {hint ? <p className={cn('text-xs', invalid ? 'text-destructive' : 'text-muted-foreground')}>{hint}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * A small clear control inside a field's trailing edge.
+ *
+ * The same control and geometry as the task editor's `ClearFieldButton` (it is
+ * defined there because that file is where it was first needed): absolute rather
+ * than a flex sibling, so a field does not lose width to a button it only needs
+ * once something is typed, and an `after:` overlay grows the tap target without
+ * widening the visible dot. Every field that carries one reserves `pr-8` for it.
+ */
+function ClearFieldButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className={cn(
+        'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full',
+        'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+        "after:absolute after:-inset-1 after:content-['']",
+      )}
+    >
+      <Cross1Icon className="size-3" />
+    </button>
+  );
+}
+
+/**
+ * An input whose value can go back to empty, with the one control that does it.
+ *
+ * Only ever used for a field where empty is a real state — the label and the end
+ * date. A required field (the method, the start date) deliberately has no clear
+ * control, because clearing it would produce a record the API rejects; the way to
+ * change a required value is to type a new one.
+ */
+function ClearableInput({
+  id,
+  label,
+  value,
+  type,
+  placeholder,
+  maxLength,
+  invalid = false,
+  onChange,
+}: {
+  id: string;
+  /** Used for the clear control's accessible name: `Clear your own name for it`. */
+  label: string;
+  value: string;
+  type?: string;
+  placeholder?: string;
+  maxLength?: number;
+  invalid?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        autoComplete="off"
+        aria-invalid={invalid ? true : undefined}
+        onChange={(event) => onChange(event.target.value)}
+        className="pr-8"
+      />
+      {value !== '' ? (
+        <ClearFieldButton label={`Clear ${label.toLowerCase()}`} onClick={() => onChange('')} />
+      ) : null}
     </div>
   );
 }
@@ -333,7 +424,7 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
       title={record ? `Edit ${METHOD_LABEL[record.method]}` : 'Add a method'}
       className="p-0 px-card"
     >
-      <div className="flex flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
+      <div className="flex min-w-0 flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         <p className="text-sm text-muted-foreground">
           {editing
             ? 'Correct what was recorded. The history is never rewritten in place — a change of method is an end date here plus a new entry.'
@@ -367,14 +458,14 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
           </Select>
         </Field>
 
-        <Field id="contraception-label" label="Your own name for it" hint="Optional, e.g. “Nuvaring” or “the mini pill”.">
-          <Input
+        <Field id="contraception-label" label="Your own name for it" hint="Optional, e.g. “Nuvaring” or “the mini pill”. Clear it to go back to the method’s own name.">
+          <ClearableInput
             id="contraception-label"
+            label="Your own name for it"
             value={label}
-            onChange={(event) => setLabel(event.target.value)}
             placeholder="Nuvaring"
-            autoComplete="off"
             maxLength={120}
+            onChange={setLabel}
           />
         </Field>
 
@@ -400,24 +491,32 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
           id="contraception-end"
           label="Ended"
           invalid={Boolean(errors.endDate)}
-          hint={errors.endDate ?? 'Leave blank while you are still using it.'}
+          hint={errors.endDate ?? 'Leave blank while you are still using it. Clear it to reopen the method.'}
         >
-          <Input
+          <ClearableInput
             id="contraception-end"
+            label="Ended"
             type="date"
             value={endDate}
-            aria-invalid={errors.endDate ? true : undefined}
-            onChange={(event) => {
-              setEndDate(event.target.value);
+            invalid={Boolean(errors.endDate)}
+            onChange={(next) => {
+              setEndDate(next);
               clearError('endDate');
             }}
           />
         </Field>
 
         {scheduleShown ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex gap-3">
-              <Field className="flex-1" id="contraception-on-days" label="On days">
+          <div className="flex min-w-0 flex-col gap-2">
+            {/*
+             * A grid, not a flex row: two `flex-1` fields rely on their content
+             * being shrinkable, and an input's intrinsic width is not something
+             * this code controls. Grid tracks are the container's width by
+             * construction, so the pair cannot push past the sheet at any
+             * viewport. `min-w-0` on the field is kept as the second belt.
+             */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="contraception-on-days" label="On days">
                 <Input
                   id="contraception-on-days"
                   type="number"
@@ -433,7 +532,7 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
                   }}
                 />
               </Field>
-              <Field className="flex-1" id="contraception-off-days" label="Off days">
+              <Field id="contraception-off-days" label="Off days">
                 <Input
                   id="contraception-off-days"
                   type="number"
@@ -455,6 +554,29 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
               <p role="alert" className="text-xs text-destructive">
                 {errors.schedule}
               </p>
+            ) : null}
+
+            {/*
+             * The on/off plan is one field with two halves, so it has one clear
+             * control: clearing only one half would be the half-entered state the
+             * validation above calls a typo. The required fields above (method,
+             * start date) have no control at all — see `ClearableInput`.
+             */}
+            {onDays !== '' || offDays !== '' ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-fit gap-1.5 px-2 text-muted-foreground"
+                onClick={() => {
+                  setOnDays('');
+                  setOffDays('');
+                  clearError('schedule');
+                }}
+              >
+                <Cross1Icon className="size-4 text-base" />
+                Clear the plan
+              </Button>
             ) : null}
 
             <p className="text-xs text-muted-foreground">
@@ -523,7 +645,7 @@ export function ContraceptionCard() {
             Add method
           </Button>
         }
-        footer="Ending a method (by giving it an end date) and adding the next one is how a change of method is kept in the history. Hormonal methods suppress ovulation; non-hormonal ones leave the cycle alone, but a calendar estimate is still not a contraceptive guarantee on its own — the calendar method has a typical-use failure rate of about 24% per year."
+        footer="Give a method an end date to stop it; adding the next one keeps the change in your history."
       >
         {activeHormonal.length > 0 ? (
           <SettingsRow className="items-start">
