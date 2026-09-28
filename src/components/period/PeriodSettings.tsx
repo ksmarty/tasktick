@@ -74,6 +74,7 @@ import type { BootstrapPayload } from '@/lib/view-types';
 import { ContraceptionCard } from './ContraceptionCard';
 import { ImportCard } from './ImportCard';
 import { PeriodModeCard } from './PeriodModeCard';
+import { DemoModeCard } from '@/components/settings/DemoModeCard';
 import { useContraceptionMethods, usePeriodSettings, useUpdatePeriodSettings } from './data';
 
 /* -------------------------------------------------------------------------- */
@@ -151,6 +152,13 @@ export function PeriodModeSection() {
   return (
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
       <PeriodModeCard variant="period" />
+      {/*
+       * Demo mode belongs here rather than in the app's Appearance section: it is a
+       * choice about the *period* interface, which is where the user looked for it.
+       * It swaps the whole request to the sample account, so switching it on shows
+       * a period history worth looking at instead of the empty state.
+       */}
+      <DemoModeCard />
     </div>
   );
 }
