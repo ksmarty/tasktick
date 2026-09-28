@@ -90,11 +90,19 @@ import { SettingsGroup, SettingsRow } from '@/components/settings/SettingsGroup'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { PeriodFlow, PeriodPrediction, PeriodPredictionBasis, PeriodStats } from '@/lib/period-types';
+import { cycleTrendSentence, latestPeriodLength } from '@/lib/period-insights';
+import type { PeriodCycle, PeriodFlow, PeriodPrediction, PeriodPredictionBasis, PeriodStats } from '@/lib/period-types';
+import { useResource } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { cycleLengthValues, cyclePhases, dayNumber } from './chart-math';
 import { CycleLengthChart, CyclePhaseBar, CycleRangeChart, ForecastErrorChart, TemperatureChart } from './charts';
+import { CycleHistory } from './CycleHistory';
+import { CycleSummary } from './CycleSummary';
 import { ImportEmptyState } from './ImportCard';
+import { useTodayZone } from './useToday';
+
+/** `GET /api/period/cycles` — the full recorded history, for the summary and the strips. */
+const PERIOD_CYCLES_KEY = '/api/period/cycles';
 
 /* -------------------------------------------------------------------------- */
 /* formatting helpers — every one of them formats a value the API computed     */
@@ -348,19 +356,29 @@ function TodayPhaseGroup({ prediction }: { prediction: PeriodPrediction }) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The chart that answers "why ± 3 days".
+ * The chart that answers "why ± 3 days", and the sentence that states the trend.
  *
  * One point per measured cycle, the average as the reference line and one standard
  * deviation shaded either side of it — which *is* the spread the uncertainty is
  * derived from. The caption states the finding in words, so the card does not
  * become unreadable for anyone who cannot see it.
+ *
+ * The sentence above the chart is the card's answer to "what shape are my cycles",
+ * and it is derived from the same `stats.cycleLengths` the chart plots — the
+ * counts, the dates and the magnitudes are read off the numbers, so the two can
+ * never tell different stories. The arithmetic lives in `@/lib/period-insights`
+ * with its own tests; this card only renders what it returns.
  */
-function CycleHistoryGroup({ stats }: { stats: PeriodStats }) {
+function CycleTrendsGroup({ stats }: { stats: PeriodStats }) {
+  const sentence = cycleTrendSentence(stats.cycleLengths);
   return (
     <SettingsGroup
-      title="Cycle length over time"
-      footer="The dashed line is the average the prediction is built on."
+      title="Cycle trends"
+      footer="The sentence is derived from the same lengths the graph plots. The dashed line is the average the prediction is built on."
     >
+      <SettingsRow stacked>
+        <p className="text-sm">{sentence}</p>
+      </SettingsRow>
       <ChartRow>
         <CycleLengthChart
           lengths={stats.cycleLengths}
@@ -612,13 +630,17 @@ function LoggedDaysGroup({ stats }: { stats: PeriodStats }) {
 /* -------------------------------------------------------------------------- */
 
 export function InsightsScreen() {
-  // Three reads, not one: the prediction is a point-in-time answer, the stats are
-  // the history behind it, and the settings are what decides whether the
-  // body-sign card exists at all. Each can be shown while the others are still
-  // arriving, and a failure in one does not blank the rest.
+  // Four reads, not one: the prediction is a point-in-time answer, the stats are
+  // the history behind it, the settings are what decides whether the body-sign
+  // card exists at all, and the cycles carry the recorded start/end of each
+  // period. Each can be shown while the others are still arriving, and a failure
+  // in one does not blank the rest. The cycles read is shared with
+  // `CycleHistory`, so the store serves both from one request.
   const prediction = usePeriodPrediction();
   const stats = usePeriodStats();
   const settings = usePeriodSettings();
+  const cycles = useResource<PeriodCycle[]>(PERIOD_CYCLES_KEY);
+  const { today } = useTodayZone();
 
   const value = prediction.data;
   const history = stats.data;
@@ -674,10 +696,23 @@ export function InsightsScreen() {
     </SettingsGroup>
   );
 
+  /**
+   * The cycle summary's three numbers, read from the two payloads that own them.
+   *
+   * The previous cycle length is the most recent *measured* interval (the stats
+   * payload's last entry), and the previous period length is the most recent
+   * recorded bleed from the cycles themselves — a cycle with no `endDate` is
+   * skipped rather than defaulted, so a missing log never becomes a value. The
+   * badges are computed inside `CycleSummary` from these numbers.
+   */
+  const previousCycleLengthDays = history?.cycleLengths[history.cycleLengths.length - 1]?.days ?? null;
+  const previousPeriodLengthDays = cycles.data ? latestPeriodLength(cycles.data) : null;
+
   /** The history the prediction is drawn from, with its own loading and error. */
   const historyCards = history ? (
     <>
-      <CycleHistoryGroup stats={history} />
+      <CycleHistory cycles={cycles} intervals={history.cycleLengths} prediction={value} today={today} />
+      <CycleTrendsGroup stats={history} />
       <CycleSpreadGroup stats={history} />
     </>
   ) : stats.isInitialLoading ? (
@@ -705,11 +740,24 @@ export function InsightsScreen() {
       <div
         className="flex flex-col gap-stack px-gutter pt-4 pb-6"
         aria-live="polite"
-        aria-busy={prediction.isInitialLoading || stats.isInitialLoading}
+        aria-busy={prediction.isInitialLoading || stats.isInitialLoading || cycles.isInitialLoading}
       >
         {nothingRecorded ? <ImportEmptyState /> : null}
 
         {predictionCard}
+
+        {/* The summary only exists once there is something to summarise: three
+            dashes under a heading is not a summary, it is a card about nothing.
+            The empty case is already explained by the importer card and the
+            prediction’s “not enough history” card above it. */}
+        {history && (previousCycleLengthDays !== null || previousPeriodLengthDays !== null || history.shortestCycleDays !== null) ? (
+          <CycleSummary
+            previousCycleLengthDays={previousCycleLengthDays}
+            previousPeriodLengthDays={previousPeriodLengthDays}
+            shortestCycleDays={history.shortestCycleDays}
+            longestCycleDays={history.longestCycleDays}
+          />
+        ) : null}
 
         {value ? <TodayPhaseGroup prediction={value} /> : null}
         {value && value.dataSufficient ? <FertilityGroup prediction={value} /> : null}

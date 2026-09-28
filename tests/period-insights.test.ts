@@ -27,6 +27,10 @@ const PREDICTION = source('components/period/PredictionSummary.tsx');
 const TODAY = source('components/period/TodayLogScreen.tsx');
 const FORM = source('components/period/DayLogForm.tsx');
 const IMPORT = source('components/period/ImportCard.tsx');
+const CYCLE_SUMMARY = source('components/period/CycleSummary.tsx');
+const CYCLE_HISTORY = source('components/period/CycleHistory.tsx');
+const CYCLE_STRIP = source('components/period/CycleDotStrip.tsx');
+const INSIGHTS_MATH = source('lib/period-insights.ts');
 
 describe('the charts replaced paragraphs', () => {
   it('wires every chart to the API fields, not to a re-derivation', () => {
@@ -265,7 +269,13 @@ describe('the empty state leads to the importer', () => {
     expect(INSIGHTS).toContain('history.loggedDays === 0 && value.basis.cycleCount === 0');
     expect(TODAY).toContain('(data?.cycles.length ?? 0) === 0 && stats.data?.loggedDays === 0');
     expect(INSIGHTS).toContain('{nothingRecorded ? <ImportEmptyState /> : null}');
-    expect(TODAY).toContain('{nothingRecorded ? <ImportEmptyState /> : null}');
+    /*
+     * Ported, not deleted: the Today screen now wraps the same control in a
+     * gutter div (`px-gutter`) because the insights row below it is full-bleed,
+     * so the decision is pinned as the two halves it is written in.
+     */
+    expect(TODAY).toContain('{nothingRecorded ? (');
+    expect(TODAY).toContain('<ImportEmptyState />');
   });
 
   it('leads somewhere: the template is the first control, not a settings row', () => {
@@ -285,5 +295,96 @@ describe('the screen is now shorter in words than in cards', () => {
     // The old screen had multi-sentence explanations inside three cards.
     expect(INSIGHTS).not.toContain('Counts come from the days that carry a log.');
     expect(INSIGHTS).not.toContain('Nothing is filled in with a default date on purpose: one cycle is not a basis');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* the cycle summary, the dot strip, and the trend sentence                   */
+/* -------------------------------------------------------------------------- */
+
+describe('the cycle summary badges are computed, and the claim is readable', () => {
+  it('reads every badge from the pure threshold module', () => {
+    expect(CYCLE_SUMMARY).toContain('cycleLengthVerdict(previousCycleLengthDays)');
+    expect(CYCLE_SUMMARY).toContain('periodLengthVerdict(previousPeriodLengthDays)');
+    expect(CYCLE_SUMMARY).toContain('cycleVariationVerdict(shortestCycleDays, longestCycleDays)');
+    expect(CYCLE_SUMMARY).toContain("from '@/lib/period-insights'");
+  });
+
+  it('renders no hard-coded status word, and never the word “abnormal”', () => {
+    // The badge is `verdict.badge`; a literal in the component would be a badge
+    // that cannot change with the data.
+    expect(CYCLE_SUMMARY).toMatch(/\{verdict\.badge\}/);
+    expect(CYCLE_SUMMARY).not.toMatch(/ABNORMAL|'Abnormal'|'Normal'/);
+    // And the words the module actually returns are the careful ones.
+    expect(INSIGHTS_MATH).toContain("'Outside the usual range'");
+    expect(INSIGHTS_MATH).toContain("'Wider variation'");
+  });
+
+  it('puts the threshold and its source where the badge can be read', () => {
+    expect(INSIGHTS_MATH).toContain('21–35 days');
+    expect(INSIGHTS_MATH).toContain('2–7 days');
+    expect(INSIGHTS_MATH).toContain('NHS');
+    expect(CYCLE_SUMMARY).toContain('not a diagnosis');
+  });
+
+  it('gives the (i) a keyboard-reachable disclosure, not a hover tooltip', () => {
+    expect(CYCLE_SUMMARY).toContain('<button');
+    expect(CYCLE_SUMMARY).toContain('aria-expanded={open}');
+    expect(CYCLE_SUMMARY).toContain('aria-controls={panelId}');
+    expect(CYCLE_SUMMARY).toContain('aria-label={`What');
+  });
+
+  it('does not build an assistant that does not exist', () => {
+    // The reference’s avatar disc + speech bubble + pill implies an AI behind the
+    // screen. The honest replacement is the explanatory card itself.
+    expect(CYCLE_SUMMARY).not.toContain('<Avatar');
+    expect(CYCLE_SUMMARY).not.toContain('SpeechBubble');
+    expect(CYCLE_SUMMARY).not.toContain('ChatBubble');
+  });
+});
+
+describe('the dot strip is a data visual with words', () => {
+  it('has an accessible name and hides the dots from the reader', () => {
+    expect(CYCLE_STRIP).toContain('role="img"');
+    expect(CYCLE_STRIP).toContain('aria-label={name}');
+    expect(CYCLE_STRIP).toContain('aria-hidden');
+    expect(CYCLE_STRIP).toContain('stripAccessibleName(startDate, days)');
+  });
+
+  it('draws fixed geometry that cannot wrap', () => {
+    expect(CYCLE_STRIP).toContain('flex-nowrap');
+    expect(CYCLE_STRIP).toContain('gap: `${STRIP_GAP_PX}px`');
+    expect(CYCLE_STRIP).toContain('width: `${STRIP_DOT_PX}px`');
+    expect(CYCLE_STRIP).toContain('STRIP_MAX_DAYS');
+    // The arithmetic itself is pinned in period-insights-math.test.ts.
+  });
+
+  it('says the fertile estimate is current-cycle only', () => {
+    expect(CYCLE_STRIP).toContain('fertile estimate is drawn on the current cycle only');
+  });
+});
+
+describe('the history and the trend are the data, not a template', () => {
+  it('derives the trend sentence from the same lengths the graph plots', () => {
+    expect(INSIGHTS).toContain('cycleTrendSentence(stats.cycleLengths)');
+    expect(INSIGHTS).toContain('<CycleTrendsGroup stats={history} />');
+    expect(INSIGHTS).toContain('title="Cycle trends"');
+    // The old chart card’s title is gone; this is the trend card now.
+    expect(INSIGHTS).not.toContain('title="Cycle length over time"');
+  });
+
+  it('makes “See all” a real toggle, not a dead link', () => {
+    expect(CYCLE_HISTORY).toContain("expanded ? 'Show fewer' : 'See all'");
+    expect(CYCLE_HISTORY).toContain('aria-expanded={expanded}');
+    expect(CYCLE_HISTORY).not.toContain('<Link');
+    expect(CYCLE_HISTORY).not.toContain('href=');
+  });
+
+  it('reads the recorded cycle ranges and never invents a fertile window', () => {
+    expect(CYCLE_HISTORY).toContain('cycles: Resource<PeriodCycle[]>');
+    expect(CYCLE_HISTORY).toContain('cycleStripDays(');
+    // A completed cycle gets no window — only the current row carries one.
+    expect(CYCLE_HISTORY).toContain('fertileWindow: null');
+    expect(INSIGHTS).toContain('latestPeriodLength(cycles.data)');
   });
 });

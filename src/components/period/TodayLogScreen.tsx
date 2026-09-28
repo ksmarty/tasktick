@@ -1,18 +1,32 @@
 'use client';
 
 /**
- * Today: the log screen, and the fastest path to recording anything.
+ * Today: the week strip, the estimate, and the fastest path to recording anything.
  *
  * ## The shape, and why
  *
- * The prediction is at the top because it is what a user opens the app to *see*;
- * the period actions sit under it because "my period started today" is the one
- * observation that is not a chip on the form; the log is next because it is what
- * they open the app to *do*.
+ * Top to bottom: the week strip (which day this screen is about), the hero card
+ * (what is next and the one period action), the prediction card (the same
+ * estimate with its basis and its caveats), the day log, then "My daily insights"
+ * and "My cycles".
  *
- * Everything below that is the same `DayLogForm` the cycle month opens in a
- * sheet, so the two screens cannot offer different fields. The form itself is
- * ordered by how often each field is set — see `DayLogForm`.
+ * The order is the reference's, with one addition: `PredictionSummary` stays
+ * under the hero. The hero is a headline — a count and one sentence — and a
+ * headline is where a caveat gets lost, so the card that carries the ± band, the
+ * measured intervals and the API's own `meaning` sentence keeps its place on this
+ * screen. The strip and the hero are new; the day log is not: it is the same
+ * `DayLogForm` the cycle month opens in a sheet, so the two screens cannot offer
+ * different fields.
+ *
+ * ## One selected day, and everything below it moves
+ *
+ * `selectedDate` is the screen's subject. It starts as today (`null` means "follow
+ * the clock", so the screen is still on today after midnight) and any day in the
+ * strip replaces it: the hero's count, the prediction's relative wording, the
+ * form, the status line and "Clear day" all follow. The strip's week comes from
+ * the month grid's own `rangeForView('month', …)` + `buildMonthRows` chunking, so
+ * tapping through weeks cannot show a day the month screen would place in a
+ * different week — see `./WeekStrip`.
  *
  * ## Writes are immediate
  *
@@ -24,32 +38,45 @@
  *
  * ## Two requests, and why the second one is there
  *
- * `GET /api/period` for today's window returns the settings, the cycles, the day
- * log, the contraception schedule (including the day's expected on/off state) and
- * the prediction. This screen makes that one call for everything it shows, so no
- * two parts of it can be showing state from different moments — and the form
- * renders from `null`s before it even answers, because "nothing logged" is a
- * truthful state for every field on it.
+ * `GET /api/period` for the displayed month's window returns the settings, the
+ * cycles (in full — the API sends every cycle because the prediction needs the
+ * history), the day logs, the contraception schedule and the prediction. This
+ * screen makes that one call for everything it shows, so no two parts of it can be
+ * showing state from different moments — and the form renders from `null`s before
+ * it even answers, because "nothing logged" is a truthful state for every field on
+ * it.
+ *
+ * The window is the *month* the selected week sits in rather than the single day,
+ * because the week strip paints seven days: a strip whose neighbours' period marks
+ * were outside the window would disagree with the month grid about the same week.
+ * The prediction's `asOf` is deliberately not passed — the server's own today is
+ * what "next period" is measured from, so stepping the strip through a month
+ * cannot make the estimate wander.
  *
  * The one thing that call cannot answer is "has this user ever recorded
- * anything", because its day-log window is today: an empty window is equally
- * consistent with a brand-new account and with someone who logged last Tuesday.
- * The empty state that leads to the importer needs the real answer, so the
- * existing stats read (`GET /api/period/stats`, the same one Insights uses, under
- * the same cache key, invalidated by every period write) is consulted for that one
- * boolean and nothing else.
+ * anything", because its day-log window is a month: an empty window is equally
+ * consistent with a brand-new account and with someone who logged last autumn. The
+ * empty state that leads to the importer needs the real answer, so the existing
+ * stats read (`GET /api/period/stats`, the same one Insights uses, under the same
+ * cache key, invalidated by every period write) is consulted for that and for the
+ * two facts the insights row and the cycles card state — the measured cycle
+ * lengths and the number of logged days.
  */
-import { useMemo, useState } from 'react';
-import { RotateCounterClockwiseIcon } from '@svg-animated-icons/react/rotate-counter-clockwise';
+import { useCallback, useMemo, useState } from 'react';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { PageHeader } from '@/components/app/PageHeader';
 import { useToast } from '@/components/app/Toast';
+import { buildMonthRows } from '@/components/calendar';
 import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { addDaysToDateOnly, rangeForView } from '@/lib/dates';
 import type { ContraceptionDayStatus, PeriodCycle } from '@/lib/period-types';
+import { invalidate } from '@/lib/store';
+import type { DateOnly } from '@/lib/types';
 import {
+  PERIOD_PREFIX,
   activeMethodFor,
   dayLogFor,
   scheduleDayFor,
@@ -65,31 +92,69 @@ import {
   useUpdatePeriodSettings,
 } from './data';
 import { DayLogForm, type DayContraception } from './DayLogForm';
+import { HeroCard } from './HeroCard';
 import { ImportEmptyState } from './ImportCard';
+import { MyCyclesCard } from './MyCyclesCard';
 import { PredictionSummary } from './PredictionSummary';
+import { TodayInsightsRow } from './TodayInsightsRow';
+import { WeekStrip } from './WeekStrip';
 import { SHOW_ALL_TODAY_CATEGORIES } from './today-categories';
 import { longDate, weekdayLong } from './labels';
+import { marksForDays, type DayMarks } from './markers';
 import { useTodayZone } from './useToday';
 
+/** The id the insights row's action scrolls to; one form per screen. */
+const DAY_LOG_ID = 'today-day-log';
+
+/** The marks for a day with none — one shared instance per render. */
+const NO_MARKS: DayMarks = { period: false, predicted: false, fertile: false, ovulation: false };
+
 export function TodayLogScreen() {
-  const { today } = useTodayZone();
+  const { today, zone, weekStartsOn } = useTodayZone();
   const { toast } = useToast();
 
-  /* One window: today. The overview's schedule therefore has exactly one row per
-     method, which is all the birth-control card needs. */
-  const overview = usePeriodOverview(today, today);
+  /*
+   * The day the screen is about. `null` rather than `today` so that "today" keeps
+   * following the clock: at midnight the screen rolls over with the rest of the
+   * app instead of staying on yesterday because a `useState` captured it.
+   */
+  const [pickedDate, setPickedDate] = useState<DateOnly | null>(null);
+  const selectedDate = pickedDate ?? today;
+
+  /*
+   * The window, and the week inside it.
+   *
+   * `rangeForView('month', …)` is the same call the cycle month makes and the
+   * same one its sliding panels are built from; `buildMonthRows` is the function
+   * that chunks it into whole weeks, and it is also how `MonthGrid` picks the row
+   * its own collapsed strip shows. The strip below is therefore literally one row
+   * of the month lattice — not a second calendar that could start its week
+   * somewhere else.
+   */
+  const range = useMemo(
+    () => rangeForView('month', selectedDate, zone, weekStartsOn),
+    [selectedDate, zone, weekStartsOn],
+  );
+  const week = useMemo(() => {
+    const rows = buildMonthRows(range.days, selectedDate);
+    const row = rows.find((candidate) => candidate.some((cell) => cell.date === selectedDate));
+    return (row ?? []).map((cell) => cell.date);
+  }, [range, selectedDate]);
+
+  const overview = usePeriodOverview(range.startDate, range.endDate);
   const data = overview.data;
-  const log = dayLogFor(data, today);
-  const form = useDayLogDraft(today, log);
+  const log = dayLogFor(data, selectedDate);
+  const form = useDayLogDraft(selectedDate, log);
 
   /**
-   * A second read, used only to answer "has this user ever recorded anything".
+   * A second read, used for "has this user ever recorded anything" and for the
+   * two facts the insights row and the cycles card state.
    *
-   * The overview is windowed to today, so on its own it cannot tell the
-   * difference between a new user and someone who logged last week — and the one
+   * The overview is windowed to a month, so on its own it cannot tell the
+   * difference between a new user and someone who logged last year — and the one
    * decision that needs the answer is whether to lead with the importer. The
-   * request is cached under the same key Insights uses and is invalidated by
-   * every period write, so it is paid once and then free.
+   * request is cached under the same key Insights uses and is invalidated by every
+   * period write, so it is paid once and then free.
    */
   const stats = usePeriodStats();
   const nothingRecorded = (data?.cycles.length ?? 0) === 0 && stats.data?.loggedDays === 0;
@@ -99,22 +164,23 @@ export function TodayLogScreen() {
   const fail = (title: string) => (message: string) =>
     toast({ title, description: message, variant: 'error' as const });
 
-  /* ---- the cycle covering today, if any ---- */
-  const openCycle = useMemo<PeriodCycle | null>(
+  /* ---- the marks the strip paints, from the month's own derivation ---- */
+  const marks = useMemo(() => marksForDays(range.days, data), [range, data]);
+  const markFor = useCallback((date: DateOnly) => marks.get(date) ?? NO_MARKS, [marks]);
+
+  /* ---- the cycle covering the selected day, if any ---- */
+  const coveringCycle = useMemo<PeriodCycle | null>(
     () =>
       (data?.cycles ?? []).find(
-        (cycle) => cycle.startDate <= today && (cycle.endDate === null || cycle.endDate >= today),
+        (cycle) =>
+          cycle.startDate <= selectedDate && (cycle.endDate === null || cycle.endDate >= selectedDate),
       ) ?? null,
-    [data, today],
-  );
-  const cycleStartsToday = useMemo(
-    () => (data?.cycles ?? []).some((cycle) => cycle.startDate === today),
-    [data, today],
+    [data, selectedDate],
   );
 
   /* ---- contraception ---- */
-  const method = useMemo(() => activeMethodFor(data, today), [data, today]);
-  const schedule = scheduleDayFor(data, today, method?.id ?? null);
+  const method = useMemo(() => activeMethodFor(data, selectedDate), [data, selectedDate]);
+  const schedule = scheduleDayFor(data, selectedDate, method?.id ?? null);
 
   const writeContraception = useLogContraception({ onError: fail('Could not save that') });
   const clearContraceptionLog = useClearContraceptionLog({ onError: fail('Could not clear that') });
@@ -124,28 +190,57 @@ export function TodayLogScreen() {
         method,
         schedule,
         onStatus: (status: ContraceptionDayStatus | null) => {
-          if (status === null) void clearContraceptionLog.run(today, method.id);
-          else void writeContraception.run({ methodId: method.id, date: today, status });
+          if (status === null) void clearContraceptionLog.run(selectedDate, method.id);
+          else void writeContraception.run({ methodId: method.id, date: selectedDate, status });
         },
       }
     : null;
 
-  /* ---- writes for the cycle card and the day ---- */
+  /* ---- writes for the hero and the day ---- */
+
+  /**
+   * A period write repaints the screen from the server.
+   *
+   * `invalidate()` marks the store's entries stale and drops the service worker's
+   * copy of them, but it does not refetch anything a component is still showing —
+   * so the overview the strip and the hero render from would keep its pre-write
+   * cycles until the screen remounted. The day log never meets this because its
+   * draft is optimistic and renders before the request lands; a cycle has no
+   * draft, and the screen's primary button visibly doing nothing is worse than a
+   * round trip.
+   *
+   * The order is the one `revalidate()` documents: wait for the worker to drop its
+   * copy, then force the read. A forced read that races the drop is answered from
+   * the cache and replays exactly the pre-write body.
+   */
+  function refreshOverview() {
+    void invalidate(PERIOD_PREFIX).then(() => overview.refresh());
+  }
+
   const createCycle = useCreateCycle({
     onError: fail('Could not add that period'),
-    onSuccess: () => toast({ title: 'Period started', variant: 'success' }),
+    onSuccess: () => {
+      refreshOverview();
+      toast({ title: 'Period started', variant: 'success' });
+    },
   });
   const updateCycle = useUpdateCycle({
     onError: fail('Could not close the period'),
-    onSuccess: () => toast({ title: 'Period ended', variant: 'success' }),
+    onSuccess: () => {
+      refreshOverview();
+      toast({ title: 'Period ended', variant: 'success' });
+    },
   });
   const deleteCycle = useDeleteCycle({
     onError: fail('Could not remove that period'),
-    onSuccess: () => toast({ title: 'Period removed', variant: 'success' }),
+    onSuccess: () => {
+      refreshOverview();
+      toast({ title: 'Period removed', variant: 'success' });
+    },
   });
   const deleteDayLog = useDeleteDayLog({
     onError: fail('Could not clear the day'),
-    onSuccess: () => toast({ title: 'Cleared today', variant: 'success' }),
+    onSuccess: () => toast({ title: 'Cleared the day', variant: 'success' }),
   });
 
   /* The escape hatch from an all-hidden form — see `DayLogForm` and
@@ -170,74 +265,138 @@ export function TodayLogScreen() {
     });
   }
 
+  /**
+   * The insights row's first card, and the only thing it does.
+   *
+   * It brings the day log into view and focuses it — the form is already on this
+   * screen, so the honest action is to reveal it, not to open a second copy of it
+   * in a sheet. `preventScroll` on the focus call because the smooth scroll is
+   * already doing that job; the two together otherwise fight.
+   */
+  const onLogSymptoms = useCallback(() => {
+    const node = document.getElementById(DAY_LOG_ID);
+    if (!node) return;
+    node.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    node.focus({ preventScroll: true });
+  }, []);
+
   return (
     <>
       <PageHeader title="Today" />
 
-      <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
-        <p className="text-sm text-muted-foreground">
-          {weekdayLong(today)}, {longDate(today)}
-        </p>
+      {/* The column itself carries no gutter: the insights row is deliberately
+          full-bleed so its cards can scroll from the page edge, and every other
+          child puts the gutter on itself. */}
+      <div className="flex flex-col gap-stack pt-4 pb-6">
+        <div className="px-gutter">
+          <WeekStrip
+            days={week}
+            markFor={markFor}
+            selectedDate={selectedDate}
+            today={today}
+            weekStartsOn={weekStartsOn}
+            monthLabel={range.label}
+            onSelectDate={setPickedDate}
+            onPreviousWeek={() => setPickedDate(addDaysToDateOnly(selectedDate, -7, zone))}
+            onNextWeek={() => setPickedDate(addDaysToDateOnly(selectedDate, 7, zone))}
+            onToday={pickedDate === null ? null : () => setPickedDate(null)}
+          />
+        </div>
 
         {/*
-         * Nothing recorded at all: the importer leads. A new user's first job is
-         * to get their history in — otherwise the prediction has nothing to say
-         * for a month — so it goes above the prediction rather than inside the
-         * settings, and it disappears the moment there is a single row.
+         * Nothing recorded at all: the importer leads, right under the strip. A
+         * new user's first job is to get their history in — otherwise the
+         * prediction has nothing to say for a month — and it disappears the moment
+         * there is a single row.
          */}
-        {nothingRecorded ? <ImportEmptyState /> : null}
+        {nothingRecorded ? (
+          <div className="px-gutter">
+            <ImportEmptyState />
+          </div>
+        ) : null}
 
-        <PredictionSummary prediction={data?.prediction} today={today} />
+        <div className="px-gutter">
+          <HeroCard
+            prediction={data?.prediction}
+            selectedDate={selectedDate}
+            coveringCycle={coveringCycle}
+            onStart={(date) => void createCycle.run({ startDate: date, flowIntensity: 'medium' })}
+            onEnd={(cycle, date) => void updateCycle.run(cycle.id, { endDate: date })}
+            onRemove={(cycle) => void deleteCycle.run(cycle.id)}
+            onAddPast={() => setPastOpen(true)}
+          />
+        </div>
 
-        <PeriodCard
-          today={today}
-          openCycle={openCycle}
-          cycleStartsToday={cycleStartsToday}
-          onStart={() => void createCycle.run({ startDate: today, flowIntensity: 'medium' })}
-          onEnd={(cycle) => void updateCycle.run(cycle.id, { endDate: today })}
-          onRemove={(cycle) => void deleteCycle.run(cycle.id)}
-          onAddPast={() => setPastOpen(true)}
-        />
-
-        <DayLogForm
-          date={today}
-          value={form.value}
-          onChange={form.set}
-          contraception={contraception}
-          settings={data?.settings}
-          onShowAllSections={onShowAllSections}
-        />
-
-        <div className="flex items-center justify-between gap-2">
+        <div className="px-gutter">
           {/*
-            One line that says what just happened, next to the control that clears
-            the day. `aria-live` because the form has no Save button: this is the
-            only confirmation a write succeeded.
+            The prediction card keeps `today` even though the hero above follows
+            the selected day. It is not an oversight: every sentence in it is
+            anchored to the prediction's own `asOf` — "Today is day N of the
+            current cycle", "Expected tomorrow", "The estimate passed N days
+            ago" — so handing it a day the user tapped makes it say "Expected 5
+            days ago" about a date that is still ahead. The hero answers "what is
+            this day"; this card answers "what is coming", and it answers it about
+            the one day the API answered for.
           */}
-          <p aria-live="polite" className="min-w-0 flex-1 text-xs text-muted-foreground">
-            {form.error
-              ? `Not saved: ${form.error}`
-              : form.isSaving
-                ? 'Saving…'
-                : data
-                  ? 'Saved as you tap.'
-                  : 'Loading this day…'}
+          <PredictionSummary prediction={data?.prediction} today={today} />
+        </div>
+
+        <TodayInsightsRow prediction={data?.prediction} stats={stats.data} today={today} onLogSymptoms={onLogSymptoms} />
+
+        {/*
+          The day being edited, named, then the form. `tabIndex={-1}` is the
+          scroll-and-focus target of the insights row's first card: not in the tab
+          order, but focusable by script so a keyboard user lands where the tap
+          took them.
+        */}
+        <div id={DAY_LOG_ID} tabIndex={-1} className="flex flex-col gap-2 px-gutter outline-none">
+          <p className="text-sm text-muted-foreground">
+            {selectedDate === today ? 'Today · ' : ''}
+            {weekdayLong(selectedDate)}, {longDate(selectedDate)}
           </p>
 
-          {log ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 shrink-0 gap-1.5 px-2 text-muted-foreground"
-              aria-label={`Clear everything logged on ${longDate(today)}`}
-              onClick={() => void deleteDayLog.run(today)}
-            >
-              <TrashIcon className="size-4 text-base" />
-              Clear day
-            </Button>
-          ) : null}
+          <DayLogForm
+            date={selectedDate}
+            value={form.value}
+            onChange={form.set}
+            contraception={contraception}
+            settings={data?.settings}
+            onShowAllSections={onShowAllSections}
+          />
+
+          <div className="flex items-center justify-between gap-2">
+            {/*
+              One line that says what just happened, next to the control that
+              clears the day. `aria-live` because the form has no Save button:
+              this is the only confirmation a write succeeded.
+            */}
+            <p aria-live="polite" className="min-w-0 flex-1 text-xs text-muted-foreground">
+              {form.error
+                ? `Not saved: ${form.error}`
+                : form.isSaving
+                  ? 'Saving…'
+                  : data
+                    ? 'Saved as you tap.'
+                    : 'Loading this day…'}
+            </p>
+
+            {log ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-9 shrink-0 gap-1.5 px-2 text-muted-foreground"
+                aria-label={`Clear everything logged on ${longDate(selectedDate)}`}
+                onClick={() => void deleteDayLog.run(selectedDate)}
+              >
+                <TrashIcon className="size-4 text-base" />
+                Clear day
+              </Button>
+            ) : null}
+          </div>
         </div>
+
+        <MyCyclesCard stats={stats.data} />
       </div>
 
       <AddPastPeriodSheet
@@ -247,114 +406,6 @@ export function TodayLogScreen() {
         onCreate={(input) => createCycle.run(input)}
       />
     </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* the period card                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The one thing that is not a field on the form: a period starting or ending.
- *
- * Both are one tap and both are stated as the user's own observation — "my period
- * started today", not "create a cycle record". Each control appears only when it
- * would be correct: you cannot start a period twice on one day (the contract has a
- * unique index on the start date), and there is nothing to end while no period is
- * open, so neither button can produce a duplicate row or a silent no-op.
- *
- * The component is presentational — the screen owns the mutations — so the
- * loading and error handling for all four writes stay in one place.
- */
-function PeriodCard({
-  today,
-  openCycle,
-  cycleStartsToday,
-  onStart,
-  onEnd,
-  onRemove,
-  onAddPast,
-}: {
-  today: string;
-  openCycle: PeriodCycle | null;
-  cycleStartsToday: boolean;
-  onStart: () => void;
-  onEnd: (cycle: PeriodCycle) => void;
-  onRemove: (cycle: PeriodCycle) => void;
-  onAddPast: () => void;
-}) {
-  return (
-    <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-card text-card-foreground shadow-xs">
-      <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Period</h2>
-
-      {openCycle ? (
-        <>
-          <p className="text-sm">
-            A period that began {longDate(openCycle.startDate)} is open
-            {openCycle.startDate === today ? ' — it started today' : ''}.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {openCycle.endDate === null ? (
-              <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => onEnd(openCycle)}>
-                My period ended today
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 gap-1.5 px-2 text-muted-foreground"
-              onClick={() => onRemove(openCycle)}
-            >
-              <TrashIcon className="size-4 text-base" />
-              Remove this period
-            </Button>
-            <AddPastPeriodButton onClick={onAddPast} />
-          </div>
-        </>
-      ) : (
-        <>
-          <p className="text-sm text-muted-foreground">
-            No period in progress. If one starts today, record it here and the day is marked on the cycle month.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" className="h-9" disabled={cycleStartsToday} onClick={onStart}>
-              My period started today
-            </Button>
-            <AddPastPeriodButton onClick={onAddPast} />
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
-/**
- * The rewind control: the past-period entry point, as an icon.
- *
- * The label used to be spelled out, which made a rarely-used action the widest
- * thing in the card. Icon-only, so the accessible name carries the meaning —
- * "Add a past period" — and it floats to the trailing edge (`ml-auto`) of
- * whatever action the card is showing: beside "My period started today" when no
- * period is open, and beside "My period ended today" / "Remove this period"
- * when one is.
- *
- * The icon is the counter-clockwise rotation arrow: the meaning is "go back and
- * enter something from before", which is what a rewind glyph reads as. It is
- * deliberately not a plus — a plus would say "new", and this is the opposite.
- */
-function AddPastPeriodButton({ onClick }: { onClick: () => void }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className="ml-auto h-9 w-9 shrink-0 px-0 text-muted-foreground"
-      aria-label="Add a past period"
-      onClick={onClick}
-    >
-      <RotateCounterClockwiseIcon className="size-4 text-base" />
-    </Button>
   );
 }
 
@@ -369,10 +420,10 @@ function AddPastPeriodButton({ onClick }: { onClick: () => void }) {
  * the fastest way to reach a date months back — and whose value is already the
  * floating `YYYY-MM-DD` the contract stores, so nothing is converted.
  *
- * The sheet exists because the card's buttons can only say "today": a user who has
- * been tracking elsewhere, or who simply forgot for three days, needs to put the
- * start where it actually was, and without this the only other way in would be the
- * CSV importer.
+ * The sheet exists because the hero's button can only say "this day": a user who
+ * has been tracking elsewhere, or who simply forgot for three days, needs to put
+ * the start where it actually was, and without this the only other way in would be
+ * the CSV importer.
  *
  * The end date is optional on purpose — the contract allows a cycle with only a
  * start, and the maths only needs the start — so a user who does not know how long
