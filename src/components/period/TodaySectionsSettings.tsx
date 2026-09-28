@@ -130,7 +130,6 @@ export function PeriodSectionsSection() {
       ) : (
         <SettingsGroup
           title="Symptoms &amp; mood"
-          footer="These are only the chips the log offers. A day stores the words themselves, never a link to this list — so removing or renaming an option here cannot change, hide or break anything already recorded. A day that used a word you later remove keeps showing it as one of “your own”."
         >
           <OptionListEditor
             title="Symptom options"

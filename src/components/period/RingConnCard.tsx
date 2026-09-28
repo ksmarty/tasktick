@@ -101,7 +101,6 @@ export function RingConnCard() {
   return (
     <SettingsGroup
       title="Ring & wearable data"
-      footer="Only a temperature has a field in your period log, and only an empty one is filled."
     >
       <SettingsRow stacked>
         <div className="flex flex-col gap-2">

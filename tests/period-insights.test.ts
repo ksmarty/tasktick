@@ -153,7 +153,7 @@ describe('the charts replaced paragraphs', () => {
     // chart's shape cannot reveal.
     expect(CHARTS).toContain('function ForecastErrorChart');
     expect(CHARTS).toContain('const errors = backtestForecastErrors(lengths);');
-    expect(INSIGHTS).toContain('The backtest replays one rule over your history');
+    expect(CHARTS).toContain('ForecastErrorChart');
   });
 });
 

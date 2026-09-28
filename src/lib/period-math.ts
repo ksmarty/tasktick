@@ -444,12 +444,11 @@ export function buildPeriodPrediction(input: PeriodPredictionInput): PeriodPredi
   const notes: string[] = [];
   if (outliers.length > 0) {
     notes.push(
-      `${outliers.length} recorded gap${outliers.length === 1 ? '' : 's'} longer than ${MAX_PLAUSIBLE_CYCLE_DAYS} days ` +
-        'was left out of the estimate — that usually means a missed log rather than a cycle.',
+      `${outliers.length} long gap${outliers.length === 1 ? '' : 's'} left out.`,
     );
   }
   if (sd !== null && sd > IRREGULAR_STD_DEV_DAYS) {
-    notes.push('Cycle lengths vary widely, so the estimate is deliberately given a wide range.');
+    notes.push('Your cycles vary a lot.');
   }
 
   /* ---- contraception context: it changes the *meaning*, not the maths ---- */
@@ -466,23 +465,23 @@ export function buildPeriodPrediction(input: PeriodPredictionInput): PeriodPredi
 
   const meaningFor = (sufficient: boolean): string => {
     if (!sufficient) {
-      return 'Not enough recorded history to estimate a date yet. Logging two or more period starts is what makes a prediction possible.';
+      return 'Log another period to get a prediction.';
     }
     if (hormonal) {
-      return 'A calendar estimate: hormonal contraception suppresses ovulation, so this is not a statement about your fertility.';
+      return 'A calendar estimate.';
     }
     if (inUse) {
-      return `Ovulation is estimated ${settings.lutealPhaseDays} days before the next predicted period.`;
+      return `Ovulation is ${settings.lutealPhaseDays} days before your next period.`;
     }
-    return `Assumes a ${settings.lutealPhaseDays}-day luteal phase. The range is the spread of your own recorded cycles.`;
+    return `Based on a ${settings.lutealPhaseDays}-day luteal phase.`;
   };
 
   /* ---- not enough data: say so, do not invent a date ---- */
   if (usedIntervals.length === 0) {
     const reason =
       starts.length < 2
-        ? 'At least two period start dates are needed to measure a cycle length.'
-        : `Every recorded gap was longer than ${MAX_PLAUSIBLE_CYCLE_DAYS} days, which looks like missing data rather than a cycle.`;
+        ? 'Log two periods to measure a cycle.'
+        : `Every recorded gap was longer than ${MAX_PLAUSIBLE_CYCLE_DAYS} days — some periods are missing.`;
     return {
       asOf,
       dataSufficient: false,

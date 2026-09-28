@@ -168,7 +168,7 @@ describe('a single cycle is too little data', () => {
   });
 
   it('says why, and reports the little it does know', () => {
-    expect(prediction.reason).toMatch(/two period start/i);
+    expect(prediction.reason).toMatch(/Log two periods/i);
     expect(prediction.basis.confidence).toBe('none');
     expect(prediction.basis.lastPeriodStart).toBe('2026-01-01');
     expect(prediction.currentCycleDay).toBe(20);
@@ -256,7 +256,7 @@ describe('implausible gaps', () => {
     const prediction = buildPeriodPrediction({ asOf: '2026-06-02', settings: settings(), cycles, contraception: [] });
     expect(prediction.dataSufficient).toBe(false);
     expect(prediction.basis.usedIntervalLengths).toEqual([]);
-    expect(prediction.notes.join(' ')).toMatch(/90 days/);
+    expect(prediction.notes.join(' ')).toMatch(/long gap/i);
   });
 });
 
@@ -270,7 +270,7 @@ describe('contraception changes the meaning, not the maths', () => {
     const prediction = buildPeriodPrediction({ asOf: '2026-03-01', settings: settings(), cycles, contraception });
     expect(prediction.contraception.hormonal).toBe(true);
     expect(prediction.contraception.affectsPrediction).toBe(true);
-    expect(prediction.meaning).toMatch(/suppresses ovulation/i);
+    expect(prediction.meaning).toMatch(/calendar estimate/i);
     // The arithmetic is unchanged: the same dates as the no-method 28-day case.
     expect(prediction.nextPeriodStart).toBe('2026-03-26');
   });
@@ -283,7 +283,7 @@ describe('contraception changes the meaning, not the maths', () => {
      * The user asked for the warnings gone; what stays is the arithmetic, stated
      * without the failure-rate clause. The classification is still exercised here.
      */
-    expect(prediction.meaning).toMatch(/Ovulation is estimated/i);
+    expect(prediction.meaning).toMatch(/Ovulation is/i);
     expect(prediction.meaning).not.toMatch(/24%/);
   });
 
@@ -295,7 +295,7 @@ describe('contraception changes the meaning, not the maths', () => {
       contraception: [],
     });
     expect(prediction.contraception.inUse).toBe(true);
-    expect(prediction.meaning).toMatch(/Ovulation is estimated/i);
+    expect(prediction.meaning).toMatch(/Ovulation is/i);
   });
 
   it('classifies methods into the two families', () => {

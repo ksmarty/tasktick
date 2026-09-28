@@ -130,7 +130,6 @@ export function CycleSummary({
   return (
     <SettingsGroup
       title="Cycle summary"
-      footer="The ranges are from NHS guidance on the menstrual cycle. They describe where a number sits against a published range — not what it means for you, and not a diagnosis."
     >
       <SummaryRow
         label="Previous cycle length"

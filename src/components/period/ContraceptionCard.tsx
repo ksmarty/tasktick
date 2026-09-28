@@ -427,21 +427,17 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
       <div className="flex min-w-0 flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         <p className="text-sm text-muted-foreground">
           {editing
-            ? 'Correct what was recorded. The history is never rewritten in place — a change of method is an end date here plus a new entry.'
-            : 'Record the day you started using it. A cyclic method\u2019s on/off plan is counted from that day.'}
+            ? 'Fix what you recorded.'
+            : 'The day you started it.'}
         </p>
 
         <Field
           id="contraception-method"
           label="Method"
           hint={
-            switchingFrom ? (
-              <>
-                {`To show a switch to ${METHOD_LABEL[method]}, set the end date below to the last day you used `}
-                {METHOD_LABEL[switchingFrom.method]}
-                {' and save — then add the new method as its own entry, so the history shows both.'}
-              </>
-            ) : undefined
+            switchingFrom
+              ? `Switching to ${METHOD_LABEL[method]}? Set an end date first.`
+              : undefined
           }
         >
           <Select value={method} onValueChange={(value) => setMethod(value as ContraceptionMethod)}>
@@ -458,7 +454,7 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
           </Select>
         </Field>
 
-        <Field id="contraception-label" label="Your own name for it" hint="Optional, e.g. “Nuvaring” or “the mini pill”. Clear it to go back to the method’s own name.">
+        <Field id="contraception-label" label="Your own name for it" hint="Optional name">
           <ClearableInput
             id="contraception-label"
             label="Your own name for it"
@@ -491,7 +487,7 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
           id="contraception-end"
           label="Ended"
           invalid={Boolean(errors.endDate)}
-          hint={errors.endDate ?? 'Leave blank while you are still using it. Clear it to reopen the method.'}
+          hint={errors.endDate ?? 'Blank while you still use it.'}
         >
           <ClearableInput
             id="contraception-end"
@@ -645,7 +641,7 @@ export function ContraceptionCard() {
             Add method
           </Button>
         }
-        footer="Give a method an end date to stop it; adding the next one keeps the change in your history."
+        footer="Give it an end date to stop it."
       >
         {activeHormonal.length > 0 ? (
           <SettingsRow className="items-start">

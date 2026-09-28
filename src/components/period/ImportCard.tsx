@@ -143,7 +143,7 @@ export function ImportCard() {
   return (
     <SettingsGroup
       title="Import & export"
-      footer="The exported file has exactly the columns the importer reads, so you can export, edit it in a spreadsheet and import it back."
+      footer="Export, edit it in a spreadsheet, import it back."
     >
       <SettingsRow stacked>
         <div className="flex flex-col gap-2">

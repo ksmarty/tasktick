@@ -374,7 +374,6 @@ function CycleTrendsGroup({ stats }: { stats: PeriodStats }) {
   return (
     <SettingsGroup
       title="Cycle trends"
-      footer="The sentence is derived from the same lengths the graph plots. The dashed line is the average the prediction is built on."
     >
       <SettingsRow stacked>
         <p className="text-sm">{sentence}</p>
@@ -406,7 +405,6 @@ function CycleSpreadGroup({ stats }: { stats: PeriodStats }) {
   return (
     <SettingsGroup
       title="The spread behind the ±"
-      footer="The backtest replays one rule over your history: what the average of the cycles before each one would have predicted."
     >
       <ChartRow>
         <CycleRangeChart
@@ -426,7 +424,6 @@ function BodySignsGroup({ stats }: { stats: PeriodStats }) {
   return (
     <SettingsGroup
       title="Body signs"
-      footer="Your own readings — no coverline, no shift detection, no reading of what they mean."
     >
       <ChartRow>
         <TemperatureChart series={stats.temperatureSeries} />
@@ -546,7 +543,6 @@ function BasisGroup({ prediction }: { prediction: PeriodPrediction }) {
   return (
     <SettingsGroup
       title="How this was worked out"
-      footer="The point estimate is a recency-weighted mean of the interval lengths, weighted towards recent cycles because they describe the cycle you have now."
     >
       <ValueRow label="Method" value={humanise(prediction.method)} />
       <ValueRow
@@ -608,7 +604,6 @@ function LoggedDaysGroup({ stats }: { stats: PeriodStats }) {
   return (
     <SettingsGroup
       title="Logged days"
-      footer="A day with nothing recorded is a day nobody wrote down — not a day with no bleeding."
     >
       <ValueRow label="Days with a log" value={`${stats.loggedDays}`} />
       <SettingsRow stacked>
@@ -766,8 +761,16 @@ export function InsightsScreen() {
 
         {history && (showBodySigns || hasBodySignsData(history)) ? <BodySignsGroup stats={history} /> : null}
 
-        {value ? <BasisGroup prediction={value} /> : null}
-        {value && value.notes.length > 0 ? <NotesGroup notes={value.notes} /> : null}
+        {/*
+         * "How this was worked out" and "Notes" used to sit here.
+         *
+         * Between them: nine rows of method detail — median cycle length,
+         * recency-weighted mean, shortest, longest, interval counts, confidence — and
+         * a list of derivation notes. The user's words were *"There is still way too
+         * much text. I need you to start using simple human-readable sentences."* A
+         * screen of nine statistic rows is a screen nobody reads, and every number in
+         * it is already implied by the date at the top and the chart below.
+         */}
 
         {history ? <LoggedDaysGroup stats={history} /> : null}
 

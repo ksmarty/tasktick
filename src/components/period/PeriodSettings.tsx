@@ -211,7 +211,6 @@ export function PeriodAppearanceSection() {
     <div className="flex flex-col gap-stack px-gutter pt-4 pb-6">
       <SettingsGroup
         title="Appearance"
-        footer="The period interface shares the app's palette, so this is the same theme and accent the rest of the app uses."
       >
         <SettingsRow stacked>
           <SegmentedControl
@@ -318,7 +317,6 @@ export function PeriodPredictionSection() {
       ) : (
         <SettingsGroup
           title="Prediction"
-          footer="Ovulation is estimated as the next period minus the luteal phase; the length does not move the predicted period itself."
         >
           <SettingsRow stacked>
             <div className="flex items-baseline gap-2">
@@ -391,7 +389,6 @@ export function PeriodContraceptionSection() {
       ) : (
         <SettingsGroup
           title="Contraception in use"
-          footer="This does not change the arithmetic — it changes what the arithmetic means. While a hormonal method is in use, a calendar fertility estimate is not a statement about fertility."
         >
           <SettingsRow>
             <div className="min-w-0 flex-1">

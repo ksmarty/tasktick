@@ -122,42 +122,34 @@ export function PredictionSummary({ prediction, today, variant = 'compact', clas
             {prediction.overdueDays && prediction.overdueDays > 0
               ? `The estimate passed ${prediction.overdueDays} ${prediction.overdueDays === 1 ? 'day' : 'days'} ago, so this is the next expected date.`
               : inDaysLabel(prediction.nextPeriodStart, today) === 'today'
-                ? 'Expected today.'
-                : `Expected ${inDaysLabel(prediction.nextPeriodStart, today)}.`}
+                ? 'Today.'
+                : `In ${inDaysLabel(prediction.nextPeriodStart, today)}.`}
           </p>
 
           {headline ? null : (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Based on {basis.cycleCount} {basis.cycleCount === 1 ? 'cycle' : 'cycles'}
-              {basis.usedIntervalLengths.length > 0
-                ? ` (${basis.usedIntervalLengths.length} measured ${basis.usedIntervalLengths.length === 1 ? 'interval' : 'intervals'})`
-                : ''}
-              {basis.averageCycleLengthDays !== null ? `, average ${Math.round(basis.averageCycleLengthDays)} days` : ''}
-              {basis.standardDeviationDays !== null ? ` ± ${Math.round(basis.standardDeviationDays)}` : ''}
-              {basis.predictionCycleCount !== null ? `, using your last ${basis.predictionCycleCount}` : ', using every cycle'}
-              .
+            <p className="text-xs text-muted-foreground">
+              {basis.cycleCount} {basis.cycleCount === 1 ? 'cycle' : 'cycles'}
+              {basis.averageCycleLengthDays !== null ? ` · avg ${Math.round(basis.averageCycleLengthDays)}` : ''}
+              {basis.standardDeviationDays !== null ? ` ± ${Math.round(basis.standardDeviationDays)} days` : ''}
             </p>
           )}
 
           {headline || prediction.currentCycleDay === null ? null : (
             <p className="text-xs text-muted-foreground">
-              Today is day {prediction.currentCycleDay} of the current cycle.
-              {prediction.lastPeriodStart ? ` Last period began ${rangeLabel(prediction.lastPeriodStart, prediction.lastPeriodStart)}.` : ''}
+              Day {prediction.currentCycleDay}
+              {prediction.lastPeriodStart ? ` · started ${rangeLabel(prediction.lastPeriodStart, prediction.lastPeriodStart)}` : ''}
             </p>
           )}
 
           {headline || !prediction.ovulationDate ? null : (
             <p className="text-xs text-muted-foreground">
-              Ovulation estimated around {rangeLabel(prediction.ovulationDate, prediction.ovulationDate)}
-              {uncertainty ? ` (${plusMinus(uncertainty.days)})` : ''}
-              {prediction.ovulationClamped ? ', clamped into the cycle because the luteal phase is long' : ''}.
+              Ovulation ~{rangeLabel(prediction.ovulationDate, prediction.ovulationDate)}
             </p>
           )}
 
           {headline || !prediction.fertileWindow ? null : (
             <p className="text-xs text-muted-foreground">
-              Fertile window {rangeLabel(prediction.fertileWindow.start, prediction.fertileWindow.end)} — six days, five
-              before ovulation plus the day itself.
+              Fertile {rangeLabel(prediction.fertileWindow.start, prediction.fertileWindow.end)}
             </p>
           )}
 
