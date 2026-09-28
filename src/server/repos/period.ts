@@ -49,6 +49,7 @@ import type {
   PeriodSettingsUpdate,
   PeriodStats,
 } from '@/lib/period-types';
+import { TODAY_CATEGORIES, type TodayCategory } from '@/lib/period-types';
 import type { DateOnly } from '@/lib/types';
 
 /* -------------------------------------------------------------------------- */
@@ -86,6 +87,8 @@ function rowToDayLog(row: DayLogRow): PeriodDayLog {
     lhTest: row.lhTest ?? null,
     mucus: row.mucus ?? null,
     intimacy: row.intimacy,
+    /** Null on every row written before protection was a field — see the type. */
+    intimacyProtection: row.intimacyProtection ?? null,
     ovulationPain: row.ovulationPain,
     weightKg: row.weightKg ?? null,
     notes: row.notes,
@@ -131,7 +134,24 @@ export const DEFAULT_PERIOD_SETTINGS: PeriodSettings = {
   predictionCycleCount: null,
   lutealPhaseDays: 14,
   contraceptionInUse: false,
+  /** Both off/empty: see `PeriodSettings.bodySigns` and `hiddenTodayCategories`. */
+  bodySigns: false,
+  hiddenTodayCategories: [],
 };
+
+/**
+ * A stored category list, filtered to the contract's vocabulary.
+ *
+ * The column is free-form JSON (there is no enum on a JSON column in either
+ * dialect), so a value written by a future version — or by hand — could name a
+ * category this build does not know. Dropping the unknown entries rather than
+ * passing them through keeps the UI's "is this hidden" lookup total, and an
+ * unknown name could only ever hide a section that does not exist here anyway.
+ */
+function toTodayCategories(value: TodayCategory[] | null | undefined): TodayCategory[] {
+  if (!Array.isArray(value)) return [];
+  return TODAY_CATEGORIES.filter((category) => value.includes(category));
+}
 
 /** Settings always exist; a missing row is created from the defaults. */
 export async function getPeriodSettings(userId: string): Promise<PeriodSettings> {
@@ -143,6 +163,16 @@ export async function getPeriodSettings(userId: string): Promise<PeriodSettings>
       predictionCycleCount: row.predictionCycleCount ?? null,
       lutealPhaseDays: row.lutealPhaseDays,
       contraceptionInUse: row.contraceptionInUse,
+      /*
+       * `?? false` / `?? []` rather than the raw column: the row is rebuilt field
+       * by field here, so a column added after this function was written would be
+       * absent from the response, and a UI reading `settings.bodySigns` has to get
+       * "off" for a missing field rather than `undefined` (which is falsy by
+       * accident and truthy in a `!== false` test). Both a legacy row (null
+       * column) and an older payload therefore mean off.
+       */
+      bodySigns: row.bodySigns ?? false,
+      hiddenTodayCategories: toTodayCategories(row.hiddenTodayCategories),
     };
   }
   await db.insert(periodSettings).values({ userId, ...DEFAULT_PERIOD_SETTINGS }).onConflictDoNothing();
@@ -163,6 +193,10 @@ export async function updatePeriodSettings(userId: string, input: PeriodSettings
     patch.lutealPhaseDays = Math.min(17, Math.max(9, Math.trunc(input.lutealPhaseDays)));
   }
   if (input.contraceptionInUse !== undefined) patch.contraceptionInUse = input.contraceptionInUse;
+  if (input.bodySigns !== undefined) patch.bodySigns = input.bodySigns;
+  if (input.hiddenTodayCategories !== undefined) {
+    patch.hiddenTodayCategories = toTodayCategories(input.hiddenTodayCategories);
+  }
 
   await db.update(periodSettings).set(patch).where(eq(periodSettings.userId, userId));
   return getPeriodSettings(userId);
@@ -304,7 +338,26 @@ export async function upsertPeriodDayLog(userId: string, input: PeriodDayLogInpu
     temperatureC: input.temperatureC === undefined ? (existing?.temperatureC ?? null) : input.temperatureC,
     lhTest: input.lhTest === undefined ? (existing?.lhTest ?? null) : input.lhTest,
     mucus: input.mucus === undefined ? (existing?.mucus ?? null) : input.mucus,
-    intimacy: input.intimacy === undefined ? (existing?.intimacy ?? false) : input.intimacy,
+    /*
+     * Setting a protection level *is* the statement that intercourse happened, so
+     * `protection` implies `intimacy`. Clearing the protection alone (an explicit
+     * `null`) does not erase the fact that it happened — the UI sends both fields
+     * together when it clears the field, and a caller that only clears the level
+     * is saying "I no longer say which", not "it did not happen".
+     *
+     * No backfill: a row written before the column exists stays null, which reads
+     * as "protection not stated" rather than as an invented value.
+     */
+    intimacy:
+      input.intimacyProtection != null
+        ? true
+        : input.intimacy === undefined
+          ? (existing?.intimacy ?? false)
+          : input.intimacy,
+    intimacyProtection:
+      input.intimacyProtection === undefined
+        ? (existing?.intimacyProtection ?? null)
+        : input.intimacyProtection,
     ovulationPain: input.ovulationPain === undefined ? (existing?.ovulationPain ?? false) : input.ovulationPain,
     weightKg: input.weightKg === undefined ? (existing?.weightKg ?? null) : input.weightKg,
     notes: input.notes === undefined ? (existing?.notes ?? null) : input.notes,

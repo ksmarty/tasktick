@@ -27,6 +27,15 @@
  * writes only. A file upload is neither, so this is the one place in the period UI
  * that speaks HTTP directly — and it unwraps the same `{ ok, data }` envelope by
  * hand, so the error handling still matches the rest of the app.
+ *
+ * ## Two shapes of the same control
+ *
+ * `ImportCard` is the settings row, where a user goes deliberately. `ImportEmptyState`
+ * is the one a **new** user sees first: with nothing recorded, the first job is to
+ * get their history in, and a settings row three taps away is not where that job
+ * belongs. The two share this file's `useCsvImport` hook and its `ResultRow`, so
+ * the preview-is-not-a-write rule and the "never silently skip a row" rule are
+ * implemented once — a second copy is how one of them would drift.
  */
 import { useRef, useState } from 'react';
 import { DownloadIcon } from '@svg-animated-icons/react/download';
@@ -45,7 +54,35 @@ import { cn } from '@/lib/utils';
 /** How many row problems are listed before the list says "and N more". */
 const MAX_ISSUES_SHOWN = 20;
 
-export function ImportCard() {
+/** `POST /api/period/csv/import`, unwrapping the app's `{ ok, data }` envelope. */
+async function uploadCsv(chosen: File, mode: 'preview' | 'commit'): Promise<PeriodImportResult> {
+  const form = new FormData();
+  form.append('file', chosen);
+  form.append('mode', mode);
+
+  const response = await fetch('/api/period/csv/import', {
+    method: 'POST',
+    body: form,
+    credentials: 'same-origin',
+  });
+  const body = (await response.json().catch(() => null)) as
+    | { ok?: boolean; data?: PeriodImportResult; error?: string }
+    | null;
+
+  if (!response.ok || body?.ok === false || !body?.data) {
+    throw new Error(body?.error ?? `The import failed (${response.status}).`);
+  }
+  return body.data;
+}
+
+/**
+ * The upload state machine, shared by both shapes of the control.
+ *
+ * `preview` runs on file selection and writes nothing; `commit` re-uploads the
+ * same bytes after the user has seen the summary. The file is kept in state for
+ * exactly that reason — the commit must be the *same* file that was previewed.
+ */
+function useCsvImport() {
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -53,31 +90,11 @@ export function ImportCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function upload(chosen: File, mode: 'preview' | 'commit') {
-    const form = new FormData();
-    form.append('file', chosen);
-    form.append('mode', mode);
-
-    const response = await fetch('/api/period/csv/import', {
-      method: 'POST',
-      body: form,
-      credentials: 'same-origin',
-    });
-    const body = (await response.json().catch(() => null)) as
-      | { ok?: boolean; data?: PeriodImportResult; error?: string }
-      | null;
-
-    if (!response.ok || body?.ok === false || !body?.data) {
-      throw new Error(body?.error ?? `The import failed (${response.status}).`);
-    }
-    return body.data;
-  }
-
   async function run(chosen: File, mode: 'preview' | 'commit') {
     setBusy(true);
     setError(null);
     try {
-      const next = await upload(chosen, mode);
+      const next = await uploadCsv(chosen, mode);
       setResult(next);
       if (mode === 'commit') {
         await invalidate(PERIOD_PREFIX);
@@ -92,6 +109,37 @@ export function ImportCard() {
     }
   }
 
+  return {
+    inputRef,
+    file,
+    result,
+    busy,
+    error,
+    choose(chosen: File | null) {
+      setFile(chosen);
+      setResult(null);
+      setError(null);
+      if (chosen) void run(chosen, 'preview');
+    },
+    commit() {
+      if (file) void run(file, 'commit');
+    },
+    reset() {
+      setFile(null);
+      setResult(null);
+      setError(null);
+      if (inputRef.current) inputRef.current.value = '';
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* the settings row                                                           */
+/* -------------------------------------------------------------------------- */
+
+export function ImportCard() {
+  const csv = useCsvImport();
+
   return (
     <SettingsGroup
       title="Import & export"
@@ -104,90 +152,184 @@ export function ImportCard() {
             One row per thing: a period, a day’s observations, a contraception method, or a logged contraception day.
             The first column says which.
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
-              <a href="/api/period/csv/template" download>
-                <DownloadIcon className="size-4 text-base" />
-                Download template
-              </a>
-            </Button>
-            <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
-              <a href="/api/period/csv/export" download>
-                <DownloadIcon className="size-4 text-base" />
-                Export my data
-              </a>
-            </Button>
-          </div>
+          <TemplateLinks />
         </div>
       </SettingsRow>
 
-      <SettingsRow stacked>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="period-csv-file">Import a CSV</Label>
-          <Input
-            id="period-csv-file"
-            ref={inputRef}
-            type="file"
-            accept=".csv,text/csv"
-            disabled={busy}
-            onChange={(event) => {
-              const chosen = event.target.files?.[0] ?? null;
-              setFile(chosen);
-              setResult(null);
-              setError(null);
-              if (chosen) void run(chosen, 'preview');
-            }}
-          />
-          <p className="text-xs text-muted-foreground">
-            Nothing is written until you confirm. Rows that cannot be placed are listed with their row number rather
-            than dropped.
-          </p>
+      <ImportFileRow csv={csv} id="period-csv-file" />
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              className="h-9 gap-1.5"
-              disabled={!file || busy}
-              onClick={() => {
-                if (file) void run(file, 'commit');
-              }}
-            >
-              <UploadIcon className="size-4 text-base" />
-              {result?.mode === 'preview' ? `Import ${dataRowCount(result)} rows` : 'Import'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9"
-              disabled={busy}
-              onClick={() => {
-                setFile(null);
-                setResult(null);
-                setError(null);
-                if (inputRef.current) inputRef.current.value = '';
-              }}
-            >
+      {csv.result ? <ResultRow result={csv.result} /> : null}
+    </SettingsGroup>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* the empty state                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The import, as the most prominent thing on a screen with no data.
+ *
+ * Shown on the Today screen and on Insights when nothing has been recorded yet,
+ * because the first thing a user with an empty history needs is a way to fill it
+ * — and the second thing they need is to know they do not have to. So the card
+ * leads with the file and its template, and says in one line that starting from
+ * scratch is a perfectly good answer; a user who was already tracking elsewhere
+ * should not have to discover this inside the settings.
+ */
+export function ImportEmptyState({ className }: { className?: string }) {
+  const csv = useCsvImport();
+
+  return (
+    <section
+      data-empty-state="import"
+      className={cn(
+        'flex flex-col gap-3 rounded-xl border border-border bg-card p-card text-card-foreground shadow-xs',
+        className,
+      )}
+    >
+      <div className="flex flex-col gap-1">
+        <h2 className="text-base font-semibold">Bring your history in</h2>
+        <p className="text-sm text-muted-foreground">
+          Nothing has been recorded yet. If you have been tracking somewhere else — an app, a spreadsheet, a paper
+          diary — you can bring it across in one file and the prediction starts from your real cycles instead of
+          waiting three months for them.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="sm" className="h-9 gap-1.5">
+            <a href="/api/period/csv/template" download>
+              <DownloadIcon className="size-4 text-base" />
+              Download the template
+            </a>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
+            <a href="/api/period/csv/export" download>
+              <DownloadIcon className="size-4 text-base" />
+              Export what is here
+            </a>
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The template has a row per thing — a period, a day’s observations, a method, a logged method day — and you
+          only need the rows you have.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="period-csv-file-empty">Or import a file now</Label>
+        <Input
+          id="period-csv-file-empty"
+          ref={csv.inputRef}
+          type="file"
+          accept=".csv,text/csv"
+          disabled={csv.busy}
+          onChange={(event) => csv.choose(event.target.files?.[0] ?? null)}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" className="h-9 gap-1.5" disabled={!csv.file || csv.busy} onClick={csv.commit}>
+            <UploadIcon className="size-4 text-base" />
+            {csv.result?.mode === 'preview' ? `Import ${dataRowCount(csv.result)} rows` : 'Import'}
+          </Button>
+          {csv.file ? (
+            <Button type="button" variant="ghost" size="sm" className="h-9" disabled={csv.busy} onClick={csv.reset}>
               Clear
             </Button>
-          </div>
-
-          {busy ? (
-            <p aria-live="polite" className="text-xs text-muted-foreground">
-              Reading the file…
-            </p>
-          ) : null}
-          {error ? (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
           ) : null}
         </div>
-      </SettingsRow>
+        <p className="text-xs text-muted-foreground">
+          Nothing is written until you confirm, and rows the importer cannot place are listed with their row number
+          rather than dropped.
+        </p>
+        {csv.busy ? (
+          <p aria-live="polite" className="text-xs text-muted-foreground">
+            Reading the file…
+          </p>
+        ) : null}
+        {csv.error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {csv.error}
+          </p>
+        ) : null}
+      </div>
 
-      {result ? <ResultRow result={result} /> : null}
-    </SettingsGroup>
+      {csv.result ? <ResultRow result={csv.result} /> : null}
+
+      <p className="text-xs text-muted-foreground">
+        No file to import? Start with today — one tap below is a complete record, and the prediction only needs two
+        period starts to have something to say.
+      </p>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* pieces                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** The template and the export, together wherever the import is offered. */
+function TemplateLinks() {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
+        <a href="/api/period/csv/template" download>
+          <DownloadIcon className="size-4 text-base" />
+          Download template
+        </a>
+      </Button>
+      <Button asChild variant="outline" size="sm" className="h-9 gap-1.5">
+        <a href="/api/period/csv/export" download>
+          <DownloadIcon className="size-4 text-base" />
+          Export my data
+        </a>
+      </Button>
+    </div>
+  );
+}
+
+/** The file field, its confirm button and the two live lines under it. */
+function ImportFileRow({ csv, id }: { csv: ReturnType<typeof useCsvImport>; id: string }) {
+  return (
+    <SettingsRow stacked>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={id}>Import a CSV</Label>
+        <Input
+          id={id}
+          ref={csv.inputRef}
+          type="file"
+          accept=".csv,text/csv"
+          disabled={csv.busy}
+          onChange={(event) => csv.choose(event.target.files?.[0] ?? null)}
+        />
+        <p className="text-xs text-muted-foreground">
+          Nothing is written until you confirm. Rows that cannot be placed are listed with their row number rather
+          than dropped.
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" className="h-9 gap-1.5" disabled={!csv.file || csv.busy} onClick={csv.commit}>
+            <UploadIcon className="size-4 text-base" />
+            {csv.result?.mode === 'preview' ? `Import ${dataRowCount(csv.result)} rows` : 'Import'}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="h-9" disabled={csv.busy} onClick={csv.reset}>
+            Clear
+          </Button>
+        </div>
+
+        {csv.busy ? (
+          <p aria-live="polite" className="text-xs text-muted-foreground">
+            Reading the file…
+          </p>
+        ) : null}
+        {csv.error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {csv.error}
+          </p>
+        ) : null}
+      </div>
+    </SettingsRow>
   );
 }
 

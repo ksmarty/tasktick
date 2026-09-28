@@ -41,6 +41,11 @@
  * GET    /api/period/csv/template             -> text/csv download
  * GET    /api/period/csv/export               -> text/csv download
  * POST   /api/period/csv/import               -> PeriodImportResult   (multipart)
+ *
+ * POST   /api/period/ringconn/import          -> WearableImportResult  ?mode&fileName
+ *   The raw file is the request body, not multipart: an Apple Health export is
+ *   hundreds of MB and `formData()` would buffer all of it. Types are in
+ *   `@/lib/ringconn`. There is no RingConn API — see the note in that file.
  * ```
  *
  * Every date on the wire is a floating `YYYY-MM-DD` string (`DateOnly` from
@@ -161,6 +166,51 @@ export const PERIOD_MOODS = [
   'sensitive',
 ] as const;
 
+/**
+ * Whether intercourse on a day was protected.
+ *
+ * Deliberately an enum rather than a second boolean. The old `intimacy` flag
+ * answered "did this happen", which is not the fact that changes what a
+ * prediction *means*: an unprotected day inside the fertile window and a
+ * protected one are different observations, and a pair of booleans can encode
+ * the impossible state "protected and unprotected".
+ *
+ * `null` on {@link PeriodDayLog.intimacyProtection} is not a third value and is
+ * never offered as a chip: it means "intercourse was recorded before protection
+ * was a field", which is what every row written by the previous version reads
+ * as. That is the honest mapping — the old boolean carried no protection
+ * information, so guessing `protected` or `unprotected` would invent a fact.
+ */
+export const INTIMACY_PROTECTION = ['protected', 'unprotected'] as const;
+export type IntimacyProtection = (typeof INTIMACY_PROTECTION)[number];
+
+/**
+ * The sections of the Today log form, in the order the form presents them.
+ *
+ * The list is part of the settings contract because a user may switch any of
+ * them off, so it is the server's stored vocabulary too (see
+ * {@link PeriodSettings.hiddenTodayCategories}) rather than a UI-only constant.
+ * The spelling matches {@link DayLogForm}'s groups; `bodySigns` is the one entry
+ * that is *not* stored in the hidden list, because it has its own switch with
+ * its own default — see {@link PeriodSettings.bodySigns}.
+ */
+export const TODAY_CATEGORIES = [
+  'flow',
+  'contraception',
+  'symptoms',
+  'mood',
+  /** Weight — the one measurement that is not a fertility-awareness sign. */
+  'weight',
+  /**
+   * The fertility-awareness observations: basal temperature, cervical mucus, LH
+   * tests, ovulation pain.
+   */
+  'bodySigns',
+  'intimacy',
+  'notes',
+] as const;
+export type TodayCategory = (typeof TODAY_CATEGORIES)[number];
+
 /* -------------------------------------------------------------------------- */
 /* entities                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -207,10 +257,10 @@ export interface PeriodCycleUpdate {
  * ## Why these are columns and symptoms/mood are lists
  *
  * Anything the maths may consume, or that a user filters on, is a typed column:
- * `flow`, `temperatureC`, `lhTest`, `mucus`, `intimacy`, `ovulationPain`,
- * `weightKg`. They are single-valued per day and ordinal or numeric, so the
- * prediction can read them without a join and a future model can train on them
- * directly.
+ * `flow`, `temperatureC`, `lhTest`, `mucus`, `intimacy`, `intimacyProtection`,
+ * `ovulationPain`, `weightKg`. They are single-valued per day and ordinal or
+ * numeric, so the prediction can read them without a join and a future model can
+ * train on them directly.
  *
  * `symptoms` and `mood` are open-ended *sets* — a user may log three symptoms
  * and two moods, may invent their own, and no current computation looks at
@@ -231,8 +281,23 @@ export interface PeriodDayLog {
   temperatureC: number | null;
   lhTest: LhTestResult | null;
   mucus: CervicalMucus | null;
-  /** Intercourse on this day — the observation conception maths would need. */
+  /**
+   * Intercourse on this day — the observation conception maths would need.
+   *
+   * Kept as the umbrella "it happened" flag (the CSV column, the exported
+   * vocabulary, the day detail), with {@link intimacyProtection} carrying the
+   * part that changes what the observation means. A row with `intimacy: true`
+   * and a null protection is one recorded before protection existed.
+   */
   intimacy: boolean;
+  /**
+   * Whether that intercourse was protected.
+   *
+   * `null` means "not stated" — either nothing was recorded, or it was recorded
+   * through the old boolean. It is never a chip the user can pick; see
+   * {@link INTIMACY_PROTECTION}.
+   */
+  intimacyProtection: IntimacyProtection | null;
   /** Mittelschmerz (ovulation pain). */
   ovulationPain: boolean;
   weightKg: number | null;
@@ -250,6 +315,7 @@ export interface PeriodDayLogInput {
   lhTest?: LhTestResult | null;
   mucus?: CervicalMucus | null;
   intimacy?: boolean;
+  intimacyProtection?: IntimacyProtection | null;
   ovulationPain?: boolean;
   weightKg?: number | null;
   notes?: string | null;
@@ -386,6 +452,35 @@ export interface PeriodSettings {
    * every prediction carries a `meaning` string derived from it.
    */
   contraceptionInUse: boolean;
+  /**
+   * Whether the fertility-awareness observations are shown at all.
+   *
+   * **Off by default**, and off for every row written before the field existed.
+   * Basal body temperature, cervical mucus, an LH test and ovulation pain are
+   * meaningful to someone already tracking fertility and confusing noise to
+   * everyone else — most people have never heard of an LH test, and a form that
+   * asks for one makes them feel they are missing something. So the whole
+   * vocabulary is hidden until it is asked for, in the log form *and* on
+   * Insights.
+   *
+   * `null` on the row reads as off (see `getPeriodSettings`), so a client on an
+   * older server, or a row written before the migration, both default to off.
+   */
+  bodySigns: boolean;
+  /**
+   * The Today-form sections the user has switched off, by
+   * {@link TodayCategory}.
+   *
+   * Stored as the *hidden* set rather than the visible one so that a category
+   * added to the contract later is visible by default instead of silently
+   * missing from a stored "show these" list. Absent/empty therefore reads as
+   * "show everything", which is what every existing user has.
+   *
+   * `bodySigns` is deliberately not a member: it has its own switch above, with
+   * its own default of off and its own effect on Insights, and two controls for
+   * one section is one control too many.
+   */
+  hiddenTodayCategories: TodayCategory[];
 }
 
 export type PeriodSettingsUpdate = Partial<PeriodSettings>;

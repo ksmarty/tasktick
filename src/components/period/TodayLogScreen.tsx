@@ -22,14 +22,22 @@
  * in the line under the form rather than in a modal, because the user is holding
  * the phone in one hand.
  *
- * ## Only one request
+ * ## Two requests, and why the second one is there
  *
  * `GET /api/period` for today's window returns the settings, the cycles, the day
  * log, the contraception schedule (including the day's expected on/off state) and
- * the prediction. This screen makes that one call and nothing else, so no two
- * parts of it can be showing state from different moments — and the form renders
- * from `null`s before it even answers, because "nothing logged" is a truthful
- * state for every field on it.
+ * the prediction. This screen makes that one call for everything it shows, so no
+ * two parts of it can be showing state from different moments — and the form
+ * renders from `null`s before it even answers, because "nothing logged" is a
+ * truthful state for every field on it.
+ *
+ * The one thing that call cannot answer is "has this user ever recorded
+ * anything", because its day-log window is today: an empty window is equally
+ * consistent with a brand-new account and with someone who logged last Tuesday.
+ * The empty state that leads to the importer needs the real answer, so the
+ * existing stats read (`GET /api/period/stats`, the same one Insights uses, under
+ * the same cache key, invalidated by every period write) is consulted for that one
+ * boolean and nothing else.
  */
 import { useMemo, useState } from 'react';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -52,10 +60,14 @@ import {
   useDeleteDayLog,
   useLogContraception,
   usePeriodOverview,
+  usePeriodStats,
   useUpdateCycle,
+  useUpdatePeriodSettings,
 } from './data';
 import { DayLogForm, type DayContraception } from './DayLogForm';
+import { ImportEmptyState } from './ImportCard';
 import { PredictionSummary } from './PredictionSummary';
+import { SHOW_ALL_TODAY_CATEGORIES } from './today-categories';
 import { longDate, weekdayLong } from './labels';
 import { useTodayZone } from './useToday';
 
@@ -69,6 +81,18 @@ export function TodayLogScreen() {
   const data = overview.data;
   const log = dayLogFor(data, today);
   const form = useDayLogDraft(today, log);
+
+  /**
+   * A second read, used only to answer "has this user ever recorded anything".
+   *
+   * The overview is windowed to today, so on its own it cannot tell the
+   * difference between a new user and someone who logged last week — and the one
+   * decision that needs the answer is whether to lead with the importer. The
+   * request is cached under the same key Insights uses and is invalidated by
+   * every period write, so it is paid once and then free.
+   */
+  const stats = usePeriodStats();
+  const nothingRecorded = (data?.cycles.length ?? 0) === 0 && stats.data?.loggedDays === 0;
 
   const [pastOpen, setPastOpen] = useState(false);
 
@@ -124,6 +148,28 @@ export function TodayLogScreen() {
     onSuccess: () => toast({ title: 'Cleared today', variant: 'success' }),
   });
 
+  /* The escape hatch from an all-hidden form — see `DayLogForm` and
+     `today-categories.ts`. It restores the ordinary sections and leaves the body
+     signs switch exactly as the user set it.
+
+     The overview is written through the store first, for the same reason the
+     settings switches are: `invalidate()` leaves the old value in place until a
+     refetch, and the form is rendered from this very entry, so without it the
+     button would look like it did nothing. */
+  const showAllSections = useUpdatePeriodSettings({
+    onError: fail('Could not save that'),
+  });
+
+  function onShowAllSections() {
+    const before = overview.data;
+    overview.mutate((current) =>
+      current ? { ...current, settings: { ...current.settings, ...SHOW_ALL_TODAY_CATEGORIES } } : current,
+    );
+    void showAllSections.run(SHOW_ALL_TODAY_CATEGORIES).then((saved) => {
+      if (!saved && before) overview.mutate(before);
+    });
+  }
+
   return (
     <>
       <PageHeader title="Today" />
@@ -132,6 +178,14 @@ export function TodayLogScreen() {
         <p className="text-sm text-muted-foreground">
           {weekdayLong(today)}, {longDate(today)}
         </p>
+
+        {/*
+         * Nothing recorded at all: the importer leads. A new user's first job is
+         * to get their history in — otherwise the prediction has nothing to say
+         * for a month — so it goes above the prediction rather than inside the
+         * settings, and it disappears the moment there is a single row.
+         */}
+        {nothingRecorded ? <ImportEmptyState /> : null}
 
         <PredictionSummary prediction={data?.prediction} today={today} />
 
@@ -150,6 +204,8 @@ export function TodayLogScreen() {
           value={form.value}
           onChange={form.set}
           contraception={contraception}
+          settings={data?.settings}
+          onShowAllSections={onShowAllSections}
         />
 
         <div className="flex items-center justify-between gap-2">

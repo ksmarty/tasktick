@@ -34,8 +34,10 @@ import type {
   ContraceptionDayStatus,
   ContraceptionMethod,
   ContraceptionSchedule,
+  IntimacyProtection,
   LhTestResult,
   PeriodFlow,
+  TodayCategory,
 } from '@/lib/period-types';
 
 /* -------------------------------------------------------------------------- */
@@ -807,6 +809,17 @@ export const periodSettings = sqliteTable('period_settings', {
    * which is why every prediction carries a `meaning` string for the UI.
    */
   contraceptionInUse: integer('contraception_in_use', { mode: 'boolean' }).notNull().default(false),
+  /**
+   * Whether the fertility-awareness observations are shown. Off by default, and
+   * off for every row written before the column existed (see
+   * `PeriodSettings.bodySigns`).
+   */
+  bodySigns: integer('body_signs', { mode: 'boolean' }).notNull().default(false),
+  /**
+   * The Today-form sections switched off, as a JSON list of `TodayCategory`.
+   * Null (a row written before the column existed) reads as "nothing hidden".
+   */
+  hiddenTodayCategories: text('hidden_today_categories', { mode: 'json' }).$type<TodayCategory[]>(),
   ...timestamps,
 });
 
@@ -856,6 +869,12 @@ export const periodDayLogs = sqliteTable(
     lhTest: text('lh_test').$type<LhTestResult>(),
     mucus: text('mucus').$type<CervicalMucus>(),
     intimacy: integer('intimacy', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * Protected vs unprotected, or null for "recorded before this was a field".
+     * Nullable and never backfilled: the old boolean carried no protection
+     * information, so a value would have to be invented.
+     */
+    intimacyProtection: text('intimacy_protection').$type<IntimacyProtection>(),
     ovulationPain: integer('ovulation_pain', { mode: 'boolean' }).notNull().default(false),
     weightKg: real('weight_kg'),
     notes: text('notes'),

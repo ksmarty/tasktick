@@ -37,6 +37,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { PageHeader } from '@/components/app/PageHeader';
+import { useToast } from '@/components/app/Toast';
 import { useShellPane } from '@/components/app/ShellPane';
 import {
   MonthGrid,
@@ -54,11 +55,13 @@ import { cn } from '@/lib/utils';
 import type { PeriodOverview } from '@/lib/period-types';
 import type { CalendarItemsPayload } from '@/lib/view-types';
 import type { DateOnly } from '@/lib/types';
-import { dayLogFor, scheduleDayFor, usePeriodOverview, activeMethodFor } from './data';
+import { dayLogFor, scheduleDayFor, usePeriodOverview, activeMethodFor, useUpdatePeriodSettings } from './data';
+import { SHOW_ALL_TODAY_CATEGORIES } from './today-categories';
 import { DayLogSheet } from './DayLogSheet';
 import { PeriodDayMarker, PeriodLegend } from './DayMark';
 import { PredictionSummary } from './PredictionSummary';
 import { hasMarks, markWords, marksForDays, type DayMarks } from './markers';
+import { intimacyLabel } from './intimacy';
 import { FLOW_LABEL, METHOD_LABEL, DAY_STATUS_LABEL, humanise, longDate, weekdayLong } from './labels';
 import { useTodayZone } from './useToday';
 
@@ -73,6 +76,7 @@ export function PeriodCalendarScreen() {
   useShellPane({ fullHeight: true });
 
   const { today, zone, weekStartsOn, timeFormat } = useTodayZone();
+  const { toast } = useToast();
 
   const [anchor, setAnchor] = useState<DateOnly>(today);
   const [selectedDate, setSelectedDate] = useState<DateOnly>(today);
@@ -114,6 +118,27 @@ export function PeriodCalendarScreen() {
 
   const overview = usePeriodOverview(windowFrom, windowTo);
   const data = overview.data;
+
+  /*
+   * "Show my sections again", from the day sheet.
+   *
+   * The sheet renders the one `DayLogForm` against this screen's overview, so the
+   * write-through has to happen here — the same optimistic-then-revert shape the
+   * settings switches use, because `invalidate()` alone leaves the cached
+   * settings in place and the form is rendered from them.
+   */
+  const showAllSections = useUpdatePeriodSettings({
+    onError: (message) => toast({ title: 'Could not save that', description: message, variant: 'error' }),
+  });
+  const onShowAllSections = useCallback(() => {
+    const before = overview.data;
+    overview.mutate((current) =>
+      current ? { ...current, settings: { ...current.settings, ...SHOW_ALL_TODAY_CATEGORIES } } : current,
+    );
+    void showAllSections.run(SHOW_ALL_TODAY_CATEGORIES).then((saved) => {
+      if (!saved && before) overview.mutate(before);
+    });
+  }, [overview, showAllSections]);
 
   const marks = useMemo(() => marksForDays(allDays, data), [allDays, data]);
 
@@ -239,6 +264,7 @@ export function PeriodCalendarScreen() {
         date={selectedDate}
         overview={data}
         today={today}
+        onShowAllSections={onShowAllSections}
       />
     </>
   );
@@ -302,7 +328,13 @@ function DayDetail({
           />
           <Row label="LH test" value={log?.lhTest ? humanise(log.lhTest) : 'Not logged'} />
           <Row label="Mucus" value={log?.mucus ? humanise(log.mucus) : 'Not logged'} />
-          <Row label="Intimacy" value={log?.intimacy ? 'Yes' : 'No'} />
+          {/*
+           * Protected and unprotected are kept apart here as well as in the form:
+           * the month is where a user looks back, and "Yes" would throw away the
+           * difference the field was added for. A day recorded through the old
+           * boolean says so rather than reading as "not logged".
+           */}
+          <Row label="Sex" value={intimacyLabel(log) ?? 'Not logged'} />
           <Row label="Ovulation pain" value={log?.ovulationPain ? 'Yes' : 'No'} />
         </dl>
 

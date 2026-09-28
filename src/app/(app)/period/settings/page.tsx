@@ -1,11 +1,12 @@
 /**
- * Period settings: the model knobs, contraception, import/export and the exit.
+ * Period settings → Tracking: the mode switch and the way back to tasks.
  *
- * A thin route: the screen is a client component that reads and writes
+ * This is the default landing of `/period/settings`, so the way out is never
+ * behind another control. The screen is a client component that reads and writes
  * `/api/period/settings`.
  */
-import { PeriodSettings } from '@/components/period/PeriodSettings';
+import { PeriodModeSection } from '@/components/period/PeriodSettings';
 
-export default function PeriodSettingsPage() {
-  return <PeriodSettings />;
+export default function PeriodTrackingSettingsPage() {
+  return <PeriodModeSection />;
 }

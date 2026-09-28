@@ -122,6 +122,13 @@ function fromServer(log: PeriodDayLog | null | undefined, date: DateOnly): DayLo
     lhTest: log?.lhTest ?? null,
     mucus: log?.mucus ?? null,
     intimacy: log?.intimacy ?? false,
+    /*
+     * Mapped even though `intimacy` already says "it happened": the level is the
+     * half of the fact that changes what a prediction means, and because
+     * `DayLogValue`'s fields are all optional, forgetting this line does not fail
+     * to compile — it silently renders every day as "not stated".
+     */
+    intimacyProtection: log?.intimacyProtection ?? null,
     ovulationPain: log?.ovulationPain ?? false,
     weightKg: log?.weightKg ?? null,
     notes: log?.notes ?? null,

@@ -6,9 +6,11 @@
  * Enabling period tracking does not add a fifth tab. It turns the period
  * interface into the app's home: `/` lands on it, and while the user is on a
  * `/period/*` route the bottom band and the desktop rail carry period-specific
- * destinations instead of the task ones. The exit is a control the shell itself
- * puts in the app bar of every period screen — see `PeriodExitButton` and
- * `AppShell`.
+ * destinations instead of the task ones. The way back to the task interface is
+ * the period Settings screen (the Settings tab of that band, and the rail's
+ * Period settings row): the user was explicit that the only place to switch
+ * interfaces is the settings, so the shell no longer renders an exit control in
+ * the app bar.
  *
  * ## Where the flag comes from
  *

@@ -53,6 +53,14 @@
  * nothing as the pane scrolled under it. Keeping the rows out of the pane leaves
  * the single-scroller arrangement and its edge fade completely intact.
  *
+ * ## One shell, two settings areas
+ *
+ * The period settings needed the same two-row pinned shell, so the arrangement
+ * lives in `SettingsNav` rather than being copied. `SettingsTabs` is the app's
+ * configuration of it (the app's groups, routes, labels and admin filter); the
+ * period settings configure it with their own groups and routes. The ARIA
+ * decisions above are therefore made once, and a third pattern does not appear.
+ *
  * ## The same contract as before
  *
  * Every section is still a real route and the URL is still the single source of
@@ -83,7 +91,6 @@ export type SettingsTab =
   | 'account'
   | 'appearance'
   | 'date-time'
-  | 'period'
   | 'notifications'
   | 'calendars'
   | 'integrations'
@@ -97,7 +104,6 @@ const TAB_HREF: Record<SettingsTab, string> = {
   account: '/settings',
   appearance: '/settings/appearance',
   'date-time': '/settings/date-time',
-  period: '/settings/period',
   notifications: '/settings/notifications',
   calendars: '/settings/calendars',
   integrations: '/settings/integrations',
@@ -107,17 +113,178 @@ const TAB_HREF: Record<SettingsTab, string> = {
   admin: '/settings/admin',
 };
 
-interface SettingsSection {
-  value: SettingsTab;
+/** One section in a {@link SettingsNavGroup}. */
+export interface SettingsNavSection {
+  value: string;
   label: string;
   /** Hidden from accounts that are not administrators. */
   adminOnly?: boolean;
 }
 
-interface SettingsSectionGroup {
+/** One primary group of sections. */
+export interface SettingsNavGroup {
   /** The primary tab's label, e.g. `Personal`. */
   label: string;
-  sections: SettingsSection[];
+  sections: SettingsNavSection[];
+}
+
+export interface SettingsNavProps {
+  /** The groups, in the order the primary and sub rows show them. */
+  groups: SettingsNavGroup[];
+  /** The route each section value points at. */
+  href: Record<string, string>;
+  /** The section value the current route represents. */
+  active: string;
+  /** Administrators keep every group; everyone else loses `adminOnly` sections. */
+  isAdmin?: boolean;
+  /** Accessible name for the primary row. */
+  primaryLabel: string;
+  /** Accessible name for the sub tablist. */
+  subLabel: string;
+  /** Warm every section route on mount (the shell prefetches only tab roots). */
+  prefetch?: boolean;
+  children: ReactNode;
+}
+
+/**
+ * The pinned two-row settings navigation and its one scroll pane.
+ *
+ * This is the shell shared by the app's settings and the period settings; each
+ * area supplies its own `groups`, `href` map, active value and labels. See the
+ * file comment for why the primary row is links and the sub row is a tablist.
+ */
+export function SettingsNav({
+  groups,
+  href,
+  active,
+  isAdmin = false,
+  primaryLabel,
+  subLabel,
+  prefetch = false,
+  children,
+}: SettingsNavProps) {
+  const router = useRouter();
+
+  /* Administrators keep every group; everyone else loses only Admin, which never
+   * empties a group — but a future admin-only group would be dropped, not left
+   * as a bare tab. */
+  const visibleGroups = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          label: group.label,
+          sections: group.sections.filter((section) => !section.adminOnly || isAdmin),
+        }))
+        .filter((group) => group.sections.length > 0),
+    [groups, isAdmin],
+  );
+
+  /*
+   * Which primary tab is current. Looked up in the *unfiltered* groups so that
+   * `/settings/admin` still reads as Advanced for a non-administrator even
+   * though the Admin sub-tab is hidden from them.
+   */
+  const activeGroup =
+    groups.find((group) => group.sections.some((section) => section.value === active))?.label ??
+    visibleGroups[0]?.label;
+
+  const activeSections = visibleGroups.find((group) => group.label === activeGroup)?.sections ?? [];
+
+  /**
+   * Warm the section routes.
+   *
+   * `router.prefetch` issues a *full* prefetch in this build, which the client
+   * router cache then reuses for the next navigation, so the tap swaps the panel
+   * from the prefetched payload instead of waiting on a server render. Registered
+   * as an effect rather than during render so the first paint of the settings
+   * area is never held up by it.
+   */
+  useEffect(() => {
+    if (!prefetch) return;
+    for (const route of Object.values(href)) router.prefetch(route);
+  }, [prefetch, href, router]);
+
+  return (
+    <Tabs
+      value={active}
+      onValueChange={(value) => router.push(href[value] ?? href[active] ?? '')}
+      className="min-h-0 flex-1"
+    >
+      {/*
+       * The pinned chrome. It is a sibling of the scroll pane, not a sticky child
+       * of it, so the pane's `fade-y` mask can never fade it. `bg-background` and
+       * the bottom border separate it from the content scrolling beneath.
+       */}
+      <div
+        data-settings-nav
+        className="flex shrink-0 flex-col gap-1.5 bg-background px-gutter pt-3 pb-2"
+      >
+        {/*
+         * Three links, not tabs: each changes the group and navigates to a real
+         * route, so it is navigation. `aria-current="page"` marks the group the
+         * current section belongs to.
+         */}
+        <nav
+          data-settings-primary
+          aria-label={primaryLabel}
+          className="flex items-center gap-1 rounded-lg bg-muted p-1"
+        >
+          {visibleGroups.map((group) => {
+            const current = group.label === activeGroup;
+            const first = group.sections[0];
+            /*
+             * The active group's link points at the section actually open, so
+             * `aria-current="page"` is literally true; the other groups point at
+             * their first reachable section.
+             */
+            return (
+              <Link
+                key={group.label}
+                href={(current ? href[active] : first && href[first.value]) ?? ''}
+                aria-current={current ? 'page' : undefined}
+                className={cn(
+                  'flex h-7 min-w-0 flex-1 items-center justify-center truncate rounded-md px-2 text-sm font-medium transition-colors',
+                  current
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <span className="min-w-0 truncate">{group.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* A single-level tablist; the panel is the scroll pane below it. */}
+        <TabsList aria-label={subLabel} className="h-9 w-full">
+          {activeSections.map((section) => (
+            <TabsTrigger
+              key={section.value}
+              value={section.value}
+              className="min-w-0"
+              /*
+               * Radix only calls `onValueChange` when the value actually changes,
+               * so a section that is already selected but lives at a different URL
+               * (e.g. the legacy `/settings/advanced`) would do nothing on click.
+               * Pushing from the trigger turns it back into a working link; on a
+               * normal switch the router receives the same URL twice, a no-op.
+               */
+              onClick={() => {
+                if (section.value === active && href[section.value]) router.push(href[section.value]);
+              }}
+            >
+              <span className="min-w-0 truncate">{section.label}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </div>
+
+      {/* The panel is the one scroller; `min-h-0` lets it shrink and scroll. */}
+      <TabsContent value={active} className="flex min-h-0 flex-1 flex-col">
+        <SettingsScroll>{children}</SettingsScroll>
+      </TabsContent>
+    </Tabs>
+  );
 }
 
 /**
@@ -129,19 +296,17 @@ interface SettingsSectionGroup {
  * hand you your data. At most four sections per group is also what keeps both
  * rows one clean line at 390px.
  *
- * Period tracking is its own section rather than a row inside Appearance because
- * it is not a preference the app already has — it is a second interface, and the
- * one thing a user must be able to find again is the switch that turned it on.
- * Its period-side settings live inside the mode, on `/period/settings`.
+ * Period tracking is no longer a section of its own: it is a look/behaviour
+ * choice, so its switch lives inside Appearance. Its period-side settings live
+ * inside the mode, on `/period/settings`.
  */
-const SECTION_GROUPS: SettingsSectionGroup[] = [
+const SECTION_GROUPS: SettingsNavGroup[] = [
   {
     label: 'Personal',
     sections: [
       { value: 'account', label: 'Account' },
       { value: 'appearance', label: 'Appearance' },
       { value: 'date-time', label: 'Date & time' },
-      { value: 'period', label: 'Period' },
     ],
   },
   {
@@ -183,124 +348,23 @@ export interface SettingsTabsProps {
 }
 
 export function SettingsTabs({ children }: SettingsTabsProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const bootstrap = useResource<BootstrapPayload>('/api/bootstrap');
   const isAdmin = bootstrap.data?.user.isAdmin ?? false;
 
   const active = sectionForPath(pathname) ?? 'account';
 
-  /* Administrators keep every group; everyone else loses only Admin, which never
-   * empties a group — but a future admin-only group would be dropped, not left
-   * as a bare tab. */
-  const groups = useMemo(
-    () =>
-      SECTION_GROUPS.map((group) => ({
-        label: group.label,
-        sections: group.sections.filter((section) => !section.adminOnly || isAdmin),
-      })).filter((group) => group.sections.length > 0),
-    [isAdmin],
-  );
-
-  /*
-   * Which primary tab is current. Looked up in the *unfiltered* groups so that
-   * `/settings/admin` still reads as Advanced for a non-administrator even
-   * though the Admin sub-tab is hidden from them.
-   */
-  const activeGroup =
-    SECTION_GROUPS.find((group) => group.sections.some((section) => section.value === active))?.label ??
-    groups[0]?.label;
-
-  const activeSections = groups.find((group) => group.label === activeGroup)?.sections ?? [];
-
-  /**
-   * Warm the section routes.
-   *
-   * `router.prefetch` issues a *full* prefetch in this build, which the client
-   * router cache then reuses for the next navigation, so the tap swaps the panel
-   * from the prefetched payload instead of waiting on a server render. Registered
-   * as an effect rather than during render so the first paint of the settings
-   * area is never held up by it.
-   */
-  useEffect(() => {
-    for (const href of Object.values(TAB_HREF)) router.prefetch(href);
-  }, [router]);
-
   return (
-    <Tabs
-      value={active}
-      onValueChange={(value) => router.push(TAB_HREF[value as SettingsTab])}
-      className="min-h-0 flex-1"
+    <SettingsNav
+      groups={SECTION_GROUPS}
+      href={TAB_HREF}
+      active={active}
+      isAdmin={isAdmin}
+      primaryLabel="Settings groups"
+      subLabel="Settings sections"
+      prefetch
     >
-      {/*
-       * The pinned chrome. It is a sibling of the scroll pane, not a sticky child
-       * of it, so the pane's `fade-y` mask can never fade it. `bg-background` and
-       * the bottom border separate it from the content scrolling beneath.
-       */}
-      <div
-        data-settings-nav
-        className="flex shrink-0 flex-col gap-1.5 bg-background px-gutter pt-3 pb-2"
-      >
-        {/*
-         * Three links, not tabs: each changes the group and navigates to a real
-         * route, so it is navigation. `aria-current="page"` marks the group the
-         * current section belongs to.
-         */}
-        <nav data-settings-primary aria-label="Settings groups" className="flex items-center gap-1 rounded-lg bg-muted p-1">
-          {groups.map((group) => {
-            const current = group.label === activeGroup;
-            const first = group.sections[0];
-            /*
-             * The active group's link points at the section actually open, so
-             * `aria-current="page"` is literally true; the other groups point at
-             * their first reachable section.
-             */
-            return (
-              <Link
-                key={group.label}
-                href={current ? TAB_HREF[active] : TAB_HREF[first.value]}
-                aria-current={current ? 'page' : undefined}
-                className={cn(
-                  'flex h-7 min-w-0 flex-1 items-center justify-center truncate rounded-md px-2 text-sm font-medium transition-colors',
-                  current
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <span className="min-w-0 truncate">{group.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* A single-level tablist; the panel is the scroll pane below it. */}
-        <TabsList aria-label="Settings sections" className="h-9 w-full">
-          {activeSections.map((section) => (
-            <TabsTrigger
-              key={section.value}
-              value={section.value}
-              className="min-w-0"
-              /*
-               * Radix only calls `onValueChange` when the value actually changes,
-               * so a section that is already selected but lives at a different URL
-               * (e.g. the legacy `/settings/advanced`) would do nothing on click.
-               * Pushing from the trigger turns it back into a working link; on a
-               * normal switch the router receives the same URL twice, a no-op.
-               */
-              onClick={() => {
-                if (section.value === active) router.push(TAB_HREF[section.value]);
-              }}
-            >
-              <span className="min-w-0 truncate">{section.label}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </div>
-
-      {/* The panel is the one scroller; `min-h-0` lets it shrink and scroll. */}
-      <TabsContent value={active} className="flex min-h-0 flex-1 flex-col">
-        <SettingsScroll>{children}</SettingsScroll>
-      </TabsContent>
-    </Tabs>
+      {children}
+    </SettingsNav>
   );
 }

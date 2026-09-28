@@ -51,9 +51,15 @@ export interface DayLogSheetProps {
   overview: PeriodOverview | undefined;
   /** The user's today, for the "end the period today" wording. */
   today: string;
+  /**
+   * Brings every ordinary log section back, from the all-hidden state. Owned by
+   * the screen because it holds the overview this form renders from — see
+   * `PeriodCalendarScreen`.
+   */
+  onShowAllSections?: () => void;
 }
 
-export function DayLogSheet({ open, onOpenChange, date, overview, today }: DayLogSheetProps) {
+export function DayLogSheet({ open, onOpenChange, date, overview, today, onShowAllSections }: DayLogSheetProps) {
   const { toast } = useToast();
   const log = dayLogFor(overview, date);
   const form = useDayLogDraft(date, log);
@@ -117,7 +123,14 @@ export function DayLogSheet({ open, onOpenChange, date, overview, today }: DayLo
       className="max-h-[90dvh] p-0 px-card pt-2"
     >
       <div className="flex flex-col gap-stack pt-2 pb-6">
-        <DayLogForm date={date} value={form.value} onChange={form.set} contraception={contraception} />
+        <DayLogForm
+          date={date}
+          value={form.value}
+          onChange={form.set}
+          contraception={contraception}
+          settings={overview?.settings}
+          onShowAllSections={onShowAllSections}
+        />
 
         <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-card text-card-foreground shadow-xs">
           <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Period</h2>

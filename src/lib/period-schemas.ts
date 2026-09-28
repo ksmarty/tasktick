@@ -14,8 +14,10 @@ import {
   CERVICAL_MUCUS_TYPES,
   CONTRACEPTION_DAY_STATUSES,
   CONTRACEPTION_METHODS,
+  INTIMACY_PROTECTION,
   LH_TEST_RESULTS,
   PERIOD_FLOW_LEVELS,
+  TODAY_CATEGORIES,
 } from './period-types';
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD date');
@@ -25,6 +27,8 @@ export const lhTestResult = z.enum(LH_TEST_RESULTS);
 export const cervicalMucus = z.enum(CERVICAL_MUCUS_TYPES);
 export const contraceptionMethod = z.enum(CONTRACEPTION_METHODS);
 export const contraceptionDayStatus = z.enum(CONTRACEPTION_DAY_STATUSES);
+export const intimacyProtection = z.enum(INTIMACY_PROTECTION);
+export const todayCategory = z.enum(TODAY_CATEGORIES);
 
 /** Free-form tag lists, normalised (trimmed, de-duplicated, capped) by the repo. */
 const tagList = z.array(z.string().trim().min(1).max(60)).max(50);
@@ -44,6 +48,13 @@ export const updatePeriodSettingsSchema = z
     /** 9–17 covers reported luteal-phase lengths; 12–14 is the usual range. */
     lutealPhaseDays: z.number().int().min(9).max(17).optional(),
     contraceptionInUse: z.boolean().optional(),
+    /** Off by default; see `PeriodSettings.bodySigns`. */
+    bodySigns: z.boolean().optional(),
+    /**
+     * The Today-form sections switched off. The list is de-duplicated in the
+     * repository, so a repeated entry is harmless.
+     */
+    hiddenTodayCategories: z.array(todayCategory).max(TODAY_CATEGORIES.length).optional(),
   })
   .strict();
 
@@ -86,6 +97,8 @@ export const periodDayLogSchema = z
     lhTest: lhTestResult.nullable().optional(),
     mucus: cervicalMucus.nullable().optional(),
     intimacy: z.boolean().optional(),
+    /** Nullable: `null` is "not stated", which is what the old boolean means. */
+    intimacyProtection: intimacyProtection.nullable().optional(),
     ovulationPain: z.boolean().optional(),
     weightKg: z.number().min(20).max(500).nullable().optional(),
     notes: z.string().max(2000).nullable().optional(),

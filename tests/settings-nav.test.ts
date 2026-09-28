@@ -25,7 +25,10 @@ describe('the settings primary navigation', () => {
     expect(TABS).toContain("label: 'Scheduling'");
     expect(TABS).toContain("label: 'Advanced'");
     expect(TABS).toContain('data-settings-primary');
-    expect(TABS).toContain('aria-label="Settings groups"');
+    // The accessible names are props of the shared shell, so the app and the
+    // period settings each name their own two rows.
+    expect(TABS).toContain('primaryLabel="Settings groups"');
+    expect(TABS).toContain('subLabel="Settings sections"');
     expect(TABS).toContain('<Link');
     expect(TABS).toContain("aria-current={current ? 'page' : undefined}");
   });
@@ -61,5 +64,12 @@ describe('the settings shell', () => {
   it('resolves deep links, including the legacy advanced alias', () => {
     expect(TABS).toContain("if (path === '/settings/advanced') return 'focus';");
     expect(TABS).toContain('href === path');
+  });
+
+  it('is one shared shell, not a second pattern', () => {
+    // The app wrapper configures the generic nav; the period settings configure
+    // the same export. The pinned two-row arrangement exists once.
+    expect(TABS).toContain('export function SettingsNav(');
+    expect(TABS).toContain('<SettingsNav');
   });
 });

@@ -92,6 +92,9 @@ function dayLog(overrides: Partial<PeriodDayLog>): PeriodDayLog {
     lhTest: null,
     mucus: null,
     intimacy: false,
+    /* The column the old boolean could not carry; null is "protection not
+     * stated", which is what a row written before it existed reads as. */
+    intimacyProtection: null,
     ovulationPain: false,
     weightKg: null,
     notes: null,
@@ -108,6 +111,8 @@ function overview(partial: Partial<PeriodOverview> = {}): PeriodOverview {
       predictionCycleCount: null,
       lutealPhaseDays: 14,
       contraceptionInUse: false,
+      bodySigns: false,
+      hiddenTodayCategories: [],
     },
     cycles: [cycle({})],
     dayLogs: [],

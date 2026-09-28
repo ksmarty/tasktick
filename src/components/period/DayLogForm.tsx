@@ -19,13 +19,31 @@
  *   2. **Birth control** — the user asked specifically for it, on and off days
  *      alike, and it is a one-tap answer.
  *   3. **Symptoms and mood** — chips, so several can be set in one gesture.
- *   4. **Body signs** — LH test, mucus, temperature, weight, ovulation pain,
- *      intimacy. Real observations that are recorded far less often.
- *   5. **Notes** — free text, last, because a keyboard is the slowest thing on
+ *   4. **Weight** — one number, rarely set, and not a cycle observation.
+ *   5. **Body signs** — basal temperature, cervical mucus, an LH test, ovulation
+ *      pain. Real observations that most people never record.
+ *   6. **Sex** — protected or unprotected, which is the one intimacy fact that
+ *      changes what a prediction means.
+ *   7. **Notes** — free text, last, because a keyboard is the slowest thing on
  *      the screen.
  *
- * Everything is a chip except the two numeric fields and the note, which is what
+ * Everything is a chip except the numeric fields and the note, which is what
  * makes the common case (flow + a symptom + taken my pill) three taps.
+ *
+ * ## The user decides which of those sections exist
+ *
+ * Every section above can be switched off in period settings, and body signs are
+ * off by default — see `today-categories.ts` for the defaults and why the body
+ * signs are the one group that has to be asked for. `settings` arrives as the
+ * stored switches; the form renders the sections it says are on, in the order
+ * above, whatever order the user switched them in.
+ *
+ * Turning a section off hides its *inputs* and never its data: the day's recorded
+ * values stay on the row, stay on the calendar and stay in the export, and the
+ * section comes back the way it was. When every section is off the form says so
+ * instead of rendering an empty column, and offers the one tap that brings the
+ * ordinary sections back — a blank screen with no way out is worse than a switch
+ * the user cannot find again.
  *
  * ## Unknown values are preserved, not offered
  *
@@ -45,10 +63,21 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { hasDayPlan, isDailyMethod } from '@/lib/period-math';
-import type { ContraceptionDayStatus, ContraceptionMethodRecord, ContraceptionScheduleDay } from '@/lib/period-types';
+import {
+  INTIMACY_PROTECTION,
+  type ContraceptionDayStatus,
+  type ContraceptionMethodRecord,
+  type ContraceptionScheduleDay,
+  type IntimacyProtection,
+} from '@/lib/period-types';
 import type { DateOnly } from '@/lib/types';
 import { ChipMultiRow, ChipRow } from './chips';
 import type { DayLogDraft, DayLogValue } from './data';
+import {
+  isTodayCategoryVisible,
+  visibleTodayCategories,
+  type TodayLogSettings,
+} from './today-categories';
 import {
   DAY_STATUS_LABEL,
   FLOW_CHIP_LABEL,
@@ -85,13 +114,35 @@ export interface DayLogFormProps {
   onChange: (patch: DayLogDraft) => void;
   /** The day's contraception, or null when no method covers it. */
   contraception: DayContraception | null;
+  /**
+   * The section switches. `undefined` while the settings read is in flight, which
+   * reads as "the form as it has always been" — see `today-categories.ts`.
+   */
+  settings?: TodayLogSettings;
+  /**
+   * Brings every ordinary section back, from the all-hidden state. Supplied by
+   * the screens because they own the settings mutation.
+   */
+  onShowAllSections?: () => void;
   /** Hidden on the Today screen? No: every field is available on every screen. */
   className?: string;
 }
 
-export function DayLogForm({ date, value, onChange, contraception, className }: DayLogFormProps) {
+export function DayLogForm({
+  date,
+  value,
+  onChange,
+  contraception,
+  settings,
+  onShowAllSections,
+  className,
+}: DayLogFormProps) {
   const symptoms = value.symptoms ?? [];
   const mood = value.mood ?? [];
+
+  const shows = (category: Parameters<typeof isTodayCategoryVisible>[1]) =>
+    isTodayCategoryVisible(settings, category);
+  const visible = visibleTodayCategories(settings);
 
   /* Values the contract's vocabulary does not contain, so they are not lost. */
   const customSymptoms = symptoms.filter((symptom) => !ALL_KNOWN_SYMPTOMS.includes(symptom));
@@ -103,149 +154,221 @@ export function DayLogForm({ date, value, onChange, contraception, className }: 
 
   return (
     <div className={cn('flex flex-col gap-stack', className)}>
+      {/* Nothing switched on: the form says so and offers the way back, rather
+          than rendering an empty column under a screen the user came here to
+          use. The recorded days are untouched and the copy says so. */}
+      {visible.length === 0 ? (
+        <FormCard title="Nothing is switched on">
+          <p className="text-sm text-muted-foreground">
+            Every section of this log is switched off in period settings. Nothing you have already recorded has
+            been removed — it is still on the calendar and in the export.
+          </p>
+          {onShowAllSections ? (
+            <Button type="button" size="sm" className="h-9 w-fit" onClick={onShowAllSections}>
+              Show my sections again
+            </Button>
+          ) : null}
+          <Button asChild variant="outline" size="sm" className="h-9 w-fit">
+            <a href="/period/settings/sections">Choose sections</a>
+          </Button>
+        </FormCard>
+      ) : null}
+
       {/* 1 — Flow. The one observation the cycle maths is built on. */}
-      <FormCard title="Flow" hint={longDate(date)}>
-        <ChipRow
-          label="Flow intensity"
-          options={FLOW_OPTIONS}
-          labels={FLOW_CHIP_LABEL}
-          value={value.flow ?? null}
-          onChange={(next) => onChange({ flow: next as DayLogDraft['flow'] })}
-        />
-        <p className="text-xs text-muted-foreground">
-          {value.flow === null || value.flow === 'none'
-            ? 'Nothing logged. Tap a level, or leave it blank if there is nothing to record.'
-            : 'Spotting is kept separate from light flow: it often means something else.'}
-        </p>
-      </FormCard>
+      {shows('flow') ? (
+        <FormCard title="Flow" hint={longDate(date)}>
+          <ChipRow
+            label="Flow intensity"
+            options={FLOW_OPTIONS}
+            labels={FLOW_CHIP_LABEL}
+            value={value.flow ?? null}
+            onChange={(next) => onChange({ flow: next as DayLogDraft['flow'] })}
+          />
+          <p className="text-xs text-muted-foreground">
+            {value.flow === null || value.flow === 'none'
+              ? 'Nothing logged. Tap a level, or leave it blank if there is nothing to record.'
+              : 'Spotting is kept separate from light flow: it often means something else.'}
+          </p>
+        </FormCard>
+      ) : null}
 
       {/* 2 — Birth control, for today, on and off days alike. */}
-      <ContraceptionRow contraception={contraception} />
+      {shows('contraception') ? <ContraceptionRow contraception={contraception} /> : null}
 
       {/* 3 — Symptoms and mood. */}
-      <FormCard title="Symptoms" hint={symptoms.length > 0 ? `${symptoms.length} logged` : undefined}>
-        {SYMPTOM_GROUPS.map((group) => (
-          <ChipMultiRow
-            key={group.title}
-            label={`${group.title} symptoms`}
-            options={group.values}
-            labels={SYMPTOM_LABELS}
-            values={symptoms}
-            onToggle={(entry) => onChange({ symptoms: toggle(symptoms, entry) })}
+      {shows('symptoms') ? (
+        <FormCard title="Symptoms" hint={symptoms.length > 0 ? `${symptoms.length} logged` : undefined}>
+          {SYMPTOM_GROUPS.map((group) => (
+            <ChipMultiRow
+              key={group.title}
+              label={`${group.title} symptoms`}
+              options={group.values}
+              labels={SYMPTOM_LABELS}
+              values={symptoms}
+              onToggle={(entry) => onChange({ symptoms: toggle(symptoms, entry) })}
+            />
+          ))}
+          {customSymptoms.length > 0 ? (
+            <ChipMultiRow
+              label="Your own symptoms"
+              options={customSymptoms}
+              labels={Object.fromEntries(customSymptoms.map((entry) => [entry, humanise(entry)]))}
+              values={symptoms}
+              onToggle={(entry) => onChange({ symptoms: toggle(symptoms, entry) })}
+            />
+          ) : null}
+          <AddValueRow
+            label="Add another symptom"
+            placeholder="e.g. migraine"
+            onAdd={(entry) => onChange({ symptoms: [...symptoms, entry] })}
           />
-        ))}
-        {customSymptoms.length > 0 ? (
-          <ChipMultiRow
-            label="Your own symptoms"
-            options={customSymptoms}
-            labels={Object.fromEntries(customSymptoms.map((entry) => [entry, humanise(entry)]))}
-            values={symptoms}
-            onToggle={(entry) => onChange({ symptoms: toggle(symptoms, entry) })}
-          />
-        ) : null}
-        <AddValueRow
-          label="Add another symptom"
-          placeholder="e.g. migraine"
-          onAdd={(entry) => onChange({ symptoms: [...symptoms, entry] })}
-        />
-      </FormCard>
+        </FormCard>
+      ) : null}
 
-      <FormCard title="Mood" hint={mood.length > 0 ? `${mood.length} logged` : undefined}>
-        <ChipMultiRow
-          label="Mood"
-          options={MOOD_OPTIONS}
-          labels={MOOD_LABELS}
-          values={mood}
-          onToggle={(entry) => onChange({ mood: toggle(mood, entry) })}
-        />
-        {customMoods.length > 0 ? (
+      {shows('mood') ? (
+        <FormCard title="Mood" hint={mood.length > 0 ? `${mood.length} logged` : undefined}>
           <ChipMultiRow
-            label="Your own moods"
-            options={customMoods}
-            labels={Object.fromEntries(customMoods.map((entry) => [entry, humanise(entry)]))}
+            label="Mood"
+            options={MOOD_OPTIONS}
+            labels={MOOD_LABELS}
             values={mood}
             onToggle={(entry) => onChange({ mood: toggle(mood, entry) })}
           />
-        ) : null}
-        <AddValueRow
-          label="Add another mood"
-          placeholder="e.g. numb"
-          onAdd={(entry) => onChange({ mood: [...mood, entry] })}
-        />
-      </FormCard>
+          {customMoods.length > 0 ? (
+            <ChipMultiRow
+              label="Your own moods"
+              options={customMoods}
+              labels={Object.fromEntries(customMoods.map((entry) => [entry, humanise(entry)]))}
+              values={mood}
+              onToggle={(entry) => onChange({ mood: toggle(mood, entry) })}
+            />
+          ) : null}
+          <AddValueRow
+            label="Add another mood"
+            placeholder="e.g. numb"
+            onAdd={(entry) => onChange({ mood: [...mood, entry] })}
+          />
+        </FormCard>
+      ) : null}
 
-      {/* 4 — Body signs. Recorded less often, so they sit below the chips. */}
-      <FormCard title="Body signs">
-        <Field label="LH test">
+      {/* 4 — Weight: one number, and not a cycle observation. */}
+      {shows('weight') ? (
+        <FormCard title="Weight">
+          <Field label="Weight" hint="kg">
+            <NumberField
+              id={`period-weight-${date}`}
+              value={value.weightKg ?? null}
+              step={0.1}
+              placeholder="—"
+              onCommit={(next) => onChange({ weightKg: next })}
+            />
+          </Field>
+        </FormCard>
+      ) : null}
+
+      {/*
+        5 — Body signs: the fertility-awareness observations, off by default. The
+        four of them are the user's own list: basal temperature, cervical mucus,
+        an LH test, ovulation pain. They share one card because they are one
+        kind of thing — tracked together, by the same person, for the same
+        reason — and because hiding them together is what "off" means.
+      */}
+      {shows('bodySigns') ? (
+        <FormCard title="Body signs" hint="Fertility tracking">
+          <Field label="LH test">
+            <ChipRow
+              label="LH test result"
+              options={LH_OPTIONS}
+              labels={LH_LABEL}
+              value={value.lhTest ?? null}
+              onChange={(next) => onChange({ lhTest: next as DayLogDraft['lhTest'] })}
+            />
+          </Field>
+
+          <Field label="Cervical mucus">
+            <ChipRow
+              label="Cervical mucus"
+              options={MUCUS_OPTIONS}
+              labels={MUCUS_LABEL}
+              value={value.mucus ?? null}
+              onChange={(next) => onChange({ mucus: next as DayLogDraft['mucus'] })}
+            />
+          </Field>
+
+          <Field label="Basal temperature" hint="°C, two decimals">
+            <NumberField
+              id={`period-temperature-${date}`}
+              value={value.temperatureC ?? null}
+              step={0.01}
+              placeholder="36.55"
+              onCommit={(next) => onChange({ temperatureC: next })}
+            />
+          </Field>
+
+          <SwitchRow
+            id={`period-ovulation-pain-${date}`}
+            label="Ovulation pain"
+            hint="Mittelschmerz — a one-sided twinge around ovulation."
+            checked={value.ovulationPain ?? false}
+            onChange={(next) => onChange({ ovulationPain: next })}
+          />
+
+          <p className="text-xs text-muted-foreground">
+            These are the observations fertility-awareness methods use. None of them is required, and turning them
+            off in period settings hides all four without touching anything already recorded.
+          </p>
+        </FormCard>
+      ) : null}
+
+      {/*
+        6 — Sex. Two chips rather than a switch, because the useful fact is
+        *which* — an unprotected day in the fertile window is a different
+        observation from a protected one, and a boolean cannot say it.
+      */}
+      {shows('intimacy') ? (
+        <FormCard title="Sex">
           <ChipRow
-            label="LH test result"
-            options={LH_OPTIONS}
-            labels={LH_LABEL}
-            value={value.lhTest ?? null}
-            onChange={(next) => onChange({ lhTest: next as DayLogDraft['lhTest'] })}
+            label="Sex today"
+            options={INTIMACY_PROTECTION}
+            labels={INTIMACY_PROTECTION_LABEL}
+            value={value.intimacyProtection ?? null}
+            onChange={(next) =>
+              onChange(
+                next === null
+                  ? { intimacy: false, intimacyProtection: null }
+                  : { intimacy: true, intimacyProtection: next as IntimacyProtection },
+              )
+            }
           />
-        </Field>
+          <p className="text-xs text-muted-foreground">
+            {value.intimacy === true && (value.intimacyProtection ?? null) === null
+              ? 'This day is recorded as sex from before the app asked which kind. Nothing is lost — choose protected or unprotected above to fill it in, or tap again to clear the day.'
+              : 'Both are recorded as your own observation. Protected and unprotected are kept apart because an unprotected day inside the fertile window is a different fact from a protected one.'}
+          </p>
+        </FormCard>
+      ) : null}
 
-        <Field label="Cervical mucus">
-          <ChipRow
-            label="Cervical mucus"
-            options={MUCUS_OPTIONS}
-            labels={MUCUS_LABEL}
-            value={value.mucus ?? null}
-            onChange={(next) => onChange({ mucus: next as DayLogDraft['mucus'] })}
+      {/* 7 — Notes. Last, because the keyboard is the slowest control here. */}
+      {shows('notes') ? (
+        <FormCard title="Notes">
+          <Textarea
+            aria-label={`Notes for ${longDate(date)}`}
+            value={value.notes ?? ''}
+            rows={3}
+            placeholder="Anything worth remembering about today"
+            onChange={(event) => onChange({ notes: event.target.value === '' ? null : event.target.value })}
           />
-        </Field>
-
-        <Field label="Basal temperature" hint="°C, two decimals">
-          <NumberField
-            id={`period-temperature-${date}`}
-            value={value.temperatureC ?? null}
-            step={0.01}
-            placeholder="36.55"
-            onCommit={(next) => onChange({ temperatureC: next })}
-          />
-        </Field>
-
-        <Field label="Weight" hint="kg">
-          <NumberField
-            id={`period-weight-${date}`}
-            value={value.weightKg ?? null}
-            step={0.1}
-            placeholder="—"
-            onCommit={(next) => onChange({ weightKg: next })}
-          />
-        </Field>
-
-        <SwitchRow
-          id={`period-intimacy-${date}`}
-          label="Intimacy"
-          hint="Stored as an observation; conception maths would need it."
-          checked={value.intimacy ?? false}
-          onChange={(next) => onChange({ intimacy: next })}
-        />
-
-        <SwitchRow
-          id={`period-ovulation-pain-${date}`}
-          label="Ovulation pain"
-          hint="Mittelschmerz."
-          checked={value.ovulationPain ?? false}
-          onChange={(next) => onChange({ ovulationPain: next })}
-        />
-      </FormCard>
-
-      {/* 5 — Notes. Last, because the keyboard is the slowest control here. */}
-      <FormCard title="Notes">
-        <Textarea
-          aria-label={`Notes for ${longDate(date)}`}
-          value={value.notes ?? ''}
-          rows={3}
-          placeholder="Anything worth remembering about today"
-          onChange={(event) => onChange({ notes: event.target.value === '' ? null : event.target.value })}
-        />
-      </FormCard>
+        </FormCard>
+      ) : null}
     </div>
   );
 }
+
+/** The two protection values, spelled out for a chip. */
+const INTIMACY_PROTECTION_LABEL: Record<IntimacyProtection, string> = {
+  protected: 'Protected',
+  unprotected: 'Unprotected',
+};
 
 /** Every value the chip rows already offer, so "your own" means exactly that. */
 const ALL_KNOWN_SYMPTOMS: string[] = SYMPTOM_GROUPS.flatMap((group) => [...group.values]);

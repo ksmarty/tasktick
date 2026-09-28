@@ -27,6 +27,9 @@ const settings = (overrides: Partial<PeriodSettings> = {}): PeriodSettings => ({
   predictionCycleCount: null,
   lutealPhaseDays: 14,
   contraceptionInUse: false,
+  /* Both off/empty by default — see `PeriodSettings`. */
+  bodySigns: false,
+  hiddenTodayCategories: [],
   ...overrides,
 });
 

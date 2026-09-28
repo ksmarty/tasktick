@@ -5,11 +5,13 @@
  *
  * ## Where it lives, and why
  *
- * In Settings, under its own **Period tracking** section — not "buried" inside
- * Appearance or Data, and not a mode nobody can find again. The same component is
- * also the switch *inside* the mode (`/period/settings`), because the one thing a
- * user must always be able to do is reverse a choice they made: turning it off
- * closes the interface, keeps every record, and returns to the task list.
+ * In the app's Settings, under **Appearance** — with the theme and accent, because
+ * enabling the mode is a look/behaviour choice (a whole second interface) rather
+ * than a feature with its own settings, and the user asked for it there. The same
+ * component is also the switch *inside* the mode (`/period/settings`), because the
+ * one thing a user must always be able to do is reverse a choice they made:
+ * turning it off closes the interface, keeps every record, and returns to the task
+ * list.
  *
  * ## Turning it on takes you in
  *
@@ -122,8 +124,8 @@ export function PeriodModeCard({ variant = 'app' }: PeriodModeCardProps) {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Open the period interface</p>
             <p className="pt-0.5 text-xs text-muted-foreground">
-              Today’s log, the cycle month and the predictions. The way back to your tasks is in the app bar on every
-              period screen.
+              Today’s log, the cycle month and the predictions. The way back to your tasks is in the period
+              settings, on the Tracking section.
             </p>
           </div>
           <Button asChild variant="outline" size="sm" className="h-9 shrink-0 gap-1.5">

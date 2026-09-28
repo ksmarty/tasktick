@@ -55,7 +55,6 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
-import { ArrowLeftIcon } from '@svg-animated-icons/react/arrow-left';
 import { BarChartIcon } from '@svg-animated-icons/react/bar-chart';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
@@ -71,7 +70,6 @@ import { TimerIcon } from '@svg-animated-icons/react/timer';
 
 import { requestSectionReset } from '@/components/calendar/section-reset';
 import { TabBar } from '@/components/godui/tab-bar';
-import { PeriodExitButton, PERIOD_EXIT_HREF } from '@/components/period/PeriodExitButton';
 import { useServiceWorkerControl } from '@/components/pwa/useServiceWorkerControl';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -126,8 +124,8 @@ const APP_TAB_ROUTES: Record<AppTabValue, string> = {
  *
  * There is no task/calendar/habit destination here. The user was explicit that
  * enabling this *replaces* the navigation rather than extending it, so the
- * normal app is not a tab in this set — it is behind the exit control, which the
- * shell itself renders on every period screen. See `PeriodExitButton`.
+ * normal app is not a tab in this set — it is behind the way back on the period
+ * Settings screen, which this set always reaches (the Settings tab).
  */
 const PERIOD_TAB_ROUTES: Record<PeriodTabValue, string> = {
   'period-today': '/period',
@@ -317,8 +315,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    * bar that reads as the page ghosting in, which is the "blur" on settings
    * navigation. The settings sub-routes share one key, so they switch without
    * replaying the fade; a move between destinations still does.
+   *
+   * The period settings are the same shape — a pinned two-row nav with a
+   * section per sub-route — so they share one key too. Without this the nav
+   * itself would remount and replay the fade under the finger on every section
+   * tap.
    */
-  const contentKey = pathname.startsWith('/settings') ? '/settings' : pathname;
+  const contentKey = pathname.startsWith('/settings')
+    ? '/settings'
+    : pathname.startsWith('/period/settings')
+      ? '/period/settings'
+      : pathname;
 
   const routeTab: TabValue = periodMode ? periodRouteTab(pathname) : appRouteTab(pathname);
 
@@ -581,27 +588,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/*
-           * The rail's foot: the same place the app's own Settings row lives, so
-           * on a desktop the way out of the mode is exactly where the way to
-           * Settings was. In period mode it is the exit; otherwise it is
-           * Settings, unchanged.
+           * The rail's foot: the app's own Settings row, in the same place as
+           * always. In period mode there is nothing here — the only way out of
+           * the mode is the period Settings section (see `PeriodRail`), which is
+           * one row up, exactly where the app's Settings row lives. The mode's
+           * own navigation always reaches it, so the foot is never a way to
+           * switch interfaces behind the user's back.
            */}
-          <div className="shrink-0 border-t border-sidebar-border p-2">
-            {periodMode ? (
-              <SidebarLink
-                href={PERIOD_EXIT_HREF}
-                label="Back to tasks"
-                icon={<ArrowLeftIcon />}
-              />
-            ) : (
+          {periodMode ? null : (
+            <div className="shrink-0 border-t border-sidebar-border p-2">
               <SidebarLink
                 href="/settings"
                 label="Settings"
                 icon={<GearIcon />}
                 active={pathname.startsWith('/settings')}
               />
-            )}
-          </div>
+            </div>
+          )}
         </aside>
 
         {/* -------------------------------------------------------------- */}
@@ -616,18 +619,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {published || periodMode ? (
             <header className="shrink-0 bg-background pt-[env(safe-area-inset-top)]">
               <div className="flex h-appbar items-center gap-2 px-gutter">
-                {/*
-                 * The way out is the leading control of the app bar, and the
-                 * shell renders it rather than the screen.
-                 *
-                 * That is what makes it impossible to lose: every period screen
-                 * gets it, including one that published no header at all (the
-                 * bar is rendered for `periodMode` alone). A screen that had to
-                 * remember to add its own exit is a screen that can one day
-                 * forget, and the failure mode is a user stuck in the mode.
-                 */}
-                {periodMode ? <PeriodExitButton /> : null}
-
                 {published ? published.leading : null}
 
                 <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">
@@ -815,8 +806,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
  * The desktop rail's period sections.
  *
  * The same four destinations as the band, in the same order, with the fuller
- * names the rail's width allows. The exit is not repeated here: it is the rail's
- * footer, one row below, in the same place the app's own Settings row lives.
+ * names the rail's width allows. The way back to the task interface is not a
+ * separate control here — it lives on the Period settings screen, which this
+ * rail always carries one row below.
  *
  * "Period settings" sits under its own caption rather than in the Period
  * section, because it is a different kind of destination — the other three are

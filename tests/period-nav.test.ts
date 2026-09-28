@@ -7,11 +7,17 @@
  * a mode whose navigation a user cannot get out of strands them away from their
  * tasks.
  *
+ * The user's later instruction changed where the way out lives: a user should not
+ * be switching back and forth, and the *only* place to switch interfaces is the
+ * settings. So the shell no longer renders an exit control on period screens; the
+ * way back is the period Settings screen (Tracking), which every period screen
+ * reaches through the band's/rail's Settings destination.
+ *
  * The client components cannot be rendered in node, so — as with the rest of this
  * suite — the behavioural contract is pinned from source, plus the things that can
  * be checked for real: that the routes exist as files, and that every period screen
  * publishes a header (without which the shell's one-app-bar rule would leave the
- * screen with no exit control on it).
+ * screen with no title).
  *
  * Each pin below names the expression that *is* the decision, not a nearby string,
  * so changing the decision fails the test rather than sliding past it.
@@ -28,11 +34,11 @@ function exists(relative: string): boolean {
 }
 
 const SHELL = source('components/app/AppShell.tsx');
-const EXIT = source('components/period/PeriodExitButton.tsx');
 const MODE = source('components/period/mode.ts');
 const LAYOUT = source('app/(app)/period/layout.tsx');
 const ENTRY = source('app/page.tsx');
 const SETTINGS_TABS = source('components/settings/SettingsTabs.tsx');
+const PERIOD_SETTINGS = source('components/period/PeriodSettings.tsx');
 
 /** The band's per-tab action map, as written in `AppShell`. */
 const actionMap = (() => {
@@ -82,28 +88,33 @@ describe('the tab set is a function of the mode', () => {
   });
 });
 
-describe('the way out is impossible to lose', () => {
-  it('renders the exit as the leading control of the one app bar', () => {
-    expect(SHELL).toContain('{published || periodMode ? (');
-    expect(SHELL).toContain('{periodMode ? <PeriodExitButton /> : null}');
+describe('the interface switch lives only in the settings', () => {
+  it('renders no exit control in the app bar', () => {
+    // The deleted component and its constant must not come back anywhere.
+    expect(SHELL).not.toContain('PeriodExitButton');
+    expect(SHELL).not.toContain('PERIOD_EXIT_HREF');
+    expect(exists('components/period/PeriodExitButton.tsx')).toBe(false);
   });
 
-  it('also carries it in the desktop rail, where Settings used to be', () => {
-    expect(SHELL).toContain('href={PERIOD_EXIT_HREF}');
-    expect(SHELL).toContain('label="Back to tasks"');
+  it('renders no exit control in the desktop rail either', () => {
+    // The rail's foot is the app's Settings row, or nothing in period mode.
+    expect(SHELL).toContain('{periodMode ? null : (');
+    expect(SHELL).not.toContain('Back to tasks');
   });
 
-  it('points the exit at the task list, as a real link', () => {
-    expect(EXIT).toContain("export const PERIOD_EXIT_HREF = '/tasks';");
-    expect(EXIT).toContain("import Link from 'next/link';");
-    expect(EXIT).toContain('aria-label="Back to tasks and the rest of the app"');
-  });
-
-  it('leaves the mode on when the user leaves for the task list', () => {
-    // The exit is a plain link with no write, so nothing is turned off by stepping
-    // out; turning it off is the switch on the settings screen.
-    expect(EXIT).not.toContain('useUpdatePeriodSettings');
-    expect(EXIT).not.toContain('api.patch');
+  it('keeps the way back on the period settings screen, which every period screen reaches', () => {
+    const card = source('components/period/PeriodModeCard.tsx');
+    // The `period` variant carries the row unconditionally — including when the
+    // settings read failed — so a network problem cannot strand the user.
+    expect(card).toContain("variant === 'period'");
+    expect(card).toContain('Back to tasks');
+    expect(card).toContain('<a href="/tasks">');
+    // The mode's own Settings tab always reaches that screen, and the nav lands on
+    // Tracking by default, so the way out is never behind another control.
+    expect(SHELL).toContain("'period-settings': '/period/settings'");
+    expect(PERIOD_SETTINGS).toContain('<PeriodModeCard variant="period" />');
+    expect(PERIOD_SETTINGS).toContain("mode: '/period/settings'");
+    expect(PERIOD_SETTINGS).toContain("label: 'Tracking'");
   });
 });
 
@@ -157,10 +168,65 @@ describe('the mode is persisted, reversible and guarded', () => {
     expect(LAYOUT).toContain('if (denied) return null;');
   });
 
-  it('is reachable from the app’s own settings, as its own section', () => {
-    expect(SETTINGS_TABS).toContain("period: '/settings/period',");
-    expect(SETTINGS_TABS).toContain("{ value: 'period', label: 'Period' }");
-    expect(exists('app/(app)/settings/period/page.tsx')).toBe(true);
+  it('puts the switch under Appearance, not a section of its own', () => {
+    const appearance = source('app/(app)/settings/appearance/page.tsx');
+    expect(appearance).toContain('<PeriodModeCard />');
+    expect(exists('app/(app)/settings/appearance/page.tsx')).toBe(true);
+    // The dead section is gone from the nav and the filesystem.
+    expect(SETTINGS_TABS).not.toContain("'/settings/period'");
+    expect(SETTINGS_TABS).not.toContain("{ value: 'period'");
+    expect(exists('app/(app)/settings/period/page.tsx')).toBe(false);
+  });
+});
+
+describe('the period settings reuse the app settings shell', () => {
+  it('configures the one shared nav rather than drawing a third pattern', () => {
+    expect(PERIOD_SETTINGS).toContain('<SettingsNav');
+    expect(PERIOD_SETTINGS).toContain('primaryLabel="Period settings groups"');
+    expect(PERIOD_SETTINGS).toContain('subLabel="Period settings sections"');
+  });
+
+  it('makes every section a real route, so a deep link selects both rows', () => {
+    for (const href of [
+      '/period/settings',
+      '/period/settings/appearance',
+      '/period/settings/prediction',
+      '/period/settings/contraception',
+      '/period/settings/data',
+    ]) {
+      expect(PERIOD_SETTINGS, href).toContain(href);
+    }
+  });
+
+  it('groups the mode with appearance, and prediction with contraception', () => {
+    expect(PERIOD_SETTINGS).toContain("label: 'Interface'");
+    expect(PERIOD_SETTINGS).toContain("label: 'Cycle'");
+    expect(PERIOD_SETTINGS).toContain("label: 'Data'");
+  });
+
+  it('reuses the app’s appearance mechanisms for the period look', () => {
+    expect(PERIOD_SETTINGS).toContain('useAppearance()');
+    expect(PERIOD_SETTINGS).toContain('<AccentSwatches');
+    // Week start is the app's existing setting, not a second one.
+    expect(PERIOD_SETTINGS).toContain("persist.run({ weekStartsOn:");
+    expect(PERIOD_SETTINGS).toContain('/api/settings');
+  });
+});
+
+describe('the period settings publish one constant header and share the pane key', () => {
+  it('publishes the header once, in the layout', () => {
+    const settingsLayout = source('app/(app)/period/settings/layout.tsx');
+    expect(settingsLayout).toContain('<PageHeader title={PERIOD_SETTINGS_TITLE} />');
+    expect(settingsLayout).toContain('<PeriodSettingsNav>');
+    // No section publishes its own title, or the bar would rename itself.
+    for (const section of ['appearance', 'prediction', 'contraception', 'data']) {
+      expect(source(`app/(app)/period/settings/${section}/page.tsx`)).not.toContain('PageHeader');
+    }
+  });
+
+  it('keeps the pinned nav from remounting on a section change', () => {
+    expect(SHELL).toContain("pathname.startsWith('/period/settings')");
+    expect(SHELL).toContain("? '/period/settings'");
   });
 });
 
@@ -180,10 +246,16 @@ describe('the period screens exist and publish their header', () => {
   });
 
   it('publishes exactly one header per screen, so the shell renders one bar', () => {
-    for (const [, screen] of routes) {
+    // The three look-at-the-cycle screens publish their own titles...
+    for (const screen of [
+      'components/period/TodayLogScreen.tsx',
+      'components/period/PeriodCalendarScreen.tsx',
+      'components/period/InsightsScreen.tsx',
+    ]) {
       expect(source(screen), screen).toContain('<PageHeader');
     }
-    // The layout must not publish one as well, or the title would double.
+    // ...and the period settings publish one title from their layout (above).
+    // The outer layout must not publish one as well, or the title would double.
     expect(LAYOUT).not.toContain('PageHeader');
   });
 

@@ -47,8 +47,10 @@ import type {
   ContraceptionDayStatus,
   ContraceptionMethod,
   ContraceptionSchedule,
+  IntimacyProtection,
   LhTestResult,
   PeriodFlow,
+  TodayCategory,
 } from '@/lib/period-types';
 
 /* -------------------------------------------------------------------------- */
@@ -778,6 +780,8 @@ export const periodSettings = pgTable(
     predictionCycleCount: bigint('prediction_cycle_count', { mode: 'number' }),
     lutealPhaseDays: bigint('luteal_phase_days', { mode: 'number' }).notNull().default(14),
     contraceptionInUse: boolean('contraception_in_use').notNull().default(false),
+    bodySigns: boolean('body_signs').notNull().default(false),
+    hiddenTodayCategories: jsonb('hidden_today_categories').$type<TodayCategory[]>(),
     ...timestamps,
   },
 );
@@ -815,6 +819,7 @@ export const periodDayLogs = pgTable(
     lhTest: text('lh_test').$type<LhTestResult>(),
     mucus: text('mucus').$type<CervicalMucus>(),
     intimacy: boolean('intimacy').notNull().default(false),
+    intimacyProtection: text('intimacy_protection').$type<IntimacyProtection>(),
     ovulationPain: boolean('ovulation_pain').notNull().default(false),
     weightKg: doublePrecision('weight_kg'),
     notes: text('notes'),

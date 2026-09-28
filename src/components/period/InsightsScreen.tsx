@@ -18,6 +18,21 @@
  * here: each one is read from `PeriodPrediction` / `PeriodStats`. See
  * `period-math.ts` for the arithmetic.
  *
+ * ## Why it is charts instead of paragraphs
+ *
+ * The user's complaint was that this screen was too much text, and the honest
+ * answer was that several of its paragraphs were describing a *shape* — the
+ * spread of the cycles, the direction they have drifted, where today sits in the
+ * cycle, how far the past estimates landed. A shape is what a chart is for. So
+ * the four charts in `./charts` replace the prose and the raw number lists, and
+ * what is left is: the range, the numbers a chart cannot state, and the two
+ * caveats that have to stay.
+ *
+ * Each chart carries its finding as text — "your last 8 measured cycles averaged
+ * 26 days, ranging 24–29" — as both its accessible name and its visible caption,
+ * so a chart is never the only place a fact lives. The arithmetic behind them is
+ * pure and tested in `tests/period-charts.test.ts`.
+ *
  * ## Why the fertility part is labelled rather than hidden
  *
  * A hormonal method suppresses ovulation, so a calendar estimate of a fertile
@@ -25,7 +40,16 @@
  * hide data the user logged against; rendering it unlabelled would be worse. So
  * when `contraception.affectsPrediction` is true the window is still shown and
  * the card says plainly what it is not, and the row itself is relabelled rather
- * than left with the word "fertile" on it.
+ * than left with the word "fertile" on it. `prediction.meaning` is the footer of
+ * the headline card for the same reason, and it is never cut for length.
+ *
+ * ## Body signs, off by default
+ *
+ * The fertility-awareness observations — basal temperature, cervical mucus, LH
+ * tests, ovulation pain — are hidden until the user asks for them, in the log form
+ * and here. What is *not* hidden when they are off is the answer to "did I lose
+ * that data": it is still on the calendar day it was recorded on, and this screen
+ * says so in one line rather than silently dropping the card.
  *
  * ## No props, one column
  *
@@ -43,12 +67,14 @@
  * built) shows the API's own message and a retry rather than an endless
  * skeleton, and every read tolerates `undefined` so nothing throws.
  */
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { BarChartIcon } from '@svg-animated-icons/react/bar-chart';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { ExclamationTriangleIcon } from '@svg-animated-icons/react/exclamation-triangle';
+import { InfoCircledIcon } from '@svg-animated-icons/react/info-circled';
+import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
 import { PageHeader } from '@/components/app/PageHeader';
-import { usePeriodPrediction, usePeriodStats } from '@/components/period/data';
+import { usePeriodPrediction, usePeriodSettings, usePeriodStats } from '@/components/period/data';
 import {
   FLOW_LABEL,
   FLOW_OPTIONS,
@@ -66,6 +92,9 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PeriodFlow, PeriodPrediction, PeriodPredictionBasis, PeriodStats } from '@/lib/period-types';
 import { cn } from '@/lib/utils';
+import { cycleLengthValues, cyclePhases, dayNumber } from './chart-math';
+import { CycleLengthChart, CyclePhaseBar, CycleRangeChart, ForecastErrorChart, TemperatureChart } from './charts';
+import { ImportEmptyState } from './ImportCard';
 
 /* -------------------------------------------------------------------------- */
 /* formatting helpers — every one of them formats a value the API computed     */
@@ -86,26 +115,20 @@ function startWithUncertainty(prediction: PeriodPrediction): string {
   return `${base} ${plusMinus(prediction.uncertainty.days)}`;
 }
 
-/** The one line that says what the date was derived from. */
-function basisSummary(basis: PeriodPredictionBasis): string {
-  const cycles = `${basis.cycleCount} recorded ${basis.cycleCount === 1 ? 'cycle' : 'cycles'}`;
-  const average =
-    basis.averageCycleLengthDays === null
-      ? 'no measurable average yet'
-      : `${daysLabel(basis.averageCycleLengthDays)} average`;
-  const intervals = `${basis.usedIntervalLengths.length} measured ${
-    basis.usedIntervalLengths.length === 1 ? 'interval' : 'intervals'
-  }`;
-  return `${cycles} · ${average} · ${intervals} used for the estimate`;
-}
-
-/** Where the `±` came from, in the contract's own two terms. */
+/**
+ * Where the `±` came from, in the contract's own two terms.
+ *
+ * One short line, because the *size* of the band is the chart's job now: the
+ * cycle-length chart draws the spread the ± is derived from. What still has to be
+ * said in words is which of the two kinds of width this is — a measured spread is
+ * a different claim from a default.
+ */
 function uncertaintySourceLabel(prediction: PeriodPrediction): string {
   const uncertainty = prediction.uncertainty;
   if (!uncertainty) return 'The prediction did not include an uncertainty range.';
   return uncertainty.source === 'observed'
-    ? 'Widest likely window, from the spread of your own recorded cycles. The start is a range, not a date: the ± is how much your cycles vary around the estimate.'
-    : 'Widest likely window — a default width, because fewer than three cycles have been measured to derive a spread from. The start is a range, not a date.';
+    ? 'The ± is measured from the spread of your own cycles.'
+    : 'The ± is a default width: fewer than three cycles have been measured to derive a spread from.';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -162,6 +185,15 @@ function ErrorRow({ title, message, onRetry }: { title: string; message: string;
   );
 }
 
+/** A chart, in the row rhythm of the screen. */
+function ChartRow({ children }: { children: ReactNode }) {
+  return (
+    <SettingsRow stacked>
+      <div className="flex flex-col gap-2">{children}</div>
+    </SettingsRow>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* the next period                                                            */
 /* -------------------------------------------------------------------------- */
@@ -175,7 +207,6 @@ function ErrorRow({ title, message, onRetry }: { title: string; message: string;
  * than in a legal footer at the bottom of the screen.
  */
 function NextPeriodGroup({ prediction }: { prediction: PeriodPrediction }) {
-  const basis = prediction.basis;
   const start = prediction.nextPeriodStart!;
   const end = prediction.nextPeriodEnd!;
   const uncertainty = prediction.uncertainty;
@@ -190,12 +221,8 @@ function NextPeriodGroup({ prediction }: { prediction: PeriodPrediction }) {
         <p className="text-sm font-medium tabular-nums">
           {startWithUncertainty(prediction)} · {inDaysLabel(start, prediction.asOf)}
         </p>
+        <p className="text-xs text-muted-foreground">{uncertaintySourceLabel(prediction)}</p>
       </SettingsRow>
-
-      {/* The width and where it came from, said once, in the contract's own two
-          terms. `observed` is this user's spread; `default` is the honest
-          fallback while there are too few cycles to measure one. */}
-      <NoteRow>{uncertaintySourceLabel(prediction)}</NoteRow>
 
       {uncertainty ? (
         <ValueRow
@@ -207,22 +234,12 @@ function NextPeriodGroup({ prediction }: { prediction: PeriodPrediction }) {
       {uncertainty ? <ValueRow label="Latest start" value={weekdayDateLabel(uncertainty.latest)} /> : null}
 
       <ValueRow label="Cycle length used" value={daysLabel(prediction.predictedCycleLengthDays)} />
-      <ValueRow
-        label="Day of this cycle today"
-        value={prediction.currentCycleDay === null ? '—' : `Day ${prediction.currentCycleDay}`}
-        hint={prediction.lastPeriodStart ? `from ${longDate(prediction.lastPeriodStart)}` : undefined}
-      />
-
-      {/* What the date was derived from, stated rather than left to the reader. */}
-      <NoteRow>
-        <p className="text-muted-foreground">{basisSummary(basis)}</p>
-      </NoteRow>
 
       {prediction.overdueDays !== null ? (
         <NoteRow icon={<ExclamationTriangleIcon className="size-5" />}>
           <p className="font-medium">Running late</p>
           <p className="text-muted-foreground">
-            The prediction for this cycle was {longDate(prediction.predictedFromLastCycle ?? start)},{' '}
+            This cycle’s estimate was {longDate(prediction.predictedFromLastCycle ?? start)},{' '}
             {daysLabel(prediction.overdueDays)} ago. The range above is the next upcoming one rather than that
             overdue date.
           </p>
@@ -245,9 +262,10 @@ function NotEnoughDataGroup({ prediction }: { prediction: PeriodPrediction }) {
             <p className="text-sm text-muted-foreground">
               {prediction.reason ?? 'The prediction did not include a date.'}
             </p>
+            {/* The one sentence that has to survive: the absence of a date is a
+                decision, not a gap in the code. */}
             <p className="text-xs text-muted-foreground">
-              Nothing is filled in with a default date on purpose: one cycle is not a basis for a date, and a
-              confident-looking wrong date would be worse than no date.
+              No date is filled in by default: one cycle is not a basis for one.
             </p>
           </div>
         </div>
@@ -257,6 +275,165 @@ function NotEnoughDataGroup({ prediction }: { prediction: PeriodPrediction }) {
         value={`${prediction.basis.cycleCount}`}
         hint={prediction.basis.lastPeriodStart ? `most recent ${longDate(prediction.basis.lastPeriodStart)}` : undefined}
       />
+    </SettingsGroup>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* where today sits                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The phase bar: the paragraph about "day 12 of 28, fertile window" as a picture.
+ *
+ * The day offsets are computed here, from the prediction's own dates, because a
+ * bar is drawn in days and the API speaks in dates: `dayNumber` is the same
+ * conversion `labels.daysBetween` uses to say "in 4 days". Nothing is derived that
+ * the API did not send — the fertile window is the prediction's, not a
+ * recomputation of it.
+ */
+function TodayPhaseGroup({ prediction }: { prediction: PeriodPrediction }) {
+  const lastStart = prediction.lastPeriodStart;
+  const fertile = prediction.fertileWindow;
+
+  const segments = useMemo(
+    () =>
+      cyclePhases({
+        cycleDay: prediction.currentCycleDay,
+        cycleLength: prediction.predictedCycleLengthDays,
+        periodLength: prediction.basis.averagePeriodLengthDays,
+        fertileStartDay: lastStart && fertile ? dayNumber(lastStart, fertile.start) : null,
+        fertileEndDay: lastStart && fertile ? dayNumber(lastStart, fertile.end) : null,
+      }),
+    [prediction, lastStart, fertile],
+  );
+
+  return (
+    <SettingsGroup
+      title="Where today sits"
+      footer="Calendar arithmetic from your recorded cycles, not an observation of your body."
+    >
+      <ChartRow>
+        <CyclePhaseBar
+          segments={segments}
+          cycleDay={prediction.currentCycleDay}
+          totalDays={prediction.predictedCycleLengthDays}
+        />
+      </ChartRow>
+      <ValueRow
+        label="Cycle started"
+        value={lastStart ? weekdayDateLabel(lastStart) : '—'}
+        hint={prediction.currentCycleDay === null ? undefined : `day ${prediction.currentCycleDay} today`}
+      />
+    </SettingsGroup>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* the history, as charts                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The chart that answers "why ± 3 days".
+ *
+ * One point per measured cycle, the average as the reference line and one standard
+ * deviation shaded either side of it — which *is* the spread the uncertainty is
+ * derived from. The caption states the finding in words, so the card does not
+ * become unreadable for anyone who cannot see it.
+ */
+function CycleHistoryGroup({ stats }: { stats: PeriodStats }) {
+  return (
+    <SettingsGroup
+      title="Cycle length over time"
+      footer="The dashed line is the average the prediction is built on."
+    >
+      <ChartRow>
+        <CycleLengthChart
+          lengths={stats.cycleLengths}
+          average={stats.averageCycleLengthDays}
+          deviation={stats.standardDeviationDays}
+        />
+      </ChartRow>
+      <ValueRow
+        label="Standard deviation"
+        value={daysLabel(stats.standardDeviationDays)}
+        hint="the spread your ± comes from"
+      />
+    </SettingsGroup>
+  );
+}
+
+/**
+ * The spread, and how close the past estimates landed.
+ *
+ * Two charts and no prose: the numbers they replaced were two lists of raw
+ * intervals ("28, 29, 30, 29, 28 days"), which is a shape written out in words.
+ * The backtest is labelled as one on the chart itself — see `charts.tsx`.
+ */
+function CycleSpreadGroup({ stats }: { stats: PeriodStats }) {
+  return (
+    <SettingsGroup
+      title="The spread behind the ±"
+      footer="The backtest replays one rule over your history: what the average of the cycles before each one would have predicted."
+    >
+      <ChartRow>
+        <CycleRangeChart
+          lengths={stats.cycleLengths}
+          average={stats.averageCycleLengthDays}
+          shortest={stats.shortestCycleDays}
+          longest={stats.longestCycleDays}
+        />
+        <ForecastErrorChart lengths={cycleLengthValues(stats.cycleLengths)} />
+      </ChartRow>
+    </SettingsGroup>
+  );
+}
+
+/** The body-signs series, and the honest note when the switch is off. */
+function BodySignsGroup({ stats }: { stats: PeriodStats }) {
+  return (
+    <SettingsGroup
+      title="Body signs"
+      footer="Your own readings — no coverline, no shift detection, no reading of what they mean."
+    >
+      <ChartRow>
+        <TemperatureChart series={stats.temperatureSeries} />
+      </ChartRow>
+      <NoteRow>
+        <p className="text-muted-foreground">
+          Basal temperature, cervical mucus, an LH test and ovulation pain are recorded in the daily log. Turn Body
+          signs on in period settings to see them there.
+        </p>
+      </NoteRow>
+    </SettingsGroup>
+  );
+}
+
+/**
+ * One line, when body signs are switched off.
+ *
+ * The failure this prevents is a user with a year of temperature readings
+ * concluding that switching a section off deleted them. It does not say how many
+ * of *each* kind are recorded — the stats summary counts temperatures and not
+ * mucus or LH tests — so it states what it can count, points at where the rest
+ * still lives, and never claims "nothing recorded".
+ */
+function BodySignsHiddenRow({ stats }: { stats: PeriodStats }) {
+  const readings = stats.temperatureSeries.length;
+  return (
+    <SettingsGroup title="Body signs">
+      <NoteRow icon={<LockClosedIcon className="size-5" />}>
+        <p className="font-medium">
+          {readings > 0
+            ? `${readings} temperature ${readings === 1 ? 'reading' : 'readings'} recorded`
+            : 'Body signs are switched off'}
+        </p>
+        <p className="text-muted-foreground">
+          Nothing has been removed: every temperature, mucus, LH-test and ovulation-pain day is still on the calendar
+          day it was recorded on. Turn Body signs on in period settings to bring them back to this screen and to the
+          daily log.
+        </p>
+      </NoteRow>
     </SettingsGroup>
   );
 }
@@ -286,9 +463,9 @@ function FertilityGroup({ prediction }: { prediction: PeriodPrediction }) {
           <p className="font-medium">A hormonal method makes a calendar fertility estimate misleading</p>
           <p className="text-muted-foreground">
             {contraception.activeMethod ? METHOD_LABEL[contraception.activeMethod] : 'The recorded method'} is
-            hormonal and suppresses ovulation, so a window derived from your cycle length is arithmetic rather than
-            a statement about fertility. The dates are shown below because they are part of the prediction and you
-            logged against them — read them as cycle arithmetic, not as when you can or cannot conceive.
+            hormonal and suppresses ovulation, so a window derived from your cycle length is arithmetic rather than a
+            statement about fertility. The dates are shown below because you logged against them — read them as cycle
+            arithmetic, not as when you can or cannot conceive.
           </p>
         </NoteRow>
       ) : null}
@@ -302,8 +479,7 @@ function FertilityGroup({ prediction }: { prediction: PeriodPrediction }) {
       {prediction.ovulationClamped ? (
         <NoteRow>
           <p className="text-muted-foreground">
-            This estimate was clamped into the current cycle: the luteal phase in use would otherwise have placed it
-            before the cycle began or on the next predicted period. See the notes below.
+            Clamped into the current cycle: the luteal phase in use would otherwise have placed it outside it.
           </p>
         </NoteRow>
       ) : null}
@@ -339,24 +515,15 @@ function FertilityGroup({ prediction }: { prediction: PeriodPrediction }) {
 /* the basis of the prediction                                                */
 /* -------------------------------------------------------------------------- */
 
-/** One list of day counts, wrapping, so a long history never squeezes a label. */
-function NumberListRow({ label, values, hint }: { label: string; values: number[]; hint: ReactNode }) {
-  return (
-    <NoteRow>
-      <p className="text-muted-foreground">{label}</p>
-      <p className="font-medium tabular-nums">{values.length === 0 ? '—' : `${values.join(', ')} days`}</p>
-      <p className="text-xs text-muted-foreground">{hint}</p>
-    </NoteRow>
-  );
-}
-
 /**
  * Why the number is that number.
  *
- * Every field of `PeriodPredictionBasis` is shown, including the ones that make
- * the estimate look less certain (the wide spread, the intervals that were left
- * out). A prediction a person cannot audit is one they cannot trust, which is
- * why the API returns its own inputs at all.
+ * Every field of `PeriodPredictionBasis` is still shown, including the ones that
+ * make the estimate look less certain (the wide spread, the intervals that were
+ * left out) — a prediction a person cannot audit is one they cannot trust. What
+ * changed is the form: the two lists of raw interval lengths are gone, because
+ * the cycle-length chart *is* those lists, drawn. The numbers a chart cannot
+ * state (the weighting, the luteal assumption, the dates on record) stay.
  */
 function BasisGroup({ prediction }: { prediction: PeriodPrediction }) {
   const basis = prediction.basis;
@@ -365,7 +532,7 @@ function BasisGroup({ prediction }: { prediction: PeriodPrediction }) {
   return (
     <SettingsGroup
       title="How this was worked out"
-      footer="From your recorded cycle starts. The point estimate is a recency-weighted mean of the interval lengths, weighted towards recent cycles because they describe the cycle you have now."
+      footer="The point estimate is a recency-weighted mean of the interval lengths, weighted towards recent cycles because they describe the cycle you have now."
     >
       <ValueRow label="Method" value={humanise(prediction.method)} />
       <ValueRow
@@ -377,22 +544,6 @@ function BasisGroup({ prediction }: { prediction: PeriodPrediction }) {
       />
       <ValueRow label="Recorded cycles" value={`${basis.cycleCount}`} hint="period starts on record" />
       <ValueRow label="Measured intervals" value={`${basis.intervalCount}`} hint="one fewer than the cycles" />
-      {/* The two lists are the raw input, so they wrap rather than squeezing the
-          label beside them — a long history is the common case, not the edge. */}
-      <NumberListRow
-        label="Intervals used for the estimate, in days"
-        values={basis.usedIntervalLengths}
-        hint={
-          basis.predictionCycleCount === null
-            ? 'Every recorded interval.'
-            : `From the ${basis.predictionCycleCount} most recent cycles, the setting you chose.`
-        }
-      />
-      <NumberListRow
-        label="All measured intervals, in days"
-        values={basis.intervalLengths}
-        hint="Including any left out of the estimate."
-      />
       <ValueRow label="Average cycle length" value={daysLabel(basis.averageCycleLengthDays)} />
       <ValueRow label="Median cycle length" value={daysLabel(basis.medianCycleLengthDays)} />
       <ValueRow
@@ -435,45 +586,15 @@ function NotesGroup({ notes }: { notes: string[] }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* the history the prediction is drawn from                                   */
+/* what was logged                                                            */
 /* -------------------------------------------------------------------------- */
-
-/** Every measured cycle length, oldest last, with the summary beneath it. */
-function CycleLengthGroup({ stats }: { stats: PeriodStats }) {
-  return (
-    <SettingsGroup title="Cycle length history">
-      {stats.cycleLengths.length === 0 ? (
-        <NoteRow icon={<BarChartIcon className="size-5" />}>
-          <p className="text-muted-foreground">
-            No complete cycle has been measured yet. A cycle length is the days from one period start to the day
-            before the next, so the first one appears once a second start is logged.
-          </p>
-        </NoteRow>
-      ) : (
-        <>
-          {stats.cycleLengths.map((interval) => (
-            <ValueRow
-              key={`${interval.from}-${interval.to}`}
-              label={`${longDate(interval.from)} → ${longDate(interval.to)}`}
-              value={daysLabel(interval.days)}
-            />
-          ))}
-          <ValueRow label="Average" value={daysLabel(stats.averageCycleLengthDays)} />
-          <ValueRow label="Shortest" value={daysLabel(stats.shortestCycleDays)} />
-          <ValueRow label="Longest" value={daysLabel(stats.longestCycleDays)} />
-          <ValueRow label="Standard deviation" value={daysLabel(stats.standardDeviationDays)} />
-        </>
-      )}
-    </SettingsGroup>
-  );
-}
 
 /** How much has actually been logged — the denominator for everything above. */
 function LoggedDaysGroup({ stats }: { stats: PeriodStats }) {
   return (
     <SettingsGroup
       title="Logged days"
-      footer="Counts come from the days that carry a log. A day with nothing recorded is not a day with no bleeding — it is a day nobody wrote down."
+      footer="A day with nothing recorded is a day nobody wrote down — not a day with no bleeding."
     >
       <ValueRow label="Days with a log" value={`${stats.loggedDays}`} />
       <SettingsRow stacked>
@@ -495,13 +616,33 @@ function LoggedDaysGroup({ stats }: { stats: PeriodStats }) {
 /* -------------------------------------------------------------------------- */
 
 export function InsightsScreen() {
-  // Two reads, not one: the prediction is a point-in-time answer and the stats
-  // are the history behind it, so either can be shown while the other is still
-  // arriving, and a failure in one does not blank the other.
+  // Three reads, not one: the prediction is a point-in-time answer, the stats are
+  // the history behind it, and the settings are what decides whether the
+  // body-sign card exists at all. Each can be shown while the others are still
+  // arriving, and a failure in one does not blank the rest.
   const prediction = usePeriodPrediction();
   const stats = usePeriodStats();
+  const settings = usePeriodSettings();
+
   const value = prediction.data;
   const history = stats.data;
+  /*
+   * The body-signs switch, read with `=== true`: `undefined` is a settings read
+   * that has not landed yet, and the whole point of the default is that body
+   * signs are not shown until the server has said they are on. A cached "off"
+   * flashes nothing, which is the correct kind of wrong here.
+   */
+  const showBodySigns = settings.data?.bodySigns === true;
+
+  /**
+   * Nothing recorded at all: the importer leads, exactly as it does on Today.
+   *
+   * It needs both reads to have answered — a day log or a period start is enough
+   * to stop showing it — so it cannot appear for a user who has data and then
+   * vanish. `undefined` (still loading, or a failed read) shows nothing.
+   */
+  const nothingRecorded =
+    history !== undefined && value !== undefined && history.loggedDays === 0 && value.basis.cycleCount === 0;
 
   /**
    * The prediction, in one of four states: read, still reading, not enough
@@ -529,8 +670,8 @@ export function InsightsScreen() {
   /** The history the prediction is drawn from, with its own loading and error. */
   const historyCards = history ? (
     <>
-      <CycleLengthGroup stats={history} />
-      <LoggedDaysGroup stats={history} />
+      <CycleHistoryGroup stats={history} />
+      <CycleSpreadGroup stats={history} />
     </>
   ) : stats.isInitialLoading ? (
     <Skeleton className="h-40 rounded-xl" />
@@ -559,13 +700,32 @@ export function InsightsScreen() {
         aria-live="polite"
         aria-busy={prediction.isInitialLoading || stats.isInitialLoading}
       >
+        {nothingRecorded ? <ImportEmptyState /> : null}
+
         {predictionCard}
 
+        {value ? <TodayPhaseGroup prediction={value} /> : null}
         {value && value.dataSufficient ? <FertilityGroup prediction={value} /> : null}
+
+        {historyCards}
+
+        {history ? showBodySigns ? <BodySignsGroup stats={history} /> : <BodySignsHiddenRow stats={history} /> : null}
+
         {value ? <BasisGroup prediction={value} /> : null}
         {value && value.notes.length > 0 ? <NotesGroup notes={value.notes} /> : null}
 
-        {historyCards}
+        {history ? <LoggedDaysGroup stats={history} /> : null}
+
+        {/* The caveat that must survive every cut: no reading of this screen is a
+            contraceptive guarantee or medical advice. It is a footer rather than
+            a paragraph in the middle, and it is not conditional. */}
+        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <InfoCircledIcon className="mt-0.5 size-4 shrink-0 text-base" />
+          <span>
+            Every date here is an estimate from the cycles you recorded. It is not medical advice and it is not a
+            contraceptive plan — the calendar method on its own has a typical-use failure rate of about 24% a year.
+          </span>
+        </p>
       </div>
     </>
   );
