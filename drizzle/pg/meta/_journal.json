@@ -64,6 +64,13 @@
       "when": 1790958455803,
       "tag": "0008_foamy_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790968921009,
+      "tag": "0009_clever_talos",
+      "breakpoints": true
     }
   ]
 }

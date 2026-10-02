@@ -179,6 +179,51 @@ function isReadOnlyCalendar(
   );
 }
 
+/**
+ * The identity two events are compared on when one calendar defers to another:
+ * the title, normalised, on the day the occurrence starts.
+ *
+ * `toDateOnly` rather than the raw instant, so a holiday feed that stores
+ * "Thanksgiving" at midnight and another that stores it at 09:00 still match.
+ * Case and runs of whitespace are folded for the same reason — the two feeds are
+ * written by different people. Diacritics are left alone: "Fête" and "Fete" are
+ * different titles, and guessing otherwise would delete events a user can see.
+ */
+function dedupeKeyOf(title: string, startMs: Millis, zone: string): string {
+  return `${toDateOnly(startMs, zone)}|${title.trim().toLowerCase().replace(/\s+/g, ' ')}`;
+}
+
+/**
+ * Drops the events of a deferring calendar that another calendar already has.
+ *
+ * The claim set is built only from calendars that are *not* deferring, which is
+ * what makes the rule safe: a deferring calendar never claims anything, so
+ * turning the toggle on for both of two overlapping feeds removes neither. The
+ * failure mode of a mistake is therefore visible duplicates rather than events
+ * that silently vanish from both calendars.
+ *
+ * Only events reach this — tasks are never matched, because a task and a holiday
+ * sharing a title is a coincidence, not a duplicate.
+ */
+export function dropDuplicateEvents(
+  events: ReadonlyArray<{ calendarId: string; item: CalendarItem }>,
+  defers: (calendarId: string) => boolean,
+  zone: string,
+): CalendarItem[] {
+  const claimed = new Set<string>();
+  for (const { calendarId, item } of events) {
+    if (defers(calendarId)) continue;
+    claimed.add(dedupeKeyOf(item.title, item.startMs, zone));
+  }
+
+  const kept: CalendarItem[] = [];
+  for (const { calendarId, item } of events) {
+    if (defers(calendarId) && claimed.has(dedupeKeyOf(item.title, item.startMs, zone))) continue;
+    kept.push(item);
+  }
+  return kept;
+}
+
 export interface CalendarItemsOptions {
   userId: string;
   zone: string;
@@ -233,6 +278,9 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
 
   const items: CalendarItem[] = [];
 
+  /** Calendars whose events give way to another calendar's (`dedupeEvents`). */
+  const defers = new Set(visible.filter((c) => c.dedupeEvents).map((c) => c.id));
+
   if (includeEvents) {
     // Hand the exact calendar set down rather than letting the query re-derive
     // it from `isVisible`: `showInTasks` and `isVisible` are independent, and
@@ -241,15 +289,24 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
       calendarIds: visible.map((c) => c.id),
     });
 
+    // Project every occurrence first, then decide which of them survive: the
+    // deferring calendar has to be able to see the whole claim set before any
+    // one of its events is dropped.
+    const projected: { calendarId: string; item: CalendarItem }[] = [];
     for (const event of events) {
       if (event.status === 'cancelled') continue;
 
       const calendar = byId.get(event.calendarId);
       const readOnly = isReadOnlyCalendar(calendar, pullOnlyAccountIds);
       for (const expanded of expandEvent(event, { startMs, endMs }, zone)) {
-        items.push(toEventItem(expanded, calendar, readOnly, zone));
+        projected.push({
+          calendarId: event.calendarId,
+          item: toEventItem(expanded, calendar, readOnly, zone),
+        });
       }
     }
+
+    items.push(...dropDuplicateEvents(projected, (id) => defers.has(id), zone));
   }
 
   if (includeTasks) {

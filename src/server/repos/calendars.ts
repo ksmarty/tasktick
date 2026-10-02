@@ -52,6 +52,7 @@ function rowToCalendar(row: typeof calendars.$inferSelect): Calendar {
     showInTasks: row.showInTasks,
     isDefault: row.isDefault,
     readOnly: row.readOnly,
+    dedupeEvents: row.dedupeEvents,
     sortOrder: row.sortOrder,
     lastSyncedAtMs: row.lastSyncedAtMs,
     lastSyncError: row.lastSyncError,
@@ -90,6 +91,8 @@ export interface CreateCalendarInput {
   isVisible?: boolean;
   showInTasks?: boolean;
   isDefault?: boolean;
+  /** Whether this calendar's events defer to another calendar's; see the schema. */
+  dedupeEvents?: boolean;
   defaultReminders?: number[] | null;
 }
 
@@ -118,6 +121,7 @@ export async function createCalendar(userId: string, input: CreateCalendarInput,
     isVisible: input.isVisible ?? true,
     showInTasks: input.showInTasks ?? true,
     isDefault: input.isDefault ?? isFirst,
+    dedupeEvents: input.dedupeEvents ?? false,
     defaultReminders: input.defaultReminders ?? null,
     sortOrder: last ? keyBetween(last.sortOrder, null).key : 'a0',
     createdAt: now,
@@ -145,6 +149,7 @@ export async function updateCalendar(
   if (input.isVisible !== undefined) patch.isVisible = input.isVisible;
   if (input.showInTasks !== undefined) patch.showInTasks = input.showInTasks;
   if (input.readOnly !== undefined) patch.readOnly = input.readOnly;
+  if (input.dedupeEvents !== undefined) patch.dedupeEvents = input.dedupeEvents;
   if (input.colorOverride !== undefined) patch.colorOverride = input.colorOverride;
   if (input.defaultReminders !== undefined) patch.defaultReminders = input.defaultReminders;
 

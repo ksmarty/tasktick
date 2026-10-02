@@ -520,6 +520,21 @@ export const calendars = pgTable(
     showInTasks: boolean('show_in_tasks').notNull().default(true),
     isDefault: boolean('is_default').notNull().default(false),
     readOnly: boolean('read_only').notNull().default(false),
+    /**
+     * Whether this calendar's events give way to another calendar's.
+     *
+     * The case it exists for: two holiday feeds — a provincial one and a
+     * federal one — that both carry "Thanksgiving" on the same day. Turning this
+     * on for the provincial feed drops its copy of every event whose title and
+     * day another calendar already has, so the day shows one Thanksgiving
+     * instead of two.
+     *
+     * It defers rather than claims: only calendars with the toggle OFF
+     * contribute the titles an event is matched against. Enabling it on both
+     * feeds therefore removes nothing, which is the safe way to be wrong —
+     * visible duplicates beat silently deleted events.
+     */
+    dedupeEvents: boolean('dedupe_events').notNull().default(false),
     sortOrder: text('sort_order').notNull().default('a0'),
     lastSyncedAtMs: bigint('last_synced_at_ms', { mode: 'number' }),
     lastSyncError: text('last_sync_error'),

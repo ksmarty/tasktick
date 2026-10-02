@@ -1,0 +1,1 @@
+ALTER TABLE "calendars" ADD COLUMN "dedupe_events" boolean DEFAULT false NOT NULL;

@@ -260,6 +260,12 @@ export const createCalendarSchema = z
     isVisible: z.boolean().optional(),
     showInTasks: z.boolean().optional(),
     isDefault: z.boolean().optional(),
+    /**
+     * Whether this calendar's events defer to another calendar's. Offered on
+     * subscriptions, but a plain calendar accepts it too — the rule lives in
+     * `getCalendarItems`, not in the subscription service.
+     */
+    dedupeEvents: z.boolean().optional(),
     /** Same bounds as an event's own `reminders`; `null` clears the default. */
     defaultReminders: z.array(z.number().int().min(-100_800).max(100_800)).max(20).nullable().optional(),
   })
@@ -405,6 +411,8 @@ export const icalSubscribeSchema = z
     color: z.enum(ACCENT_COLORS).optional(),
     /** A custom colour the user picked, overriding `color`. */
     colorOverride: hexColor.nullable().optional(),
+    /** Whether this feed's events defer to another calendar's; see the schema. */
+    dedupeEvents: z.boolean().optional(),
     timezone: z.string().trim().max(64).optional(),
   })
   .strict();
@@ -422,6 +430,8 @@ export const icalSubscriptionPatchSchema = z
     name: z.string().trim().min(1).max(120).optional(),
     color: z.enum(ACCENT_COLORS).optional(),
     colorOverride: hexColor.nullable().optional(),
+    /** Re-subscribing carries the dedupe preference over; see the service. */
+    dedupeEvents: z.boolean().optional(),
   })
   .strict();
 

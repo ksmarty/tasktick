@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { api, errorMessage } from '@/lib/api-client';
 import { useToast } from '@/components/app/Toast';
 import { accentHex } from '@/lib/colors';
@@ -59,6 +60,8 @@ export function IcalSubscriptionDialog({ open, onOpenChange, subscription, onSav
   const [color, setColor] = useState<AccentColor>(DEFAULT_SUBSCRIPTION_COLOR);
   /** A literal the user picked, or `null` while a palette swatch is in force. */
   const [customHex, setCustomHex] = useState<string | null>(null);
+  /** Whether this feed's events give way to another calendar's. */
+  const [dedupeEvents, setDedupeEvents] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -80,6 +83,7 @@ export function IcalSubscriptionDialog({ open, onOpenChange, subscription, onSav
     setName(subscription?.name ?? '');
     setColor(subscription?.color ?? DEFAULT_SUBSCRIPTION_COLOR);
     setCustomHex(customCalendarHex(subscription?.colorOverride));
+    setDedupeEvents(subscription?.dedupeEvents ?? false);
     setFormError(null);
   }, [open, subscription]);
 
@@ -97,6 +101,7 @@ export function IcalSubscriptionDialog({ open, onOpenChange, subscription, onSav
         ...(name.trim() ? { name: name.trim() } : {}),
         color,
         colorOverride: customHex,
+        dedupeEvents,
       };
 
       if (editing) {
@@ -243,6 +248,22 @@ export function IcalSubscriptionDialog({ open, onOpenChange, subscription, onSav
               {formError}
             </p>
           ) : null}
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="ical-dedupe">Hide events another calendar already has</Label>
+              <p className="text-xs text-muted-foreground">
+                Drops this feed&rsquo;s events whose title falls on the same day as an event in a calendar
+                that does not have this switched on. Meant for overlapping holiday feeds.
+              </p>
+            </div>
+            <Switch
+              id="ical-dedupe"
+              checked={dedupeEvents}
+              onCheckedChange={setDedupeEvents}
+              className="mt-0.5 shrink-0"
+            />
+          </div>
         </div>
 
         <DialogFooter>

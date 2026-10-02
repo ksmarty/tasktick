@@ -24,6 +24,11 @@
  * the call would always fail — and that file is outside this migration. A button
  * that cannot work is worse than no button; enabling it is a one-line change on
  * the server, after which this group can grow a confirm dialog.
+ *
+ * The change-password group is conditional on `user.hasPassword`, which is read
+ * from better-auth's `account` table (`src/server/repos/accounts.ts`). An
+ * account created by OIDC has no password to verify, so for that user the form
+ * is replaced by a read-only row naming the sign-in method.
  */
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -153,43 +158,69 @@ export function AccountSettings({ user }: AccountSettingsProps) {
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title="Change password" footer="At least 8 characters. Other sessions are signed out afterwards.">
-        <SettingsRow stacked>
-          <Label htmlFor="current-password">Current password</Label>
-          <div className="relative">
-            <LockClosedIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
+      {/*
+       * Only offered for an account that has a password.
+       *
+       * An account created by OIDC has no `credential` row, and better-auth's
+       * `changePassword` verifies the current one before it writes — so for that
+       * user the form could only ever fail, which is the same "a button that
+       * cannot work is worse than no button" rule the email row above follows.
+       * `user.hasPassword` is that fact, read from the `account` table.
+       *
+       * Something is still said, rather than leaving a gap where a form was: the
+       * sign-in method, in the read-only shape of the email row.
+       */}
+      {user.hasPassword ? (
+        <SettingsGroup title="Change password" footer="At least 8 characters. Other sessions are signed out afterwards.">
+          <SettingsRow stacked>
+            <Label htmlFor="current-password">Current password</Label>
+            <div className="relative">
+              <LockClosedIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="current-password"
+                className="pl-9"
+                type="password"
+                autoComplete="current-password"
+                maxLength={500}
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+              />
+            </div>
+
+            <Label htmlFor="new-password">New password</Label>
             <Input
-              id="current-password"
-              className="pl-9"
+              id="new-password"
               type="password"
-              autoComplete="current-password"
-              maxLength={500}
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="new-password"
+              maxLength={200}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
             />
-          </div>
 
-          <Label htmlFor="new-password">New password</Label>
-          <Input
-            id="new-password"
-            type="password"
-            autoComplete="new-password"
-            maxLength={200}
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.target.value)}
-          />
-
-          <Button
-            className="w-full"
-            aria-busy={savePassword.isPending || undefined}
-            disabled={!canChangePassword || savePassword.isPending}
-            onClick={() => void savePassword.run()}
-          >
-            {savePassword.isPending ? <ReloadIcon className="animate-spin" /> : null}
-            Change password
-          </Button>
-        </SettingsRow>
-      </SettingsGroup>
+            <Button
+              className="w-full"
+              aria-busy={savePassword.isPending || undefined}
+              disabled={!canChangePassword || savePassword.isPending}
+              onClick={() => void savePassword.run()}
+            >
+              {savePassword.isPending ? <ReloadIcon className="animate-spin" /> : null}
+              Change password
+            </Button>
+          </SettingsRow>
+        </SettingsGroup>
+      ) : (
+        <SettingsGroup
+          title="Password"
+          footer="This account signs in through your identity provider, so there is no password stored here to change."
+        >
+          <SettingsRow>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm">Single sign-on</span>
+              <span className="block text-xs text-muted-foreground">Managed by your identity provider</span>
+            </span>
+          </SettingsRow>
+        </SettingsGroup>
+      )}
     </>
   );
 }

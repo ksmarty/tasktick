@@ -259,6 +259,12 @@ export interface Calendar {
   showInTasks: boolean;
   isDefault: boolean;
   readOnly: boolean;
+  /**
+   * When on, an event from this calendar is dropped if another calendar that
+   * does *not* have the toggle on has an event with the same title on the same
+   * day. See `dedupeEvents` in the schema for the rule in full.
+   */
+  dedupeEvents: boolean;
   sortOrder: string;
   lastSyncedAtMs: Millis | null;
   lastSyncError: string | null;
@@ -529,6 +535,16 @@ export interface SessionUser {
   image: string | null;
   isAdmin: boolean;
   timezone: string;
+  /**
+   * True when the account has a password to change.
+   *
+   * An account created by OIDC has none, and better-auth's `changePassword`
+   * reads one, so the settings screen must not offer the form. Read from the
+   * `account` table (`src/server/repos/accounts.ts`) rather than inferred from
+   * how the session started, because an account can have a linked provider and a
+   * password at once.
+   */
+  hasPassword: boolean;
 }
 
 /* -------------------------------------------------------------------------- */

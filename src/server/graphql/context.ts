@@ -17,6 +17,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '../db';
 import { user } from '../db/schema';
 import { resolveApiToken, touchApiToken } from '../repos/api-tokens';
+import { hasPassword } from '../repos/accounts';
 import { getSettings } from '../repos/settings';
 import type { SessionUser, UserSettings } from '@/lib/types';
 
@@ -75,6 +76,7 @@ export async function buildGraphQLContext(token: string): Promise<GraphQLContext
     image: row.image ?? null,
     isAdmin: Boolean(row.isAdmin),
     timezone: row.timezone ?? settings.timezone,
+    hasPassword: await hasPassword(row.id),
   };
 
   return {

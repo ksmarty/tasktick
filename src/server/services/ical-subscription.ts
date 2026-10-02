@@ -111,6 +111,8 @@ export interface SubscribeInput {
   /** View preferences; only the re-subscribe path supplies these. */
   isVisible?: boolean;
   showInTasks?: boolean;
+  /** Whether this feed's events defer to another calendar's; see the schema. */
+  dedupeEvents?: boolean;
 }
 
 /** How a subscription is edited: the name and colour in place, or a new URL. */
@@ -120,6 +122,8 @@ export interface UpdateIcalSubscriptionInput {
   colorOverride?: string | null;
   /** A different URL is a re-subscribe; see `updateIcalSubscription`. */
   url?: string;
+  /** Whether this feed's events defer to another calendar's; see the schema. */
+  dedupeEvents?: boolean;
 }
 
 export interface UpdateIcalSubscriptionResult {
@@ -213,6 +217,7 @@ export async function subscribeToIcal(
         colorOverride: input.colorOverride !== undefined ? input.colorOverride : existing.colorOverride,
         isVisible: input.isVisible ?? existing.isVisible,
         showInTasks: input.showInTasks ?? existing.showInTasks,
+        dedupeEvents: input.dedupeEvents ?? existing.dedupeEvents,
         provider: 'ical',
         readOnly: true,
         lastSyncError: null,
@@ -244,6 +249,7 @@ export async function subscribeToIcal(
     supportsVtodo: false,
     isVisible: input.isVisible ?? true,
     showInTasks: input.showInTasks ?? true,
+    dedupeEvents: input.dedupeEvents ?? false,
     isDefault: false,
     // Nothing is ever written back, so the UI must not offer to edit it.
     readOnly: true,
@@ -314,9 +320,11 @@ export async function updateIcalSubscription(
           input.colorOverride !== undefined ? input.colorOverride : calendar.colorOverride,
         timezone: calendar.timezone,
         // Carry the view preferences across the re-subscribe; a URL edit is not
-        // a reason to put a hidden calendar back into the task list.
+        // a reason to put a hidden calendar back into the task list, nor to
+        // forget that it defers to another feed.
         isVisible: calendar.isVisible,
         showInTasks: calendar.showInTasks,
+        dedupeEvents: input.dedupeEvents ?? calendar.dedupeEvents,
       },
       { ...deps, prefetched: fetched },
     );
@@ -327,6 +335,7 @@ export async function updateIcalSubscription(
   if (name) patch.name = name.slice(0, 120);
   if (input.color !== undefined) patch.color = input.color;
   if (input.colorOverride !== undefined) patch.colorOverride = input.colorOverride;
+  if (input.dedupeEvents !== undefined) patch.dedupeEvents = input.dedupeEvents;
   await db.update(calendars).set(patch).where(and(eq(calendars.id, calendarId), eq(calendars.userId, userId)));
 
   const updated = await getCalendarRow(userId, calendarId);

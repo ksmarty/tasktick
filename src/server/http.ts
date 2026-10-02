@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { isDemoRequest, rememberSampleUserId, resolveSampleUserId, SAMPLE_EMAIL } from '@/server/demo';
 import { ensureSampleAccount } from '@/server/demo-sample';
+import { hasPassword } from './repos/accounts';
 import { getAuth } from './auth';
 import { getEnv, isAppUrlDefault } from '@/lib/env';
 import type { ApiResult, SessionUser } from '@/lib/types';
@@ -107,6 +108,7 @@ export async function getSessionUser(req: NextRequest): Promise<SessionUser | nu
     image: user.image ?? null,
     isAdmin: Boolean(user.isAdmin),
     timezone: user.timezone ?? getEnv().DEFAULT_TIMEZONE,
+    hasPassword: await hasPassword(String(user.id)),
   };
 }
 
@@ -179,6 +181,7 @@ export function route(handler: AuthedHandler, options: RouteOptions = {}) {
           image: null,
           isAdmin: false,
           timezone: getEnv().DEFAULT_TIMEZONE,
+          hasPassword: false,
         },
         req,
         params,

@@ -25,6 +25,12 @@
  *  4. Quote style normalized to the repo's single quotes.
  *  5. The reduced-motion check goes through the app-level `@/lib/motion` helper,
  *     so the in-app preference is honoured as well as the OS query.
+ *  6. `resize()` sizes the canvas's CSS box as well as its backing store, and
+ *     uses the full device pixel ratio rather than a cap of 2. A canvas is a
+ *     replaced element, so `inset-0` alone positioned it at its intrinsic — i.e.
+ *     backing-store — size, which made the bitmap blurry on every retina panel.
+ *     See the comment on `resize()` for the measurements. The exported API is
+ *     unchanged.
  *
  * The canvas carries `z-toast`: `--z-index-toast` is defined in `globals.css`,
  * so the burst lands above the drawer and the dialog (`--z-index-modal`) that a
@@ -135,24 +141,36 @@ function ensureSurface(): Surface {
   return surface;
 }
 
-/** Sizes the backing store to the window, in device pixels. */
+/**
+ * Sizes the canvas to the window: the CSS box in layout pixels, the backing
+ * store in device pixels.
+ *
+ * Both halves matter, and the CSS box is the half that is easy to miss. A
+ * `canvas` is a replaced element, so `inset-0` positions it but does **not**
+ * stretch it: with no explicit `width`/`height` in CSS the element lays out at
+ * its intrinsic size, which *is* the backing-store size. Setting only the
+ * backing store therefore made the element `devicePixelRatio` times larger than
+ * the viewport and left its bitmap to be resampled on the way to the screen.
+ * Measured at dpr 3: a 780x1688 element in a 390x844 viewport, whose 780x1688
+ * bitmap was stretched across a 1170x2532 panel. That is what "the confetti
+ * looks low resolution" was.
+ *
+ * The backing store is the full device ratio, not the cap of 2 this used to
+ * have, so there is one bitmap pixel per device pixel. That costs one clear of a
+ * ~3M-pixel layer per frame, which measured at **0.13ms** — a `clearRect` over
+ * the whole canvas is a memset and is cheaper than erasing a small rectangle
+ * inside it (0.66ms for the particles' bounding box, which touches a quarter of
+ * the pixels). The cap was buying nothing.
+ */
 function resize(current: Surface): void {
-  /*
-   * Capped at 2, not the device ratio.
-   *
-   * A full-screen canvas is the most expensive thing on the frame while it runs,
-   * and it runs at the same moment as the row collapse — so it competes with the
-   * animation the user is watching. At a devicePixelRatio of 3 (every recent
-   * iPhone) the backing store is ~3M pixels cleared and redrawn every frame.
-   *
-   * Measured at 3x during the completion animation: **16 frames over 16.7ms with
-   * the burst and 5 without**, so the confetti was 11 of the 16. Capping the ratio
-   * at 2 costs 44% of those pixels, and particles are soft-edged circles, so the
-   * difference is not visible.
-   */
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
-  current.canvas.width = Math.floor(window.innerWidth * ratio);
-  current.canvas.height = Math.floor(window.innerHeight * ratio);
+  const ratio = window.devicePixelRatio || 1;
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+
+  current.canvas.style.width = `${width}px`;
+  current.canvas.style.height = `${height}px`;
+  current.canvas.width = Math.floor(width * ratio);
+  current.canvas.height = Math.floor(height * ratio);
   current.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 }
 

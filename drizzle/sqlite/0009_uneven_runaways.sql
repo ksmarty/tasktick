@@ -1,0 +1,1 @@
+ALTER TABLE `calendars` ADD `dedupe_events` integer DEFAULT false NOT NULL;
