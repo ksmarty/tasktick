@@ -220,9 +220,6 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                     isBottom && callerPadsPanelBottom && BOTTOM_BAND_CLEARANCE,
                   )}
                 >
-                  {isBottom ? (
-                    <div className="mx-auto mb-4 h-1.5 w-12 shrink-0 cursor-grab rounded-full bg-muted-foreground/30 active:cursor-grabbing" />
-                  ) : null}
                   {title ? (
                     <h2 className="mb-3 text-lg font-semibold text-foreground">
                       {title}

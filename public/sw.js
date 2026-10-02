@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v26';
+const VERSION = 'tasktick-v27';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -253,7 +253,20 @@ self.addEventListener('install', (event) => {
        */
       await Promise.all(PRECACHE_URLS.map((url) => precacheOne(cache, url)));
       await Promise.all([precacheDocumentTree(cache, SHELL_URL), precacheDocumentTree(cache, OFFLINE_URL)]);
-      await self.skipWaiting();
+
+      /*
+       * No `skipWaiting()` here, deliberately. Waiting is the whole point of the
+       * update prompt: a new build installs and then sits in `waiting` until the
+       * page asks it to take over (`{ type: 'SKIP_WAITING' }` in the message
+       * handler below), which keeps a mid-session swap from mixing an old page
+       * with new chunks.
+       *
+       * Calling it here instead made the new worker activate on its own, so
+       * `clients.claim()` in `activate` fired `controllerchange` and the page
+       * reloaded itself. The prompt flashed for a frame, and its Reload button
+       * posted `SKIP_WAITING` to a worker that was already active — a no-op. The
+       * prompt exists to ask, so the worker has to wait to be asked.
+       */
     })(),
   );
 });

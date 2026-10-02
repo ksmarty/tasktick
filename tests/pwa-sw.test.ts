@@ -123,6 +123,8 @@ interface Harness {
   dispatch(type: string, event: unknown): Promise<FakeResponse | undefined>;
   /** Everything written to any cache, in order. */
   writes: string[];
+  /** Every `self.skipWaiting()` the worker asked for. */
+  skipWaitingCalls: string[];
   /** Cache name -> URL -> response. */
   caches: Map<string, Map<string, FakeResponse>>;
   fetchCalls: string[];
@@ -145,6 +147,7 @@ function createHarness(): Harness {
   const store = new Map<string, Map<string, FakeResponse>>();
   const writes: string[] = [];
   const fetchCalls: string[] = [];
+  const skipWaitingCalls: string[] = [];
 
   const cacheFor = (name: string): Map<string, FakeResponse> => {
     if (!store.has(name)) store.set(name, new Map());
@@ -195,7 +198,9 @@ function createHarness(): Harness {
   const sandbox: Record<string, unknown> = {
     self: {
       addEventListener: (type: string, handler: (event: any) => void) => listeners.set(type, handler),
-      skipWaiting: async () => undefined,
+      skipWaiting: async () => {
+        skipWaitingCalls.push('skipWaiting');
+      },
       location: { origin: ORIGIN },
       clients: {
         claim: async () => undefined,
@@ -267,6 +272,7 @@ function createHarness(): Harness {
     writes,
     caches: store,
     fetchCalls,
+    skipWaitingCalls,
     dispatch,
     async install(installRoute) {
       route = installRoute;
@@ -1004,6 +1010,29 @@ describe('the no-store gate applies to every runtime write', () => {
     const harness = createHarness();
     await harness.get(`${ORIGIN}/_next/static/chunks/boom.js`, () => new FakeResponse('nope', { status: 500 }));
     expect(harness.writes).toEqual([]);
+  });
+});
+
+describe('a new build waits to be asked before it takes over', () => {
+  /*
+   * `skipWaiting()` in the install handler looked harmless and was not. The new
+   * worker activated on its own, `clients.claim()` in `activate` then fired
+   * `controllerchange`, and `ServiceWorkerRegistrar` reloaded the page for it.
+   * The "A new version of TaskTick is ready." prompt appeared for about a frame,
+   * and its Reload button posted `SKIP_WAITING` to a worker that was already
+   * active — a no-op. That is what "the dialog does nothing" was.
+   */
+  it('does not call skipWaiting() during install', async () => {
+    const harness = createHarness();
+    await harness.install(() => new FakeResponse('asset'));
+    expect(harness.skipWaitingCalls).toEqual([]);
+  });
+
+  it('calls skipWaiting() when the page asks it to take over', async () => {
+    const harness = await installedHarness();
+    expect(harness.skipWaitingCalls).toEqual([]);
+    await harness.message({ type: 'SKIP_WAITING' });
+    expect(harness.skipWaitingCalls).toEqual(['skipWaiting']);
   });
 });
 

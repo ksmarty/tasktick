@@ -11,10 +11,9 @@ import { cn } from '@/lib/utils';
  *
  * Production only: a service worker in front of `next dev` caches HMR chunks
  * and makes every dev reload confusing. The worker itself is written to be
- * updated explicitly rather than implicitly — it calls `skipWaiting()` on
- * install so it is always *waiting*, never *controlling*, until this prompt
- * asks it to take over, which keeps a mid-session reload from mixing the old
- * page with new chunks.
+ * updated explicitly rather than implicitly — a new build installs and then
+ * *waits*, never taking control, until this prompt posts `SKIP_WAITING`. That
+ * keeps a mid-session reload from mixing the old page with new chunks.
  *
  * Update checks are piggy-backed on `visibilitychange`, throttled, so a device
  * that sleeps for a week still notices a deploy within a minute of being opened
