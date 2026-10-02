@@ -118,6 +118,7 @@ export async function seedCalendar(
     supportsVtodo: boolean;
     readOnly: boolean;
     timezone: string;
+    colorOverride: string | null;
   }> = {},
 ): Promise<string> {
   const db = await openSyncDb();
@@ -133,6 +134,7 @@ export async function seedCalendar(
     supportsVtodo: overrides.supportsVtodo ?? true,
     readOnly: overrides.readOnly ?? false,
     timezone: overrides.timezone ?? 'UTC',
+    colorOverride: overrides.colorOverride ?? null,
   });
   return id;
 }

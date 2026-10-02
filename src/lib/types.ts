@@ -263,6 +263,11 @@ export interface Calendar {
   lastSyncedAtMs: Millis | null;
   lastSyncError: string | null;
   colorOverride: string | null;
+  /**
+   * Reminder offsets (minutes before the event) that a new event created in
+   * this calendar starts with. `null`/empty means the calendar sets none.
+   */
+  defaultReminders: number[] | null;
   createdAt: Millis;
   updatedAt: Millis;
 }

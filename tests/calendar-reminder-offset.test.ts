@@ -13,6 +13,7 @@ import {
   customReminderOffsets,
   formatReminderOffset,
   reminderOffsetFrom,
+  sameReminderOffsets,
 } from '@/components/calendar/reminder-offset';
 
 const PRESET_MINUTES = [0, 5, 10, 15, 30, 60, 1440];
@@ -64,5 +65,29 @@ describe('reminderOffsetFrom', () => {
     expect(reminderOffsetFrom(-5, 'minutes').ok).toBe(false);
     expect(reminderOffsetFrom(1.5, 'hours').ok).toBe(false);
     expect(reminderOffsetFrom(Number.NaN, 'minutes').ok).toBe(false);
+  });
+});
+
+describe('sameReminderOffsets', () => {
+  it('is true for equal lists regardless of order', () => {
+    expect(sameReminderOffsets([10, 60], [60, 10])).toBe(true);
+    expect(sameReminderOffsets([], [])).toBe(true);
+  });
+
+  it('is false when the lists differ', () => {
+    expect(sameReminderOffsets([10], [10, 60])).toBe(false);
+    expect(sameReminderOffsets([10, 60], [10, 30])).toBe(false);
+  });
+
+  it('treats null and undefined as an empty list', () => {
+    // The editor calls this with a calendar's `defaultReminders`, which is null
+    // until one is set, against a draft that starts as `[]`.
+    expect(sameReminderOffsets(null, [])).toBe(true);
+    expect(sameReminderOffsets(undefined, [])).toBe(true);
+    expect(sameReminderOffsets(null, [5])).toBe(false);
+  });
+
+  it('does not collapse duplicate offsets into one', () => {
+    expect(sameReminderOffsets([10, 10], [10])).toBe(false);
   });
 });

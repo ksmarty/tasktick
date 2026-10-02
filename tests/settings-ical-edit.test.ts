@@ -76,7 +76,7 @@ describe('the task-list visibility switch', () => {
 
   it('sends the flag with both create and edit saves', () => {
     expect(EDITOR).toContain('setShowInTasks(calendar?.showInTasks ?? true)');
-    expect(EDITOR).toContain('showInTasks,\n          })');
+    expect(EDITOR).toMatch(/showInTasks,\s*defaultReminders,\s*\}\)/);
     expect(EDITOR).toContain('{ name: trimmed, color, isVisible, showInTasks }');
   });
 
@@ -84,7 +84,7 @@ describe('the task-list visibility switch', () => {
     // The name/colour belong to the remote, but visibility and the task-list
     // switch do not — so the Save button cannot be dead for a synced calendar.
     expect(EDITOR).toContain('if (readOnly)');
-    expect(EDITOR).toContain('{ isVisible, showInTasks }');
+    expect(EDITOR).toMatch(/\{\s*isVisible,\s*showInTasks,\s*defaultReminders,/);
     expect(EDITOR).not.toContain('disabled={save.isPending || readOnly}');
   });
 });
@@ -110,5 +110,21 @@ describe('a hidden calendar is dimmed, and its toggle still speaks', () => {
   it('names the toggle state as well as its action', () => {
     expect(EDITOR).toContain('aria-label={calendar.isVisible ? `Hide ${calendar.name}` : `Show ${calendar.name}`}');
     expect(EDITOR).toContain('aria-pressed={calendar.isVisible}');
+  });
+});
+
+/*
+ * The row's colour dot is the colour the user chose.
+ *
+ * It used to paint `accentHex(calendar.color)` — the base token — so a CalDAV
+ * calendar whose override the user had just set (stored as a palette token in
+ * `colorOverride`) still painted in its old colour. The row now uses the same
+ * `calendarColorHex` the sidebar and the calendar screen use, which resolves
+ * both spellings of an override.
+ */
+describe('the colour dot follows the calendar override', () => {
+  it('paints from calendarColorHex rather than the base token', () => {
+    expect(EDITOR).toContain('backgroundColor: calendarColorHex(calendar)');
+    expect(EDITOR).not.toContain('backgroundColor: accentHex(calendar.color)');
   });
 });

@@ -56,6 +56,7 @@ function rowToCalendar(row: typeof calendars.$inferSelect): Calendar {
     lastSyncedAtMs: row.lastSyncedAtMs,
     lastSyncError: row.lastSyncError,
     colorOverride: row.colorOverride,
+    defaultReminders: row.defaultReminders ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -89,6 +90,7 @@ export interface CreateCalendarInput {
   isVisible?: boolean;
   showInTasks?: boolean;
   isDefault?: boolean;
+  defaultReminders?: number[] | null;
 }
 
 export async function createCalendar(userId: string, input: CreateCalendarInput, userZone: string): Promise<Calendar> {
@@ -116,6 +118,7 @@ export async function createCalendar(userId: string, input: CreateCalendarInput,
     isVisible: input.isVisible ?? true,
     showInTasks: input.showInTasks ?? true,
     isDefault: input.isDefault ?? isFirst,
+    defaultReminders: input.defaultReminders ?? null,
     sortOrder: last ? keyBetween(last.sortOrder, null).key : 'a0',
     createdAt: now,
     updatedAt: now,
@@ -143,6 +146,7 @@ export async function updateCalendar(
   if (input.showInTasks !== undefined) patch.showInTasks = input.showInTasks;
   if (input.readOnly !== undefined) patch.readOnly = input.readOnly;
   if (input.colorOverride !== undefined) patch.colorOverride = input.colorOverride;
+  if (input.defaultReminders !== undefined) patch.defaultReminders = input.defaultReminders;
 
   await db.update(calendars).set(patch).where(and(eq(calendars.id, id), eq(calendars.userId, userId)));
 
@@ -373,7 +377,13 @@ export async function createEvent(userId: string, input: EventInput, userZone: s
     status: input.status ?? 'confirmed',
     transparency: input.transparency ?? 'opaque',
     attendees: input.attendees ?? null,
-    reminders: input.reminders ?? null,
+    /*
+     * An absent `reminders` falls through to the calendar's own default; an
+     * explicit `null` is a choice ("no reminders") and is kept. The editor
+     * pre-fills from the default, so this is the backstop for the API, GraphQL
+     * and import paths.
+     */
+    reminders: input.reminders !== undefined ? input.reminders : calendar.defaultReminders ?? null,
     color: input.color ?? null,
     syncProvider: remote ? 'caldav' : 'local',
     syncState: remote ? 'dirty' : 'synced',

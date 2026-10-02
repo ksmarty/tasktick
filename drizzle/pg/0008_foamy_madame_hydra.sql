@@ -1,0 +1,1 @@
+ALTER TABLE "calendars" ADD COLUMN "default_reminders" jsonb;

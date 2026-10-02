@@ -524,6 +524,13 @@ export const calendars = pgTable(
     lastSyncedAtMs: bigint('last_synced_at_ms', { mode: 'number' }),
     lastSyncError: text('last_sync_error'),
     colorOverride: text('color_override'),
+    /**
+     * Default reminder offsets (minutes before the event starts) applied to a
+     * new event created in this calendar. `null` means "no default reminders".
+     * Local and CalDAV calendars use the same column — a remote collection
+     * still gets to carry a local notification default.
+     */
+    defaultReminders: jsonb('default_reminders').$type<number[] | null>(),
     ...timestamps,
     deletedAtMs: bigint('deleted_at_ms', { mode: 'number' }),
   },

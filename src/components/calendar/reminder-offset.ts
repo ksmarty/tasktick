@@ -37,6 +37,44 @@ export const REMINDER_UNITS = [
 
 export type ReminderUnit = (typeof REMINDER_UNITS)[number]['value'];
 
+/**
+ * The fixed reminder choices offered wherever an offset is picked — the event
+ * editor and a calendar's default alike.
+ *
+ * One list rather than two: a calendar's default and the event it pre-fills are
+ * the same kind of value, and two copies would drift the moment one gained an
+ * option.
+ */
+export const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 0, label: 'At time' },
+  { minutes: 5, label: '5 min' },
+  { minutes: 10, label: '10 min' },
+  { minutes: 15, label: '15 min' },
+  { minutes: 30, label: '30 min' },
+  { minutes: 60, label: '1 hour' },
+  { minutes: 1440, label: '1 day' },
+];
+
+/** The offsets the presets already cover; a custom one is anything else. */
+export const PRESET_REMINDER_MINUTES = REMINDER_OPTIONS.map((option) => option.minutes);
+
+/**
+ * Whether two reminder lists hold the same offsets, order aside.
+ *
+ * Used to tell "the user has not touched these" from "the user chose these" when
+ * the calendar changes under an event: a list still equal to the previous
+ * calendar's default is replaced by the new calendar's, an edited one is kept.
+ */
+export function sameReminderOffsets(
+  a: readonly number[] | null | undefined,
+  b: readonly number[] | null | undefined,
+): boolean {
+  const left = [...(a ?? [])].sort((x, y) => x - y);
+  const right = [...(b ?? [])].sort((x, y) => x - y);
+  if (left.length !== right.length) return false;
+  return left.every((minutes, index) => minutes === right[index]);
+}
+
 /** "At the start", "45 min before", "2 hours before", "1 day before". */
 export function formatReminderOffset(minutes: number): string {
   if (minutes <= 0) return 'At the start';

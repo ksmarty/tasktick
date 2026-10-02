@@ -1,4 +1,4 @@
-import { accentHex, asAccentColor, resolveCalendarColor } from '@/lib/colors';
+import { accentHex, resolveCalendarColor } from '@/lib/colors';
 import type { AccentColor, Calendar, CalendarItem } from '@/lib/types';
 import type { CalendarLookup } from './types';
 
@@ -55,7 +55,9 @@ export function customCalendarHex(value: string | null | undefined): string | nu
  * its accent token.
  */
 export function calendarColorHex(calendar: Calendar | null | undefined, dark = false): string {
-  return customCalendarHex(calendar?.colorOverride) ?? accentHex(asAccentColor(calendar?.color), dark);
+  const custom = customCalendarHex(calendar?.colorOverride);
+  if (custom) return custom;
+  return accentHex(resolveCalendarColor(calendar?.color ?? null, calendar?.colorOverride ?? null), dark);
 }
 
 /**

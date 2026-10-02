@@ -720,6 +720,49 @@ describe('discovery', () => {
     expect(gone.deletedAtMs).toBeNull(); // user data is never destroyed by discovery
     expect(gone.lastSyncError).toContain('no longer advertised');
   });
+
+  it('seeds a new calendar from the remote colour but never reverts one the user chose', async () => {
+    const account = await seedAccount();
+    // An already-mirrored calendar whose colour the user has picked.
+    const localId = await seedCalendar(account, {
+      name: 'Home',
+      remoteHref: HOME,
+      colorOverride: 'purple',
+    });
+    const client = new FakeCalDavClient();
+    client.addCollection({
+      href: HOME,
+      displayName: 'Home',
+      supportedComponents: ['VEVENT'],
+      color: '#FF0000',
+    });
+    setCalDavClientFactory(() => client);
+
+    await discoverAccountCalendars(account.accountId);
+
+    // The remote seeds `colorOverride` the first time it sees a collection; it
+    // must not overwrite a value the user set, or a colour chosen for a CalDAV
+    // calendar reverts on the next sync.
+    expect((await getCalendarRow(localId)).colorOverride).toBe('purple');
+  });
+
+  it('still takes the remote colour for a collection it has not seen before', async () => {
+    const account = await seedAccount();
+    const client = new FakeCalDavClient();
+    client.addCollection({
+      href: HOME,
+      displayName: 'Home',
+      supportedComponents: ['VEVENT'],
+      color: '#00FF00',
+    });
+    setCalDavClientFactory(() => client);
+
+    await discoverAccountCalendars(account.accountId);
+
+    const db = await openSyncDb();
+    const [created] = await db.select().from(calendars).where(eq(calendars.remoteHref, HOME));
+    expect(created.colorOverride).toBe('#00FF00');
+  });
 });
 
 describe('failure handling', () => {

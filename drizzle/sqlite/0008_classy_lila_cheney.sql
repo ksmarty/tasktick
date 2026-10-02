@@ -1,0 +1,1 @@
+ALTER TABLE `calendars` ADD `default_reminders` text;

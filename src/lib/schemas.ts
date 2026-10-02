@@ -260,6 +260,8 @@ export const createCalendarSchema = z
     isVisible: z.boolean().optional(),
     showInTasks: z.boolean().optional(),
     isDefault: z.boolean().optional(),
+    /** Same bounds as an event's own `reminders`; `null` clears the default. */
+    defaultReminders: z.array(z.number().int().min(-100_800).max(100_800)).max(20).nullable().optional(),
   })
   .strict();
 

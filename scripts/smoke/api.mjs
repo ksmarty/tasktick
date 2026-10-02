@@ -249,6 +249,54 @@ async function main() {
   const cal = data(await api('POST', '/api/calendars', { name: 'Smoke Cal', color: 'orange' }));
   record('POST /api/calendars creates a calendar', cal?.name === 'Smoke Cal');
 
+  /* ---- per-calendar default reminders ---- */
+
+  console.log('\ncalendar default reminders');
+  const defaulted = data(
+    await api('POST', '/api/calendars', { name: 'Defaulted Cal', color: 'teal', defaultReminders: [10, 60] }),
+  );
+  record('POST /api/calendars stores a default reminder list', JSON.stringify(defaulted?.defaultReminders) === '[10,60]');
+
+  const inherited = data(
+    await api('POST', '/api/events', {
+      calendarId: defaulted.id,
+      summary: 'Inherits the default',
+      startMs: Date.parse('2030-06-20T10:00:00Z'),
+      endMs: Date.parse('2030-06-20T11:00:00Z'),
+    }),
+  );
+  record(
+    'an event that names no reminders inherits the calendar default',
+    JSON.stringify(inherited?.reminders) === '[10,60]',
+    `got ${JSON.stringify(inherited?.reminders)}`,
+  );
+
+  const optedOut = data(
+    await api('POST', '/api/events', {
+      calendarId: defaulted.id,
+      summary: 'Opted out',
+      startMs: Date.parse('2030-06-21T10:00:00Z'),
+      endMs: Date.parse('2030-06-21T11:00:00Z'),
+      reminders: [],
+    }),
+  );
+  record(
+    'an explicit empty list means "no reminders", not "use the default"',
+    Array.isArray(optedOut?.reminders) && optedOut.reminders.length === 0,
+    `got ${JSON.stringify(optedOut?.reminders)}`,
+  );
+
+  const clearedDefault = data(await api('PATCH', `/api/calendars/${defaulted.id}`, { defaultReminders: null }));
+  record('a default reminder list can be cleared', clearedDefault?.defaultReminders === null);
+
+  /*
+   * A colour the user picked for a calendar. The CalDAV sync used to write the
+   * remote colour over this on every sync; the engine now only seeds it. The
+   * sync half is pinned by tests/sync-engine.test.ts, and this covers the wire.
+   */
+  const recoloured = data(await api('PATCH', `/api/calendars/${cal.id}`, { colorOverride: 'purple' }));
+  record('a calendar keeps the colour override the user chose', recoloured?.colorOverride === 'purple');
+
   const event = data(
     await api('POST', '/api/events', {
       calendarId: cal.id,

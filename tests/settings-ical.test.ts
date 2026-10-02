@@ -40,8 +40,13 @@ describe('the subscription surface is one section', () => {
  * symptom was a greyed-out name and a colour that would not save.
  *
  * The distinction that matters is whether anything will overwrite the value: the
- * CalDAV sync rewrites `name` and the remote colour on every sync, a feed refresh
- * touches neither. Pinned from source because there is no jsdom here.
+ * CalDAV sync rewrites `name` on every pass, a feed refresh touches neither. A
+ * chosen colour is different again — it is stored as `colorOverride`, which the
+ * sync only seeds and never overwrites — so a writable CalDAV collection must
+ * reach the CalDAV branch *before* `readOnly` is consulted, or its colour pick is
+ * written to `color` and loses to the override the display prefers.
+ *
+ * Pinned from source because there is no jsdom here.
  */
 const EDITOR = readFileSync(
   new URL('../src/components/settings/CalendarListEditor.tsx', import.meta.url),
@@ -61,9 +66,24 @@ describe('a mirrored calendar can still be renamed', () => {
   });
 
   it('saves the name and colour for a calendar nothing overwrites', () => {
-    expect(EDITOR).toMatch(/if \(!remoteOwnsIdentity\)/);
-    // and still sends only the local preferences for one that is overwritten
-    expect(EDITOR).toMatch(/\{ isVisible, showInTasks \}/);
+    // A feed is not read-only to its label: its branch sends the name and colour.
+    expect(EDITOR).toMatch(/if \(readOnly\) \{[\s\S]{0,600}name: label,/);
+    // A CalDAV collection sends only the local preferences — never the name the
+    // sync would immediately replace — and its colour only as an override.
+    expect(EDITOR).toMatch(
+      /if \(calendar && remoteOwnsIdentity\) \{[\s\S]{0,300}isVisible,\s*showInTasks,\s*defaultReminders,\s*\.\.\.\(colorTouched \? \{ colorOverride: color \} : \{\}\),/,
+    );
+  });
+
+  it('decides the CalDAV case before readOnly, so a writable collection saves its colour', () => {
+    // The bug behind "I can't change the colour of a CalDAV calendar": the CalDAV
+    // branch was nested inside `if (readOnly)`, so the ordinary writable case fell
+    // through to the generic path and wrote `color` instead of `colorOverride`.
+    const caldav = EDITOR.indexOf('if (calendar && remoteOwnsIdentity)');
+    const readonly = EDITOR.indexOf('if (readOnly)');
+    expect(caldav).toBeGreaterThan(-1);
+    expect(readonly).toBeGreaterThan(-1);
+    expect(caldav).toBeLessThan(readonly);
   });
 });
 

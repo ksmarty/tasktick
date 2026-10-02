@@ -510,6 +510,13 @@ export const calendars = sqliteTable(
     lastSyncedAtMs: integer('last_synced_at_ms'),
     lastSyncError: text('last_sync_error'),
     colorOverride: text('color_override'),
+    /**
+     * Default reminder offsets (minutes before the event starts) applied to a
+     * new event created in this calendar. `null` means "no default reminders".
+     * Local and CalDAV calendars use the same column — a remote collection
+     * still gets to carry a local notification default.
+     */
+    defaultReminders: text('default_reminders', { mode: 'json' }).$type<number[] | null>(),
     ...timestamps,
     deletedAtMs: integer('deleted_at_ms'),
   },

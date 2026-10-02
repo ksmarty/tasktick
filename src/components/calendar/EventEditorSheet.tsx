@@ -91,10 +91,13 @@ import { cn } from '@/lib/utils';
 import { CalendarCombobox } from './CalendarCombobox';
 import { minuteToTime } from './geometry';
 import {
+  PRESET_REMINDER_MINUTES,
+  REMINDER_OPTIONS,
   REMINDER_UNITS,
   customReminderOffsets,
   formatReminderOffset,
   reminderOffsetFrom,
+  sameReminderOffsets,
   type ReminderUnit,
 } from './reminder-offset';
 import type { CalendarFilter, CalendarPrefs } from './types';
@@ -155,19 +158,6 @@ interface EventWriteBody {
   startTime?: TimeOnly;
   endTime?: TimeOnly;
 }
-
-const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
-  { minutes: 0, label: 'At time' },
-  { minutes: 5, label: '5 min' },
-  { minutes: 10, label: '10 min' },
-  { minutes: 15, label: '15 min' },
-  { minutes: 30, label: '30 min' },
-  { minutes: 60, label: '1 hour' },
-  { minutes: 1440, label: '1 day' },
-];
-
-/** The existing offsets a custom reminder must not duplicate. */
-const PRESET_REMINDER_MINUTES = REMINDER_OPTIONS.map((option) => option.minutes);
 
 /**
  * The bordered surface a group of fields sits in.
@@ -327,9 +317,10 @@ function buildDraft(
   today: DateOnly,
 ): Draft {
   if (!event) {
+    const calendarId = filter?.id ?? defaults.calendarId ?? calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id ?? '';
     return {
       title: '',
-      calendarId: filter?.id ?? defaults.calendarId ?? calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id ?? '',
+      calendarId,
       allDay: false,
       startDate: defaults.date,
       endDate: defaults.date,
@@ -338,7 +329,8 @@ function buildDraft(
       location: '',
       notes: '',
       repeatId: 'none',
-      reminders: [],
+      // A new event starts from the calendar's own default reminders.
+      reminders: [...(calendars.find((c) => c.id === calendarId)?.defaultReminders ?? [])],
     };
   }
 
@@ -391,6 +383,22 @@ function EventForm({
   const [customReminderOpen, setCustomReminderOpen] = useState(false);
 
   const patch = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
+
+  /*
+   * Switching calendar re-applies the new calendar's default reminders, but only
+   * while the list is still the previous calendar's default — a list the user has
+   * edited is theirs and is left alone. Without this the defaults would only ever
+   * apply to the calendar that happened to be selected when the sheet opened.
+   */
+  const switchCalendar = (calendarId: string) => {
+    const previous = calendars.find((calendar) => calendar.id === draft.calendarId)?.defaultReminders ?? [];
+    if (!sameReminderOffsets(draft.reminders, previous)) {
+      patch({ calendarId });
+      return;
+    }
+    const next = calendars.find((calendar) => calendar.id === calendarId)?.defaultReminders ?? [];
+    patch({ calendarId, reminders: [...next] });
+  };
 
   /*
    * Whether this form may write at all.
@@ -528,7 +536,7 @@ function EventForm({
         <CalendarCombobox
           value={draft.calendarId}
           calendars={calendars}
-          onChange={(calendarId) => patch({ calendarId })}
+          onChange={switchCalendar}
           className="shrink-0"
         />
 

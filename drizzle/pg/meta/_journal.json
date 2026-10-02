@@ -57,6 +57,13 @@
       "when": 1790569664853,
       "tag": "0007_smiling_mercury",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790958455803,
+      "tag": "0008_foamy_madame_hydra",
+      "breakpoints": true
     }
   ]
 }

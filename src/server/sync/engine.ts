@@ -560,7 +560,11 @@ async function upsertCalendars(
           description: collection.description ?? current.description,
           // `color` is a palette token, so the remote's raw colour is kept in
           // `colorOverride`, which the UI prefers when present.
-          colorOverride: collection.color ?? current.colorOverride,
+          //
+          // The remote only *seeds* it: once an override exists, the local value
+          // wins. This used to take `collection.color` unconditionally, so every
+          // sync reverted a colour the user had chosen for a CalDAV calendar.
+          colorOverride: current.colorOverride ?? collection.color,
           timezone: collection.timezone ?? current.timezone,
           remoteCtag: collection.ctag ?? current.remoteCtag,
           remoteSyncToken: collection.syncToken ?? current.remoteSyncToken,
