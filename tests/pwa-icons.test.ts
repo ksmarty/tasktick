@@ -65,6 +65,22 @@ function inkBox(png: DecodedPng): { minX: number; minY: number; maxX: number; ma
   return { minX, minY, maxX, maxY, count };
 }
 
+/**
+ * Index of the first pixel that is not fully opaque, or -1 when every one is.
+ *
+ * The obvious spelling — `expect(png.pixels[i]).toBe(255)` inside the walk — is
+ * ~262k matcher calls for the 512px icon, and that has timed out at the 5s
+ * default under a loaded full-suite run while passing in isolation. Folding the
+ * walk into one assertion keeps the check exactly as strict and reports the
+ * offending pixel index on failure.
+ */
+function firstTransparent(png: DecodedPng): number {
+  for (let i = 3; i < png.pixels.length; i += 4) {
+    if (png.pixels[i] !== 255) return i;
+  }
+  return -1;
+}
+
 describe('geometry helpers', () => {
   it('measures distance to a segment, clamped at both ends', () => {
     expect(distanceToSegment(0.5, 0, 0, 0, 1, 0)).toBeCloseTo(0, 10);
@@ -192,7 +208,7 @@ describe('generated icon files', () => {
 
   it('keeps the maskable artwork opaque and inside the safe circle', () => {
     const png = loadPng('public/icons/icon-maskable-512.png');
-    for (let i = 3; i < png.pixels.length; i += 4) expect(png.pixels[i]).toBe(255);
+    expect(firstTransparent(png)).toBe(-1);
 
     const ink = inkBox(png);
     expect(ink.count).toBeGreaterThan(1000);
@@ -209,6 +225,9 @@ describe('generated icon files', () => {
   it('draws the standard icon as a rounded tile with a centred mark', () => {
     const png = loadPng('public/icons/icon-512.png');
     expect(pixelAt(png, 0, 0)[3]).toBe(0); // rounded corner
+    // ...and the helper the two opacity checks rely on really does see a
+    // transparent pixel, so their `toBe(-1)` cannot pass vacuously.
+    expect(firstTransparent(png)).toBeGreaterThan(-1);
     expect(pixelAt(png, 256, 20)[3]).toBe(255);
     const ink = inkBox(png);
     expect(Math.abs((ink.minX + ink.maxX) / 2 - 256)).toBeLessThan(4);
@@ -217,7 +236,7 @@ describe('generated icon files', () => {
 
   it('never emits transparency in the apple-touch icon', () => {
     const png = loadPng('public/icons/apple-touch-icon.png');
-    for (let i = 3; i < png.pixels.length; i += 4) expect(png.pixels[i]).toBe(255);
+    expect(firstTransparent(png)).toBe(-1);
   });
 });
 

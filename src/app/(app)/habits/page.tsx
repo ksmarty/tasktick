@@ -145,9 +145,13 @@ export default function HabitsPage() {
    * The grid can scope the list to any day in the shown month, so the read has
    * to carry that month's entries — not just the current week. It also has to
    * reach back past the month's own start whenever the current week or the
-   * current month began earlier, because the server derives `progress`,
-   * `doneToday` and the streak from this same window (see `listHabits`). The end
-   * stays today so a future period can never be counted.
+   * current month began earlier, because the server derives `progress` and
+   * `doneToday` from this same window (see `listHabits`). The end stays today so
+   * a future period can never be counted.
+   *
+   * The streak is deliberately *not* bound by this. The server reads it over the
+   * habit's own life, because a streak outlives any window a screen asks for —
+   * sizing this to the visible month truncated it to the window.
    */
   const habitWindow = useMemo(() => {
     if (!today) return null;

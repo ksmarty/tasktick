@@ -228,15 +228,18 @@ function computeLongestStreak(
   progress: Map<string, PeriodProgress>,
   fromDate: DateOnly,
   toDate: DateOnly,
+  weekStartsOn: number,
   zone: string,
 ): number {
-  const target = periodTarget(habit);
   let best = 0;
   let run = 0;
 
   for (let cursor = fromDate; cursor <= toDate; cursor = addDaysToDateOnly(cursor, 1, zone)) {
     if (!isScheduledOn(habit, cursor)) continue;
-    const { key } = periodKey(habit, cursor, 1, zone);
+    // The same period key `progress` was built with. Hard-coding Monday here
+    // made a weekly habit's best-run disagree with its own streak whenever the
+    // account starts its week on Sunday.
+    const { key } = periodKey(habit, cursor, weekStartsOn, zone);
     const state = progress.get(key);
     if (state && state.met) {
       run++;
@@ -244,7 +247,6 @@ function computeLongestStreak(
     } else if (cursor !== toDate) {
       run = 0;
     }
-    void target;
   }
 
   return best;
@@ -282,6 +284,27 @@ export async function listHabits(options: ListHabitsOptions): Promise<Habit[]> {
 
   if (!rows.length) return [];
 
+  /*
+   * The window the *streak* is read over, which is deliberately not the window
+   * the screen asked for.
+   *
+   * `from` is a display window: the habits screen sizes it to the month the grid
+   * shows and never lets it start later than the current week. A streak is
+   * routinely longer than that, and deriving it from `from` made the number a
+   * property of the window instead of the habit — three days checked in a row
+   * read as a *one-day* streak on the Monday that followed, two screens showing
+   * the same habit disagreed, and the value never moved as days were selected
+   * because `from` only ever moved earlier within the same month.
+   *
+   * A streak cannot reach back past the day the habit was created, so that is
+   * where this read starts. `computeStreak` stops on its own at the first period
+   * that was missed, so a wider read cannot inflate the answer.
+   */
+  let streakFrom = from;
+  for (const row of rows) {
+    if (row.startDate < streakFrom) streakFrom = row.startDate;
+  }
+
   const entryRows = await db
     .select()
     .from(habitEntries)
@@ -289,7 +312,7 @@ export async function listHabits(options: ListHabitsOptions): Promise<Habit[]> {
       and(
         eq(habitEntries.userId, userId),
         inArray(habitEntries.habitId, rows.map((r) => r.id)),
-        gte(habitEntries.date, from),
+        gte(habitEntries.date, streakFrom),
         lte(habitEntries.date, to),
       ),
     );
@@ -306,23 +329,33 @@ export async function listHabits(options: ListHabitsOptions): Promise<Habit[]> {
     const raw = byHabit.get(row.id) ?? [];
 
     const entries: Record<DateOnly, number> = {};
+    /*
+     * Every entry the streak read could need, which reaches back before the
+     * screen's window. `progress` is still scoped to that window — by the
+     * `from`/`to` handed to `computePeriodProgress`, not by what is in here — so
+     * `doneToday`, `progress` and `completionRate` are unchanged. Only the
+     * streak and the best-run read the wider one.
+     */
     const detailed: Record<DateOnly, { count: number; value: number | null }> = {};
     for (const entry of raw) {
-      entries[entry.date] = entry.count;
       detailed[entry.date] = { count: entry.count, value: entry.value };
+      // The screen's window is all the client paints from, so it is all it gets.
+      if (entry.date >= from) entries[entry.date] = entry.count;
     }
 
     const progress = computePeriodProgress(habit, detailed, from, to, weekStartsOn, zone);
+    const streakProgress = computePeriodProgress(habit, detailed, streakFrom, to, weekStartsOn, zone);
     const currentPeriod = periodKey(habit, today, weekStartsOn, zone);
     const currentState = progress.get(currentPeriod.key);
 
     habit.entries = entries;
-    habit.streak = computeStreak(habit, progress, today, weekStartsOn, zone);
-    habit.longestStreak = computeLongestStreak(habit, progress, from, to, zone);
+    habit.streak = computeStreak(habit, streakProgress, today, weekStartsOn, zone);
+    habit.longestStreak = computeLongestStreak(habit, streakProgress, streakFrom, to, weekStartsOn, zone);
     habit.doneToday = currentState?.met ?? false;
     habit.progress = Math.min(1, (currentState?.total ?? 0) / periodTarget(habit));
 
-    const scheduledDays = Object.keys(detailed).length;
+    // Days with an entry inside the *screen's* window — `detailed` is wider now.
+    const scheduledDays = Object.keys(entries).length;
     const metPeriods = [...progress.values()].filter((p) => p.met).length;
     habit.completionRate = scheduledDays === 0 ? 0 : Math.min(1, metPeriods / Math.max(1, scheduledDays));
 
