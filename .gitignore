@@ -6,7 +6,13 @@ dist/
 coverage/
 
 # Local runtime state
-data/
+#
+# Anchored on purpose. A bare `data/` matches a directory at *any* depth, which
+# silently swallowed `src/app/(app)/period/settings/data/` — a real route whose
+# `page.tsx` was therefore never committed. It passed here and failed in CI,
+# where the file is genuinely absent: the route 404'd and `tests/period-nav.test.ts`
+# read a missing file. Anything that names a source directory must be anchored.
+/data/
 *.db
 *.db-journal
 *.db-wal
