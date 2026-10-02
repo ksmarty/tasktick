@@ -269,6 +269,7 @@ function CalendarDialog({
   const [colorTouched, setColorTouched] = useState(false);
   const [isVisible, setVisible] = useState(true);
   const [showInTasks, setShowInTasks] = useState(true);
+  const [dedupeEvents, setDedupeEvents] = useState(false);
   const [defaultReminders, setDefaultReminders] = useState<number[]>([]);
   const readOnly = calendar?.readOnly ?? false;
 
@@ -326,6 +327,7 @@ function CalendarDialog({
     setColorTouched(false);
     setVisible(calendar?.isVisible ?? true);
     setShowInTasks(calendar?.showInTasks ?? true);
+    setDedupeEvents(calendar?.dedupeEvents ?? false);
     setDefaultReminders(calendar?.defaultReminders ?? []);
   }, [calendar, open]);
 
@@ -347,6 +349,7 @@ function CalendarDialog({
         return await api.patch<Calendar>(`/api/calendars/${calendar.id}`, {
           isVisible,
           showInTasks,
+          dedupeEvents,
           defaultReminders,
           ...(colorTouched ? { colorOverride: color } : {}),
         });
@@ -366,6 +369,7 @@ function CalendarDialog({
           color,
           isVisible,
           showInTasks,
+          dedupeEvents,
           defaultReminders,
         });
       }
@@ -377,9 +381,10 @@ function CalendarDialog({
             color,
             isVisible,
             showInTasks,
+            dedupeEvents,
             defaultReminders,
           })
-        : await api.post<Calendar>('/api/calendars', { name: trimmed, color, isVisible, showInTasks });
+        : await api.post<Calendar>('/api/calendars', { name: trimmed, color, isVisible, showInTasks, dedupeEvents });
     },
     {
       invalidates: CALENDAR_WRITE_PREFIXES,
@@ -493,6 +498,31 @@ function CalendarDialog({
                   aria-label="Show in the task list"
                   checked={showInTasks}
                   onCheckedChange={setShowInTasks}
+                />
+              </div>
+
+              {/*
+               * The third view preference, and the only one that changes which
+               * events are drawn rather than where: an event here gives way to
+               * one another calendar already has on the same day. A subscription
+               * and a plain calendar both accept it — the rule lives in
+               * `getCalendarItems`, not in the subscription service.
+               */}
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <Label htmlFor="calendar-dedupe" className="block">
+                    Hide events another calendar already has
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Drops this calendar&rsquo;s events whose title falls on the same day as an event in a calendar
+                    that does not have this switched on. Meant for overlapping holiday feeds.
+                  </p>
+                </div>
+                <Switch
+                  id="calendar-dedupe"
+                  aria-label="Hide events another calendar already has"
+                  checked={dedupeEvents}
+                  onCheckedChange={setDedupeEvents}
                 />
               </div>
 

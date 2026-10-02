@@ -76,15 +76,24 @@ describe('the task-list visibility switch', () => {
 
   it('sends the flag with both create and edit saves', () => {
     expect(EDITOR).toContain('setShowInTasks(calendar?.showInTasks ?? true)');
-    expect(EDITOR).toMatch(/showInTasks,\s*defaultReminders,\s*\}\)/);
-    expect(EDITOR).toContain('{ name: trimmed, color, isVisible, showInTasks }');
+    expect(EDITOR).toMatch(/showInTasks,\s*dedupeEvents,\s*defaultReminders,\s*\}\)/);
+    expect(EDITOR).toContain('{ name: trimmed, color, isVisible, showInTasks, dedupeEvents }');
+  });
+
+  it('offers the dedupe switch, in the same dialog as the other preferences', () => {
+    // The Calendars tab is the other way into a subscription, so the switch has
+    // to be reachable from here too — it was not, and the two editors disagreed.
+    expect(EDITOR).toContain('Hide events another calendar already has');
+    expect(EDITOR).toContain('setDedupeEvents(calendar?.dedupeEvents ?? false)');
+    expect(EDITOR).toContain('id="calendar-dedupe"');
   });
 
   it('lets a read-only calendar still save its local view preferences', () => {
-    // The name/colour belong to the remote, but visibility and the task-list
-    // switch do not — so the Save button cannot be dead for a synced calendar.
+    // The name/colour belong to the remote, but visibility, the task-list switch
+    // and the dedupe switch do not — so the Save button cannot be dead for a
+    // synced calendar.
     expect(EDITOR).toContain('if (readOnly)');
-    expect(EDITOR).toMatch(/\{\s*isVisible,\s*showInTasks,\s*defaultReminders,/);
+    expect(EDITOR).toMatch(/\{\s*isVisible,\s*showInTasks,\s*dedupeEvents,\s*defaultReminders,/);
     expect(EDITOR).not.toContain('disabled={save.isPending || readOnly}');
   });
 });

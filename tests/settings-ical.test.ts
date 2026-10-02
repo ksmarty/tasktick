@@ -71,7 +71,7 @@ describe('a mirrored calendar can still be renamed', () => {
     // A CalDAV collection sends only the local preferences — never the name the
     // sync would immediately replace — and its colour only as an override.
     expect(EDITOR).toMatch(
-      /if \(calendar && remoteOwnsIdentity\) \{[\s\S]{0,300}isVisible,\s*showInTasks,\s*defaultReminders,\s*\.\.\.\(colorTouched \? \{ colorOverride: color \} : \{\}\),/,
+      /if \(calendar && remoteOwnsIdentity\) \{[\s\S]{0,300}isVisible,\s*showInTasks,\s*dedupeEvents,\s*defaultReminders,\s*\.\.\.\(colorTouched \? \{ colorOverride: color \} : \{\}\),/,
     );
   });
 
