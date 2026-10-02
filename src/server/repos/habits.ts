@@ -14,6 +14,10 @@
  * habit is due today and you have not checked in yet, the streak still shows the
  * value it had after the previous scheduled day. Failing a period only breaks
  * the streak once that period is genuinely over.
+ *
+ * Scoring is deliberately not bounded by `startDate`. A check-in can be recorded
+ * for any date, so a run filled in after the fact counts, and a day before the
+ * habit was created is skipped rather than treated as a miss.
  */
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { getDb } from '../db';
@@ -81,9 +85,19 @@ function rowToHabit(row: typeof habits.$inferSelect): Habit {
 /* schedule maths                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** Whether the habit is expected on a given day. */
-export function isScheduledOn(habit: Habit, date: DateOnly): boolean {
-  if (date < habit.startDate) return false;
+/**
+ * Whether the habit's *schedule* covers `date`, ignoring when the habit began.
+ *
+ * A day before `habit.startDate` is not one to draw as due — the client keeps
+ * that floor in its own copy of this rule (`isHabitDueOn` in
+ * src/components/habits/period.ts) — but it is still a day that can be *scored*.
+ * `checkIn` takes an arbitrary date and does not clamp it to the start date, so
+ * a run can be filled in after the fact and has to stay readable past the
+ * habit's birthday. Gating the walk back on `startDate` meant a habit created
+ * today with the previous seven days ticked afterwards reported *no streak at
+ * all*.
+ */
+function matchesSchedule(habit: Habit, date: DateOnly): boolean {
   switch (habit.frequency) {
     case 'custom': {
       const days = habit.weekDays?.length ? habit.weekDays : [0, 1, 2, 3, 4, 5, 6];
@@ -200,10 +214,16 @@ export function computeStreak(
   }
 
   // Daily / custom: walk back one scheduled day at a time.
+  //
+  // `matchesSchedule` deliberately has no `startDate` floor: the run may have
+  // been filled in after the fact and can therefore sit entirely before
+  // `habit.startDate`. A day the schedule does not cover is still skipped rather
+  // than counted as a miss, and the walk still ends at the first scheduled day
+  // that was missed.
   let cursor = today;
   let checkedPeriods = 0;
   while (checkedPeriods < maxLookback) {
-    const due = isScheduledOn(habit, cursor);
+    const due = matchesSchedule(habit, cursor);
     const isToday = cursor === today;
 
     if (due) {
@@ -216,7 +236,6 @@ export function computeStreak(
 
     cursor = addDaysToDateOnly(cursor, -1, zone);
     checkedPeriods++;
-    if (cursor < habit.startDate) break;
   }
 
   return streak;
@@ -235,7 +254,7 @@ function computeLongestStreak(
   let run = 0;
 
   for (let cursor = fromDate; cursor <= toDate; cursor = addDaysToDateOnly(cursor, 1, zone)) {
-    if (!isScheduledOn(habit, cursor)) continue;
+    if (!matchesSchedule(habit, cursor)) continue;
     // The same period key `progress` was built with. Hard-coding Monday here
     // made a weekly habit's best-run disagree with its own streak whenever the
     // account starts its week on Sunday.
@@ -305,13 +324,28 @@ export async function listHabits(options: ListHabitsOptions): Promise<Habit[]> {
     if (row.startDate < streakFrom) streakFrom = row.startDate;
   }
 
+  /*
+   * ...and the earliest check-in, which is not bounded by `startDate` at all.
+   * `checkIn` accepts any date, so a run can be filled in after the fact and can
+   * sit entirely before the habit's birthday — the seven previous days ticked on
+   * a habit created today. Nothing older than the earliest entry can matter,
+   * because the walk back ends at the first scheduled day that was missed, so
+   * this one aggregate keeps the read bounded while still reaching far enough.
+   */
+  const habitIds = rows.map((r) => r.id);
+  const [earliestEntry] = await db
+    .select({ date: sql<string | null>`min(${habitEntries.date})` })
+    .from(habitEntries)
+    .where(and(eq(habitEntries.userId, userId), inArray(habitEntries.habitId, habitIds)));
+  if (earliestEntry?.date && earliestEntry.date < streakFrom) streakFrom = earliestEntry.date;
+
   const entryRows = await db
     .select()
     .from(habitEntries)
     .where(
       and(
         eq(habitEntries.userId, userId),
-        inArray(habitEntries.habitId, rows.map((r) => r.id)),
+        inArray(habitEntries.habitId, habitIds),
         gte(habitEntries.date, streakFrom),
         lte(habitEntries.date, to),
       ),

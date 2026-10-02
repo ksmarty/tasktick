@@ -132,3 +132,62 @@ describe('a streak is read from the habit, not from the window', () => {
     expect(read?.streak).toBe(6);
   });
 });
+
+/**
+ * A streak is a run of days that were *done*, and the app lets any day be marked
+ * after the fact — `checkIn` takes an arbitrary date and does not clamp it to the
+ * habit's start date. So the run does not have to end on the day the habit was
+ * created, and the walk back has to be allowed to cross that date.
+ *
+ * The bug this pins: the walk stopped as soon as it stepped before
+ * `habit.startDate`, so a habit created today whose previous seven days were
+ * filled in afterwards reported **no streak at all**. The days were stored, the
+ * boxes were ticked, and the number said 0.
+ */
+describe('a streak counts days filled in after the fact', () => {
+  it('counts a run that ends yesterday, on a habit created today', async () => {
+    const { userId } = await seedAccount();
+    const today = todayIn(ZONE);
+    const habit = await seedDailyHabit(userId, today);
+
+    // Seven days marked, today deliberately left alone.
+    for (let offset = 1; offset <= 7; offset += 1) {
+      await checkIn(userId, habit.id, { date: addDaysToDateOnly(today, -offset, ZONE), count: 1 }, ZONE);
+    }
+
+    const read = await readThroughWindow(userId, today, today);
+    expect(read?.streak).toBe(7);
+  });
+
+  it('counts the same run on a habit older than it', async () => {
+    const { userId } = await seedAccount();
+    const today = todayIn(ZONE);
+    const habit = await seedDailyHabit(userId, addDaysToDateOnly(today, -60, ZONE));
+
+    for (let offset = 1; offset <= 7; offset += 1) {
+      await checkIn(userId, habit.id, { date: addDaysToDateOnly(today, -offset, ZONE), count: 1 }, ZONE);
+    }
+
+    const read = await readThroughWindow(userId, today, today);
+    expect(read?.streak).toBe(7);
+  });
+
+  it('still stops at a day that was genuinely missed', async () => {
+    const { userId } = await seedAccount();
+    const today = todayIn(ZONE);
+    const habit = await seedDailyHabit(userId, today);
+
+    // Yesterday and the day before are in; three days ago is the gap.
+    for (const offset of [1, 2]) {
+      await checkIn(userId, habit.id, { date: addDaysToDateOnly(today, -offset, ZONE), count: 1 }, ZONE);
+    }
+    for (let offset = 4; offset <= 10; offset += 1) {
+      await checkIn(userId, habit.id, { date: addDaysToDateOnly(today, -offset, ZONE), count: 1 }, ZONE);
+    }
+
+    // Guards the other direction: walking past `startDate` must not turn the
+    // count into "every entry the habit ever had".
+    const read = await readThroughWindow(userId, today, today);
+    expect(read?.streak).toBe(2);
+  });
+});

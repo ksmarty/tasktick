@@ -108,9 +108,13 @@ export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] a
 /**
  * Whether the habit is expected on `date`.
  *
- * Mirrors the server's `isScheduledOn` (src/server/repos/habits.ts) for the
- * strip and the day picker. It is used to *emphasise* scheduled days, never to
- * score them.
+ * The client's own copy of the schedule rule, for the strip and the day picker.
+ * It is used to *emphasise* scheduled days, never to score them, which is why it
+ * keeps the `startDate` floor below. The server applies the same weekday rule
+ * (`matchesSchedule` in src/server/repos/habits.ts) but deliberately without
+ * that floor: a day can be checked in after the fact, so the server has to be
+ * able to score a run that predates the habit's creation, while the grid still
+ * must not draw those days as due.
  */
 export function isHabitDueOn(
   habit: Pick<Habit, 'frequency' | 'weekDays' | 'startDate'>,
