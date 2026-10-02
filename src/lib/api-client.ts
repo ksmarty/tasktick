@@ -24,6 +24,7 @@
  * and answered; replaying it later would replace a clear message with a mystery.
  */
 import { enqueueWrite, isQueueable, type QueueMethod } from './offline-queue';
+import { isReachable, reportReachable, reportUnreachable } from './network-health';
 
 export class ApiClientError extends Error {
   constructor(
@@ -67,6 +68,34 @@ function buildUrl(path: string, query?: Query): string {
 }
 
 /**
+ * How long a request the offline queue can take is allowed to go unanswered.
+ *
+ * Only queueable writes are bounded (see the call site), and that is what makes
+ * a short ceiling safe: an abandoned write is not lost. `queueFailedWrite` sees
+ * the network error, records the request, and the caller gets the same
+ * placeholder it would have got with no connection at all — so the optimistic
+ * screen stays and the work replays.
+ *
+ * The cost, stated plainly: a request abandoned just as it was about to succeed
+ * has been applied by the server and is then replayed. The window is narrow —
+ * the request has to reach the server and the response has to be lost inside the
+ * same three seconds — and every dispatch carries `X-Idempotency-Key`, which
+ * collapses a replay to one effect *on a server that honours it*. As of this
+ * writing nothing on the server reads that header (`grep -rn
+ * x-idempotency-key src/` finds only the sender), so the window is real. It is
+ * the price of not leaving a screen waiting on a network that has already
+ * failed.
+ *
+ * The number is a latency budget, not an availability one — "bad cell service"
+ * is a latency problem first. Three seconds is the same ceiling a *navigation*
+ * gets in `public/sw.js`, which is the longest a person is expected to keep
+ * waiting on a screen before something should visibly happen. A read is not
+ * bounded here at all: the service worker already answers one it has cached
+ * immediately and bounds an uncached one at `API_TIMEOUT_MS`.
+ */
+const QUEUEABLE_TIMEOUT_MS = 3000;
+
+/**
  * One request, no queueing. `sendNow` is the same thing exported, and is what the
  * offline queue replays through — a replayed write must not be able to re-enter
  * the queue that is currently draining.
@@ -78,6 +107,25 @@ async function transport<T>(
   headers?: Record<string, string>,
 ): Promise<T> {
   let response: Response;
+
+  /*
+   * A request that hangs is the one failure `navigator.onLine` cannot see.
+   *
+   * Handing a phone from Wi-Fi to cellular leaves the flag `true` while the
+   * socket opened on the old interface is dead, and a link like that hangs
+   * rather than refuses: the fetch sits there until the browser's own timeout
+   * decides, which is tens of seconds. Every screen that awaited it looked
+   * frozen. Bounding it turns the hang into the network failure the offline
+   * layer already knows how to handle.
+   *
+   * Deliberately limited to writes the queue can take. A CalDAV sync, an import
+   * or a feed refresh can legitimately take many seconds and has nothing to be
+   * handed to — aborting one would report a failure for work the server may
+   * still be finishing — so those keep waiting, exactly as before.
+   */
+  const bounded = isQueueable(method, path);
+  const controller = bounded ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), QUEUEABLE_TIMEOUT_MS) : null;
 
   try {
     response = await fetch(path, {
@@ -94,13 +142,25 @@ async function transport<T>(
       // service worker keeps its own per-session copy and is the only thing
       // allowed to answer from a cache (see `public/sw.js`).
       cache: 'no-store',
+      ...(controller ? { signal: controller.signal } : {}),
     });
   } catch {
-    // A thrown fetch is a network failure, not an HTTP error.
+    /*
+     * A thrown fetch is a network failure, not an HTTP error — and so is an
+     * abort, which is the same thing one step later: the request produced no
+     * response. Both are reported the same way, which is what lets the queue and
+     * the offline indicator treat a hang as being offline.
+     */
+    reportUnreachable();
     throw new ApiClientError('You appear to be offline. Your changes were not saved.', 0, 'network');
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204) {
+    reportReachable();
+    return undefined as T;
+  }
 
   const text = await response.text();
   let parsed: unknown = null;
@@ -108,7 +168,9 @@ async function transport<T>(
     try {
       parsed = JSON.parse(text);
     } catch {
-      // A non-JSON body from a proxy or crash page.
+      // A non-JSON body from a proxy or crash page. The server answered, so the
+      // origin is up; the body is the problem.
+      reportReachable();
       if (!response.ok) {
         throw new ApiClientError(`Request failed (${response.status}).`, response.status);
       }
@@ -116,7 +178,17 @@ async function transport<T>(
     }
   }
 
-  const envelope = parsed as { ok?: boolean; data?: T; error?: string; code?: string } | null;
+  const envelope = parsed as { ok?: boolean; data?: T; error?: string; code?: string; offline?: boolean } | null;
+
+  /*
+   * The service worker answers a read it cannot reach the network for with a
+   * synthetic `503 { offline: true }` (see `offlineResponse` in `public/sw.js`).
+   * That is the worker saying it could not reach the server, not the server
+   * saying no, so it is the one response that is evidence of an unreachable
+   * origin rather than a reachable one.
+   */
+  if (response.status === 503 && envelope?.offline === true) reportUnreachable();
+  else reportReachable();
 
   if (!response.ok || envelope?.ok === false) {
     throw new ApiClientError(
@@ -146,9 +218,8 @@ export async function sendNow<T>(
   return transport<T>(method, buildUrl(path, query), body, headers);
 }
 
-/** Queues a write that never reached the server. Returns its placeholder, if held. */
-async function queueFailedWrite(method: HttpMethod, path: string, body: unknown, error: unknown): Promise<unknown | undefined> {
-  if (!(error instanceof ApiClientError) || !error.isNetworkError) return undefined;
+/** Queues a write that is not going to the server. Returns its placeholder, if held. */
+async function queueWrite(method: HttpMethod, path: string, body: unknown): Promise<unknown | undefined> {
   if (!isQueueable(method, path)) return undefined;
   if (typeof indexedDB === 'undefined') return undefined;
 
@@ -163,8 +234,36 @@ async function queueFailedWrite(method: HttpMethod, path: string, body: unknown,
   }
 }
 
+/** Queues a write that never reached the server. Returns its placeholder, if held. */
+async function queueFailedWrite(method: HttpMethod, path: string, body: unknown, error: unknown): Promise<unknown | undefined> {
+  if (!(error instanceof ApiClientError) || !error.isNetworkError) return undefined;
+  return queueWrite(method, path, body);
+}
+
 async function request<T>(method: HttpMethod, path: string, body?: unknown, query?: Query): Promise<T> {
   const url = buildUrl(path, query);
+
+  /*
+   * A write whose network is already known to be unusable goes straight to the
+   * queue, without a round trip.
+   *
+   * This is the difference between surviving a bad network and *feeling* like
+   * offline mode. The last request already established that nothing is getting
+   * through, so spending the timeout again to re-learn it leaves a spinner on
+   * screen for three seconds for a write that was never going to be sent — and
+   * every tap after the first pays that again. Queueing it now is what the app
+   * would have done with no connection at all, which is the behaviour asked for.
+   *
+   * Reads are deliberately not short-circuited. A read is answered from the
+   * service worker's per-session cache, which is already the offline behaviour,
+   * and skipping the attempt would skip the cache with it. A read is also the
+   * cheapest way to find out the network came back, so it keeps trying.
+   */
+  if (!isReachable() && isQueueable(method, url)) {
+    const queued = await queueWrite(method, url, body);
+    if (queued !== undefined) return queued as T;
+  }
+
   try {
     return await transport<T>(method, url, body);
   } catch (error) {

@@ -537,15 +537,3 @@ export function applyCheckInOptimistically(habit: Habit, change: CheckInChange, 
   }
   return patch;
 }
-
-/** Short phrase for the toast that follows a check-in. */
-export function checkInChangeLabel(habit: Habit, change: CheckInChange): string {
-  if (habit.goalType === 'boolean') {
-    const done = change.count !== undefined && change.count !== null ? change.count > 0 : (change.delta ?? 0) > 0;
-    return done ? `${habit.name} done for today` : `${habit.name} unchecked`;
-  }
-  if (change.delta !== undefined) {
-    return change.delta >= 0 ? `${habit.name} +${change.delta}` : `${habit.name} ${change.delta}`;
-  }
-  return `${habit.name} set to ${change.count ?? 0}`;
-}

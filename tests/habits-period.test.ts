@@ -8,7 +8,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyCheckInOptimistically,
-  checkInChangeLabel,
   completionLabel,
   frequencySummary,
   goalSummary,
@@ -262,14 +261,5 @@ describe('applyCheckInOptimistically', () => {
     const after = applyCheckInOptimistically(habit({ entries: { '2025-03-10': 3 } }), { date: TODAY, count: 5 });
 
     expect(after.entries).toEqual({ '2025-03-10': 3, [TODAY]: 5 });
-  });
-});
-
-describe('checkInChangeLabel', () => {
-  it('describes a boolean toggle and a counted step', () => {
-    expect(checkInChangeLabel(habit({ goalType: 'boolean' }), { date: TODAY, count: 1 })).toBe('Drink water done for today');
-    expect(checkInChangeLabel(habit({ goalType: 'boolean' }), { date: TODAY, count: null })).toBe('Drink water unchecked');
-    expect(checkInChangeLabel(habit(), { date: TODAY, delta: 1 })).toBe('Drink water +1');
-    expect(checkInChangeLabel(habit(), { date: TODAY, delta: -1 })).toBe('Drink water -1');
   });
 });

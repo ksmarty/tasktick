@@ -36,6 +36,7 @@ import { isQueueUsable, matchesPrefix, pathnameOf, pendingAffects, subscribeQueu
 import { encodeEntry, persistEntry as persistRecord, forgetPersistedEntry, loadPersistedEntries, shouldApplyHydrated, clearPersistedEntries } from './offline-store';
 import { insertProjectedEntity, projectQueuedCreate } from './offline-projections';
 import { ensureOfflineSupport, invalidateServiceWorker, onScopeEvent, scopeForWrites } from './session-scope';
+import { isReachable, startNetworkHealth, subscribeReachability } from './network-health';
 
 type Listener = () => void;
 
@@ -465,6 +466,9 @@ function startOfflineBridge(): void {
   });
 
   void ensureOfflineSupport();
+  // Follows the browser's own connectivity events, which is what clears a stale
+  // "unreachable" after a handover without waiting for the next request to fail.
+  startNetworkHealth();
 }
 
 if (typeof window !== 'undefined') startOfflineBridge();
@@ -537,9 +541,36 @@ function subscribeNetwork(listener: () => void): () => void {
   };
 }
 
-/** Truthful connectivity: what the browser reports, and nothing else. */
+/**
+ * Whether the origin can be reached right now.
+ *
+ * Not `navigator.onLine` alone. That flag says the device has *an* interface,
+ * not that the server answers — and the difference is exactly the case that
+ * looks broken: handing a phone from Wi-Fi to cellular leaves the flag `true`
+ * while the socket on the old interface is dead, so a request hangs until the
+ * browser's own timeout decides and the app appears frozen with nothing to say
+ * about why. `isReachable()` in `network-health.ts` is the correction: it is set
+ * by what requests actually did, so a hang counts as being offline.
+ *
+ * The two are ANDed rather than one replacing the other. The browser's flag is
+ * still the only thing that knows there is no interface at all — a page that is
+ * genuinely offline and has made no requests yet must not claim to be online
+ * just because nothing has failed — and reachability is the only thing that
+ * knows a present interface can be useless.
+ */
 export function useNetworkOnline(): boolean {
-  return useSyncExternalStore(subscribeNetwork, () => navigator.onLine, () => true);
+  return useSyncExternalStore(
+    (listener) => {
+      const unsubscribeBrowser = subscribeNetwork(listener);
+      const unsubscribeReachability = subscribeReachability(listener);
+      return () => {
+        unsubscribeBrowser();
+        unsubscribeReachability();
+      };
+    },
+    () => navigator.onLine && isReachable(),
+    () => true,
+  );
 }
 
 /**

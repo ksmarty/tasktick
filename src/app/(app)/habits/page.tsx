@@ -254,7 +254,6 @@ export default function HabitsPage() {
           ...(change.delta !== undefined ? { delta: change.delta } : {}),
         });
         invalidate(HABIT_WRITE_PREFIXES);
-        if (change.count === null) toast({ title: `${habit.name} unchecked`, variant: 'info' });
       } catch (error) {
         habits.mutate(() => snapshot);
         toast({
