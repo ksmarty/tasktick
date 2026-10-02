@@ -39,22 +39,28 @@ export const signOut: typeof authClient.signOut = (async (...args: Parameters<ty
 /**
  * Starts a generic OIDC sign-in.
  *
- * Deliberately calls the endpoint directly rather than going through a client
- * plugin: better-auth ships `genericOAuth` as a *server* plugin and exposes
- * `/sign-in/oauth2` as the entry point, but this version exports no matching
- * client plugin (there is `genericOAuthClient` in the docs, not in the package).
- * Depending on a name that does not exist would fail at runtime, so the endpoint
- * is used explicitly and the response is checked honestly.
+ * Deliberately calls the endpoint directly rather than going through the client
+ * proxy: the request shape is small and stable, and doing it by hand keeps the
+ * error message honest instead of whatever the proxy would throw.
+ *
+ * The endpoint is `/sign-in/social`, not `/sign-in/oauth2`. better-auth 1.7
+ * refactored `genericOAuth`: the server plugin no longer registers its own
+ * endpoints, it registers each configured provider as a first-class social
+ * provider (`init` → `context.socialProviders`), and the core `signIn.social`
+ * endpoint drives the flow. Posting to the old `/sign-in/oauth2` path is a 404
+ * against the auth router, which surfaced as "Could not start single sign-on".
+ * The provider key is `provider` here (matching `signIn.social`), where the old
+ * generic-OAuth endpoint called it `providerId`.
  *
  * The response body is better-auth's own shape (`{ url, redirect }`), NOT this
  * app's `{ ok, data }` envelope, so `api` from `@/lib/api-client` is not used.
  */
 export async function startOidcSignIn(callbackURL = '/tasks'): Promise<void> {
-  const response = await fetch('/api/auth/sign-in/oauth2', {
+  const response = await fetch('/api/auth/sign-in/social', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ providerId: 'oidc', callbackURL }),
+    body: JSON.stringify({ provider: 'oidc', callbackURL }),
   });
 
   // Named explicitly rather than via `typeof payload`: an inline `as typeof` in

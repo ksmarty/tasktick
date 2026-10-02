@@ -29,7 +29,7 @@ const ORIGIN_CASES = [
 
   ['https://evil.com', false, 'public attacker page'],
   ['http://192.168.1.50.evil.com', false, 'public host that LOOKS private'],
-  ['https://tasks.example.com', false, 'public hostname (needs config)'],
+  ['https://tasks.example.com', false, 'public hostname: neither APP_URL nor a private address'],
   ['http://8.8.8.8', false, 'public IP'],
   ['http://172.32.0.1:3000', false, 'just outside 172.16/12'],
   ['http://172.15.255.255:3000', false, 'just below 172.16/12'],

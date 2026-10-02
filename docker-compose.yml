@@ -42,11 +42,15 @@ services:
       # The public origin, used for OIDC redirect URIs and the webcal://
       # subscription links shown in Settings. Optional for reaching the app — a
       # private-network origin is always accepted — but set it so subscription
-      # links point at an address your phone can reach.
+      # links point at an address your phone can reach. Setting it to your public
+      # origin also authorises that origin for auth requests, so a reverse-proxy
+      # deployment needs nothing else.
       APP_URL: ${APP_URL:-http://localhost:3000}
 
-      # Extra origins allowed to make state-changing auth requests. Needed only
-      # for a PUBLIC hostname behind a reverse proxy; LAN access is automatic.
+      # Extra origins allowed to make state-changing auth requests, on top of
+      # APP_URL and automatic LAN access. Only needed when you browse the app
+      # from an origin that is NOT APP_URL — a second hostname, say. A single
+      # public hostname in APP_URL needs no entry here.
       #   BETTER_AUTH_TRUSTED_ORIGINS: "https://tasks.example.com"
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-}
 
@@ -72,7 +76,7 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-false}
 
       # Optional single sign-on. Redirect URI to register with your provider:
-      #   ${APP_URL}/api/auth/oauth2/callback/oidc
+      #   ${APP_URL}/api/auth/callback/oidc
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}

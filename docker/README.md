@@ -102,10 +102,12 @@ caddy reverse-proxy --from tasks.example.com --to 127.0.0.1:3000
 ```
 
 …or nginx/Traefik with the usual `X-Forwarded-Proto`/`X-Forwarded-For` headers.
-Then set `TRUST_PROXY=true`, set `APP_URL=https://tasks.example.com`, and add
-`BETTER_AUTH_TRUSTED_ORIGINS=https://tasks.example.com` — a public hostname is
-neither `APP_URL` nor a private address, so the auth origin check needs to be
-told about it explicitly. (LAN access needs none of this.) Stop publishing port
+Then set `TRUST_PROXY=true` and set `APP_URL=https://tasks.example.com`. That is
+all the auth configuration needs: `APP_URL` is the address you browse to, and
+better-auth trusts it as an origin automatically. Add
+`BETTER_AUTH_TRUSTED_ORIGINS=https://tasks.example.com` only if you also reach
+the app from a *different* public origin (a second hostname). (LAN access needs
+none of this.) Stop publishing port
 3000 to the outside world in that setup
 (`ports: ["127.0.0.1:${PORT:-3000}:3000"]`). CalDAV/ICS clients keep working
 over HTTP, but reminders by push do not.

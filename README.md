@@ -210,14 +210,14 @@ published in this repository, or is shorter than 32 characters.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `APP_URL` | `http://localhost:3000` | Public origin. Used for OIDC redirect URIs and the `webcal://` links shown in Settings. Optional for reaching the app — a private-network origin is always accepted — but set it so subscription links point at an address your phone can reach. |
+| `APP_URL` | `http://localhost:3000` | Public origin. Used for OIDC redirect URIs and the `webcal://` links shown in Settings. Optional for reaching the app — a private-network origin is always accepted — but set it so subscription links point at an address your phone can reach. Setting it to your public origin also authorises that origin for auth requests. |
 | `DATABASE_URL` | `file:/data/tasktick.db` | Or `postgres://user:pass@db:5432/tasktick` |
 | `REGISTRATION_MODE` | `invite` | `open` · `invite` · `closed` |
 | `SYNC_ENABLED` | `true` | Background CalDAV sync |
 | `SYNC_TICK_SECONDS` | `60` | Scheduler resolution; per-account intervals are set in the UI |
 | `DEFAULT_TIMEZONE` | `UTC` | Fallback when the browser cannot tell us |
 | `CALDAV_ALLOW_INSECURE_TLS` | `false` | Only for self-signed certs on a LAN you control |
-| `BETTER_AUTH_TRUSTED_ORIGINS` | *(unset)* | Extra origins allowed to make auth requests. Needed only for a **public** hostname behind a reverse proxy; LAN access is automatic. Comma separated, wildcards supported. |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | *(unset)* | Extra origins allowed to make auth requests, on top of `APP_URL` and automatic LAN access. Needed only when you browse from an origin that is **not** `APP_URL` (a second public hostname, say). Comma separated, wildcards supported. |
 | `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy you control |
 
 ### Single sign-on (optional)
@@ -226,7 +226,7 @@ Any OIDC provider — Authentik, Keycloak, Pocket ID, Authelia, Zitadel, Entra I
 Okta, Google Workspace. Register this redirect URI with your provider:
 
 ```
-${APP_URL}/api/auth/oauth2/callback/oidc
+${APP_URL}/api/auth/callback/oidc
 ```
 
 ```bash

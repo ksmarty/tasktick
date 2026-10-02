@@ -224,9 +224,14 @@ function createAuth() {
      * rebinding — an attacker pointing `evil.com` at the internal address sends
      * `Host: evil.com` AND `Origin: http://evil.com`, so both would match.
      *
-     * `APP_URL` and additional origins still apply: better-auth itself reads
-     * `BETTER_AUTH_TRUSTED_ORIGINS` (comma-separated) and appends it, so public
-     * deployments are configured through that rather than by relaxing this.
+     * `APP_URL` is always trusted, independently of this function: better-auth
+     * seeds the allow-list with the `baseURL` origin before appending what this
+     * returns, so setting `APP_URL` to the address you actually browse to is
+     * enough on its own — including the public-reverse-proxy case. This function
+     * only has to cover the *other* addresses a self-hosted instance is reached
+     * on. `BETTER_AUTH_TRUSTED_ORIGINS` (comma-separated, read by better-auth
+     * itself) is for origins that differ from `APP_URL` — several public
+     * hostnames, say — and is never required just because the hostname is public.
      */
     trustedOrigins: async (request?: Request) => {
       const requestOrigin = originFromRequest(request);
