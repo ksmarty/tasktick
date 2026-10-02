@@ -27,7 +27,7 @@
  *      "I ticked it off, it un-ticked itself" bug. Once the queue drains, the
  *      prefixes are revalidated for real and the server wins again.
  *   2. When a queued write finally lands, the prefixes it affects are refetched
- *      through `revalidate()`, which reaches every mounted screen, not just the
+ *      through `invalidate()`, which reaches every mounted screen, not just the
  *      one that made the write (it may not exist any more).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -227,9 +227,8 @@ export function useResource<T>(
 
   /*
    * Every mounted resource publishes its loader so a write that lands later can
-   * refresh it. `revalidate()` is what the offline queue calls when a replayed
-   * write succeeds: the component that made the write may be long gone (or the
-   * page may have been reloaded), so the refetch cannot be the caller's job.
+   * refresh it. The component that made the write may be long gone by then (or
+   * the page may have been reloaded), so the refetch cannot be the caller's job.
    */
   useEffect(() => {
     if (!cacheKey || !enabled) return;
@@ -268,7 +267,22 @@ export function useResource<T>(
       error: entry?.error ?? null,
       isLoading: entry?.isLoading ?? false,
       isInitialLoading: Boolean(entry?.isLoading && entry.data === undefined),
-      refresh: () => load(true).then(() => undefined),
+      /*
+       * A caller's `refresh()` is a write's echo, so it has to drop the copy this
+       * read was answered from before asking for another.
+       *
+       * `load(true)` on its own still reads through the worker, which serves
+       * `/api/**` cache-first (`sessionRead` in public/sw.js) and ignores the
+       * client's `cache: 'no-store'` — the header governs the browser's HTTP
+       * cache, not the worker's Cache Storage. So a dialog that refreshed after
+       * its own write was handed the body from before it and looked like it had
+       * done nothing, which is the same race `invalidate()` fixes for writes.
+       *
+       * `invalidate()` therefore does the whole job: drop the worker's copy, mark
+       * the entries stale, then wake this resource's own loader (registered
+       * below) with `force`.
+       */
+      refresh: () => (key ? invalidate(key) : Promise.resolve()),
       mutate,
     }),
     [entry, load, mutate],
@@ -281,7 +295,14 @@ type Loader = (force: boolean) => unknown;
 /** Mounted loaders, so a key can be refreshed without a component asking. */
 const loaders = new Map<string, Set<Loader>>();
 
-function registerLoader(key: string, loader: Loader): () => void {
+/**
+ * Registers a mounted resource's loader so a write can refresh it.
+ *
+ * Exported because this is the seam the store's own tests drive: "a write
+ * freshens every screen showing that data" is the entire point of
+ * `invalidate()`, and the only other way to observe it is to render a component.
+ */
+export function registerLoader(key: string, loader: Loader): () => void {
   const set = loaders.get(key) ?? new Set<Loader>();
   set.add(loader);
   loaders.set(key, set);
@@ -292,44 +313,58 @@ function registerLoader(key: string, loader: Loader): () => void {
 }
 
 /**
- * Imperatively refreshes every cached key matching a prefix.
+ * Makes every read under `prefix` show what the write just changed.
  *
- * Marks the client entries stale AND drops the service worker's cached copy of
- * the same reads. The worker cannot see a write — non-GET requests are never
- * intercepted — so without this a cache-first read would answer the next mount
- * with the body from before the write. The returned promise resolves once the
- * worker has actually dropped its copy; `revalidate()` waits on it, and callers
- * that only need the local entries stale can ignore it.
+ * Three steps, in this order — and the order is the whole point:
+ *
+ *   1. Mark the cached entries stale and bump their version. The bump discards a
+ *      GET that was already in flight when the write landed; otherwise that
+ *      response, fetched before the write, would settle afterwards and put the
+ *      old body back on the screen.
+ *   2. Drop the service worker's cached copy of the same reads. The worker
+ *      cannot see a write — non-GET requests are never intercepted — so a
+ *      cache-first read would otherwise answer with the pre-write body.
+ *   3. Refetch every mounted resource under the prefix.
+ *
+ * Step 3 is what makes a write visible without the caller doing anything, and it
+ * deliberately runs *after* step 2. A refetch issued alongside the drop races it
+ * and usually wins, handing the screen exactly the pre-write body the drop was
+ * about to remove — which is why a habit check-in and a calendar's eye toggle
+ * each appeared to need a second tap.
+ *
+ * Resolves once the worker has acknowledged the drop and the refetches are under
+ * way, so a caller may `await` it. It never rejects and never blocks for long:
+ * an unresponsive worker settles on a timeout, and with no worker at all it goes
+ * straight to the refetch.
+ *
+ * Accepts a list as well as a single prefix. A writer should not hand-write
+ * that list: `affectsFor(method, path)` in `offline-rules.ts` is the single
+ * source of truth for what a write reaches, and the same table answers for a
+ * replayed write with no component left to invalidate anything.
  */
-export function invalidate(prefix: string): Promise<void> {
+export function invalidate(prefix: string | readonly string[]): Promise<void> {
+  const prefixes = typeof prefix === 'string' ? [prefix] : prefix;
   for (const key of cache.keys()) {
-    if (matchesPrefix(key, prefix)) {
-      const entry = getEntry(key);
-      setEntry(key, { loadedAt: 0, version: entry.version });
-    }
+    if (!prefixes.some((candidate) => matchesPrefix(key, candidate))) continue;
+    const entry = getEntry(key);
+    setEntry(key, { loadedAt: 0, version: entry.version + 1 });
   }
-  emit();
-  return invalidateServiceWorker([prefix]);
+  return invalidateServiceWorker(prefixes).then(() => refreshMounted(prefixes));
 }
 
 /**
- * Invalidates and actually refetches, for every mounted key under `prefix`.
+ * Refetches every mounted resource whose key falls under `prefix`.
  *
- * `invalidate()` alone only marks entries stale, which is enough when the
- * caller is about to read them again. A write replayed from the offline queue
- * has no such caller, so this is the version it uses.
- *
- * The refetch waits for the worker to drop its cached copy first. This is the
- * one caller that refetches immediately, and a cache-first read racing the drop
- * would replay exactly the pre-write body the flush replaced.
+ * The cached entries are not read here; each mounted `useResource` owns its own
+ * loader and this only wakes them. A key with no mounted loader stays stale and
+ * is fetched by whoever mounts it next.
  */
-export function revalidate(prefix: string): Promise<void> {
-  return invalidate(prefix).then(() => {
-    for (const [key, callbacks] of loaders) {
-      if (!matchesPrefix(key, prefix)) continue;
-      for (const callback of [...callbacks]) void callback(true);
-    }
-  });
+function refreshMounted(prefix: string | readonly string[]): void {
+  const prefixes = typeof prefix === 'string' ? [prefix] : prefix;
+  for (const [key, callbacks] of loaders) {
+    if (!prefixes.some((candidate) => matchesPrefix(key, candidate))) continue;
+    for (const callback of [...callbacks]) void callback(true);
+  }
 }
 
 /** Drops a cached entry entirely (e.g. after a delete). */
@@ -423,7 +458,9 @@ function startOfflineBridge(): void {
   subscribeQueue((event) => {
     if (event.type === 'queued') applyQueuedProjection(event.entry);
     if (event.type === 'flushed') {
-      for (const prefix of event.affects) revalidate(prefix);
+      // One call, not one per prefix: the queue replays writes in batches, and a
+      // batch should drop and refetch once rather than once per affected read.
+      if (event.affects.length > 0) void invalidate(event.affects);
     }
   });
 
@@ -441,9 +478,15 @@ export interface MutationState {
 }
 
 /**
- * Wraps a write. On success it invalidates the given key prefixes so every view
- * showing that data refetches, which is what keeps the calendar and the task
- * list consistent without any manual plumbing.
+ * Wraps a write. On success it drops what the write changed and wakes every view
+ * showing it, which is what keeps the calendar and the task list consistent
+ * without any manual plumbing.
+ *
+ * The drop is `await`ed before `onSuccess` runs. That order matters: an
+ * `onSuccess` that refetches (a dialog reloading its own row, say) would
+ * otherwise read back through the service worker's still-warm copy and render
+ * the pre-write body. The list is passed as one call because `invalidate()`
+ * accepts it and one drop/refetch wave is both cheaper and ordered.
  */
 export function useMutation<TArgs extends unknown[], TResult = unknown>(
   fn: (...args: TArgs) => Promise<TResult>,
@@ -464,7 +507,8 @@ export function useMutation<TArgs extends unknown[], TResult = unknown>(
       setPending(true);
       try {
         const result = await fn(...args);
-        for (const prefix of options.invalidates ?? []) invalidate(prefix);
+        const prefixes = options.invalidates ?? [];
+        if (prefixes.length > 0) await invalidate(prefixes);
         options.onSuccess?.(result, args);
         return result;
       } catch (error) {

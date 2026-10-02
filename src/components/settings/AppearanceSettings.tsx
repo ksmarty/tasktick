@@ -40,6 +40,7 @@ import { SunIcon } from '@svg-animated-icons/react/sun';
 import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
 import type { AccentPreference } from '@/lib/types';
 import { useAppearance } from '@/app/providers';
@@ -67,7 +68,7 @@ export function AppearanceSettings() {
     async (patch: { theme?: ThemePreference; accent?: AccentPreference }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
-      invalidates: ['/api/settings', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/settings'),
       onError: (message) =>
         toast({
           title: 'Saved on this device only',

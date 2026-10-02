@@ -53,13 +53,12 @@ export function PeriodModeCard() {
    *
    * The settings live in the client store, and every other reader of them — the
    * period layout's deep-link guard, the "open period mode" row below — reads that
-   * same cached entry. `invalidate()` marks an entry stale but keeps serving the
-   * old value until something refetches, so without writing here the cache would
-   * still say `enabled: false` at the moment the router enters `/period`, and the
-   * guard would bounce the user straight back out of the screen they just turned
-   * on. Writing the intended value through first makes the whole UI agree with the
-   * switch immediately; the server's own answer replaces it a moment later, and a
-   * failure reverts it.
+   * same cached entry. `invalidate()` refetches only after the worker has
+   * acknowledged the drop, so the cache would still say `enabled: false` at the
+   * moment the router enters `/period`, and the guard would bounce the user
+   * straight back out of the screen they just turned on. Writing the intended
+   * value through first makes the whole UI agree with the switch immediately;
+   * the server's own answer replaces it a moment later, and a failure reverts it.
    */
   function setEnabled(next: boolean) {
     const before = settings.data;

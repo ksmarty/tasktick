@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/select';
 import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
 import { formatTime, nowIn } from '@/lib/dates';
 import { useToast } from '@/components/app/Toast';
@@ -90,7 +91,7 @@ export function DateTimeSettings({ settings }: DateTimeSettingsProps) {
     async (patch: { timezone?: string; weekStartsOn?: 0 | 1; timeFormat?: '12h' | '24h' }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
-      invalidates: ['/api/settings', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/settings'),
       onError: (message) => toast({ title: 'Could not save that preference', description: message, variant: 'error' }),
     },
   );

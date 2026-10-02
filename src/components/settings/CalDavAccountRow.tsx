@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
 import { caldavErrorMessage, syncStatusLabel, syncStatusTone, syncStatusWord } from './caldav';
 import { SettingsRow } from './SettingsGroup';
@@ -67,7 +68,7 @@ export function CalDavAccountRow({ account, onEdit, onChanged }: CalDavAccountRo
   const advice = caldavErrorMessage(account.lastError, account.serverUrl);
 
   const discover = useMutation(async () => api.post<SyncRunPayload>(`/api/caldav/accounts/${account.id}/discover`), {
-    invalidates: ['/api/caldav/accounts', '/api/calendars', '/api/bootstrap'],
+    invalidates: affectsFor('POST', '/api/caldav'),
     onSuccess: (result) => {
       if (!result) return;
       report(result, 'Discovery');
@@ -78,7 +79,7 @@ export function CalDavAccountRow({ account, onEdit, onChanged }: CalDavAccountRo
   const sync = useMutation(
     async () => api.post<SyncRunPayload>(`/api/caldav/accounts/${account.id}/sync`, { kind: 'incremental' }),
     {
-      invalidates: ['/api/caldav/accounts', '/api/calendars', '/api/tasks', '/api/calendar/items'],
+      invalidates: affectsFor('POST', '/api/caldav'),
       onSuccess: (result) => {
         if (!result) return;
         report(result, 'Sync');
@@ -90,7 +91,7 @@ export function CalDavAccountRow({ account, onEdit, onChanged }: CalDavAccountRo
   const toggle = useMutation(
     async (enabled: boolean) => api.patch<CaldavAccount>(`/api/caldav/accounts/${account.id}`, { enabled }),
     {
-      invalidates: ['/api/caldav/accounts', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/caldav'),
       onSuccess: (_result, [enabled]) => {
         toast({ title: enabled ? `${account.name} enabled` : `${account.name} disabled`, variant: 'success' });
         onChanged?.();
@@ -106,7 +107,7 @@ export function CalDavAccountRow({ account, onEdit, onChanged }: CalDavAccountRo
         purgeData ? { purge: 1 } : undefined,
       ),
     {
-      invalidates: ['/api/caldav/accounts', '/api/calendars', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/caldav'),
       onSuccess: (_result, [purgeData]) => {
         toast({
           title: `${account.name} removed`,

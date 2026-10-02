@@ -29,9 +29,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/app/Toast';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate } from '@/lib/store';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { TickTickPreview } from '@/lib/ticktick-import';
+
+/**
+ * What an import reaches, from the one table that knows.
+ *
+ * An import adds tasks (with their lists) in one shot, so the task row's set is
+ * the right one — and it is issued as a single call rather than three, because
+ * an import is the largest write in the app and each `invalidate` is its own
+ * drop-and-refetch wave.
+ */
+const IMPORT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/tasks');
 
 interface TickTickSummary {
   listsCreated: number;
@@ -137,9 +148,7 @@ export function TickTickImportCard() {
       const result = await upload(file, 'commit');
       setSummary(result.summary ?? null);
       setPreview(result.preview);
-      invalidate('/api/tasks');
-      invalidate('/api/lists');
-      invalidate('/api/bootstrap');
+      void invalidate(IMPORT_WRITE_PREFIXES);
       toast({
         title: 'Import complete',
         description: `Added ${result.summary?.tasksCreated ?? 0} tasks, ${result.summary?.subtasksCreated ?? 0} subtasks and ${result.summary?.remindersCreated ?? 0} reminders.`,

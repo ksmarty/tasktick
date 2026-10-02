@@ -86,6 +86,7 @@ import {
 } from '@/lib/dates';
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset, weekdayOfDate } from '@/lib/rrule';
 import { invalidate, useResource } from '@/lib/store';
+import { affectsFor } from '@/lib/offline-rules';
 import type { Calendar as CalendarRecord, CalendarEvent, DateOnly, TimeOnly } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { CalendarCombobox } from './CalendarCombobox';
@@ -101,6 +102,16 @@ import {
   type ReminderUnit,
 } from './reminder-offset';
 import type { CalendarFilter, CalendarPrefs } from './types';
+
+/**
+ * What an event write reaches, from the one table that knows.
+ *
+ * The two used to name `/api/calendar/items` and `/api/events` by hand, which
+ * left `/api/bootstrap` out: the Today agenda and the sidebar's per-day counts
+ * are built from it, so a new event appeared on the calendar and not on Today
+ * until something else refreshed it.
+ */
+const EVENT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/events');
 
 /** Prefill for a new event, expressed the way the grid thinks. */
 export interface EventDefaults {
@@ -471,8 +482,7 @@ function EventForm({
       if (event) await api.patch<CalendarEvent>(`/api/events/${event.id}`, body);
       else await api.post<CalendarEvent>('/api/events', body);
 
-      invalidate('/api/calendar/items');
-      invalidate('/api/events');
+      await invalidate(EVENT_WRITE_PREFIXES);
       onChanged();
       toast({ title: event ? 'Event updated' : 'Event created', variant: 'success' });
       onClose();
@@ -491,8 +501,7 @@ function EventForm({
     if (locked || !event) return;
     try {
       await api.delete(`/api/events/${event.id}`);
-      invalidate('/api/calendar/items');
-      invalidate('/api/events');
+      await invalidate(EVENT_WRITE_PREFIXES);
       onChanged();
       toast({ title: 'Event deleted', variant: 'success' });
       setConfirmDelete(false);

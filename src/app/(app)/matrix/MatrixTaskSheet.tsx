@@ -47,6 +47,7 @@ import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
 import { SegmentedControl } from '@/components/godui/segmented-control';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { TASK_WRITE_PREFIXES } from '@/components/tasks/useTaskActions';
 import { useMediaQuery, useMutation } from '@/lib/store';
 import { timeIn } from '@/lib/dates';
 import { cn } from '@/lib/utils';
@@ -157,7 +158,7 @@ export function MatrixTaskSheet({ task, onOpenChange, zone, onChanged }: MatrixT
       return api.patch<Task>(`/api/tasks/${task?.id}`, body);
     },
     {
-      invalidates: ['/api/tasks'],
+      invalidates: TASK_WRITE_PREFIXES,
       onSuccess: () => {
         toast({ title: 'Task updated', variant: 'success' });
         onChanged?.();
@@ -168,7 +169,7 @@ export function MatrixTaskSheet({ task, onOpenChange, zone, onChanged }: MatrixT
   );
 
   const complete = useMutation(async () => api.post<CompleteTaskPayload>(`/api/tasks/${task?.id}/complete`), {
-    invalidates: ['/api/tasks'],
+    invalidates: TASK_WRITE_PREFIXES,
     onSuccess: (result) => {
       toast({
         title: result?.recurred ? 'Repeating task moved to its next date' : 'Task completed',
@@ -181,7 +182,7 @@ export function MatrixTaskSheet({ task, onOpenChange, zone, onChanged }: MatrixT
   });
 
   const remove = useMutation(async () => api.delete<{ deleted: boolean }>(`/api/tasks/${task?.id}`), {
-    invalidates: ['/api/tasks'],
+    invalidates: TASK_WRITE_PREFIXES,
     onSuccess: () => {
       toast({ title: 'Task deleted', variant: 'success' });
       onChanged?.();

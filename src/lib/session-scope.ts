@@ -190,7 +190,7 @@ export function requestDocumentCache(url?: string): void {
  * completed task or an edited event.
  *
  * The returned promise resolves once the worker has actually deleted the
- * entries. `revalidate()` awaits it before refetching, so a forced refresh can
+ * entries. `invalidate()` awaits it before refetching, so a forced refresh can
  * never be answered from the copy the write just invalidated. When there is no
  * worker — or it does not answer — the promise still resolves: the invalidation
  * is what keeps the cache honest, not a precondition for the app to work.

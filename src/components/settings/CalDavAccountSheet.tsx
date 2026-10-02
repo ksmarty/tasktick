@@ -63,6 +63,7 @@ import {
 import { useToast } from '@/components/app/Toast';
 import { cn } from '@/lib/utils';
 import { api, errorMessage } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
 import {
   CALDAV_HELP,
@@ -266,7 +267,7 @@ export function CalDavAccountSheet({ open, onOpenChange, account = null, onSaved
       return { account: created, discovery: discoveryResult, sync: syncResult, created: true };
     },
     {
-      invalidates: ['/api/caldav/accounts', '/api/calendars', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/caldav'),
       onSuccess: (result) => {
         if (!result) return;
         if (!result.created) {

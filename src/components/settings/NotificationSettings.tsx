@@ -33,10 +33,22 @@ import { useToast } from '@/components/app/Toast';
 import { IosInstallHint } from '@/components/pwa';
 import { isIos, isStandalone } from '@/components/pwa/platform';
 import { api, errorMessage } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
+import { invalidate } from '@/lib/store';
 import { PUSH_STATE_MESSAGE, pushStateFor, urlBase64ToUint8Array, withTimeout, type PushEnvironment } from './push';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { SettingsPayload } from '@/lib/view-types';
 import type { UserSettings } from '@/lib/types';
+
+/**
+ * What a settings write reaches, from the one table that knows.
+ *
+ * This screen used to patch `/api/settings` and call `onChanged()` with nothing
+ * invalidated: every other reader of the setting — the shell's bootstrap, the
+ * appearance screen, the scheduler's own view — kept the old value until it
+ * happened to refetch.
+ */
+const SETTINGS_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/settings');
 
 /** How long to wait for a controlling service worker before giving up. */
 const WORKER_TIMEOUT_MS = 8_000;
@@ -291,6 +303,7 @@ function ReminderSwitch({ enabled, onChanged }: { enabled: boolean; onChanged?: 
     setBusy(true);
     try {
       await api.patch<UserSettings>('/api/settings', { notificationsEnabled: next });
+      await invalidate(SETTINGS_WRITE_PREFIXES);
       onChanged?.();
     } catch (error) {
       setChecked(!next);

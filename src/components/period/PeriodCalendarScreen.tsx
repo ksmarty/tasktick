@@ -124,8 +124,8 @@ export function PeriodCalendarScreen() {
    *
    * The sheet renders the one `DayLogForm` against this screen's overview, so the
    * write-through has to happen here — the same optimistic-then-revert shape the
-   * settings switches use, because `invalidate()` alone leaves the cached
-   * settings in place and the form is rendered from them.
+   * settings switches use, because `invalidate()` refetches only after the worker
+   * has acknowledged the drop and the form is rendered in the meantime.
    */
   const showAllSections = useUpdatePeriodSettings({
     onError: (message) => toast({ title: 'Could not save that', description: message, variant: 'error' }),

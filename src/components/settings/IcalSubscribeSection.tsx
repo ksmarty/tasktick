@@ -50,9 +50,21 @@ import {
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import { IcalSubscriptionDialog } from './IcalSubscriptionDialog';
 import { api, errorMessage } from '@/lib/api-client';
+import { invalidate } from '@/lib/store';
+import { affectsFor } from '@/lib/offline-rules';
 import { useToast } from '@/components/app/Toast';
 import { calendarColorHex } from '@/components/calendar/colors';
 import type { Calendar } from '@/lib/types';
+
+/**
+ * What a subscription write reaches, from the one table that knows.
+ *
+ * A subscription is a calendar and a pile of mirrored events: the write changes
+ * the feed list itself, the calendar editor, the calendars the month grid draws
+ * and the shell bootstrap. The ical row also carries `/api/ical`, which the old
+ * literal list here did not, so the feed list itself stayed stale on a remount.
+ */
+const SUBSCRIPTION_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/ical');
 
 interface Payload {
   subscriptions: Calendar[];
@@ -95,6 +107,26 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
     void load();
   }, [load]);
 
+  /**
+   * Drops every cache a subscription write reaches, then refetches this list.
+   *
+   * A subscription *is* a calendar and a pile of mirrored events, so a write here
+   * changes three reads: the calendar list/editor, the shell bootstrap, and the
+   * items the calendar screen expands. None of them knew about a new feed before
+   * this: the screen kept its own copy in `subs`, and everything else was stale
+   * until a reload.
+   *
+   * The drop comes first on purpose. `load()` reads through the service worker,
+   * which answers a GET from its own cache; refetching before the drop would read
+   * back the pre-write list. Waiting for `invalidate`'s acknowledgement is what
+   * orders the two.
+   */
+  async function afterMutation() {
+    await invalidate(SUBSCRIPTION_WRITE_PREFIXES);
+    await load();
+    onChanged?.();
+  }
+
   function openCreate() {
     setEditing(null);
     setDialogOpen(true);
@@ -125,8 +157,7 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
           variant: 'success',
         });
       }
-      await load();
-      onChanged?.();
+      await afterMutation();
     } catch (error) {
       toast({ title: 'Could not refresh', description: errorMessage(error), variant: 'error' });
     } finally {
@@ -143,8 +174,7 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
         description: `${calendar.name} and its events were removed.`,
         variant: 'success',
       });
-      await load();
-      onChanged?.();
+      await afterMutation();
     } catch (error) {
       toast({ title: 'Could not unsubscribe', description: errorMessage(error), variant: 'error' });
     } finally {
@@ -152,10 +182,9 @@ export function IcalSubscribeSection({ onChanged }: { onChanged?: () => void }) 
     }
   }
 
-  /** After a create or edit, refetch the list and let the caller refresh too. */
+  /** After a create or edit, drop the caches and let the caller refresh too. */
   async function handleSaved() {
-    await load();
-    onChanged?.();
+    await afterMutation();
   }
 
   return (

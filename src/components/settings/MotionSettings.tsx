@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { applyServerMotionPreferences, setMotionPreferences, useMotionPreferences } from '@/lib/motion';
 import { useMutation, useResource } from '@/lib/store';
 import type { ReducedMotionPreference, UserSettings } from '@/lib/types';
@@ -63,7 +64,7 @@ export function MotionSettings() {
     async (patch: { reducedMotion?: ReducedMotionPreference; reduceMotionLowPower?: boolean }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
-      invalidates: ['/api/settings', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/settings'),
       onError: (message) =>
         toast({ title: 'Could not save the motion preference', description: message, variant: 'error' }),
     },

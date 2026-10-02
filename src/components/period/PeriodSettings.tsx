@@ -64,6 +64,7 @@ import { useToast } from '@/components/app/Toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { isHormonalMethod } from '@/lib/period-math';
 import { useMutation, useResource } from '@/lib/store';
 import { useAppearance } from '@/app/providers';
@@ -201,7 +202,7 @@ export function PeriodAppearanceSection() {
     async (patch: { theme?: ThemePreference; accent?: AccentPreference; weekStartsOn?: 0 | 1 }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
-      invalidates: ['/api/settings', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/settings'),
       onError: (message) =>
         toast({ title: 'Saved on this device only', description: message, variant: 'error' }),
     },

@@ -83,6 +83,7 @@ import {
   todayIn,
 } from '@/lib/dates';
 import { invalidate, useResource } from '@/lib/store';
+import { affectsFor } from '@/lib/offline-rules';
 import type { CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
 import { AgendaItemPreview } from './AgendaItemPreview';
@@ -433,10 +434,18 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   /* writes                                                             */
   /* ------------------------------------------------------------------ */
 
+  /**
+   * The calendar reads through the store, so one `invalidate` both drops the
+   * worker's copy and refetches the mounted resource.
+   *
+   * It used to call `resource.refresh()` as well, which raced the drop: the
+   * refetch won, was answered from the copy the write had just invalidated, and
+   * put the pre-write body back — so a dragged event snapped back to where it
+   * started until the next action.
+   */
   const refresh = useCallback(() => {
-    invalidate('/api/calendar/items');
-    void resource.refresh();
-  }, [resource]);
+    void invalidate('/api/calendar/items');
+  }, []);
 
   const reschedule = useCallback(
     (item: CalendarItem, target: RescheduleTarget) => {
@@ -464,10 +473,15 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
             );
 
       write
-        .then(() => {
-          invalidate('/api/calendar/items');
-          return resource.refresh();
-        })
+        .then(() =>
+          // A drag can move an event *or* a task, and the two reach different
+          // reads — a moved event belongs to `/api/events`, a moved task to
+          // `/api/tasks` and the task list. Asking the table by the item's own
+          // kind is what keeps the Today counts and the sidebar honest; the
+          // screen refetches itself either way because both rows carry
+          // `/api/bootstrap` and the event row carries `/api/calendar/items`.
+          invalidate(affectsFor('PATCH', item.kind === 'event' ? `/api/events/${item.id}` : `/api/tasks/${item.id}`)),
+        )
         .catch((error: unknown) => {
           // Roll back just this item, inside whatever the cache holds now, so the
           // grid never disagrees with the server about where the block is.

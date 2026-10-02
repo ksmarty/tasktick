@@ -26,7 +26,8 @@ import { SpotlightCard } from '@/components/godui/spotlight-card';
 import { useToast } from '@/components/app/Toast';
 import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
-import { useResource } from '@/lib/store';
+import { TASK_WRITE_PREFIXES } from '@/components/tasks/useTaskActions';
+import { invalidate, useResource } from '@/lib/store';
 import { todayIn, relativeDayLabel } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { MatrixTaskSheet } from './MatrixTaskSheet';
@@ -91,7 +92,7 @@ export default function MatrixPage() {
       try {
         await api.patch<Task>(`/api/tasks/${task.id}`, drop.patch);
         toast({ title: dropMessage(task, drop), description: 'An urgency change is a change to the due date.' });
-        void tasks.refresh();
+        void invalidate(TASK_WRITE_PREFIXES);
       } catch (error) {
         tasks.mutate(() => snapshot);
         toast({ title: 'Could not move the task', description: errorMessage(error), variant: 'error' });

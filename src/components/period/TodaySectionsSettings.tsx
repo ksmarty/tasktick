@@ -65,9 +65,11 @@ export function PeriodSectionsSection() {
   /**
    * Writes one chip vocabulary, through the store first.
    *
-   * Same reasoning as `setVisible` below: the entry keeps serving the old value
-   * until a refetch lands, and nothing here remounts, so an editor that waited
-   * for the server would look like it ignored the edit. A failure reverts it.
+   * Same reasoning as `setVisible` below: `invalidate()` refetches only after
+   * the worker has acknowledged the drop, so this entry still serves the old
+   * value for a moment and nothing here remounts in the meantime. An editor that
+   * waited for the server would look like it ignored the edit. A failure reverts
+   * it.
    */
   function setOptions(field: 'symptomOptions' | 'moodOptions', next: string[]) {
     const before = settings.data;
@@ -80,13 +82,13 @@ export function PeriodSectionsSection() {
   /**
    * Flips one switch.
    *
-   * The optimistic write is not a flourish: `invalidate()` marks the settings
-   * entry stale but keeps serving the old value until something refetches, and
-   * nothing here remounts — so without writing the intended value through first,
-   * the switch would stay where it was and two quick taps would both be computed
-   * from the *previous* list, the second silently undoing the first. The server's
-   * own answer replaces it a moment later and a failure reverts it. This is the
-   * same reasoning as `PeriodModeCard`'s switch. */
+   * The optimistic write is not a flourish: `invalidate()` refetches only after
+   * the worker has acknowledged the drop, so without writing the intended value
+   * through first the switch would stay where it was for that window, and two
+   * quick taps would both be computed from the *previous* list — the second
+   * silently undoing the first. The server's own answer replaces it a moment
+   * later and a failure reverts it. This is the same reasoning as
+   * `PeriodModeCard`'s switch. */
   function setVisible(category: (typeof TODAY_CATEGORIES)[number], next: boolean) {
     const before = settings.data;
     const patch = withTodayCategoryVisible(before, category, next);

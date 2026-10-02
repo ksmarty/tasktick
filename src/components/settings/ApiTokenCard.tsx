@@ -34,6 +34,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/app/Toast';
 import { api, errorMessage } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation, useResource } from '@/lib/store';
 import { copyText } from './clipboard';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
@@ -67,13 +68,12 @@ export function ApiTokenCard() {
   const [revealed, setRevealed] = useState<IssuedTokenPayload['token'] | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
 
-  const invalidates = ['/api/tokens'];
+  const invalidates = affectsFor('POST', '/api/tokens');
 
   const create = useMutation(() => api.post<IssuedTokenPayload>('/api/tokens'), {
     invalidates,
     onSuccess: (result) => {
       setRevealed(result.token);
-      void resource.refresh();
       toast({ title: 'API token created', variant: 'success' });
     },
     onError: (message) => toast({ title: 'Could not create the token', description: message, variant: 'error' }),
@@ -84,7 +84,6 @@ export function ApiTokenCard() {
     onSuccess: (result) => {
       setRevealed(result.token);
       setPending(null);
-      void resource.refresh();
       toast({ title: 'API token cycled', description: 'The previous token no longer works.', variant: 'success' });
     },
     onError: (message) => {
@@ -97,7 +96,6 @@ export function ApiTokenCard() {
     invalidates,
     onSuccess: () => {
       setPending(null);
-      void resource.refresh();
       toast({ title: 'API token revoked', variant: 'success' });
     },
     onError: (message) => {

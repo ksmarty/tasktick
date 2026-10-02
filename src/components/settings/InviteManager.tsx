@@ -26,6 +26,7 @@ import { Switch } from '@/components/ui/switch';
 import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { relativeTimeAgo } from '@/lib/dates';
 import { copyText } from './clipboard';
@@ -66,7 +67,7 @@ export function InviteManager() {
       });
     },
     {
-      invalidates: ['/api/invites'],
+      invalidates: affectsFor('POST', '/api/invites'),
       onSuccess: (created) => {
         setFreshUrl(created?.url ?? null);
         setEmail('');

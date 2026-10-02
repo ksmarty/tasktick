@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/app/Toast';
 import { api, errorMessage } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
 import type { UserSettings } from '@/lib/types';
 import type { SettingsPayload } from '@/lib/view-types';
@@ -78,7 +79,7 @@ export function AppriseSettings({ payload, onChanged }: AppriseSettingsProps) {
     async (patch: { appriseUrl?: string | null; appriseKey?: string | null; appriseTags?: string[] | null }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
-      invalidates: ['/api/settings', '/api/bootstrap'],
+      invalidates: affectsFor('POST', '/api/settings'),
       onSuccess: () => {
         setKey('');
         onChanged?.();

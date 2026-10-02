@@ -9,12 +9,14 @@
  *   - when the browser is offline the write is refused up front with the reason,
  *     because the app has no queue to put it in.
  *
- * Successful writes invalidate `/api/tasks` and `/api/bootstrap`, so the list,
- * the sidebar counts and the Today agenda all refresh from one response.
+ * Successful writes drop what they changed and wake the views showing it, from
+ * `AFFECTS` in `offline-rules.ts` — so the list, the sidebar counts and the Today
+ * agenda all refresh from the one table, and no writer here can forget a key.
  */
 import { useCallback } from 'react';
 import { ApiClientError, api, errorMessage } from '@/lib/api-client';
 import { relativeDayLabel } from '@/lib/dates';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation, useOnline } from '@/lib/store';
 import type { AccentColor, List, Tag, Task } from '@/lib/types';
 import type { CompleteTaskPayload } from '@/lib/view-types';
@@ -25,18 +27,24 @@ import type { BulkAction, BulkPayload, CreateTaskPayload, ListPatch, TaskPatch }
 export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. They will work again once you reconnect.';
 
 /**
- * Cache keys a task write can affect.
+ * What a task write reaches.
  *
- * `/api/calendar/items` belongs here because a task with a due date IS a
- * calendar item — it renders in the day agenda and contributes a dot to the
- * month grid. Leaving it out meant a task created or completed on the tasks
- * screen did not appear on the calendar until a full reload, which reads as
- * "the calendar does not include tasks" rather than as a stale cache.
+ * Derived from `affectsFor`, never hand-written. It used to be a literal array
+ * duplicated at each writer, and the matrix and the pomodoro screen each kept a
+ * shorter version that omitted `/api/bootstrap` and `/api/calendar/items` — so a
+ * task moved on the matrix left the sidebar count, the Today agenda and the
+ * calendar's dot showing the old answer.
  *
- * `/api/bootstrap` carries the sidebar counts and the Today agenda, so it goes
- * with every write for the same reason.
+ * Exported because those two screens write tasks through their own hooks and
+ * need the same answer; deriving it means they cannot get a different one.
  */
-const INVALIDATES = ['/api/tasks', '/api/bootstrap', '/api/calendar/items', '/api/lists'];
+export const TASK_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/tasks');
+
+/** What a list write reaches: bootstrap for the sidebar, tasks for their list ids. */
+const LIST_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/lists');
+
+/** What a tag write reaches: the tag picker itself, plus the tasks carrying it. */
+const TAG_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/tags');
 
 /** Maps a thrown value onto something worth showing a human. */
 function writeFailure(error: unknown, what: string): Error {
@@ -104,7 +112,7 @@ export function useTaskActions(zone: string): TaskActions {
       }
     },
     {
-      invalidates: INVALIDATES,
+      invalidates: TASK_WRITE_PREFIXES,
       onSuccess: (result, [task, undo]) => {
         if (!result) return;
         if (result.recurred && result.task?.dueDate) {
@@ -152,7 +160,7 @@ export function useTaskActions(zone: string): TaskActions {
         throw writeFailure(error, 'Could not save the task');
       }
     },
-    { invalidates: INVALIDATES, onError: fail },
+    { invalidates: TASK_WRITE_PREFIXES, onError: fail },
   );
 
   const listMutation = useMutation(
@@ -163,7 +171,7 @@ export function useTaskActions(zone: string): TaskActions {
         throw writeFailure(error, 'Could not create the list');
       }
     },
-    { invalidates: INVALIDATES, onError: fail },
+    { invalidates: LIST_WRITE_PREFIXES, onError: fail },
   );
 
   const listPatchMutation = useMutation(
@@ -174,7 +182,7 @@ export function useTaskActions(zone: string): TaskActions {
         throw writeFailure(error, 'Could not save the list');
       }
     },
-    { invalidates: INVALIDATES, onError: fail },
+    { invalidates: LIST_WRITE_PREFIXES, onError: fail },
   );
 
   const listRemoveMutation = useMutation(
@@ -186,7 +194,7 @@ export function useTaskActions(zone: string): TaskActions {
       }
     },
     {
-      invalidates: INVALIDATES,
+      invalidates: LIST_WRITE_PREFIXES,
       onSuccess: () =>
         toast({ title: 'List deleted', description: 'Its tasks moved to the Inbox.', variant: 'info' }),
       onError: fail,
@@ -201,7 +209,7 @@ export function useTaskActions(zone: string): TaskActions {
         throw writeFailure(error, 'Could not create the tag');
       }
     },
-    { invalidates: INVALIDATES, onError: fail },
+    { invalidates: TAG_WRITE_PREFIXES, onError: fail },
   );
 
   const patchMutation = useMutation(
@@ -212,7 +220,7 @@ export function useTaskActions(zone: string): TaskActions {
         throw writeFailure(error, 'Could not save your changes');
       }
     },
-    { invalidates: INVALIDATES, onError: fail },
+    { invalidates: TASK_WRITE_PREFIXES, onError: fail },
   );
 
   const removeMutation = useMutation(
@@ -224,7 +232,7 @@ export function useTaskActions(zone: string): TaskActions {
       }
     },
     {
-      invalidates: INVALIDATES,
+      invalidates: TASK_WRITE_PREFIXES,
       onSuccess: () => toast({ title: 'Task deleted', variant: 'info' }),
       onError: fail,
     },
@@ -239,7 +247,7 @@ export function useTaskActions(zone: string): TaskActions {
       }
     },
     {
-      invalidates: INVALIDATES,
+      invalidates: TASK_WRITE_PREFIXES,
       onSuccess: (result) => {
         if (result) toast({ title: `${result.affected} task${result.affected === 1 ? '' : 's'} updated`, variant: 'success' });
       },
@@ -255,7 +263,7 @@ export function useTaskActions(zone: string): TaskActions {
         throw writeFailure(error, 'Could not save the new order');
       }
     },
-    { invalidates: INVALIDATES, onError: fail },
+    { invalidates: TASK_WRITE_PREFIXES, onError: fail },
   );
 
   const complete = useCallback(

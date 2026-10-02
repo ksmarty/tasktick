@@ -497,7 +497,7 @@ describe('/api/** reads are cache-first with a per-session cache', () => {
     await harness.message({ type: 'invalidate', prefixes: ['/api/tasks'] }, [channel.port2]);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // The acknowledgement is what lets `revalidate()` in the store refetch only
+    // The acknowledgement is what lets `invalidate()` in the store refetch only
     // after the worker has actually dropped the entry.
     expect(replies).toEqual([{ ok: true }]);
     channel.port1.close();

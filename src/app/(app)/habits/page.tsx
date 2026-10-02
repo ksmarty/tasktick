@@ -64,6 +64,7 @@ import { HeaderActionButton } from '@/components/tasks/HeaderActionButton';
 import { useToast } from '@/components/app/Toast';
 import { accentHex } from '@/lib/colors';
 import { api, errorMessage } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import {
   DATE_FORMAT,
@@ -77,6 +78,15 @@ import {
 import { usePrimaryAction } from '@/lib/events';
 import type { BootstrapPayload, CheckInPayload } from '@/lib/view-types';
 import type { DateOnly, Habit } from '@/lib/types';
+
+/**
+ * What a habit write reaches, from the one table that knows.
+ *
+ * `/api/stats` is the one that used to be missed: a check-in moves the streak
+ * and the completion rate, and those render on a different screen from the one
+ * that made the write. `/api/bootstrap` carries the Today agenda's habit rows.
+ */
+const HABIT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/habits');
 
 export default function HabitsPage() {
   const { toast } = useToast();
@@ -243,8 +253,7 @@ export default function HabitsPage() {
           ...(change.count !== undefined ? { count: change.count } : {}),
           ...(change.delta !== undefined ? { delta: change.delta } : {}),
         });
-        invalidate('/api/habits');
-        void habits.refresh();
+        invalidate(HABIT_WRITE_PREFIXES);
         if (change.count === null) toast({ title: `${habit.name} unchecked`, variant: 'info' });
       } catch (error) {
         habits.mutate(() => snapshot);
@@ -267,10 +276,7 @@ export default function HabitsPage() {
   const reorder = useMutation(
     async (orderedIds: string[]) => api.put<{ reordered: number }>('/api/habits', { orderedIds }),
     {
-      invalidates: ['/api/habits'],
-      onSuccess: () => {
-        void habits.refresh();
-      },
+      invalidates: HABIT_WRITE_PREFIXES,
       onError: (message) => {
         toast({ title: 'Could not save the new order', description: message, variant: 'error' });
         // The list is refetched, which puts the cards back in the stored order.

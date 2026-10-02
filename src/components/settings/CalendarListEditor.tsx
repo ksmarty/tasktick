@@ -41,7 +41,8 @@ import { calendarColorHex } from '@/components/calendar/colors';
 import { accentHex } from '@/lib/colors';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api-client';
-import { revalidate, useMutation, useResource } from '@/lib/store';
+import { affectsFor } from '@/lib/offline-rules';
+import { useMutation, useResource } from '@/lib/store';
 import { ACCENT_COLORS, type AccentColor, type Calendar } from '@/lib/types';
 import { SHEET_DIALOG_CLASS } from './styles';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
@@ -49,6 +50,15 @@ import { AccentSwatches } from './swatches';
 
 /** The default colour for a new calendar; the first of the shared palette. */
 const DEFAULT_CALENDAR_COLOR: AccentColor = ACCENT_COLORS[0];
+
+/**
+ * What a calendar write reaches, from the one table that knows.
+ *
+ * A calendar is drawn in three places — the list here, the month grid's items,
+ * and the sidebar's per-list colours — plus the shell bootstrap that names the
+ * default. Hiding one used to leave the calendar screen drawing it.
+ */
+const CALENDAR_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/calendars');
 
 /**
  * The swatch that should read as selected for a calendar.
@@ -73,27 +83,11 @@ export function CalendarListEditor() {
 
   const list = calendars.data ?? [];
 
-  /*
-   * `revalidate()` rather than `invalidate()` + `refresh()`.
-   *
-   * The worker answers a cached `/api/**` read from its copy immediately, so a
-   * refetch that races the cache drop returns the pre-write body. Marking the
-   * entry stale and refetching in the same tick is exactly that race: the eye
-   * toggle looked like it needed a second click, because the first click's
-   * refetch was answered from the copy the write had just invalidated.
-   * `revalidate()` waits for the worker to drop its copy first.
-   */
-  const refresh = () => {
-    void revalidate('/api/calendars');
-    void revalidate('/api/bootstrap');
-  };
-
   const toggleVisibility = useMutation(
     async (calendar: Calendar, isVisible: boolean) =>
       api.patch<Calendar>(`/api/calendars/${calendar.id}`, { isVisible }),
     {
-      invalidates: ['/api/calendars', '/api/bootstrap'],
-      onSuccess: refresh,
+      invalidates: CALENDAR_WRITE_PREFIXES,
       onError: (message) => toast({ title: 'Could not change visibility', description: message, variant: 'error' }),
     },
   );
@@ -101,20 +95,18 @@ export function CalendarListEditor() {
   const setDefault = useMutation(
     async (calendar: Calendar) => api.patch<Calendar>(`/api/calendars/${calendar.id}`, { isDefault: true }),
     {
-      invalidates: ['/api/calendars', '/api/bootstrap'],
+      invalidates: CALENDAR_WRITE_PREFIXES,
       onSuccess: (_result, [calendar]) => {
         toast({ title: `${calendar.name} is now the default calendar`, variant: 'success' });
-        refresh();
       },
       onError: (message) => toast({ title: 'Could not set the default', description: message, variant: 'error' }),
     },
   );
 
   const remove = useMutation(async (calendar: Calendar) => api.delete<{ deleted: boolean }>(`/api/calendars/${calendar.id}`), {
-    invalidates: ['/api/calendars', '/api/bootstrap'],
+    invalidates: CALENDAR_WRITE_PREFIXES,
     onSuccess: (_result, [calendar]) => {
       toast({ title: `${calendar.name} deleted`, description: 'Its events were removed too.', variant: 'success' });
-      refresh();
     },
     onError: (message) => toast({ title: 'Could not delete that calendar', description: message, variant: 'error' }),
   });
@@ -209,7 +201,6 @@ export function CalendarListEditor() {
           }
         }}
         calendar={editing}
-        onSaved={refresh}
         onRequestDelete={(calendar) => {
           setEditing(null);
           setRemoveTarget(calendar);
@@ -261,14 +252,12 @@ function CalendarDialog({
   open,
   onOpenChange,
   calendar,
-  onSaved,
   onRequestDelete,
   onSetDefault,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   calendar: Calendar | null;
-  onSaved: () => void;
   onRequestDelete: (calendar: Calendar) => void;
   onSetDefault: (calendar: Calendar) => void;
 }) {
@@ -393,10 +382,9 @@ function CalendarDialog({
         : await api.post<Calendar>('/api/calendars', { name: trimmed, color, isVisible, showInTasks });
     },
     {
-      invalidates: ['/api/calendars', '/api/bootstrap'],
+      invalidates: CALENDAR_WRITE_PREFIXES,
       onSuccess: () => {
         toast({ title: editing ? 'Calendar updated' : 'Calendar created', variant: 'success' });
-        onSaved();
         onOpenChange(false);
       },
       onError: (message) => toast({ title: 'Could not save the calendar', description: message, variant: 'error' }),

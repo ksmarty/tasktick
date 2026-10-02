@@ -41,11 +41,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { copyText, toWebcal } from './clipboard';
 import { MONO_URL_BOX_CLASS } from './styles';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import type { IcalTokenPayload } from '@/lib/view-types';
+
+/** What a token write reaches, from the one table that knows. */
+const TOKEN_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/ical-tokens');
 
 export function IcalSubscriptionCard() {
   const { toast } = useToast();
@@ -60,7 +64,7 @@ export function IcalSubscriptionCard() {
   const list = tokens.data ?? [];
 
   const refresh = () => {
-    invalidate('/api/ical-tokens');
+    void invalidate(TOKEN_WRITE_PREFIXES);
     void tokens.refresh();
   };
 
@@ -74,7 +78,7 @@ export function IcalSubscriptionCard() {
       return created;
     },
     {
-      invalidates: ['/api/ical-tokens'],
+      invalidates: TOKEN_WRITE_PREFIXES,
       onSuccess: (created) => {
         setFreshUrl(created?.url ?? null);
         setName('');
@@ -85,7 +89,7 @@ export function IcalSubscriptionCard() {
   );
 
   const revoke = useMutation(async (token: IcalTokenPayload) => api.delete<{ revoked: boolean }>(`/api/ical-tokens/${token.id}`), {
-    invalidates: ['/api/ical-tokens'],
+    invalidates: TOKEN_WRITE_PREFIXES,
     onSuccess: () => {
       toast({ title: 'Subscription revoked', description: 'That URL no longer works.', variant: 'success' });
       refresh();

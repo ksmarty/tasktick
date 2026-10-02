@@ -32,9 +32,19 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { SettingsGroup } from './SettingsGroup';
 import type { AdminUserPayload } from '@/lib/view-types';
+
+/**
+ * What an admin write reaches, from the one table that knows.
+ *
+ * `/api/bootstrap` carries the shell counts, including the user total the
+ * settings entry shows — so deleting a user has to drop it too. Deleting used
+ * to name only `/api/admin/users`, and the count stayed wrong until a reload.
+ */
+const ADMIN_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/admin/users');
 
 export interface AdminUserTableProps {
   /** The signed-in administrator's id, so their own row can be marked. */
@@ -48,8 +58,7 @@ export function AdminUserTable({ currentUserId }: AdminUserTableProps) {
   const list = users.data ?? [];
 
   const refresh = () => {
-    invalidate('/api/admin/users');
-    invalidate('/api/bootstrap');
+    void invalidate(ADMIN_WRITE_PREFIXES);
     void users.refresh();
   };
 
@@ -57,7 +66,7 @@ export function AdminUserTable({ currentUserId }: AdminUserTableProps) {
     async (id: string, body: { isAdmin?: boolean; banned?: boolean }) =>
       api.patch<{ updated: boolean }>(`/api/admin/users/${id}`, body),
     {
-      invalidates: ['/api/admin/users', '/api/bootstrap'],
+      invalidates: ADMIN_WRITE_PREFIXES,
       onSuccess: (_result, [, body]) => {
         const label = body.isAdmin !== undefined ? (body.isAdmin ? 'promoted' : 'demoted') : body.banned ? 'disabled' : 'enabled';
         toast({ title: `User ${label}`, variant: 'success' });
@@ -71,7 +80,7 @@ export function AdminUserTable({ currentUserId }: AdminUserTableProps) {
   );
 
   const remove = useMutation(async (id: string) => api.delete<{ deleted: boolean }>(`/api/admin/users/${id}`), {
-    invalidates: ['/api/admin/users'],
+    invalidates: ADMIN_WRITE_PREFIXES,
     onSuccess: () => {
       toast({ title: 'User deleted', description: 'Everything they owned was deleted with them.', variant: 'success' });
       refresh();

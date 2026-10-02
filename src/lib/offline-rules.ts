@@ -25,11 +25,23 @@ export const MAX_BACKOFF_MS = 60_000;
 export const PUMP_INTERVAL_MS = 20_000;
 
 /**
- * Which cached reads a write invalidates.
+ * Which cached reads a write invalidates. **The single source of truth.**
  *
- * The same table `useTaskActions` keeps, moved down to the transport layer
- * because a replayed write has no component left to invalidate anything: the
- * screen that made it may have been closed, or the page may have been reloaded.
+ * Two callers read it, and they must not diverge:
+ *
+ * 1. `affectsFor()` here, which the offline queue uses to decide what a
+ *    *replayed* write invalidates — that write has no component left to
+ *    invalidate anything.
+ * 2. Every live writer in the app, which passes `affectsFor(method, path)` as
+ *    its `invalidates` list instead of hand-copying prefixes.
+ *
+ * It used to be the other way round: each screen kept its own literal array and
+ * this table was a second copy kept in step by hand. They drifted, and the drift
+ * was invisible because a missing prefix is not an error — it just leaves a
+ * screen showing pre-write data until something else happens to refetch it.
+ * `tests/invalidation-coverage.test.ts` now pins the two together.
+ *
+ * Ordered so the most specific route matches first.
  */
 const AFFECTS: { test: RegExp; prefixes: string[] }[] = [
   { test: /^\/api\/tasks(\/|$|\?)/, prefixes: ['/api/tasks', '/api/bootstrap', '/api/calendar/items', '/api/lists'] },
@@ -40,6 +52,30 @@ const AFFECTS: { test: RegExp; prefixes: string[] }[] = [
   { test: /^\/api\/calendars(\/|$|\?)/, prefixes: ['/api/calendars', '/api/calendar/items', '/api/bootstrap'] },
   { test: /^\/api\/settings(\/|$|\?)/, prefixes: ['/api/settings', '/api/bootstrap'] },
   { test: /^\/api\/focus(\/|$|\?)/, prefixes: ['/api/focus', '/api/stats'] },
+  // A CalDAV account is a calendar collection and a mirror of events *and*
+  // tasks, so any write under it (discover, sync, enable, remove) can change
+  // all of them. The union is deliberately wider than any single operation
+  // needs: a stale calendar after a sync is the bug this table exists to
+  // prevent, and an extra refetch is not.
+  {
+    test: /^\/api\/caldav(\/|$|\?)/,
+    prefixes: ['/api/caldav/accounts', '/api/calendars', '/api/calendar/items', '/api/events', '/api/tasks', '/api/bootstrap'],
+  },
+  // A subscription token is a credential for *this* account's feed; writing one
+  // changes only the token list. Note this must not be folded into the `/api/ical`
+  // row below — `/api/ical-tokens` does not match that test (`-`, not `/`), and
+  // widening it to catch both would make a token write drop the calendar.
+  { test: /^\/api\/ical-tokens(\/|$|\?)/, prefixes: ['/api/ical-tokens'] },
+  // A subscription *is* a calendar and a pile of mirrored events.
+  {
+    test: /^\/api\/ical(\/|$|\?)/,
+    prefixes: ['/api/ical', '/api/calendars', '/api/calendar/items', '/api/bootstrap'],
+  },
+  { test: /^\/api\/period(\/|$|\?)/, prefixes: ['/api/period'] },
+  { test: /^\/api\/tokens(\/|$|\?)/, prefixes: ['/api/tokens'] },
+  { test: /^\/api\/invites(\/|$|\?)/, prefixes: ['/api/invites'] },
+  { test: /^\/api\/push(\/|$|\?)/, prefixes: ['/api/push'] },
+  { test: /^\/api\/admin\/users(\/|$|\?)/, prefixes: ['/api/admin/users', '/api/bootstrap'] },
 ];
 
 /** Prefixes whose writes are safe to hold and to replay. */
@@ -79,13 +115,36 @@ export function isQueueable(method: string, path: string): boolean {
   return QUEUEABLE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-/** Cache prefixes a write invalidates. Falls back to the exact path. */
+/**
+ * Cache prefixes a write invalidates.
+ *
+ * The one thing a writer needs to say about invalidation: pass its own method
+ * and path and use the result as the `invalidates` list. `method` is part of the
+ * signature because some writes read as GETs elsewhere; today no rule needs it.
+ *
+ * Falls back to the exact pathname for a route with no rule — correct for a
+ * resource read at that exact path, but a route that reaches here usually wants
+ * a row in `AFFECTS`, which `tests/invalidation-coverage.test.ts` enforces.
+ */
 export function affectsFor(_method: string, path: string): string[] {
   const pathname = pathnameOf(path);
   for (const rule of AFFECTS) {
     if (rule.test.test(pathname)) return [...rule.prefixes];
   }
   return [pathname];
+}
+
+/**
+ * Whether `AFFECTS` has a rule for this path.
+ *
+ * Exposed so `tests/invalidation-coverage.test.ts` can require that a new write
+ * route is a deliberate row rather than falling back to its own pathname — a
+ * fallback that is correct for a self-only read and silently wrong for anything
+ * that reaches a second one.
+ */
+export function hasRule(path: string): boolean {
+  const pathname = pathnameOf(path);
+  return AFFECTS.some((rule) => rule.test.test(pathname));
 }
 
 /**

@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { api, errorMessage } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate } from '@/lib/store';
 import { useToast } from '@/components/app/Toast';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
@@ -67,10 +68,7 @@ export function FocusSettings({ settings }: FocusSettingsProps) {
 
       void api
         .patch<UserSettings>('/api/settings', body)
-        .then(() => {
-          invalidate('/api/settings');
-          invalidate('/api/bootstrap');
-        })
+        .then(() => invalidate(affectsFor('POST', '/api/settings')))
         .catch((error: unknown) => {
           toast({ title: 'Could not save the timer settings', description: errorMessage(error), variant: 'error' });
         });

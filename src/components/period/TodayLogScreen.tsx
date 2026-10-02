@@ -73,10 +73,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { addDaysToDateOnly, rangeForView } from '@/lib/dates';
 import type { ContraceptionDayStatus, PeriodCycle } from '@/lib/period-types';
-import { invalidate } from '@/lib/store';
 import type { DateOnly } from '@/lib/types';
 import {
-  PERIOD_PREFIX,
   activeMethodFor,
   dayLogFor,
   scheduleDayFor,
@@ -198,43 +196,21 @@ export function TodayLogScreen() {
 
   /* ---- writes for the hero and the day ---- */
 
-  /**
-   * A period write repaints the screen from the server.
-   *
-   * `invalidate()` marks the store's entries stale and drops the service worker's
-   * copy of them, but it does not refetch anything a component is still showing —
-   * so the overview the strip and the hero render from would keep its pre-write
-   * cycles until the screen remounted. The day log never meets this because its
-   * draft is optimistic and renders before the request lands; a cycle has no
-   * draft, and the screen's primary button visibly doing nothing is worse than a
-   * round trip.
-   *
-   * The order is the one `revalidate()` documents: wait for the worker to drop its
-   * copy, then force the read. A forced read that races the drop is answered from
-   * the cache and replays exactly the pre-write body.
-   */
-  function refreshOverview() {
-    void invalidate(PERIOD_PREFIX).then(() => overview.refresh());
-  }
-
   const createCycle = useCreateCycle({
     onError: fail('Could not add that period'),
     onSuccess: () => {
-      refreshOverview();
       toast({ title: 'Period started', variant: 'success' });
     },
   });
   const updateCycle = useUpdateCycle({
     onError: fail('Could not close the period'),
     onSuccess: () => {
-      refreshOverview();
       toast({ title: 'Period ended', variant: 'success' });
     },
   });
   const deleteCycle = useDeleteCycle({
     onError: fail('Could not remove that period'),
     onSuccess: () => {
-      refreshOverview();
       toast({ title: 'Period removed', variant: 'success' });
     },
   });
@@ -248,9 +224,10 @@ export function TodayLogScreen() {
      signs switch exactly as the user set it.
 
      The overview is written through the store first, for the same reason the
-     settings switches are: `invalidate()` leaves the old value in place until a
-     refetch, and the form is rendered from this very entry, so without it the
-     button would look like it did nothing. */
+     settings switches are: `invalidate()` refetches only after the worker has
+     acknowledged the drop, so this entry still holds the old value for a moment,
+     and the form is rendered from it. Without the write the button would look
+     like it did nothing. */
   const showAllSections = useUpdatePeriodSettings({
     onError: fail('Could not save that'),
   });

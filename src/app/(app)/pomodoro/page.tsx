@@ -42,6 +42,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/app/Toast';
 import { api, errorMessage } from '@/lib/api-client';
+import { TASK_WRITE_PREFIXES } from '@/components/tasks/useTaskActions';
+import { affectsFor } from '@/lib/offline-rules';
 import { invalidate, useMutation, useResource } from '@/lib/store';
 import { formatClock, humanDuration, todayIn, toDateOnly } from '@/lib/dates';
 import { notifyPeriodEnd, playChime } from './feedback';
@@ -63,6 +65,14 @@ import {
 } from './timer';
 import type { BootstrapPayload, CompleteTaskPayload, FocusPayload } from '@/lib/view-types';
 import type { DateOnly, FocusSession, Task } from '@/lib/types';
+
+/**
+ * What a focus write reaches, from the one table that knows.
+ *
+ * `/api/stats` is the one that used to be missed: a finished session moves the
+ * focus totals, and those render on a screen this one never touches.
+ */
+const FOCUS_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/focus');
 
 const PHASE_LABEL: Record<FinishedPhase['phase'], string> = {
   focus: 'Focus',
@@ -135,8 +145,7 @@ export default function PomodoroPage() {
           plannedSeconds,
         })
         .then((session) => {
-          invalidate('/api/focus');
-          void focus.refresh();
+          invalidate(FOCUS_WRITE_PREFIXES);
           return session.id;
         })
         .catch((error: unknown) => {
@@ -159,8 +168,7 @@ export default function PomodoroPage() {
         if (!id) return;
         try {
           await api.patch<FocusSession>(`/api/focus/${id}`, { completed, actualSeconds });
-          invalidate('/api/focus');
-          void focus.refresh();
+          invalidate(FOCUS_WRITE_PREFIXES);
         } catch (error) {
           toast({ title: 'Could not save the focus session', description: errorMessage(error), variant: 'error' });
         }
@@ -186,14 +194,13 @@ export default function PomodoroPage() {
   /* ---------------------------------------------------------------------- */
 
   const completeTask = useMutation(async (id: string) => api.post<CompleteTaskPayload>(`/api/tasks/${id}/complete`), {
-    invalidates: ['/api/tasks'],
+    invalidates: TASK_WRITE_PREFIXES,
     onSuccess: (result) => {
       toast({
         title: result?.recurred ? 'Repeating task moved to its next date' : 'Task completed',
         variant: 'success',
       });
       setOffer(null);
-      void tasks.refresh();
     },
     onError: (message) => toast({ title: 'Could not complete the task', description: message, variant: 'error' }),
   });

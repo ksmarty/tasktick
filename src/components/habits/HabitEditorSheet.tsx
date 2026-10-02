@@ -62,12 +62,21 @@ import { SegmentedControl } from '@/components/godui/segmented-control';
 import { cn } from '@/lib/utils';
 import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
 import { ACCENT_COLORS } from '@/lib/types';
 import { longDateLabel, minutesToTime, timeToMinutes } from './period';
 import { DEFAULT_HABIT_ICON, HABIT_ICON_NAMES, asHabitIconName, habitIcon, habitIconLabel } from './icons';
 import { useToast } from '@/components/app/Toast';
 import type { AccentColor, DateOnly, Habit, HabitFrequency, HabitGoalType, TimeOnly } from '@/lib/types';
+
+/**
+ * What a habit write reaches, from the one table that knows.
+ *
+ * Editing or archiving a habit moves its streaks and the completion rate, which
+ * render under `/api/stats` and in the Today agenda under `/api/bootstrap`.
+ */
+const HABIT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/habits');
 
 /** One reminder per minute of the day is the most that can be distinct. */
 const MAX_HABIT_REMINDERS = 1440;
@@ -262,7 +271,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
         : await api.post<Habit>('/api/habits', body);
     },
     {
-      invalidates: ['/api/habits'],
+      invalidates: HABIT_WRITE_PREFIXES,
       onSuccess: (saved) => {
         toast({ title: editing ? 'Habit updated' : 'Habit created', description: saved?.name });
         onChanged?.();
@@ -278,7 +287,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
   const patch = useMutation(
     async (body: { archived?: boolean }) => api.patch<Habit>(`/api/habits/${habit?.id}`, body),
     {
-      invalidates: ['/api/habits'],
+      invalidates: HABIT_WRITE_PREFIXES,
       onSuccess: (_result, [body]) => {
         onChanged?.();
         if (body.archived !== undefined) {
@@ -293,7 +302,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
   );
 
   const remove = useMutation(async () => api.delete<{ deleted: boolean }>(`/api/habits/${habit?.id}`), {
-    invalidates: ['/api/habits'],
+    invalidates: HABIT_WRITE_PREFIXES,
     onSuccess: () => {
       toast({ title: 'Habit deleted', description: 'Its history has been removed.', variant: 'success' });
       onChanged?.();

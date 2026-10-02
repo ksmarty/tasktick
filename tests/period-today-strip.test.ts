@@ -170,22 +170,36 @@ describe('the hero card', () => {
     expect(TODAY).toContain('<HeroCard');
   });
 
-  it('repaints after a period write, because marking the store stale is not a repaint', () => {
+  it('repaints after a period write through the store, not by hand', () => {
     /*
      * Found by the probe: the POST landed and the toast appeared, and the strip
      * and the button kept showing the pre-write state until the page was
-     * reloaded. `invalidate()` marks the store's entries and drops the worker's
-     * copy but refetches nothing a component is still showing; the day log never
-     * meets this because its draft renders before the request lands. So the write
-     * is followed by the ordered refetch (worker drop first, then the read) that
-     * `store.revalidate` documents.
+     * reloaded. The write named `/api/period` as invalid, and the store's
+     * `invalidate()` dropped the worker's copy of it — but refetched nothing that
+     * was still on screen. This screen worked around that by hand:
+     *
+     *     invalidate(PERIOD_PREFIX).then(() => overview.refresh())
+     *
+     * which put the ordering (worker drop first, then the read) in the screen's
+     * hands and left every other screen to rediscover it. Most did not, which is
+     * what the reported bugs were.
+     *
+     * The store owns that ordering now: `invalidate()` makes the worker drop its
+     * copy and then wakes every loader registered for the prefix, refetching them
+     * with `force`. So a write only has to name its prefixes, and the screen has
+     * nothing left to sequence — `tests/store-invalidate.test.ts` pins the order.
      */
-    expect(TODAY).toContain("import { invalidate } from '@/lib/store';");
-    expect(TODAY).toContain('invalidate(PERIOD_PREFIX).then(() => overview.refresh())');
     for (const write of ['createCycle', 'updateCycle', 'deleteCycle']) {
       expect(TODAY, write).toContain(`const ${write} = use`);
     }
-    expect(TODAY.match(/refreshOverview\(\);/g)?.length).toBe(3);
+    expect(code('components/period/TodayLogScreen.tsx')).not.toContain('overview.refresh()');
+  });
+
+  it('writes the period settings through the same store write as its data', () => {
+    // The switch is rendered from the store entry it is about to change, so the
+    // optimistic write is what stops it looking inert — and the invalidation is
+    // what makes it settle on the server's answer.
+    expect(TODAY).toContain('useUpdatePeriodSettings');
   });
 
   it('keeps the prediction card with its basis under the hero, anchored to today', () => {
