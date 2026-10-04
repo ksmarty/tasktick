@@ -148,9 +148,16 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  * Sizing every side to `inner` (v0.40.3) was safe but spent half the room that
  * was there in the common case, a tint beside a plain word. Sizing every side to
  * `outer` merges two adjacent tints into one band, which is what v0.40.2
- * shipped. So the side decides, and `py-0.5` adds the vertical room on top —
- * vertical padding on an inline span costs the line box nothing.
+ * shipped. So the side decides.
+ *
+ * Vertical padding is a separate story with no such ceiling. The tint is a flex
+ * item centred in the mirror, so growing it costs the line box nothing — what
+ * limits it is the field's own 36px height: 6px keeps the pill at 32px with 2px
+ * still clear above and below, 8px fills the field exactly, 10px is clipped.
+ * It is deliberately larger than the horizontal padding, because the two axes
+ * are not competing for the same room and horizontal has none left to give.
  */
+const TINT_PAD_VERTICAL = 'py-1.5';
 const TINT_PAD_OUTER_LEFT = 'pl-1 -ml-1 md:pl-0.5 md:-ml-0.5';
 const TINT_PAD_OUTER_RIGHT = 'pr-1 -mr-1 md:pr-0.5 md:-mr-0.5';
 const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5 md:pl-px md:-ml-px';
@@ -413,7 +420,8 @@ function QuickAddInput({
                 <span
                   key={index}
                   className={cn(
-                    'rounded-sm py-0.5',
+                    'rounded-sm',
+                    TINT_PAD_VERTICAL,
                     facesTint(segments, index, -1) ? TINT_PAD_INNER_LEFT : TINT_PAD_OUTER_LEFT,
                     facesTint(segments, index, 1) ? TINT_PAD_INNER_RIGHT : TINT_PAD_OUTER_RIGHT,
                     HIGHLIGHT_CLASS[segment.kind],

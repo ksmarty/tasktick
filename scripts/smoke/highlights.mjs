@@ -66,10 +66,11 @@ function record(name, ok, detail) {
 const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorrow 9am !low #home';
 
 /** The two font sizes the field uses, the widths that select them, and the
- * padding each side should resolve to. */
+ * padding each side should resolve to. Vertical is the same at both sizes: the
+ * field is 36px tall either way, so the tint's height follows the text. */
 const VIEWPORTS = [
-  { label: 'base 16px', width: 420, outer: 4, inner: 2 },
-  { label: 'md:text-sm 14px', width: 900, outer: 2, inner: 1 },
+  { label: 'base 16px', width: 420, outer: 4, inner: 2, vertical: 6 },
+  { label: 'md:text-sm 14px', width: 900, outer: 2, inner: 1, vertical: 6 },
 ];
 
 /** The smallest gap between two tints that still reads as two tints. */
@@ -180,7 +181,10 @@ for (const viewport of VIEWPORTS) {
           tinted: String(s.className).length > 0,
           padL: parseFloat(cs.paddingLeft),
           padR: parseFloat(cs.paddingRight),
+          padT: parseFloat(cs.paddingTop),
+          padB: parseFloat(cs.paddingBottom),
           box: [box.left, box.right],
+          boxY: [box.top, box.bottom],
           glyphs: [t.left, t.right],
           // `null` for a whitespace-only segment: it has no glyph to be clipped.
           lastGlyphEnd: trimmed > 0 ? +tTrim.right.toFixed(2) : null,
@@ -189,6 +193,7 @@ for (const viewport of VIEWPORTS) {
       return {
         rows,
         fontSize: cs.fontSize,
+        mirrorBox: [mirror.getBoundingClientRect().top, mirror.getBoundingClientRect().bottom],
         padding: `${getComputedStyle(inner.querySelector('span[class]') ?? inner).paddingLeft}`,
         inputSpacing: cs.wordSpacing,
         mirrorSpacing: getComputedStyle(mirror).wordSpacing,
@@ -273,6 +278,30 @@ for (const viewport of VIEWPORTS) {
       `${viewport.label}: each side is padded for what it faces`,
       sideFaults.length === 0,
       sideFaults.join('; ') || 'no tinted segments found',
+    );
+
+    /*
+     * Check 7. Vertical padding has its own ceiling and its own failure mode.
+     * The field is 36px tall, so 8px makes the pill flush with the field's edge
+     * and 10px is clipped by it — a regression here looks broken rather than
+     * merely tight, which is why both the resolved value and the fit are pinned.
+     */
+    const verticalFaults = [];
+    for (const row of data.rows) {
+      if (!row.tinted) continue;
+      if (row.padT !== viewport.vertical || row.padB !== viewport.vertical) {
+        verticalFaults.push(
+          `${JSON.stringify(row.text)} pad ${row.padT}/${row.padB}px, want ${viewport.vertical}px`,
+        );
+      }
+      if (row.boxY[0] < data.mirrorBox[0] || row.boxY[1] > data.mirrorBox[1]) {
+        verticalFaults.push(`${JSON.stringify(row.text)} overflows the field`);
+      }
+    }
+    record(
+      `${viewport.label}: the tint is padded vertically and still fits`,
+      verticalFaults.length === 0,
+      verticalFaults.join('; ') || 'no tinted segments found',
     );
   } finally {
     await context.close();
