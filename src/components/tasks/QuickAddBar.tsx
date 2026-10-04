@@ -80,6 +80,7 @@ import {
   type QuickAddChip,
   type QuickAddChipKind,
   type QuickAddContext,
+  type QuickAddSegment,
 } from './quick-add';
 import { useTaskActions } from './useTaskActions';
 
@@ -124,28 +125,52 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
 };
 
 /**
- * The breathing room inside a tint.
+ * The breathing room inside a tint, per side.
  *
- * A tint can only reach past its word by padding and then cancelling that
- * padding with an equal negative margin, because the mirror has to stay
- * character-aligned with the input it sits behind — plain padding on an inline
- * span pushes every following glyph right and the tint drifts off its word.
+ * The horizontal padding is cancelled by a matching negative margin, so the tint
+ * reaches past its word without moving the word — or anything after it. This
+ * layer has to stay character-aligned with the input it sits behind, and padding
+ * on an inline span otherwise pushes every following glyph right, which is
+ * exactly the drift the mirror cannot afford. The pair is load-bearing: `px`
+ * without `-mx` slides the sentence out of step with the caret.
  *
- * That pair makes the tint's box wider than the word while leaving the word
- * where it was, so the extra width has to land in the gap between words, and
- * the gap is all the room there is. Measured: a space is 4.80px at the field's
- * 16px size and 4.20px at `md:text-sm` (14px). `px-0.5` (2px a side) is
- * therefore the most the 16px field can carry — 0.80px to spare — and
- * `md:px-px` (1px a side) the most the 14px one can, at 2.20px. Go wider and
- * two adjacent tints meet, merging into one band, and an outlined one draws its
- * ring through its neighbour.
+ * The overhang that buys has to land in the gap between words, and a gap is
+ * 4.80px at the field's 16px size and 4.20px at `md:text-sm` (14px). How much of
+ * it a side may take depends on what is across the gap:
  *
- * Widening the gap with `word-spacing` is the obvious alternative, and v0.40.1
- * did exactly that. It buys plenty of room, but it widens *every* space in the
- * sentence, so words that carry no highlight look double-spaced. Fitting inside
- * the natural gap keeps the sentence's rhythm and costs a pixel or two of tint.
+ *   - a plain word, or the edge of the field: the whole gap is there, so the
+ *     tint takes `outer` — 4px at 16px and 2px at 14px, still leaving ~0.8px
+ *     and ~2.2px before the next word's first glyph;
+ *   - another tint: both tints are reaching into the same gap, so their two
+ *     overhangs have to fit inside it together — `inner`, 2px at 16px and 1px
+ *     at 14px, leaving 0.8px and 2.2px between the two pills.
+ *
+ * Sizing every side to `inner` (v0.40.3) was safe but spent half the room that
+ * was there in the common case, a tint beside a plain word. Sizing every side to
+ * `outer` merges two adjacent tints into one band, which is what v0.40.2
+ * shipped. So the side decides, and `py-0.5` adds the vertical room on top —
+ * vertical padding on an inline span costs the line box nothing.
  */
-const HIGHLIGHT_PADDING = 'px-0.5 -mx-0.5 md:px-px md:-mx-px';
+const TINT_PAD_OUTER_LEFT = 'pl-1 -ml-1 md:pl-0.5 md:-ml-0.5';
+const TINT_PAD_OUTER_RIGHT = 'pr-1 -mr-1 md:pr-0.5 md:-mr-0.5';
+const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5 md:pl-px md:-ml-px';
+const TINT_PAD_INNER_RIGHT = 'pr-0.5 -mr-0.5 md:pr-px md:-mr-px';
+
+/**
+ * Whether the nearest glyph-bearing neighbour in `direction` is another tint.
+ *
+ * Two tints are usually separated by a text segment that is nothing but the
+ * space between them — `!high #home` tokenises as tint, " ", tint — so a tint's
+ * immediate neighbour is rarely the thing that decides its padding. A neighbour
+ * only counts as a word if it has a character that is not whitespace.
+ */
+function facesTint(segments: readonly QuickAddSegment[], index: number, direction: -1 | 1): boolean {
+  for (let i = index + direction; i >= 0 && i < segments.length; i += direction) {
+    if (segments[i].kind) return true;
+    if (segments[i].text.trim() !== '') return false;
+  }
+  return false;
+}
 
 interface QuickAddState {
   value: string;
@@ -381,15 +406,16 @@ function QuickAddInput({
                  * the right, which is exactly the drift the mirror cannot
                  * afford. The pair is load-bearing: `px` without `-mx` slides
                  * the sentence out of step with the caret.
-                 * The overhang that buys has to land in the gap between words,
-                 * which is why the padding is sized to the space rather than to
-                 * taste — see the constants above.
+                 *
+                 * Which side gets which padding depends on what is across the
+                 * gap — see the constants above.
                  */
                 <span
                   key={index}
                   className={cn(
-                    'rounded-sm',
-                    HIGHLIGHT_PADDING,
+                    'rounded-sm py-0.5',
+                    facesTint(segments, index, -1) ? TINT_PAD_INNER_LEFT : TINT_PAD_OUTER_LEFT,
+                    facesTint(segments, index, 1) ? TINT_PAD_INNER_RIGHT : TINT_PAD_OUTER_RIGHT,
                     HIGHLIGHT_CLASS[segment.kind],
                   )}
                 >

@@ -24,8 +24,15 @@ jobs:
       BETTER_AUTH_SECRET: ci-dummy-secret-not-used-outside-ci-000000
       DATABASE_URL: file:./ci.db
     steps:
+      # Full history, not the default single commit: `verify:sw` compares the
+      # current `VERSION` against the previous tag, and with one commit of
+      # history there is no previous tag — the script then exits 0 with
+      # "nothing to compare", which is why three releases shipped a
+      # byte-identical worker while CI reported success.
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v7

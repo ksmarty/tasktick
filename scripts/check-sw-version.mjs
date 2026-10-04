@@ -21,20 +21,29 @@
  * and everything under `public/` and `src/`. If any of those differ from the last
  * release commit and `VERSION` did not move, the release is refused.
  *
+ * ## Two ways this check has been useless, both fixed here
+ *
+ * 1. It trimmed `git status --porcelain` as a whole before splitting it, which
+ *    eats the leading space of the first line and shifts it one column left. See
+ *    `parsePorcelain` in `sw-version.mjs` — `public/sw.js` is usually that first
+ *    line, so the check refused every release made from a working tree while
+ *    reporting that the worker had not changed.
+ *
+ * 2. CI ran it against a `actions/checkout` default `fetch-depth: 1`. With one
+ *    commit of history there is no previous tag, so `git describe HEAD^` threw
+ *    and the script exited 0 with "nothing to compare". It could not fail in CI,
+ *    which is the only place it was ever going to run unattended. `ci.yml` now
+ *    checks out full history.
+ *
  * Run with `--check` in CI (compares against the previous tag) or bare for a
  * reminder. It exits 0 when there is no previous tag to compare with, so a fresh
  * clone is never blocked.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { parsePorcelain, readSwVersion } from './sw-version.mjs';
 
 const sh = (args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
-
-function readSwVersion(text) {
-  const m = text.match(/const VERSION = '([^']+)'/);
-  if (!m) throw new Error('no VERSION constant in public/sw.js');
-  return m[1];
-}
 
 let previousTag;
 try {
@@ -50,10 +59,7 @@ try {
  */
 const changed = [
   ...sh(['diff', '--name-only', `${previousTag}..HEAD`]).split('\n'),
-  ...sh(['status', '--porcelain'])
-    .split('\n')
-    .map((line) => line.slice(3).trim())
-    .filter(Boolean),
+  ...parsePorcelain(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' })),
 ].filter(Boolean);
 const swChanged = changed.includes('public/sw.js');
 

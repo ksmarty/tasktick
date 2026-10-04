@@ -15,9 +15,10 @@
  *
  * The padding cannot be widened to taste: the only room for it is the space
  * between words, and that gap is fixed by the font. A space measures 4.80px at
- * the field's 16px size and 4.20px at `md:text-sm` (14px), so the padding is
- * `px-0.5` at the first and `md:px-px` at the second. Both sizes are checked
- * here because the tighter one is the one that fails.
+ * the field's 16px size and 4.20px at `md:text-sm` (14px). One tint facing a
+ * plain word may take all of it (4px / 2px); two tints facing each other share
+ * the single gap between them, so each takes half (2px / 1px). Both sizes are
+ * checked here because the tighter one is the one that fails.
  *
  * Five things are asserted, in the order they can break:
  *
@@ -28,7 +29,12 @@
  *   3. every tint has its glyphs strictly inside its own box (padding inside);
  *   4. no tint reaches into a neighbouring word;
  *   5. no two tints overlap, with a real margin — not merely "more than zero",
- *      which 0.2px of sub-pixel luck would satisfy.
+ *      which 0.2px of sub-pixel luck would satisfy;
+ *   6. each side is padded for what it actually faces. This is the one that
+ *      catches a regression to uniform padding: v0.40.3 padded every side to
+ *      `inner` and passed checks 1–5, which is exactly why it was too tight.
+ *      A tint with a word (or the field edge) across the gap may take the whole
+ *      gap; a tint with another tint across it may take half.
  *
  * Needs a deployed server and Playwright (`npx playwright install-deps
  * chromium` for the system libraries). Not part of `npm test` or CI.
@@ -59,10 +65,11 @@ function record(name, ok, detail) {
  */
 const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorrow 9am !low #home';
 
-/** The two font sizes the field uses, and the widths that select them. */
+/** The two font sizes the field uses, the widths that select them, and the
+ * padding each side should resolve to. */
 const VIEWPORTS = [
-  { label: 'base 16px', width: 420 },
-  { label: 'md:text-sm 14px', width: 900 },
+  { label: 'base 16px', width: 420, outer: 4, inner: 2 },
+  { label: 'md:text-sm 14px', width: 900, outer: 2, inner: 1 },
 ];
 
 /** The smallest gap between two tints that still reads as two tints. */
@@ -153,6 +160,7 @@ for (const viewport of VIEWPORTS) {
       const cs = getComputedStyle(el);
       const rows = [...inner.querySelectorAll(':scope > span')].map((s) => {
         const box = s.getBoundingClientRect();
+        const cs = getComputedStyle(s);
         const whole = document.createRange();
         whole.selectNodeContents(s);
         const t = whole.getBoundingClientRect();
@@ -170,6 +178,8 @@ for (const viewport of VIEWPORTS) {
         return {
           text: s.textContent,
           tinted: String(s.className).length > 0,
+          padL: parseFloat(cs.paddingLeft),
+          padR: parseFloat(cs.paddingRight),
           box: [box.left, box.right],
           glyphs: [t.left, t.right],
           // `null` for a whitespace-only segment: it has no glyph to be clipped.
@@ -238,6 +248,31 @@ for (const viewport of VIEWPORTS) {
       `${viewport.label}: no two tints overlap, with margin`,
       worst >= MIN_CLEARANCE,
       `worst gap ${worst.toFixed(2)}px, want >= ${MIN_CLEARANCE}px`,
+    );
+
+    /*
+     * Check 6. The asymmetry is the point of this version, and it is invisible
+     * to every measurement above: padding every side to `inner` (v0.40.3) passes
+     * all of them and is what the user reported as too tight. So pin the
+     * resolved padding against what each side faces.
+     */
+    const sideFaults = [];
+    for (let i = 0; i < data.rows.length; i += 1) {
+      const row = data.rows[i];
+      if (!row.tinted) continue;
+      let left = i - 1;
+      while (left >= 0 && data.rows[left].lastGlyphEnd === null) left -= 1;
+      let right = i + 1;
+      while (right < data.rows.length && data.rows[right].lastGlyphEnd === null) right += 1;
+      const wantLeft = left >= 0 && data.rows[left].tinted ? viewport.inner : viewport.outer;
+      const wantRight = right < data.rows.length && data.rows[right].tinted ? viewport.inner : viewport.outer;
+      if (row.padL !== wantLeft) sideFaults.push(`${JSON.stringify(row.text)} left ${row.padL}px, want ${wantLeft}px`);
+      if (row.padR !== wantRight) sideFaults.push(`${JSON.stringify(row.text)} right ${row.padR}px, want ${wantRight}px`);
+    }
+    record(
+      `${viewport.label}: each side is padded for what it faces`,
+      sideFaults.length === 0,
+      sideFaults.join('; ') || 'no tinted segments found',
     );
   } finally {
     await context.close();
