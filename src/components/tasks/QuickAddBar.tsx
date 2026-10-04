@@ -124,9 +124,7 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
 };
 
 /**
- * The breathing room inside a tint, and the word spacing that pays for it.
- *
- * These two travel together and mean nothing apart.
+ * The breathing room inside a tint.
  *
  * A tint can only reach past its word by padding and then cancelling that
  * padding with an equal negative margin, because the mirror has to stay
@@ -134,19 +132,20 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  * span pushes every following glyph right and the tint drifts off its word.
  *
  * That pair makes the tint's box wider than the word while leaving the word
- * where it was, so the extra width has to land *somewhere*: in the gap between
- * words. A space here is about 0.3em, and at `px-1` (4px a side) the natural gap
- * is narrower than the tint — so two adjacent highlights overlap, merging into
- * one band, and an outlined one draws its ring straight through its neighbour.
- * Widening the tint does not fix that; widening the gap does.
+ * where it was, so the extra width has to land in the gap between words, and
+ * the gap is all the room there is. Measured: a space is 4.80px at the field's
+ * 16px size and 4.20px at `md:text-sm` (14px). `px-0.5` (2px a side) is
+ * therefore the most the 16px field can carry — 0.80px to spare — and
+ * `md:px-px` (1px a side) the most the 14px one can, at 2.20px. Go wider and
+ * two adjacent tints meet, merging into one band, and an outlined one draws its
+ * ring through its neighbour.
  *
- * `word-spacing` is set on **both** layers, so the gap grows by the same amount
- * in each and the input's caret stays in lockstep with the mirror's tints. At
- * 0.4em the gap is 0.7em against a 0.5em overhang, which clears by ~3px at the
- * field's 16px size and still clears at `md:text-sm`.
+ * Widening the gap with `word-spacing` is the obvious alternative, and v0.40.1
+ * did exactly that. It buys plenty of room, but it widens *every* space in the
+ * sentence, so words that carry no highlight look double-spaced. Fitting inside
+ * the natural gap keeps the sentence's rhythm and costs a pixel or two of tint.
  */
-const HIGHLIGHT_PADDING = 'px-1 -mx-1';
-const HIGHLIGHT_WORD_SPACING = '[word-spacing:0.4em]';
+const HIGHLIGHT_PADDING = 'px-0.5 -mx-0.5 md:px-px md:-mx-px';
 
 interface QuickAddState {
   value: string;
@@ -368,7 +367,6 @@ function QuickAddInput({
             'pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent',
             'px-3 py-1 pl-9 pr-16 text-base select-none text-transparent md:text-sm',
             'whitespace-pre',
-            HIGHLIGHT_WORD_SPACING,
           )}
         >
           <span className="shrink-0 whitespace-pre">
@@ -384,8 +382,8 @@ function QuickAddInput({
                  * afford. The pair is load-bearing: `px` without `-mx` slides
                  * the sentence out of step with the caret.
                  * The overhang that buys has to land in the gap between words,
-                 * which is what `HIGHLIGHT_WORD_SPACING` widens — the padding and
-                 * the spacing are one decision, see the constants above.
+                 * which is why the padding is sized to the space rather than to
+                 * taste — see the constants above.
                  */
                 <span
                   key={index}
@@ -414,7 +412,7 @@ function QuickAddInput({
           onChange={(event) => state.setValue(event.target.value)}
           onKeyDown={onKeyDown}
           onScroll={syncHighlightScroll}
-          className={cn('relative pr-16 pl-9', HIGHLIGHT_WORD_SPACING)}
+          className={cn('relative pr-16 pl-9')}
         />
         <Button
           type="button"

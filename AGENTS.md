@@ -215,9 +215,11 @@ pass**.
   adjacent tints overlapped by 7.2px, two fills merged into one band and the
   outlined kinds drew their ring through the neighbouring word. Nothing was
   asking whether the tints *cleared each other*. The mirror's padding and its
-  negative margin are one decision, and the gap they need is bought with
-  `word-spacing` set on **both** layers — on one layer only, the tints drift off
-  the caret by a space-width per word.
+  negative margin are one decision, and the only room they have is the space
+  between words: 4.80px at the field's 16px size, 4.20px at `md:text-sm`. So the
+  padding is `px-0.5` at the first and `md:px-px` at the second — measured, not
+  chosen. Buying more room with `word-spacing` was tried and reverted: it widens
+  every space in the sentence, so words with no highlight look double-spaced.
 
 ---
 

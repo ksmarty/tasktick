@@ -13,13 +13,22 @@
  * merged into one band and the outlined kinds drew their ring straight through
  * the neighbouring word. Nothing here checked that tints *clear each other*.
  *
- * Four things are asserted, in the order they can break:
+ * The padding cannot be widened to taste: the only room for it is the space
+ * between words, and that gap is fixed by the font. A space measures 4.80px at
+ * the field's 16px size and 4.20px at `md:text-sm` (14px), so the padding is
+ * `px-0.5` at the first and `md:px-px` at the second. Both sizes are checked
+ * here because the tighter one is the one that fails.
  *
- *   1. both layers carry the same word spacing — if only one does, the mirror
- *      drifts off the caret by a space-width per word;
+ * Five things are asserted, in the order they can break:
+ *
+ *   1. neither layer pads the word spacing — `word-spacing` buys room for the
+ *      tint but widens every space in the sentence, highlighted or not, so plain
+ *      words end up looking double-spaced (v0.40.1 did this and was reverted);
  *   2. the two layers agree on the text's total advance (sub-pixel);
  *   3. every tint has its glyphs strictly inside its own box (padding inside);
- *   4. no tint reaches into a neighbouring word, and no two tints overlap.
+ *   4. no tint reaches into a neighbouring word;
+ *   5. no two tints overlap, with a real margin — not merely "more than zero",
+ *      which 0.2px of sub-pixel luck would satisfy.
  *
  * Needs a deployed server and Playwright (`npx playwright install-deps
  * chromium` for the system libraries). Not part of `npm test` or CI.
@@ -49,6 +58,15 @@ function record(name, ok, detail) {
  * be wider than the field for the advance comparison to mean anything.
  */
 const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorrow 9am !low #home';
+
+/** The two font sizes the field uses, and the widths that select them. */
+const VIEWPORTS = [
+  { label: 'base 16px', width: 420 },
+  { label: 'md:text-sm 14px', width: 900 },
+];
+
+/** The smallest gap between two tints that still reads as two tints. */
+const MIN_CLEARANCE = 0.5;
 
 let cookies = '';
 function merge(res) {
@@ -96,100 +114,106 @@ if (auth.status !== 200) {
 }
 
 const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 420, height: 900 } });
-await context.addCookies(
-  cookies.split('; ').map((pair) => {
-    const [name, ...rest] = pair.split('=');
-    return { name, value: rest.join('='), url: BASE };
-  }),
-);
-const page = await context.newPage();
-
 console.log(`\nquick-add highlight geometry on ${BASE}\n`);
-try {
-  /*
-   * `networkidle`, not `domcontentloaded`. Opening the sheet from the
-   * server-rendered button before hydration settles closes it again ~200ms
-   * later — measured, not guessed: the field is present when the click returns
-   * and gone two frames on. Waiting for the page to settle avoids that and keeps
-   * this check about the tint rather than about hydration timing.
-   */
-  await page.goto(`${BASE}/tasks`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('button[aria-label="Add a task"]:visible', { timeout: 30000 });
-  await page.locator('button[aria-label="Add a task"]:visible').first().click();
-  const input = page.locator('[role="dialog"] input[aria-label="Quick add a task"]:visible').first();
-  await input.waitFor({ timeout: 30000 });
-  await input.fill(SENTENCE);
-  await page.waitForTimeout(700);
 
-  const data = await page.evaluate((sentence) => {
-    const el = document.querySelector('input[aria-label="Quick add a task"]');
-    const mirror = [...document.querySelectorAll('div')].find((d) =>
-      String(d.className).includes('text-transparent'),
-    );
-    if (!el || !mirror) return null;
-    const inner = mirror.querySelector(':scope > span');
-    const cs = getComputedStyle(el);
-    const rows = [...inner.querySelectorAll(':scope > span')].map((s) => {
-      const box = s.getBoundingClientRect();
-      const whole = document.createRange();
-      whole.selectNodeContents(s);
-      const t = whole.getBoundingClientRect();
-      /*
-       * A plain segment usually ends in the space separating it from the next
-       * word, and that space is part of its glyph range. A tint is *meant* to
-       * reach into that space, so "does it clip the word before it?" has to be
-       * asked of the last real glyph rather than of the trailing whitespace.
-       */
-      const trimmed = s.textContent.replace(/\s+$/, '').length;
-      const only = document.createRange();
-      only.setStart(s.firstChild, 0);
-      only.setEnd(s.firstChild, trimmed);
-      const tTrim = trimmed > 0 ? only.getBoundingClientRect() : t;
+for (const viewport of VIEWPORTS) {
+  console.log(`${viewport.label} @ ${viewport.width}px`);
+  const context = await browser.newContext({ viewport: { width: viewport.width, height: 900 } });
+  await context.addCookies(
+    cookies.split('; ').map((pair) => {
+      const [name, ...rest] = pair.split('=');
+      return { name, value: rest.join('='), url: BASE };
+    }),
+  );
+  const page = await context.newPage();
+
+  try {
+    /*
+     * `networkidle`, not `domcontentloaded`. Opening the sheet from the
+     * server-rendered button before hydration settles closes it again ~200ms
+     * later — measured, not guessed: the field is present when the click returns
+     * and gone two frames on. Waiting for the page to settle avoids that and keeps
+     * this check about the tint rather than about hydration timing.
+     */
+    await page.goto(`${BASE}/tasks`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('button[aria-label="Add a task"]:visible', { timeout: 30000 });
+    await page.locator('button[aria-label="Add a task"]:visible').first().click();
+    const input = page.locator('[role="dialog"] input[aria-label="Quick add a task"]:visible').first();
+    await input.waitFor({ timeout: 30000 });
+    await input.fill(SENTENCE);
+    await page.waitForTimeout(700);
+
+    const data = await page.evaluate(() => {
+      const el = document.querySelector('input[aria-label="Quick add a task"]');
+      const mirror = [...document.querySelectorAll('div')].find((d) =>
+        String(d.className).includes('text-transparent'),
+      );
+      if (!el || !mirror) return null;
+      const inner = mirror.querySelector(':scope > span');
+      const cs = getComputedStyle(el);
+      const rows = [...inner.querySelectorAll(':scope > span')].map((s) => {
+        const box = s.getBoundingClientRect();
+        const whole = document.createRange();
+        whole.selectNodeContents(s);
+        const t = whole.getBoundingClientRect();
+        /*
+         * A plain segment usually ends in the space separating it from the next
+         * word, and that space is part of its glyph range. A tint is *meant* to
+         * reach into that space, so "does it clip the word before it?" has to be
+         * asked of the last real glyph rather than of the trailing whitespace.
+         */
+        const trimmed = s.textContent.replace(/\s+$/, '').length;
+        const only = document.createRange();
+        only.setStart(s.firstChild, 0);
+        only.setEnd(s.firstChild, trimmed);
+        const tTrim = trimmed > 0 ? only.getBoundingClientRect() : t;
+        return {
+          text: s.textContent,
+          tinted: String(s.className).length > 0,
+          box: [box.left, box.right],
+          glyphs: [t.left, t.right],
+          // `null` for a whitespace-only segment: it has no glyph to be clipped.
+          lastGlyphEnd: trimmed > 0 ? +tTrim.right.toFixed(2) : null,
+        };
+      });
       return {
-        text: s.textContent,
-        tinted: String(s.className).length > 0,
-        box: [box.left, box.right],
-        glyphs: [t.left, t.right],
-        // `null` for a whitespace-only segment: it has no glyph to be clipped.
-        lastGlyphEnd: trimmed > 0 ? +tTrim.right.toFixed(2) : null,
+        rows,
+        fontSize: cs.fontSize,
+        padding: `${getComputedStyle(inner.querySelector('span[class]') ?? inner).paddingLeft}`,
+        inputSpacing: cs.wordSpacing,
+        mirrorSpacing: getComputedStyle(mirror).wordSpacing,
+        inputAdvance: el.scrollWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+        mirrorAdvance: inner.getBoundingClientRect().width,
       };
     });
-    return {
-      rows,
-      inputSpacing: cs.wordSpacing,
-      mirrorSpacing: getComputedStyle(mirror).wordSpacing,
-      inputAdvance: el.scrollWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
-      mirrorAdvance: inner.getBoundingClientRect().width,
-      spaces: (sentence.match(/ /g) ?? []).length,
-    };
-  }, SENTENCE);
 
-  if (!data) {
-    record('the highlight mirror renders', false, 'no input or no tint layer found');
-  } else {
+    if (!data) {
+      record(`${viewport.label}: the highlight mirror renders`, false, 'no input or no tint layer found');
+      continue;
+    }
+
     const tinted = data.rows.filter((r) => r.tinted);
 
     record(
-      'both layers carry the same word spacing',
-      data.inputSpacing === data.mirrorSpacing && parseFloat(data.inputSpacing) > 0,
+      `${viewport.label}: neither layer pads the word spacing`,
+      data.inputSpacing === data.mirrorSpacing && !(parseFloat(data.inputSpacing) > 0),
       `input ${data.inputSpacing} vs mirror ${data.mirrorSpacing}`,
     );
 
     /*
      * `scrollWidth` is an integer, so a sub-pixel difference is rounding rather
-     * than drift. A real desync is a space-width per word — with five spaces at
-     * 0.4em that is ~32px, an order of magnitude clear of this threshold.
+     * than drift. A real desync is a space-width per word — with five spaces that
+     * is tens of px, an order of magnitude clear of this threshold.
      */
     const drift = Math.abs(data.inputAdvance - data.mirrorAdvance);
     record(
-      'the layers agree on the text advance',
+      `${viewport.label}: the layers agree on the text advance`,
       drift < 2,
       `input ${data.inputAdvance.toFixed(2)}px vs mirror ${data.mirrorAdvance.toFixed(2)}px (drift ${drift.toFixed(2)}px)`,
     );
 
     record(
-      'the padding sits inside the tint',
+      `${viewport.label}: the padding sits inside the tint`,
       tinted.length > 0 && tinted.every((t) => t.glyphs[0] > t.box[0] && t.glyphs[1] < t.box[1]),
       tinted.map((t) => `${t.text}:${(t.glyphs[0] - t.box[0]).toFixed(1)}`).join(' '),
     );
@@ -209,16 +233,18 @@ try {
         clipped = `${tinted[i].text} reaches into ${JSON.stringify(data.rows[j].text)}`;
       }
     }
+    record(`${viewport.label}: no tint reaches into the word before it`, clipped === null, clipped ?? '');
     record(
-      'no two tints overlap',
-      worst > 0,
-      `worst gap ${worst.toFixed(2)}px`,
+      `${viewport.label}: no two tints overlap, with margin`,
+      worst >= MIN_CLEARANCE,
+      `worst gap ${worst.toFixed(2)}px, want >= ${MIN_CLEARANCE}px`,
     );
-    record('no tint reaches into the word before it', clipped === null, clipped ?? '');
+  } finally {
+    await context.close();
   }
-} finally {
-  await browser.close();
 }
+
+await browser.close();
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${failed.length === 0 ? '\u001b[32m✓' : '\u001b[31m✗'} ${results.length - failed.length}/${results.length} highlight checks passed\u001b[0m\n`);
