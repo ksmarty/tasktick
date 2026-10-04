@@ -134,16 +134,33 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  * exactly the drift the mirror cannot afford. The pair is load-bearing: `px`
  * without `-mx` slides the sentence out of step with the caret.
  *
- * The overhang that buys has to land in the gap between words, and a gap is
- * 4.80px at the field's 16px size and 4.20px at `md:text-sm` (14px). How much of
- * it a side may take depends on what is across the gap:
+ * That cancellation is also the ceiling. A tint can only ever be as wide as the
+ * gap around its word, because the gap is the whole budget — 4.80px at the
+ * field's 16px size, 4.20px at `md:text-sm` (14px). Measured against the
+ * neighbouring glyph's *ink* rather than its advance box (the side bearing is
+ * precisely the room being spent), a word-facing side resolves to:
  *
- *   - a plain word, or the edge of the field: the whole gap is there, so the
- *     tint takes `outer` — 4px at 16px and 2px at 14px, still leaving ~0.8px
- *     and ~2.2px before the next word's first glyph;
- *   - another tint: both tints are reaching into the same gap, so their two
- *     overhangs have to fit inside it together — `inner`, 2px at 16px and 1px
- *     at 14px, leaving 0.8px and 2.2px between the two pills.
+ *   pad    16px     14px
+ *   4px   +0.91    -0.32
+ *   5px   -0.09    -1.32
+ *   6px   -1.09    -2.32
+ *
+ * The values below take 6px / 4px — the roomiest a pill gets without widening
+ * the gaps, at the cost of its edge landing within ~1px of the letter beside it.
+ * The honest alternative is `word-spacing`, which v0.40.7 shipped at 0.165em: it
+ * buys the same padding but spaces out every plain word with it, and the user
+ * rejected that outright. So the edge is spent instead. There is no third lever —
+ * in a mirror-behind-input field the padding has to come out of the gap.
+ *
+ * How much of the gap a side takes depends on what is across it:
+ *
+ *   - a plain word, or the edge of the field: `outer` — 6px at 16px, 4px at 14px;
+ *   - another tint: both tints reach into the same gap, so their two overhangs
+ *     have to fit inside it together — `inner`, 2px at 16px and 1px at 14px,
+ *     which leaves 0.8px and 2.2px of white between the pills. This one does
+ *     halve at `md:`, unlike `outer`: two pills in one 4.20px gap is a tighter
+ *     budget than one pill beside a word, and at 2px each the gap collapsed to
+ *     0.20px — caught by scripts/smoke/highlights.mjs, not by eye.
  *
  * Sizing every side to `inner` (v0.40.3) was safe but spent half the room that
  * was there in the common case, a tint beside a plain word. Sizing every side to
@@ -158,28 +175,8 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
 const TINT_PAD_VERTICAL = 'py-0.5';
 const TINT_PAD_OUTER_LEFT = 'pl-1.5 -ml-1.5 md:pl-1 md:-ml-1';
 const TINT_PAD_OUTER_RIGHT = 'pr-1.5 -mr-1.5 md:pr-1 md:-mr-1';
-const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5';
-const TINT_PAD_INNER_RIGHT = 'pr-0.5 -mr-0.5';
-
-/**
- * The word spacing the tint's overhang is paid for with.
- *
- * The padding and the matching negative margin cancel out in layout, so a tint
- * can only ever be as wide as the space around its word. That space *is* the
- * budget: 4.80px at the field's 16px size and 4.20px at `md:text-sm` (14px),
- * which leaves 0.52px / 2.09px clear of the neighbouring ink once the old 4px /
- * 2px overhang is taken. There is no third lever — a wider pill needs a wider
- * space, or it has to touch the letter next to it.
- *
- * The user was shown that trade with measured numbers and picked this end of it:
- * 0.165em takes 4.80px to 7.44px at 16px and 4.20px to 6.51px at 14px, which is
- * what buys the 6px / 4px padding below. It is a long way from v0.40.1's 0.4em
- * (+138%, reverted for looking double-spaced); this is +55%.
- *
- * It has to be on both layers. The mirror is what the eye sees, but the input
- * owns the text, the caret and the selection — a mismatch desyncs all three.
- */
-const TINT_WORD_SPACING = '[word-spacing:0.165em]';
+const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5 md:pl-px md:-ml-px';
+const TINT_PAD_INNER_RIGHT = 'pr-0.5 -mr-0.5 md:pr-px md:-mr-px';
 
 /**
  * Whether the nearest glyph-bearing neighbour in `direction` is another tint.
@@ -417,7 +414,6 @@ function QuickAddInput({
             'pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent',
             'px-3 py-1 pl-9 pr-16 text-base select-none text-transparent md:text-sm',
             'whitespace-pre',
-            TINT_WORD_SPACING,
           )}
         >
           <span className="shrink-0 whitespace-pre">
@@ -465,7 +461,7 @@ function QuickAddInput({
           onChange={(event) => state.setValue(event.target.value)}
           onKeyDown={onKeyDown}
           onScroll={syncHighlightScroll}
-          className={cn('relative pr-16 pl-9', TINT_WORD_SPACING)}
+          className={cn('relative pr-16 pl-9')}
         />
         <Button
           type="button"

@@ -70,12 +70,27 @@ const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorro
 /** The two font sizes the field uses, the widths that select them, and the
  * padding each side should resolve to. */
 const VIEWPORTS = [
-  { label: 'base 16px', width: 420, outer: 6, inner: 2, vertical: 2, wordSpacing: 2.64 },
-  { label: 'md:text-sm 14px', width: 900, outer: 4, inner: 2, vertical: 2, wordSpacing: 2.31 },
+  { label: 'base 16px', width: 420, outer: 6, inner: 2, vertical: 2, wordSpacing: 0 },
+  { label: 'md:text-sm 14px', width: 900, outer: 4, inner: 1, vertical: 2, wordSpacing: 0 },
 ];
 
 /** The smallest gap between two tints that still reads as two tints. */
 const MIN_CLEARANCE = 0.5;
+
+/**
+ * How far a tint's box may reach past the last glyph of the word before it.
+ *
+ * Not zero, deliberately. A tint's padding is cancelled by a negative margin, so
+ * the word gap is the entire budget for it: at 6px of padding the box edge lands
+ * within ~1.1px of the neighbouring glyph's ink, which is the price of roomy
+ * pills without the word-spacing the user rejected. The measured table is on
+ * `TINT_PAD_OUTER_LEFT` in QuickAddBar.tsx.
+ *
+ * What this still catches is a tint that has grown far enough to read as
+ * touching the word — the v0.40.1 regression, where 0.4em of word spacing plus
+ * padding put the edge several px into the letter.
+ */
+const TINT_INK_TOLERANCE = 1.5;
 
 let cookies = '';
 function merge(res) {
@@ -210,10 +225,13 @@ for (const viewport of VIEWPORTS) {
 
     const tinted = data.rows.filter((r) => r.tinted);
 
+    /* `word-spacing: normal` computes to `0px` in Chromium and stays the keyword
+     * in some engines; both mean "the font's own space", so normalise it. */
+    const spacingPx = (value) => (value === 'normal' ? 0 : parseFloat(value));
     record(
-      `${viewport.label}: both layers carry the designed word spacing`,
+      `${viewport.label}: both layers carry the same, unaltered word spacing`,
       data.inputSpacing === data.mirrorSpacing &&
-        Math.abs(parseFloat(data.inputSpacing) - viewport.wordSpacing) < 0.05,
+        Math.abs(spacingPx(data.inputSpacing) - viewport.wordSpacing) < 0.05,
       `input ${data.inputSpacing} vs mirror ${data.mirrorSpacing}, want ${viewport.wordSpacing}px`,
     );
 
@@ -246,11 +264,18 @@ for (const viewport of VIEWPORTS) {
        */
       let j = data.rows.indexOf(tinted[i]) - 1;
       while (j >= 0 && data.rows[j].lastGlyphEnd === null) j -= 1;
-      if (j >= 0 && tinted[i].box[0] < data.rows[j].lastGlyphEnd) {
-        clipped = `${tinted[i].text} reaches into ${JSON.stringify(data.rows[j].text)}`;
+      if (j >= 0) {
+        const intrusion = data.rows[j].lastGlyphEnd - tinted[i].box[0];
+        if (intrusion > TINT_INK_TOLERANCE) {
+          clipped = `${tinted[i].text} reaches ${intrusion.toFixed(2)}px into ${JSON.stringify(data.rows[j].text)}`;
+        }
       }
     }
-    record(`${viewport.label}: no tint reaches into the word before it`, clipped === null, clipped ?? '');
+    record(
+      `${viewport.label}: no tint reaches more than ${TINT_INK_TOLERANCE}px into the word before it`,
+      clipped === null,
+      clipped ?? '',
+    );
     record(
       `${viewport.label}: no two tints overlap, with margin`,
       worst >= MIN_CLEARANCE,
