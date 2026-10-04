@@ -123,6 +123,31 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
   priority: 'ring-1 ring-primary/55 ring-inset',
 };
 
+/**
+ * The breathing room inside a tint, and the word spacing that pays for it.
+ *
+ * These two travel together and mean nothing apart.
+ *
+ * A tint can only reach past its word by padding and then cancelling that
+ * padding with an equal negative margin, because the mirror has to stay
+ * character-aligned with the input it sits behind — plain padding on an inline
+ * span pushes every following glyph right and the tint drifts off its word.
+ *
+ * That pair makes the tint's box wider than the word while leaving the word
+ * where it was, so the extra width has to land *somewhere*: in the gap between
+ * words. A space here is about 0.3em, and at `px-1` (4px a side) the natural gap
+ * is narrower than the tint — so two adjacent highlights overlap, merging into
+ * one band, and an outlined one draws its ring straight through its neighbour.
+ * Widening the tint does not fix that; widening the gap does.
+ *
+ * `word-spacing` is set on **both** layers, so the gap grows by the same amount
+ * in each and the input's caret stays in lockstep with the mirror's tints. At
+ * 0.4em the gap is 0.7em against a 0.5em overhang, which clears by ~3px at the
+ * field's 16px size and still clears at `md:text-sm`.
+ */
+const HIGHLIGHT_PADDING = 'px-1 -mx-1';
+const HIGHLIGHT_WORD_SPACING = '[word-spacing:0.4em]';
+
 interface QuickAddState {
   value: string;
   setValue: (value: string) => void;
@@ -343,6 +368,7 @@ function QuickAddInput({
             'pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent',
             'px-3 py-1 pl-9 pr-16 text-base select-none text-transparent md:text-sm',
             'whitespace-pre',
+            HIGHLIGHT_WORD_SPACING,
           )}
         >
           <span className="shrink-0 whitespace-pre">
@@ -357,11 +383,15 @@ function QuickAddInput({
                  * the right, which is exactly the drift the mirror cannot
                  * afford. The pair is load-bearing: `px` without `-mx` slides
                  * the sentence out of step with the caret.
+                 * The overhang that buys has to land in the gap between words,
+                 * which is what `HIGHLIGHT_WORD_SPACING` widens — the padding and
+                 * the spacing are one decision, see the constants above.
                  */
                 <span
                   key={index}
                   className={cn(
-                    'rounded-sm px-1.5 -mx-1.5',
+                    'rounded-sm',
+                    HIGHLIGHT_PADDING,
                     HIGHLIGHT_CLASS[segment.kind],
                   )}
                 >
@@ -384,7 +414,7 @@ function QuickAddInput({
           onChange={(event) => state.setValue(event.target.value)}
           onKeyDown={onKeyDown}
           onScroll={syncHighlightScroll}
-          className="relative pr-16 pl-9"
+          className={cn('relative pr-16 pl-9', HIGHLIGHT_WORD_SPACING)}
         />
         <Button
           type="button"

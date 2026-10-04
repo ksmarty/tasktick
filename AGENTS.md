@@ -206,6 +206,19 @@ pass**.
   autoplay the way the referenced answer describes. Say that, rather than
   implying the feature was seen working.
 
+- **Layout bugs need a browser.** jsdom reports every rectangle as zero, so the
+  quick-add tint geometry — glyphs inside their tint, tints clear of each other —
+  is checked by `npm run smoke:highlights` against a deployed server (it needs
+  Playwright and `SMOKE_EMAIL`/`SMOKE_PASSWORD` on an invite-gated instance). The
+  first attempt at "more horizontal padding" passed every measurement it was
+  given and was still wrong: the tint overhung its word by 6px each side,
+  adjacent tints overlapped by 7.2px, two fills merged into one band and the
+  outlined kinds drew their ring through the neighbouring word. Nothing was
+  asking whether the tints *cleared each other*. The mirror's padding and its
+  negative margin are one decision, and the gap they need is bought with
+  `word-spacing` set on **both** layers — on one layer only, the tints drift off
+  the caret by a space-width per word.
+
 ---
 
 ## 6. Architecture
