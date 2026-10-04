@@ -156,10 +156,30 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  * not as a box filling the field.
  */
 const TINT_PAD_VERTICAL = 'py-0.5';
-const TINT_PAD_OUTER_LEFT = 'pl-1 -ml-1 md:pl-0.5 md:-ml-0.5';
-const TINT_PAD_OUTER_RIGHT = 'pr-1 -mr-1 md:pr-0.5 md:-mr-0.5';
-const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5 md:pl-px md:-ml-px';
-const TINT_PAD_INNER_RIGHT = 'pr-0.5 -mr-0.5 md:pr-px md:-mr-px';
+const TINT_PAD_OUTER_LEFT = 'pl-1.5 -ml-1.5 md:pl-1 md:-ml-1';
+const TINT_PAD_OUTER_RIGHT = 'pr-1.5 -mr-1.5 md:pr-1 md:-mr-1';
+const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5';
+const TINT_PAD_INNER_RIGHT = 'pr-0.5 -mr-0.5';
+
+/**
+ * The word spacing the tint's overhang is paid for with.
+ *
+ * The padding and the matching negative margin cancel out in layout, so a tint
+ * can only ever be as wide as the space around its word. That space *is* the
+ * budget: 4.80px at the field's 16px size and 4.20px at `md:text-sm` (14px),
+ * which leaves 0.52px / 2.09px clear of the neighbouring ink once the old 4px /
+ * 2px overhang is taken. There is no third lever — a wider pill needs a wider
+ * space, or it has to touch the letter next to it.
+ *
+ * The user was shown that trade with measured numbers and picked this end of it:
+ * 0.165em takes 4.80px to 7.44px at 16px and 4.20px to 6.51px at 14px, which is
+ * what buys the 6px / 4px padding below. It is a long way from v0.40.1's 0.4em
+ * (+138%, reverted for looking double-spaced); this is +55%.
+ *
+ * It has to be on both layers. The mirror is what the eye sees, but the input
+ * owns the text, the caret and the selection — a mismatch desyncs all three.
+ */
+const TINT_WORD_SPACING = '[word-spacing:0.165em]';
 
 /**
  * Whether the nearest glyph-bearing neighbour in `direction` is another tint.
@@ -397,6 +417,7 @@ function QuickAddInput({
             'pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent',
             'px-3 py-1 pl-9 pr-16 text-base select-none text-transparent md:text-sm',
             'whitespace-pre',
+            TINT_WORD_SPACING,
           )}
         >
           <span className="shrink-0 whitespace-pre">
@@ -444,7 +465,7 @@ function QuickAddInput({
           onChange={(event) => state.setValue(event.target.value)}
           onKeyDown={onKeyDown}
           onScroll={syncHighlightScroll}
-          className={cn('relative pr-16 pl-9')}
+          className={cn('relative pr-16 pl-9', TINT_WORD_SPACING)}
         />
         <Button
           type="button"

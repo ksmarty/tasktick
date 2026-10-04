@@ -14,17 +14,19 @@
  * the neighbouring word. Nothing here checked that tints *clear each other*.
  *
  * The padding cannot be widened to taste: the only room for it is the space
- * between words, and that gap is fixed by the font. A space measures 4.80px at
- * the field's 16px size and 4.20px at `md:text-sm` (14px). One tint facing a
- * plain word may take all of it (4px / 2px); two tints facing each other share
- * the single gap between them, so each takes half (2px / 1px). Both sizes are
- * checked here because the tighter one is the one that fails.
+ * between words. A space measures 4.80px at the field's 16px size and 4.20px at
+ * `md:text-sm` (14px); `word-spacing: 0.165em` raises those to 7.44px and
+ * 6.51px, and that is what the padding below is spent from. One tint facing a
+ * plain word takes most of the gap (6px / 4px); two tints facing each other
+ * share the single gap between them, so each takes a little (2px). Both sizes
+ * are checked here because the tighter one is the one that fails.
  *
- * Five things are asserted, in the order they can break:
+ * Six things are asserted, in the order they can break:
  *
- *   1. neither layer pads the word spacing — `word-spacing` buys room for the
- *      tint but widens every space in the sentence, highlighted or not, so plain
- *      words end up looking double-spaced (v0.40.1 did this and was reverted);
+ *   1. both layers carry the same word spacing, and the designed one. The
+ *      spacing is deliberate now — v0.40.1's 0.4em was not, and was reverted for
+ *      looking double-spaced — but it is also the one value whose drift desyncs
+ *      the caret from the highlight, so it is pinned rather than merely allowed;
  *   2. the two layers agree on the text's total advance (sub-pixel);
  *   3. every tint has its glyphs strictly inside its own box (padding inside);
  *   4. no tint reaches into a neighbouring word;
@@ -68,8 +70,8 @@ const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorro
 /** The two font sizes the field uses, the widths that select them, and the
  * padding each side should resolve to. */
 const VIEWPORTS = [
-  { label: 'base 16px', width: 420, outer: 4, inner: 2, vertical: 2 },
-  { label: 'md:text-sm 14px', width: 900, outer: 2, inner: 1, vertical: 2 },
+  { label: 'base 16px', width: 420, outer: 6, inner: 2, vertical: 2, wordSpacing: 2.64 },
+  { label: 'md:text-sm 14px', width: 900, outer: 4, inner: 2, vertical: 2, wordSpacing: 2.31 },
 ];
 
 /** The smallest gap between two tints that still reads as two tints. */
@@ -209,9 +211,10 @@ for (const viewport of VIEWPORTS) {
     const tinted = data.rows.filter((r) => r.tinted);
 
     record(
-      `${viewport.label}: neither layer pads the word spacing`,
-      data.inputSpacing === data.mirrorSpacing && !(parseFloat(data.inputSpacing) > 0),
-      `input ${data.inputSpacing} vs mirror ${data.mirrorSpacing}`,
+      `${viewport.label}: both layers carry the designed word spacing`,
+      data.inputSpacing === data.mirrorSpacing &&
+        Math.abs(parseFloat(data.inputSpacing) - viewport.wordSpacing) < 0.05,
+      `input ${data.inputSpacing} vs mirror ${data.mirrorSpacing}, want ${viewport.wordSpacing}px`,
     );
 
     /*
