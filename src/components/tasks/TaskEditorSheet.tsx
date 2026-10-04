@@ -168,6 +168,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { CalendarCombobox } from '@/components/calendar/CalendarCombobox';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
 import { addDaysToDateOnly, humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
@@ -421,6 +422,12 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const zone = bootstrap?.settings.timezone ?? bootstrap?.user.timezone ?? 'utc';
   const lists = bootstrap?.lists ?? [];
   const tags = bootstrap?.tags ?? [];
+  /*
+   * Every calendar, because the *current* one must resolve to a name even when
+   * it is read-only (a task already filed into a subscribed collection). The
+   * combobox applies the writable-only rule to the destinations itself.
+   */
+  const calendars = bootstrap?.calendars ?? [];
   /* react-day-picker wants the literal weekday union; the setting is 0 or 1. */
   const weekStartsOn = (bootstrap?.settings.weekStartsOn ?? 1) as 0 | 1;
 
@@ -610,6 +617,11 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
 
   const activeList = lists.find((list) => list.id === listId) ?? null;
   const selectedTags = tags.filter((tag) => tagIds.includes(tag.id));
+  /*
+   * The task's calendar as a *value*: `''` is "no calendar", which is what
+   * `allowNone` expects and what a task belonging to no collection actually is.
+   */
+  const calendarId = draft.calendarId !== undefined ? draft.calendarId : (task?.calendarId ?? null);
   /*
    * The anchor day and the three quick picks are Luxon work — `todayIn` builds a
    * `DateTime` and formats it, `addDaysToDateOnly` parses, shifts and formats —
@@ -906,6 +918,28 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 disabled={disabled}
                 onClick={() => setPicker('tags')}
               />
+
+              {/*
+               * The calendar is the one field in this group that is a *combobox*
+               * rather than a drawer row, because it is the field the user types
+               * into to find one name among many — the job the event editor
+               * already uses it for, and the reason it is the picker that carries
+               * type-ahead.
+               *
+               * `allowNone` is what makes it usable for a task at all: a task may
+               * live in no collection, an event may not.
+               */}
+              {calendars.length ? (
+                <div className="flex flex-col gap-2 px-3 py-2">
+                  <span className="text-xs text-muted-foreground">Calendar</span>
+                  <CalendarCombobox
+                    value={calendarId ?? ''}
+                    calendars={calendars}
+                    onChange={(next) => edit({ calendarId: next || null })}
+                    allowNone
+                  />
+                </div>
+              ) : null}
 
               <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm border border-transparent">
                 <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">

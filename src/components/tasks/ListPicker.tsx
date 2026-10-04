@@ -8,7 +8,7 @@
  * swipe-down-to-dismiss, as the filter/sort menus and the other pickers. Its
  * panel is content-height, so the picker is only as tall as its rows.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { Inbox } from 'lucide-react';
@@ -16,7 +16,8 @@ import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
 import type { List as TaskList } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, matchesFilter } from '@/lib/utils';
+import { PickerFilter } from './picker-filter';
 
 export interface ListPickerProps {
   open: boolean;
@@ -77,6 +78,9 @@ export function ListPicker({
   title = 'List',
   onManage,
 }: ListPickerProps) {
+  const [query, setQuery] = useState('');
+  const visible = lists.filter((list) => matchesFilter(list.name, query));
+
   function choose(listId: string | null) {
     onChange(listId);
     onOpenChange(false);
@@ -90,6 +94,8 @@ export function ListPicker({
       title={title}
       className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
+      <PickerFilter value={query} onChange={setQuery} noun="lists" />
+
       <div role="radiogroup" aria-label={title}>
         {allowNone ? (
           <OptionRow
@@ -100,7 +106,7 @@ export function ListPicker({
           />
         ) : null}
 
-        {lists.map((list) => (
+        {visible.map((list) => (
           <OptionRow
             key={list.id}
             selected={list.id === value}
@@ -122,6 +128,8 @@ export function ListPicker({
 
       {lists.length === 0 ? (
         <p className="pt-3 text-xs text-muted-foreground">You have no lists yet.</p>
+      ) : visible.length === 0 ? (
+        <p className="pt-3 text-xs text-muted-foreground">No lists match.</p>
       ) : null}
 
       {onManage ? (

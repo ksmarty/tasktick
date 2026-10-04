@@ -17,7 +17,8 @@ import { Drawer } from '@/components/godui/drawer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Tag } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, matchesFilter } from '@/lib/utils';
+import { PickerFilter } from './picker-filter';
 
 export interface TagPickerProps {
   open: boolean;
@@ -45,6 +46,8 @@ export function TagPicker({
 }: TagPickerProps) {
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState('');
+  const visible = tags.filter((tag) => matchesFilter(tag.name, query));
 
   function toggle(tagId: string) {
     const next = value.includes(tagId) ? value.filter((id) => id !== tagId) : [...value, tagId];
@@ -72,10 +75,12 @@ export function TagPicker({
       title={title}
       className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
+      <PickerFilter value={query} onChange={setQuery} noun="tags" />
+
       <div className="flex flex-col gap-stack">
         {tags.length ? (
           <div>
-            {tags.map((tag) => {
+            {visible.map((tag) => {
               const selected = value.includes(tag.id);
               return (
                 <button
@@ -105,6 +110,10 @@ export function TagPicker({
         ) : (
           <p className="text-xs text-muted-foreground">No tags yet — create the first one below.</p>
         )}
+
+        {tags.length > 0 && visible.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No tags match.</p>
+        ) : null}
 
         {onCreate ? (
           <div className="flex items-end gap-2">

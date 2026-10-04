@@ -24,7 +24,7 @@
  *     page back, and that is not a job whose colour should follow the text
  *     colour. `bg-black/50` is also what this app's shadcn dialogs use, so the
  *     two overlay families now agree.
- *  4. The bottom safe-area clearance is imported from the shell's own chrome
+ *  5. The bottom safe-area clearance is imported from the shell's own chrome
  *     module (`@/components/app/chrome`) and applied to the bottom panel when
  *     the caller has handed the panel its own bottom padding (the pickers all
  *     pass `pb-[max(0.25rem,env(...))]`). The sheet's content edge is a shell
@@ -34,6 +34,9 @@
  *     the user read as the page. Reading the same constant as the band makes
  *     the content bottom land on the band's bottom. A caller that pads its own
  *     content instead (the day sheet) is left alone so the two cannot stack.
+ *  6. `FocusScope` (`@radix-ui/react-focus-scope`) wraps the panel's content, so
+ *     a drawer opened from inside a Radix dialog takes the focus lock from it —
+ *     see "Why the drawer owns focus as well as pointer events" below.
  *
  * The source's `z-modal` is kept as-is: the z-index tokens are defined in
  * `globals.css` (`--z-index-modal`), so the semantic class resolves. GodUI's
@@ -54,10 +57,39 @@
  * undoes the inherited lock for this subtree only, which is exactly the intent —
  * the thing on top is the thing you should be able to press.
  *
+ * ## Why the drawer owns focus as well as pointer events
+ *
+ * `pointer-events-auto` fixes the pointer half of the dialog-inside-a-dialog
+ * problem. Focus is the other half, and it fails more quietly.
+ *
+ * Radix's modal `DialogContent` is wrapped in a `FocusScope` with `trapped`, so
+ * focus leaving the dialog is pulled straight back to it. This drawer portals to
+ * `body`, which is outside that scope, so every field inside it is unreachable
+ * by keyboard *and by mouse*: pressing the field moves focus to it, the dialog's
+ * scope sees the focus leave, and refocuses its own element before the caret
+ * lands. The field looks live and silently ignores everything typed into it.
+ *
+ * Measured, in the task editor, before this change: clicking the List picker's
+ * filter field left `document.activeElement` on a button in the dialog behind,
+ * and typing produced an empty `value`. Driving the same field through a
+ * synthetic `input` event filtered the list from 6 rows to 1 — so the wiring was
+ * correct and only the focus was being taken away.
+ *
+ * `FocusScope` fixes it the way Radix expects nested layers to fix it: mounting
+ * a scope pushes it onto the module-level stack, which pauses the scope below,
+ * and unmounting resumes it. The drawer therefore keeps portalling to `body`
+ * (which it must — the dialog is `translate`d, and a `translate` on an ancestor
+ * makes `position: fixed` resolve against *it* rather than the viewport, so
+ * portalling inside the dialog would confine the sheet to the dialog's box).
+ *
+ * `trapped` is what pauses the outer scope; `loop` keeps Tab inside the drawer.
+ * Both match what Radix uses for a modal dialog.
+ *
  * No `@godui/godui-theme` import exists in the published source — the registry
  * dependency is a stylesheet merge, not a code import — so there was nothing to
  * drop.
  */
+import { FocusScope } from '@radix-ui/react-focus-scope';
 import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
@@ -225,7 +257,9 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                       {title}
                     </h2>
                   ) : null}
-                  <div className="overflow-y-auto">{children}</div>
+                  <FocusScope trapped loop className="overflow-y-auto">
+                    {children}
+                  </FocusScope>
                 </motion.div>
               </div>
             ) : null}

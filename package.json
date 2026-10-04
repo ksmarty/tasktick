@@ -1,6 +1,6 @@
 {
   "name": "tasktick",
-  "version": "0.39.1",
+  "version": "0.40.0",
   "private": true,
   "description": "Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync. iOS-flavoured PWA.",
   "license": "AGPL-3.0-or-later",
@@ -28,6 +28,7 @@
     "verify:sw": "node scripts/check-sw-version.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-focus-scope": "^1.1.16",
     "@svg-animated-icons/react": "^0.1.2",
     "@tailwindcss/postcss": "^4.3.3",
     "better-auth": "1.7.5",

@@ -57,7 +57,7 @@ import {
 import { MagicWandIcon } from '@svg-animated-icons/react/magic-wand';
 import { parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
 import { useResource } from '@/lib/store';
-import type { Task } from '@/lib/types';
+import type { Calendar as CalendarRecord, Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
 import { Badge } from '@/components/ui/badge';
@@ -70,6 +70,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { CalendarCombobox } from '@/components/calendar/CalendarCombobox';
 import { dueLabel } from './TaskMeta';
 import {
   planQuickAdd,
@@ -105,15 +106,21 @@ export interface QuickAddBarProps {
  * sentence stays legible and the resolved chips below remain the place colour is
  * allowed to do more work. A second hue here would be a rainbow the app's
  * Celestial Sapphire palette has nothing to say with.
+ *
+ * The alphas are set for **contrast against the field**, not for subtlety. At
+ * `/15` the fill was faint enough to read as a rendering artefact rather than as
+ * "this word was understood", which is the whole job of the layer; `/30` and
+ * `/55` keep the tint clearly visible in both themes while leaving the input's
+ * own foreground text at full strength on top of it.
  */
 const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
-  date: 'bg-primary/15',
-  time: 'bg-primary/15',
-  repeat: 'bg-primary/15',
-  estimate: 'bg-primary/15',
-  tag: 'ring-1 ring-primary/30 ring-inset',
-  list: 'ring-1 ring-primary/30 ring-inset',
-  priority: 'ring-1 ring-primary/30 ring-inset',
+  date: 'bg-primary/30',
+  time: 'bg-primary/30',
+  repeat: 'bg-primary/30',
+  estimate: 'bg-primary/30',
+  tag: 'ring-1 ring-primary/55 ring-inset',
+  list: 'ring-1 ring-primary/55 ring-inset',
+  priority: 'ring-1 ring-primary/55 ring-inset',
 };
 
 interface QuickAddState {
@@ -126,6 +133,15 @@ interface QuickAddState {
   online: boolean;
   offlineNotice: string;
   busy: boolean;
+  /**
+   * The calendars a task may be filed into — writable ones only, because a
+   * read-only collection accepts a local row and never writes it back. Empty
+   * when there are none, which hides the picker entirely.
+   */
+  calendars: CalendarRecord[];
+  /** The chosen calendar id, or `''` for no calendar. */
+  calendarId: string;
+  setCalendarId: (calendarId: string) => void;
 }
 
 function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): QuickAddState {
@@ -137,6 +153,18 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
   const actions = useTaskActions(zone);
   const { toast } = useToast();
   const [value, setValue] = useState('');
+  /*
+   * Which calendar the task is filed into; `''` is "no calendar", which is where
+   * a task starts. Deliberately *not* reset after each add, for the same reason
+   * the list is not: someone filing three tasks into one calendar should not have
+   * to name it three times.
+   */
+  const [calendarId, setCalendarId] = useState('');
+
+  const writableCalendars = useMemo(
+    () => (bootstrap?.calendars ?? []).filter((calendar) => !calendar.readOnly),
+    [bootstrap],
+  );
 
   const result = useMemo(() => parseQuickAdd(value, { zone, weekStartsOn }), [value, zone, weekStartsOn]);
 
@@ -169,7 +197,13 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
       return false;
     }
 
-    let payload = plan.payload;
+    /*
+     * The sentence can name a list (`@Groceries`) but not a calendar — there is
+     * no syntax for one — so the calendar is the single field merged in from the
+     * picker. `null` rather than `''`: absence is `null` on the wire, and the
+     * create schema accepts it.
+     */
+    let payload = { ...plan.payload, calendarId: calendarId || null };
     if (plan.createListName) {
       // The list does not exist yet; create it so `@Groceries` really files there.
       const created = await actions.createList(plan.createListName);
@@ -188,7 +222,7 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
     });
     onCreated?.(task);
     return true;
-  }, [actions, context, onCreated, result, timeFormat, toast, value, zone]);
+  }, [actions, calendarId, context, onCreated, result, timeFormat, toast, value, zone]);
 
   return {
     value,
@@ -199,6 +233,9 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
     online: actions.online,
     offlineNotice: actions.offlineNotice,
     busy: actions.isSaving,
+    calendars: writableCalendars,
+    calendarId,
+    setCalendarId,
   };
 }
 
@@ -354,6 +391,21 @@ function QuickAddInput({
           )}
         </Button>
       </div>
+
+      {/*
+       * The calendar picker sits between the field and the chips: it is part of
+       * what the task *is*, like the list, so it belongs with the input rather
+       * than in the confirmation row below. Hidden when the account has no
+       * writable collection, because then there is nothing to choose between.
+       */}
+      {state.calendars.length ? (
+        <CalendarCombobox
+          value={state.calendarId}
+          calendars={state.calendars}
+          onChange={state.setCalendarId}
+          allowNone
+        />
+      ) : null}
 
       {state.online ? (
         <div className="flex min-h-7 flex-wrap items-center gap-1.5">

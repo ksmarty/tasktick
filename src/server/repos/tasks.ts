@@ -672,9 +672,41 @@ export async function updateTask(userId: string, id: string, input: UpdateTaskIn
     patch.startAtMs = input.startAtMs ?? (input.startDate && input.startTime ? combineDateAndTime(input.startDate, input.startTime, zone) : null);
   }
 
-  // Any local edit to a mirrored task must be pushed on the next sync run.
-  const effectiveCalendarId = (patch.calendarId as string | null | undefined) ?? existing.calendarId;
-  if (await calendarSyncsToRemote(effectiveCalendarId, userId)) {
+  /*
+   * Sync bookkeeping for a calendar change.
+   *
+   * The requested collection is `input.calendarId`, not
+   * `patch.calendarId ?? existing.calendarId`: `null` is a real value here
+   * ("no collection"), and the `??` read it as "unchanged", which left the task
+   * mirrored to a collection it had just been taken out of.
+   */
+  const calendarChanged = input.calendarId !== undefined && input.calendarId !== existing.calendarId;
+  const effectiveCalendarId = input.calendarId !== undefined ? input.calendarId : existing.calendarId;
+
+  if (calendarChanged) {
+    /*
+     * A move detaches the task from wherever it was mirrored.
+     *
+     * `externalHref`/`externalEtag` name a resource inside the *old* collection,
+     * so they are dropped here — otherwise the push would PUT to the old
+     * address, and the pull's leftover check (`applyRemoteTask`) would read the
+     * mirror as belonging to the new collection.
+     *
+     * `externalUid` is deliberately kept: it is what lets the next pull of the
+     * old collection recognise the object it still lists as *this* task, so the
+     * engine deletes that leftover instead of importing it as a second task.
+     */
+    patch.externalHref = null;
+    patch.externalEtag = null;
+    if (await calendarSyncsToRemote(effectiveCalendarId, userId)) {
+      patch.syncState = 'dirty';
+      patch.syncProvider = 'caldav';
+    } else {
+      patch.syncState = 'synced';
+      patch.syncProvider = 'local';
+    }
+  } else if (await calendarSyncsToRemote(effectiveCalendarId, userId)) {
+    // Any local edit to a mirrored task must be pushed on the next sync run.
     patch.syncState = 'dirty';
     patch.syncProvider = 'caldav';
   }

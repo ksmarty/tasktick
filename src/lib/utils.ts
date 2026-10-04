@@ -59,3 +59,21 @@ const twMerge = extendTailwindMerge({
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+/**
+ * Case-insensitive "does `name` contain `query`" — the predicate behind the
+ * type-ahead filters on the pickers and the calendar combobox.
+ *
+ * A blank query (including an all-whitespace one) matches everything, which is
+ * what makes the field's empty state mean "no filter" rather than "no matches".
+ * That is the whole reason it is a named predicate and not an inline `includes`
+ * at each call site.
+ *
+ * It lives here, in a framework-free module, because the components that use it
+ * are drawers and popovers: this is the only shape of the behaviour a `node`
+ * test environment can reach.
+ */
+export function matchesFilter(name: string, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  return needle === '' || name.toLowerCase().includes(needle);
+}

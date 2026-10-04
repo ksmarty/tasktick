@@ -27,6 +27,12 @@ export interface CreateTaskPayload {
   tagIds?: string[];
   reminders?: { offsetMinutes: number | null; absoluteAtMs?: number | null }[];
   isPinned?: boolean;
+  /**
+   * The calendar the task is filed into, which is also what makes it sync: the
+   * server marks a task in a writable CalDAV collection dirty and pushes it.
+   * `null` means no collection at all.
+   */
+  calendarId?: string | null;
 }
 
 /** Body of `PATCH /api/tasks/[id]` — every field optional, with explicit clears. */
@@ -49,6 +55,12 @@ export interface TaskPatch {
   reminders?: { offsetMinutes: number | null; absoluteAtMs?: number | null }[];
   clearReminders?: boolean;
   isPinned?: boolean;
+  /**
+   * Moving the task to another calendar, or out of every calendar with `null`.
+   * The server treats this as a detach: the old collection's copy is deleted on
+   * the next sync rather than left behind (see `applyRemoteTask`).
+   */
+  calendarId?: string | null;
 }
 
 /** Body of `PATCH /api/lists/[id]` — every field optional. */

@@ -762,6 +762,46 @@ async function applyRemoteTask(
     .where(and(eq(tasks.userId, ctx.account.userId), eq(tasks.externalUid, parsed.uid)))
     .limit(1);
 
+  /*
+   * The object is mirrored here, but the task no longer belongs to this
+   * collection: it was moved elsewhere after this object was pushed. The copy
+   * on the server is the leftover, so it is deleted rather than adopted.
+   *
+   * Deleting it matters in both directions. Letting the code below run would
+   * keep overwriting a task that now lives in another calendar, and merely
+   * clearing the mirror would leave this pull with no match and make it import
+   * the leftover as a *new* task — the duplicate this exists to avoid.
+   */
+  if (existing && existing.calendarId !== calendar.id) {
+    try {
+      await ctx.client.deleteObject(remote.href, remote.etag);
+      ctx.counters.deletedRemote += 1;
+    } catch (error) {
+      if (!isNotFound(error)) throw error; // 404 == already gone == success
+    }
+    /*
+     * Forget the mirror only when it still describes the object just deleted. A
+     * move between two collections drops `externalHref` before the push, so a
+     * mirror pointing at some other href belongs to the new collection and has
+     * to survive. (`externalUid` is never cleared: it is what let this pull
+     * recognise the leftover in the first place.)
+     */
+    if (existing.externalHref === remote.href) {
+      await db
+        .update(tasks)
+        .set({
+          externalHref: null,
+          externalEtag: null,
+          syncProvider: 'local',
+          syncState: 'synced',
+          lastSyncedAtMs: ctx.now(),
+          updatedAt: ctx.now(),
+        })
+        .where(eq(tasks.id, existing.id));
+    }
+    return;
+  }
+
   const rawIcs = remote.data;
   const values = taskValuesFromParsed(parsed, {
     userId: ctx.account.userId,

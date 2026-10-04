@@ -67,17 +67,34 @@ function coarsePointer(): boolean {
 }
 
 export interface CalendarComboboxProps {
-  /** The committed value: a calendar id. */
+  /**
+   * The committed value: a calendar id, or `''` for "no calendar" when
+   * `allowNone` is set.
+   */
   value: string;
   calendars: CalendarRecord[];
-  /** Called with the picked calendar's id. */
+  /** Called with the picked calendar's id, or `''` when "No calendar" was picked. */
   onChange: (calendarId: string) => void;
+  /**
+   * Offer a "No calendar" row, and let `value` be empty.
+   *
+   * Off by default because an *event* must live in a collection — only a task
+   * may live in none — so the caller that needs it has to ask.
+   */
+  allowNone?: boolean;
   /** Forwarded to the trigger, so a `Label` in the caller can point at it. */
   id?: string;
   className?: string;
 }
 
-export function CalendarCombobox({ value, calendars, onChange, id, className }: CalendarComboboxProps) {
+export function CalendarCombobox({
+  value,
+  calendars,
+  onChange,
+  allowNone = false,
+  id,
+  className,
+}: CalendarComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -104,27 +121,39 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
     return selectable.filter((calendar) => calendar.name.toLowerCase().includes(needle));
   }, [selectable, query]);
 
+  /**
+   * The rows as rendered. `null` is the "No calendar" entry.
+   *
+   * Keeping it in the same list as the calendars is what lets the arrow keys,
+   * the active-option index, `aria-activedescendant` and the highlight treat it
+   * as an ordinary row instead of a special case at every one of those points.
+   */
+  const options = useMemo<(CalendarRecord | null)[]>(
+    () => (allowNone ? [null, ...matches] : matches),
+    [allowNone, matches],
+  );
+
   // Opening starts the highlight on the current selection, so Enter keeps it.
   const onOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
       if (next) {
         setQuery('');
-        const index = selectable.findIndex((calendar) => calendar.id === value);
+        const index = options.findIndex((option) => (option ? option.id === value : value === ''));
         setActive(index >= 0 ? index : 0);
       }
     },
-    [selectable, value],
+    [options, value],
   );
 
   // Keep the highlight inside the list as the filter narrows it.
   useEffect(() => {
-    setActive((current) => Math.min(current, Math.max(0, matches.length - 1)));
-  }, [matches.length]);
+    setActive((current) => Math.min(current, Math.max(0, options.length - 1)));
+  }, [options.length]);
 
   const commit = useCallback(
-    (calendar: CalendarRecord) => {
-      onChange(calendar.id);
+    (calendar: CalendarRecord | null) => {
+      onChange(calendar ? calendar.id : '');
       setOpen(false);
     },
     [onChange],
@@ -134,7 +163,7 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setActive((current) => Math.min(current + 1, matches.length - 1));
+        setActive((current) => Math.min(current + 1, options.length - 1));
       } else if (event.key === 'ArrowUp') {
         event.preventDefault();
         setActive((current) => Math.max(current - 1, 0));
@@ -143,14 +172,16 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
         setActive(0);
       } else if (event.key === 'End') {
         event.preventDefault();
-        setActive(matches.length - 1);
+        setActive(options.length - 1);
       } else if (event.key === 'Enter') {
         event.preventDefault();
-        const match = matches[active];
-        if (match) commit(match);
+        const option = options[active];
+        // `null` is a real row here ("No calendar"), so it cannot be a falsy guard.
+        if (option === null && allowNone) commit(null);
+        else if (option) commit(option);
       }
     },
-    [active, commit, matches],
+    [active, allowNone, commit, options],
   );
 
   return (
@@ -175,7 +206,7 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
             style={{ backgroundColor: selected ? calendarColorHex(selected) : undefined }}
           />
           <span className={cn('min-w-0 flex-1 truncate text-sm', selected ? 'font-semibold' : 'text-muted-foreground')}>
-            {selected?.name ?? 'Choose a calendar'}
+            {selected?.name ?? (allowNone ? 'No calendar' : 'Choose a calendar')}
           </span>
           <ChevronDownIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" disableHover />
         </button>
@@ -207,7 +238,9 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
             aria-label="Filter calendars"
             aria-controls={listboxId}
             aria-autocomplete="list"
-            aria-activedescendant={matches[active] ? `${listboxId}-${matches[active].id}` : undefined}
+            aria-activedescendant={
+              options[active] ? `${listboxId}-${options[active].id}` : allowNone ? `${listboxId}-none` : undefined
+            }
             value={query}
             placeholder="Filter calendars…"
             onChange={(event) => {
@@ -227,7 +260,28 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
           tabIndex={-1}
           className="max-h-64 overflow-y-auto p-1"
         >
-          {matches.map((calendar, index) => {
+          {options.map((calendar, index) => {
+            if (calendar === null) {
+              return (
+                <li
+                  key="none"
+                  id={`${listboxId}-none`}
+                  role="option"
+                  aria-selected={value === ''}
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => commit(null)}
+                  className={cn(
+                    'flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm',
+                    index === active && 'bg-accent',
+                  )}
+                >
+                  {/* An empty ring, so the row keeps the colour dot's column. */}
+                  <span aria-hidden className="size-3 shrink-0 rounded-full border border-border" />
+                  <span className="min-w-0 flex-1 truncate">No calendar</span>
+                  {value === '' ? <CheckIcon aria-hidden className="size-4 shrink-0 text-primary" /> : null}
+                </li>
+              );
+            }
             const isSelected = calendar.id === value;
             return (
               <li
@@ -252,7 +306,7 @@ export function CalendarCombobox({ value, calendars, onChange, id, className }: 
               </li>
             );
           })}
-          {matches.length === 0 ? (
+          {options.length === 0 ? (
             <li className="px-3 py-6 text-center text-sm text-muted-foreground">No calendars match</li>
           ) : null}
         </ul>
