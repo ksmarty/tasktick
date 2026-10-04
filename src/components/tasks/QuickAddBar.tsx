@@ -150,14 +150,12 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  * `outer` merges two adjacent tints into one band, which is what v0.40.2
  * shipped. So the side decides.
  *
- * Vertical padding is a separate story with no such ceiling. The tint is a flex
- * item centred in the mirror, so growing it costs the line box nothing — what
- * limits it is the field's own 36px height: 6px keeps the pill at 32px with 2px
- * still clear above and below, 8px fills the field exactly, 10px is clipped.
- * It is deliberately larger than the horizontal padding, because the two axes
- * are not competing for the same room and horizontal has none left to give.
+ * Vertical padding is a separate story with no such ceiling — the tint is a flex
+ * item centred in the mirror, so growing it costs the line box nothing. It is
+ * kept small on purpose: the tint should read as a highlight around the word,
+ * not as a box filling the field.
  */
-const TINT_PAD_VERTICAL = 'py-1.5';
+const TINT_PAD_VERTICAL = 'py-0.5';
 const TINT_PAD_OUTER_LEFT = 'pl-1 -ml-1 md:pl-0.5 md:-ml-0.5';
 const TINT_PAD_OUTER_RIGHT = 'pr-1 -mr-1 md:pr-0.5 md:-mr-0.5';
 const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5 md:pl-px md:-ml-px';

@@ -66,11 +66,10 @@ function record(name, ok, detail) {
 const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorrow 9am !low #home';
 
 /** The two font sizes the field uses, the widths that select them, and the
- * padding each side should resolve to. Vertical is the same at both sizes: the
- * field is 36px tall either way, so the tint's height follows the text. */
+ * padding each side should resolve to. */
 const VIEWPORTS = [
-  { label: 'base 16px', width: 420, outer: 4, inner: 2, vertical: 6 },
-  { label: 'md:text-sm 14px', width: 900, outer: 2, inner: 1, vertical: 6 },
+  { label: 'base 16px', width: 420, outer: 4, inner: 2, vertical: 2 },
+  { label: 'md:text-sm 14px', width: 900, outer: 2, inner: 1, vertical: 2 },
 ];
 
 /** The smallest gap between two tints that still reads as two tints. */
