@@ -348,7 +348,23 @@ function QuickAddInput({
           <span className="shrink-0 whitespace-pre">
             {segments.map((segment, index) =>
               segment.kind ? (
-                <span key={index} className={cn('rounded-sm', HIGHLIGHT_CLASS[segment.kind])}>
+                /*
+                 * The horizontal padding is cancelled by the matching negative
+                 * margin, so the tint reaches past the word without moving the
+                 * word — or anything after it. This layer has to stay
+                 * character-aligned with the input it sits behind, and padding
+                 * on an inline span otherwise pushes every following glyph to
+                 * the right, which is exactly the drift the mirror cannot
+                 * afford. The pair is load-bearing: `px` without `-mx` slides
+                 * the sentence out of step with the caret.
+                 */
+                <span
+                  key={index}
+                  className={cn(
+                    'rounded-sm px-1.5 -mx-1.5',
+                    HIGHLIGHT_CLASS[segment.kind],
+                  )}
+                >
                   {segment.text}
                 </span>
               ) : (
