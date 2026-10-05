@@ -299,7 +299,10 @@ Release steps are in §7.1 below.
 Release steps:
 
 1. `npx tsc --noEmit` → 0 errors. `npx vitest run` → green. `node
-   scripts/check-spacing.mjs` → clean.
+   scripts/check-spacing.mjs` → clean. `npm run verify:sw` — and read what it
+   says: it compares against the **last tag**, so it passes before you tag and
+   fails in CI afterwards. If your release touches `src/` or `public/`, bump
+   `public/sw.js` `VERSION` *before* the release commit, not after CI tells you.
 2. Build, deploy, probe. **Read the screenshots.**
 3. Bump `package.json`, commit with a message that explains *why*, tag `vX.Y.Z`,
    push `main` and the tag.
