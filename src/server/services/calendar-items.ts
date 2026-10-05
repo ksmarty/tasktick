@@ -44,7 +44,8 @@ function exdateSet(event: CalendarEvent): Set<number> {
   return out;
 }
 
-interface ExpandedEvent {
+/** One event occurrence inside a requested window, with the row that produced it. */
+export interface ExpandedEvent {
   event: CalendarEvent;
   startMs: Millis;
   endMs: Millis;
@@ -194,7 +195,10 @@ function dedupeKeyOf(title: string, startMs: Millis, zone: string): string {
 }
 
 /**
- * Drops the events of a deferring calendar that another calendar already has.
+ * Drops the entries of a deferring calendar that another calendar already has.
+ *
+ * Shared by the rendered blocks and the reminder sweep so the two cannot drift:
+ * an event the calendar has hidden as a duplicate must not still remind.
  *
  * The claim set is built only from calendars that are *not* deferring, which is
  * what makes the rule safe: a deferring calendar never claims anything, so
@@ -205,23 +209,36 @@ function dedupeKeyOf(title: string, startMs: Millis, zone: string): string {
  * Only events reach this — tasks are never matched, because a task and a holiday
  * sharing a title is a coincidence, not a duplicate.
  */
+function applyDeferral<T>(
+  entries: ReadonlyArray<{ calendarId: string; item: T }>,
+  defers: (calendarId: string) => boolean,
+  zone: string,
+  keyOf: (item: T) => { title: string; startMs: Millis },
+): T[] {
+  const claimed = new Set<string>();
+  for (const { calendarId, item } of entries) {
+    if (defers(calendarId)) continue;
+    const { title, startMs } = keyOf(item);
+    claimed.add(dedupeKeyOf(title, startMs, zone));
+  }
+
+  const kept: T[] = [];
+  for (const { calendarId, item } of entries) {
+    if (defers(calendarId)) {
+      const { title, startMs } = keyOf(item);
+      if (claimed.has(dedupeKeyOf(title, startMs, zone))) continue;
+    }
+    kept.push(item);
+  }
+  return kept;
+}
+
 export function dropDuplicateEvents(
   events: ReadonlyArray<{ calendarId: string; item: CalendarItem }>,
   defers: (calendarId: string) => boolean,
   zone: string,
 ): CalendarItem[] {
-  const claimed = new Set<string>();
-  for (const { calendarId, item } of events) {
-    if (defers(calendarId)) continue;
-    claimed.add(dedupeKeyOf(item.title, item.startMs, zone));
-  }
-
-  const kept: CalendarItem[] = [];
-  for (const { calendarId, item } of events) {
-    if (defers(calendarId) && claimed.has(dedupeKeyOf(item.title, item.startMs, zone))) continue;
-    kept.push(item);
-  }
-  return kept;
+  return applyDeferral(events, defers, zone, (item) => ({ title: item.title, startMs: item.startMs }));
 }
 
 export interface CalendarItemsOptions {
@@ -353,6 +370,48 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
   });
 
   return items;
+}
+
+/**
+ * Event occurrences in the window, with the deferral rule already applied.
+ *
+ * The calendar screen wants rendered blocks; the reminder sweep wants the
+ * occurrence *and* the row's `reminders` offsets, which `CalendarItem` does not
+ * carry. Both go through the same expander and the same dedupe rule, so a
+ * recurring event announces each occurrence rather than only its first, and an
+ * event hidden as a duplicate does not remind.
+ *
+ * Visibility is `isVisible` alone. `showInTasks` is a refinement of the task
+ * list — "on the calendar, not in the list" — and must not silence a reminder.
+ */
+export async function expandedEventsInRange(
+  userId: string,
+  startMs: Millis,
+  endMs: Millis,
+  zone: string,
+): Promise<ExpandedEvent[]> {
+  const calendars = await listCalendars(userId);
+  const visible = calendars.filter((calendar) => calendar.isVisible);
+  if (!visible.length) return [];
+
+  const events = await eventsInRange(userId, startMs, endMs, zone, {
+    calendarIds: visible.map((calendar) => calendar.id),
+  });
+  const defers = new Set(visible.filter((calendar) => calendar.dedupeEvents).map((calendar) => calendar.id));
+
+  const projected: { calendarId: string; item: ExpandedEvent }[] = [];
+  for (const event of events) {
+    // A cancelled instance still occupies the series' slot in the data.
+    if (event.status === 'cancelled') continue;
+    for (const occurrence of expandEvent(event, { startMs, endMs }, zone)) {
+      projected.push({ calendarId: event.calendarId, item: occurrence });
+    }
+  }
+
+  return applyDeferral(projected, (id) => defers.has(id), zone, (occurrence) => ({
+    title: occurrence.event.summary || '(No title)',
+    startMs: occurrence.startMs,
+  }));
 }
 
 /**

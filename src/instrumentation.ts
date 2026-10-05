@@ -57,6 +57,23 @@ export async function register(): Promise<void> {
     );
   }
 
+  /*
+   * Reminders ride their own ticker, started unconditionally and independently of
+   * whether this instance has a calendar integration.
+   *
+   * It has to be independent: `ensureSyncScheduler` below only starts the sync
+   * ticker when there is a syncable account or a feed, so hanging reminders off
+   * it would leave an account whose only integrations are habits with a scheduler
+   * that never ran — silently, because there is nothing to show an error on. The
+   * module it starts imports no CalDAV transport, so this costs almost nothing.
+   */
+  try {
+    const { startReminderScheduler } = await import('@/server/services/reminder-scheduler');
+    startReminderScheduler();
+  } catch (error) {
+    console.error('[startup] reminder scheduler failed to start:', error);
+  }
+
   // The scheduler is started through this indirection on purpose: importing the
   // sync stack directly would load the whole CalDAV transport (~7 MB resident)
   // on every boot, including on instances that have never connected a calendar.

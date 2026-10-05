@@ -24,16 +24,14 @@
  *
  * ## Where this sits in the delivery path
  *
- * Recon of this repository found **no server-side Web Push sender**: there is no
- * `web-push` dependency, nothing ever reads the stored `push_subscriptions`, and
- * the only `push` handler is the service worker's display path
- * (`public/sw.js`). `task_reminders` rows are created and marked `sent` on task
- * completion, but nothing dispatches them. So `deliverUserNotification` is the
- * single fan-out seam a dispatcher should call: it reads the user's Apprise
- * config and sends. When a Web Push sender is added, it belongs here, beside
- * Apprise, so a user with both configured gets both.
+ * `deliverUserNotification` is the single fan-out seam: it reads the user's
+ * Apprise config and their Web Push subscriptions, and sends through whichever
+ * are configured so that a user with both gets both. Its caller is the reminder
+ * dispatcher (`src/server/services/reminders.ts`), which owns the claim that
+ * makes each reminder at-most-once.
  */
 import { getAppriseConfig, type AppriseConfig } from '@/server/repos/settings';
+import { sendWebPush, type WebPushDelivery } from './web-push';
 
 /** The notification types Apprise documents. */
 export type AppriseNotificationType = 'info' | 'success' | 'warning' | 'failure';
@@ -130,16 +128,24 @@ export async function sendApprise(
 }
 
 /**
- * The fan-out seam for a real notification. Today it delivers through Apprise
- * when the user has configured it; it is the place a Web Push sender belongs
- * too, so the two are additive rather than exclusive. It never throws, so a
- * scheduler tick can call it without a try/catch.
+ * The fan-out seam for a real notification: Apprise and Web Push, whichever the
+ * account has configured, so the two are additive rather than exclusive.
+ *
+ * Neither transport throws — both report per-channel — and this adds a catch on
+ * each anyway, because it is called from a reminder sweep whose remaining
+ * reminders must not be lost to one bad transport. The return value is the full
+ * per-channel outcome, so a caller can log what actually happened rather than
+ * guessing from "it did not throw".
  */
 export async function deliverUserNotification(
   userId: string,
   payload: NotificationPayload,
-  deps: { fetchImpl?: typeof fetch; getConfig?: (userId: string) => Promise<AppriseConfig | null> } = {},
-): Promise<{ apprise: AppriseDelivery }> {
+  deps: {
+    fetchImpl?: typeof fetch;
+    getConfig?: (userId: string) => Promise<AppriseConfig | null>;
+    sendPush?: typeof sendWebPush;
+  } = {},
+): Promise<{ apprise: AppriseDelivery; push: WebPushDelivery }> {
   const config = await (deps.getConfig ?? getAppriseConfig)(userId).catch(() => null);
   const apprise = config
     ? await sendApprise(config, payload, deps.fetchImpl)
@@ -148,7 +154,18 @@ export async function deliverUserNotification(
   if (apprise.attempted && !apprise.delivered) {
     console.warn(`[notify] Apprise delivery failed for user ${userId}: ${apprise.error ?? 'unknown error'}`);
   }
-  return { apprise };
+
+  const push = await (deps.sendPush ?? sendWebPush)(userId, payload).catch(
+    (error: unknown): WebPushDelivery => ({
+      attempted: false,
+      delivered: 0,
+      pruned: 0,
+      failed: 0,
+      error: error instanceof Error ? error.message : 'push transport threw',
+    }),
+  );
+
+  return { apprise, push };
 }
 
 /** The body of the Settings "Send test notification" action. */

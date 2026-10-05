@@ -240,6 +240,69 @@ async function replaceReminders(
   if (rows.length) await db.insert(taskReminders).values(rows);
 }
 
+/** A due, unsent task reminder together with the title to announce it with. */
+export interface DueTaskReminder {
+  reminderId: string;
+  taskId: string;
+  title: string;
+  fireAtMs: Millis;
+}
+
+/**
+ * Task reminders that are due and not yet sent.
+ *
+ * `fireAtMs` is already absolute — {@link replaceReminders} resolves the offset
+ * whenever the due date is set — so no timezone maths belongs here. The window
+ * is half-open on both ends: a reminder exactly at `nowMs` is due, one exactly
+ * at `nowMs - graceMs` is stale and dropped rather than delivered late.
+ *
+ * A completed task is excluded on top of the `sent` flag. `completeTask` already
+ * marks a task's reminders sent, so this is the second line of defence for the
+ * same rule — but it is the one that holds if a task is completed through a path
+ * that forgets to.
+ */
+export async function dueTaskReminders(userId: string, nowMs: Millis, graceMs: number): Promise<DueTaskReminder[]> {
+  const db = getDb();
+  return db
+    .select({
+      reminderId: taskReminders.id,
+      taskId: taskReminders.taskId,
+      title: tasks.title,
+      fireAtMs: taskReminders.fireAtMs,
+    })
+    .from(taskReminders)
+    .innerJoin(tasks, eq(tasks.id, taskReminders.taskId))
+    .where(
+      and(
+        eq(taskReminders.userId, userId),
+        eq(taskReminders.sent, false),
+        lte(taskReminders.fireAtMs, nowMs),
+        gt(taskReminders.fireAtMs, nowMs - graceMs),
+        isNull(tasks.completedAtMs),
+      ),
+    )
+    .orderBy(asc(taskReminders.fireAtMs));
+}
+
+/**
+ * Claims a reminder by flipping its `sent` flag, and reports whether this caller
+ * won.
+ *
+ * The `sent = false` in the WHERE clause is the whole point: two ticks that both
+ * read the same due row cannot both update it, so exactly one of them sends. The
+ * row is claimed *before* the notification goes out, so a crash in between loses
+ * that reminder instead of repeating it.
+ */
+export async function markTaskReminderSent(userId: string, reminderId: string, nowMs: Millis): Promise<boolean> {
+  const db = getDb();
+  const claimed = await db
+    .update(taskReminders)
+    .set({ sent: true, sentAtMs: nowMs })
+    .where(and(eq(taskReminders.id, reminderId), eq(taskReminders.userId, userId), eq(taskReminders.sent, false)))
+    .returning({ id: taskReminders.id });
+  return claimed.length > 0;
+}
+
 async function replaceTags(userId: string, taskId: string, tagIds: string[], executor: Db = getDb()): Promise<void> {
   const db = executor;
   await db.delete(taskTags).where(eq(taskTags.taskId, taskId));

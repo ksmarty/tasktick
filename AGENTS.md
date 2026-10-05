@@ -33,7 +33,7 @@ you write code rather than after.
 | No arbitrary spacing values; no static spacing in an inline `style` | `node scripts/check-spacing.mjs` | Four layout tokens: `p-card`, `px-gutter`, `gap-stack`, `px-row`. Computed values — a colour, SVG geometry, a measured px — are fine. |
 | SQLite and Postgres schemas stay identical | `tests/schema-parity.test.ts` | Add a table to **both** `schema.sqlite.ts` and `schema.pg.ts`, plus a migration for each dialect and the meta snapshot. |
 | Sub-agents must not commit, tag or push | git hooks | Enforced mechanically. See §7. |
-| `public/sw.js` `VERSION` bumps on **every** deploy that changes a precached file | `npm run verify:sw` (CI runs it with `fetch-depth: 0`) | Not "when its behaviour changes" — a byte-identical worker is never installed, so existing clients stay pinned to the old shell *and* the old chunks. Currently `tasktick-v31`. |
+| `public/sw.js` `VERSION` bumps on **every** deploy that changes a precached file | `npm run verify:sw` (CI runs it with `fetch-depth: 0`) | Not "when its behaviour changes" — a byte-identical worker is never installed, so existing clients stay pinned to the old shell *and* the old chunks. Currently `tasktick-v36`. |
 
 `src/components/ui/**` (shadcn) and `src/components/godui/**` (vendored) are
 **exempt** from the spacing checker. Everything you write is not.
@@ -318,9 +318,26 @@ build.
 Real, known, and not bugs in whatever you are working on. Do not "fix" them
 incidentally, and do not build UI that implies they work.
 
-- **Nothing dispatches reminders.** `web-push` is installed but unused and
-  `deliverUserNotification` is never called from a scheduler. Event and habit
-  reminders are stored and displayed and **never fire**.
+- **Reminders fire from an in-process ticker, not a queue.**
+  `startReminderScheduler()` (`src/server/services/reminder-scheduler.ts`) is
+  started unconditionally by `src/instrumentation.ts`, sweeps every 60 seconds
+  through `runReminderSweep` (`src/server/services/reminders.ts`), and fans out
+  through Apprise **and** Web Push. Three consequences worth knowing before
+  "improving" it:
+  - A reminder more than `REMINDER_GRACE_MS` (one hour) late is **dropped**, not
+    delivered late — a server that was down overnight does not send a burst at
+    boot.
+  - There is **no retry**. The claim is written before the send, so a crash
+    between the two loses that reminder rather than repeating it. A missed
+    reminder is invisible; a repeated one is a bug report.
+  - It only runs while the process is up. Nothing survives a stopped container,
+    and an instance with several replicas will have several tickers racing —
+    which is safe, because every claim is a single conditional write, but it is
+    not free.
+
+  Web Push is still the weaker half in an installed iOS PWA: the push service
+  can drop a delivery and iOS gives no background wake-up. Apprise is the path
+  that actually arrives, which is why the Settings screen leads with it.
 - **Admin endpoints are not in the GraphQL API**, deliberately: behind a bearer
   token, one account's token could ban or manage other accounts. They stay
   session-only. Export and TickTick import are file transfers and also stay REST.

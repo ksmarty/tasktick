@@ -692,6 +692,45 @@ export const pushSubscriptions = pgTable(
   (t) => [uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint), index('push_subscriptions_user_idx').on(t.userId)],
 );
 
+/**
+ * One row per reminder occurrence the dispatcher has claimed.
+ *
+ * Mechanical mirror of the SQLite table — see `schema.sqlite.ts` for the full
+ * reasoning. In short: events and habits have no per-occurrence state, so the
+ * claim lives here; the row is inserted before the send and the unique index
+ * makes a duplicate tick a no-op, which is what keeps delivery at-most-once.
+ *
+ * `sourceId` is deliberately not a foreign key, because `source` points at
+ * either `calendar_events` or `habits` and one column cannot reference two
+ * tables. Rows are pruned by age instead.
+ */
+export const reminderDispatches = pgTable(
+  'reminder_dispatches',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** `event` | `habit`. Tasks use `task_reminders.sent` instead. */
+    source: text('source').$type<'event' | 'habit'>().notNull(),
+    /** The event or habit id; see the note above on why this is not a foreign key. */
+    sourceId: text('source_id').notNull(),
+    /**
+     * Which occurrence this claim is for: an event occurrence's start instant,
+     * or a habit's local date and reminder minute (`2026-10-05:540`).
+     */
+    occurrenceKey: text('occurrence_key').notNull(),
+    /** When the reminder was due, kept so a claim can be audited after the fact. */
+    fireAtMs: bigint('fire_at_ms', { mode: 'number' }).notNull(),
+    sentAtMs: bigint('sent_at_ms', { mode: 'number' }).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('reminder_dispatches_claim_idx').on(t.userId, t.source, t.sourceId, t.occurrenceKey),
+    index('reminder_dispatches_user_idx').on(t.userId),
+  ],
+);
+
 /** Bearer token for the read-only `webcal://` ICS subscription feed. */
 export const icalTokens = pgTable(
   'ical_tokens',

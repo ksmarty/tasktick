@@ -260,7 +260,7 @@ const rowTypeParity: RowTypeParity = new Array(26).fill(true) as RowTypeParity;
 describe('schema parity: module surface', () => {
   it('exports the same tables from both dialects', () => {
     expect([...pgTables.keys()].sort()).toEqual([...sqliteTables.keys()].sort());
-    expect(tableNames).toHaveLength(30);
+    expect(tableNames).toHaveLength(31);
     expect([...pgByName.keys()].sort()).toEqual(tableNames);
   });
 

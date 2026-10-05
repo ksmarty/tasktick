@@ -40,6 +40,7 @@ export const {
   syncLogs,
   syncConflicts,
   pushSubscriptions,
+  reminderDispatches,
   icalTokens,
   apiTokens,
   focusSessions,

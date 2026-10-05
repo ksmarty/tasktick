@@ -71,6 +71,13 @@
       "when": 1790968919896,
       "tag": "0009_uneven_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791173977573,
+      "tag": "0010_stale_pyro",
+      "breakpoints": true
     }
   ]
 }

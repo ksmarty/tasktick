@@ -97,7 +97,7 @@ function rowToHabit(row: typeof habits.$inferSelect): Habit {
  * today with the previous seven days ticked afterwards reported *no streak at
  * all*.
  */
-function matchesSchedule(habit: Habit, date: DateOnly): boolean {
+export function matchesSchedule(habit: Habit, date: DateOnly): boolean {
   switch (habit.frequency) {
     case 'custom': {
       const days = habit.weekDays?.length ? habit.weekDays : [0, 1, 2, 3, 4, 5, 6];
@@ -283,6 +283,23 @@ export interface ListHabitsOptions {
   from?: DateOnly;
   to?: DateOnly;
   includeArchived?: boolean;
+}
+
+/**
+ * Every live habit that actually has a reminder set.
+ *
+ * Deliberately not `listHabits`: that read also computes streaks and best runs
+ * over a year of check-ins, which is work a per-minute reminder tick must not do
+ * for every account on every tick. The dispatcher needs the schedule and the
+ * times, and nothing else.
+ */
+export async function habitsWithReminders(userId: string): Promise<Habit[]> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(habits)
+    .where(and(eq(habits.userId, userId), eq(habits.archived, false), isNull(habits.deletedAtMs)));
+  return rows.map(rowToHabit).filter((habit) => (habit.reminders?.length ?? 0) > 0);
 }
 
 export async function listHabits(options: ListHabitsOptions): Promise<Habit[]> {

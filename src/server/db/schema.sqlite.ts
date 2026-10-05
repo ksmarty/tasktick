@@ -678,6 +678,51 @@ export const pushSubscriptions = sqliteTable(
   (t) => [uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint), index('push_subscriptions_user_idx').on(t.userId)],
 );
 
+/**
+ * One row per reminder occurrence the dispatcher has claimed.
+ *
+ * `task_reminders` carries its own `sent` flag, but an event reminder fires once
+ * per *occurrence* and a habit reminder once per *day*, and neither row can tell
+ * "already sent" from "due now". The ticker runs every minute, so without a
+ * claim the same reminder would go out sixty times an hour.
+ *
+ * The row is written BEFORE the notification is sent, and the unique index is
+ * what makes that safe: a duplicate tick, a second instance, or a restart
+ * mid-flight loses the race and sends nothing. Delivery is therefore
+ * at-most-once — a reminder lost to a crash beats one that arrives repeatedly.
+ *
+ * `sourceId` is deliberately not a foreign key: `source` points at either
+ * `calendar_events` or `habits`, and one column cannot reference two tables.
+ * Rows are pruned by age instead (see `pruneReminderDispatches`), so a deleted
+ * event does not leave an orphan behind forever.
+ */
+export const reminderDispatches = sqliteTable(
+  'reminder_dispatches',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** `event` | `habit`. Tasks use `task_reminders.sent` instead. */
+    source: text('source').$type<'event' | 'habit'>().notNull(),
+    /** The event or habit id; see the note above on why this is not a foreign key. */
+    sourceId: text('source_id').notNull(),
+    /**
+     * Which occurrence this claim is for: an event occurrence's start instant,
+     * or a habit's local date and reminder minute (`2026-10-05:540`).
+     */
+    occurrenceKey: text('occurrence_key').notNull(),
+    /** When the reminder was due, kept so a claim can be audited after the fact. */
+    fireAtMs: integer('fire_at_ms').notNull(),
+    sentAtMs: integer('sent_at_ms').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('reminder_dispatches_claim_idx').on(t.userId, t.source, t.sourceId, t.occurrenceKey),
+    index('reminder_dispatches_user_idx').on(t.userId),
+  ],
+);
+
 /** Bearer token for the read-only `webcal://` ICS subscription feed. */
 export const icalTokens = sqliteTable(
   'ical_tokens',
