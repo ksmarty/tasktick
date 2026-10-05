@@ -1,0 +1,237 @@
+# Service UI descriptions for TaskTick.
+#
+# These drive the form in Developer Tools → Actions and the automation
+# "Perform action" editor. The voluptuous schemas in services.py still validate
+# every call; this file is presentation.
+#
+# `list`, `calendar` and `habit` accept **either an id or a name** — the name is
+# what a person writes in an automation, and the id is what the todo and
+# calendar entities carry.
+
+create_task:
+  name: Create task
+  description: Create a task and return it.
+  fields:
+    title:
+      required: true
+      example: Take out the trash
+      selector:
+        text: {}
+    list:
+      example: Inbox
+      selector:
+        text: {}
+    notes:
+      example: The bins go out tonight
+      selector:
+        text:
+          multiline: true
+    due:
+      example: "2026-03-04 17:00"
+      selector:
+        text: {}
+    priority:
+      default: none
+      selector:
+        select:
+          options:
+            - none
+            - low
+            - medium
+            - high
+    tags:
+      example: errands
+      selector:
+        text:
+          multiple: true
+    calendar:
+      example: Personal
+      selector:
+        text: {}
+
+update_task:
+  name: Update task
+  description: Change a task's fields. Only the fields given are changed.
+  fields:
+    task_id:
+      required: true
+      selector:
+        text: {}
+    title:
+      selector:
+        text: {}
+    list:
+      selector:
+        text: {}
+    notes:
+      selector:
+        text:
+          multiline: true
+    due:
+      description: A new due date, or empty to clear it.
+      selector:
+        text: {}
+    priority:
+      selector:
+        select:
+          options:
+            - none
+            - low
+            - medium
+            - high
+    tags:
+      selector:
+        text:
+          multiple: true
+    calendar:
+      selector:
+        text: {}
+
+complete_task:
+  name: Complete task
+  description: Mark a task complete. A repeating task rolls to its next occurrence.
+  fields:
+    task_id:
+      required: true
+      selector:
+        text: {}
+
+delete_task:
+  name: Delete task
+  fields:
+    task_id:
+      required: true
+      selector:
+        text: {}
+
+check_in_habit:
+  name: Check in to a habit
+  description: >-
+    Record a check-in. Use `delta` to add to today's count and `count` to set
+    it; `date` backdates the check-in.
+  fields:
+    habit:
+      required: true
+      example: Go for a run
+      selector:
+        text: {}
+    count:
+      description: Set today's count to this value.
+      selector:
+        number:
+          min: 0
+          mode: box
+    delta:
+      description: Add this to today's count.
+      selector:
+        number:
+          mode: box
+    date:
+      description: The day to check in for. Defaults to today.
+      selector:
+        date: {}
+
+create_event:
+  name: Create event
+  description: Create a calendar event and return it.
+  fields:
+    calendar:
+      example: Personal
+      selector:
+        text: {}
+    summary:
+      required: true
+      example: Dentist
+      selector:
+        text: {}
+    start:
+      example: "2026-03-04 09:00"
+      selector:
+        text: {}
+    end:
+      example: "2026-03-04 09:30"
+      selector:
+        text: {}
+    all_day:
+      default: false
+      selector:
+        boolean: {}
+    description:
+      selector:
+        text:
+          multiline: true
+    location:
+      selector:
+        text: {}
+    rrule:
+      description: An RRULE string, e.g. FREQ=WEEKLY;BYDAY=MO
+      selector:
+        text: {}
+    reminders:
+      description: Reminder offsets in minutes before the start.
+      selector:
+        number:
+          multiple: true
+          min: 0
+          mode: box
+
+update_event:
+  name: Update event
+  description: Change an event's fields. Only the fields given are changed.
+  fields:
+    event_id:
+      required: true
+      selector:
+        text: {}
+    calendar:
+      selector:
+        text: {}
+    summary:
+      selector:
+        text: {}
+    start:
+      selector:
+        text: {}
+    end:
+      selector:
+        text: {}
+    all_day:
+      selector:
+        boolean: {}
+    description:
+      selector:
+        text:
+          multiline: true
+    location:
+      selector:
+        text: {}
+    rrule:
+      selector:
+        text: {}
+    reminders:
+      selector:
+        number:
+          multiple: true
+          min: 0
+          mode: box
+
+delete_event:
+  name: Delete event
+  fields:
+    event_id:
+      required: true
+      selector:
+        text: {}
+
+install_sentences:
+  name: Install Assist sentences
+  description: >-
+    Copy the TaskTick sentence templates into custom_sentences/ so Assist can
+    understand "add a task to my shopping list". Home Assistant only loads
+    custom sentences from the config directory, so this has to be run once (and
+    again after an update that changes them). Reloads the conversation agent.
+  fields:
+    language:
+      default: en
+      selector:
+        text: {}

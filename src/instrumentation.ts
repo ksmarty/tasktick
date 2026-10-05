@@ -85,4 +85,18 @@ export async function register(): Promise<void> {
     // still manage their tasks manually and trigger a sync from Settings.
     console.error('[startup] CalDAV sync scheduler failed to start:', error);
   }
+
+  /*
+   * The mDNS advertisement is best-effort in a way the schedulers above are not:
+   * with `APP_URL` unset there is nothing true to advertise, and inside a bridged
+   * container the multicast never reaches the LAN. Neither case is fatal — the
+   * integration's config flow also accepts a URL typed by hand — so this is a log
+   * line rather than an error.
+   */
+  try {
+    const { startMdnsAdvertisement } = await import('@/server/mdns');
+    await startMdnsAdvertisement();
+  } catch (error) {
+    console.error('[startup] mDNS advertisement failed to start:', error);
+  }
 }

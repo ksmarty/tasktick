@@ -69,11 +69,17 @@ jobs:
           echo "body_path=/tmp/release-body.md" >> "$GITHUB_OUTPUT"
           echo "Release body is $(wc -c < /tmp/release-body.md) bytes"
 
+      # HACS installs the integration from this archive (`zip_release: true` in
+      # hacs.json), so a release without it attached breaks installation.
+      - name: Build the Home Assistant integration archive
+        run: python integrations/home-assistant/scripts/build_zip.py
+
       - name: Create or update release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           body_path: ${{ steps.notes.outputs.body_path }}
+          files: integrations/home-assistant/tasktick.zip
           # Off on purpose: the curated annotation IS the body. Leaving this on
           # would let GitHub regenerate (and overwrite) it server-side.
           generate_release_notes: false

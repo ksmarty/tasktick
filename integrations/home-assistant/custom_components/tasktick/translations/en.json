@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to TaskTick",
+        "description": "Enter the address you use in the browser, and an API token from TaskTick → Settings → API.",
+        "data": {
+          "url": "URL",
+          "token": "API token",
+          "verify_ssl": "Verify the TLS certificate"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "TaskTick found",
+        "description": "A TaskTick instance answered at {url}. Enter an API token from that instance to connect.",
+        "data": {
+          "url": "URL",
+          "token": "API token",
+          "verify_ssl": "Verify the TLS certificate"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to TaskTick",
+        "description": "The API token for {url} was rejected. Enter a new one.",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "That API token was rejected.",
+      "cannot_connect": "Could not reach TaskTick.",
+      "invalid_url": "That does not look like a URL.",
+      "unknown": "Something went wrong. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This TaskTick instance is already set up.",
+      "cannot_connect": "That TaskTick instance could not be reached.",
+      "reauth_successful": "Reconnected to TaskTick."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "TaskTick options",
+        "data": {
+          "scan_interval": "Poll interval",
+          "verify_ssl": "Verify the TLS certificate"
+        },
+        "data_description": {
+          "scan_interval": "How often to fetch tasks, habits and calendars. The server expands recurrence and pushes reminders itself, so this can be relaxed."
+        }
+      }
+    }
+  }
+}

@@ -62,3 +62,43 @@ jobs:
       # own job, and no other workflow downloads it. `npm run build` no longer
       # produces standalone output at all — only the Docker build asks for it — so
       # the upload would now find nothing anyway.
+
+  home-assistant:
+    name: Home Assistant integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      # The *newest* Home Assistant, deliberately. The oldest supported release
+      # is declared in hacs.json and cannot be installed on a current Python at
+      # all, so it can only be exercised by hand. The tests read that same
+      # hacs.json and skip the Home Assistant-dependent modules below it, so a
+      # mismatch shows up as a skip rather than a confusing TypeError.
+      #
+      # `hassil` and `home-assistant-intents` are component requirements, which pip
+      # does not install alongside Home Assistant itself — they are resolved when
+      # a component is first used. They must match the installed Home Assistant:
+      # 2024.11.0 pins hassil 1.7.4 and 2026.2 pins 3.5.0, and the wrong one fails
+      # at import with an `ImportError` naming a symbol rather than a version.
+      # Installing them unpinned tracks the newest Home Assistant, which is the
+      # one this job runs.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pyyaml homeassistant hassil home-assistant-intents
+
+      - name: Test
+        working-directory: integrations/home-assistant
+        run: python -m pytest tests/ -q
+
+      # Built here as well as in the release workflow, so a broken archive layout
+      # fails on the pull request that broke it rather than at release time.
+      - name: Build the HACS archive
+        run: python integrations/home-assistant/scripts/build_zip.py

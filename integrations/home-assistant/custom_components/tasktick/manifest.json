@@ -1,0 +1,13 @@
+{
+  "domain": "tasktick",
+  "name": "TaskTick",
+  "codeowners": ["@ksmarty"],
+  "config_flow": true,
+  "documentation": "https://github.com/ksmarty/tasktick/tree/main/integrations/home-assistant",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/ksmarty/tasktick/issues",
+  "requirements": [],
+  "version": "0.42.0",
+  "zeroconf": ["_tasktick._tcp.local."]
+}

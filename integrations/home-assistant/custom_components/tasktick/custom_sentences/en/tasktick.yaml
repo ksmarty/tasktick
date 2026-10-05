@@ -1,0 +1,116 @@
+# TaskTick — Assist sentence templates (English)
+#
+# Home Assistant only loads custom sentences from `<config>/custom_sentences/`,
+# never from an integration package, so this file is copied into place by the
+# `tasktick.install_sentences` service (Settings → Devices & Services → TaskTick
+# → Configure, or Developer Tools → Actions). Reload Assist afterwards, or
+# restart Home Assistant.
+#
+# `title`, `list`, `habit`, `calendar`, `day` and `time` are wildcards: the
+# spoken text is passed through untouched and matched against the real lists,
+# habits and calendars by the intent handler, which can give a useful "I could
+# not find a habit called …" instead of silently matching nothing.
+
+language: en
+
+lists:
+  title:
+    wildcard: true
+  list:
+    wildcard: true
+  habit:
+    wildcard: true
+  calendar:
+    wildcard: true
+  day:
+    wildcard: true
+  time:
+    wildcard: true
+  number:
+    wildcard: true
+  minutes:
+    range:
+      from: 1
+      to: 1440
+
+intents:
+  TaskTickAddTask:
+    data:
+      # Slots-first: the more of the sentence a template pins down, the less
+      # likely a trailing word is swallowed into the title.
+      - sentences:
+          - "add [a] [new] task {title} [for] {day} at {time}"
+          - "add [a] [new] task {title} [to] [my] [list] {list}"
+          - "add [a] [new] task {title} [for] {day}"
+          - "add {title} to [my] [list] {list}"
+          - "add [a] [new] task [called] {title}"
+          - "create [a] [new] task [called] {title}"
+          - "remind me to {title} [for] {day} at {time}"
+          - "remind me to {title} [for] {day}"
+          - "remind me to {title}"
+
+  TaskTickListTasks:
+    data:
+      - sentences:
+          - "list [my] tasks in {list}"
+          - "what tasks do I have in {list}"
+          - "list [my] tasks"
+          - "list my to dos"
+          - "what are my tasks"
+          - "what tasks do I have"
+          - "show [me] my tasks"
+
+  TaskTickCompleteTask:
+    # The word "task" is required on purpose: "mark {title} as done" also
+    # matches the reminders integration's complete intent, and an ambiguous
+    # sentence makes Assist refuse the whole thing.
+    data:
+      - sentences:
+          - "complete task {title}"
+          - "complete the task {title}"
+          - "mark task {title} as [complete|done]"
+          - "mark the task {title} as [complete|done]"
+          - "finish task {title}"
+          - "finish the task {title}"
+
+  TaskTickDeleteTask:
+    data:
+      - sentences:
+          - "delete task {title}"
+          - "delete the task {title}"
+          - "remove task {title}"
+          - "remove the task {title}"
+          - "delete task number {number}"
+
+  TaskTickCheckInHabit:
+    data:
+      - sentences:
+          - "check in [to] [my] {habit}"
+          - "check off [my] {habit}"
+          - "I did [my] {habit}"
+          - "I did my {habit} today"
+          - "I finished [my] {habit}"
+          - "I completed [my] {habit}"
+          - "log [my] {habit}"
+
+  TaskTickHabitStatus:
+    data:
+      - sentences:
+          - "how is [my] {habit} streak"
+          - "what is [my] {habit} streak"
+          - "how is [my] {habit} going"
+          - "how are my habits"
+          - "what are my habits"
+          - "how are my streaks"
+
+  TaskTickCreateEvent:
+    data:
+      - sentences:
+          - "add [a] [new] event {title} to [my] [calendar] {calendar} [on] {day} at {time}"
+          - "add [a] [new] event {title} [on] {day} at {time} for {minutes} minutes"
+          - "add [a] [new] event {title} [on] {day} at {time}"
+          - "create [a] [new] event {title} [on] {day} at {time}"
+          - "add {title} to [my] calendar [on] {day} at {time}"
+          - "schedule {title} [on] {day} at {time} for {minutes} minutes"
+          - "schedule {title} [on] {day} at {time}"
+          - "schedule {title} at {time}"
