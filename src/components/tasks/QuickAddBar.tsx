@@ -154,7 +154,13 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  *
  * How much of the gap a side takes depends on what is across it:
  *
- *   - a plain word, or the edge of the field: `outer` — 6px at 16px, 4px at 14px;
+ *   - a plain word, or the edge of the field: `outer` — 3px, the same at both
+ *     font sizes. It was 6px at 16px and 4px at 14px, which spent more of the
+ *     gap than there is: against a 4.80px word space 6px covers the space
+ *     outright and runs ~1.2px into the next word, so the tint reads as having
+ *     no space after it. 3px leaves 1.8px of the 4.80px space at 16px and 1.2px
+ *     of the 4.20px space at 14px, so the gap survives at both sizes and this
+ *     side no longer needs a `md:` variant.
  *   - another tint: both tints reach into the same gap, so their two overhangs
  *     have to fit inside it together — `inner`, 2px at 16px and 1px at 14px,
  *     which leaves 0.8px and 2.2px of white between the pills. This one does
@@ -173,8 +179,8 @@ const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
  * not as a box filling the field.
  */
 const TINT_PAD_VERTICAL = 'py-0.5';
-const TINT_PAD_OUTER_LEFT = 'pl-1.5 -ml-1.5 md:pl-1 md:-ml-1';
-const TINT_PAD_OUTER_RIGHT = 'pr-1.5 -mr-1.5 md:pr-1 md:-mr-1';
+const TINT_PAD_OUTER_LEFT = 'pl-tint -ml-tint';
+const TINT_PAD_OUTER_RIGHT = 'pr-tint -mr-tint';
 const TINT_PAD_INNER_LEFT = 'pl-0.5 -ml-0.5 md:pl-px md:-ml-px';
 const TINT_PAD_INNER_RIGHT = 'pr-0.5 -mr-0.5 md:pr-px md:-mr-px';
 

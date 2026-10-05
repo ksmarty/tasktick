@@ -420,6 +420,15 @@
   --spacing-row: 1rem;
   /* Vertical gap between stacked cards. */
   --spacing-stack: 0.75rem;
+  /*
+   * Horizontal padding of a quick-add highlight tint — the word is tinted by
+   * painting 3px out on each side, paid for with a negative margin so the tint
+   * does not widen the line. Not a page-layout size, and the only token here
+   * with a hard ceiling: the overhang is spent out of the word space around the
+   * word (4.80px at 16px, 4.20px at 14px), so anything wider than the gap covers
+   * it and runs into the next word. 3px leaves 1.8px and 1.2px of it.
+   */
+  --spacing-tint: 3px;
   /* Height of the top app bar, excluding any safe-area inset. */
   --spacing-appbar: 3.5rem;
   /* Height of the bottom tab bar, excluding any safe-area inset. */

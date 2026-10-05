@@ -15,11 +15,15 @@
  *
  * The padding cannot be widened to taste: the only room for it is the space
  * between words. A space measures 4.80px at the field's 16px size and 4.20px at
- * `md:text-sm` (14px); `word-spacing: 0.165em` raises those to 7.44px and
- * 6.51px, and that is what the padding below is spent from. One tint facing a
- * plain word takes most of the gap (6px / 4px); two tints facing each other
- * share the single gap between them, so each takes a little (2px). Both sizes
- * are checked here because the tighter one is the one that fails.
+ * `md:text-sm` (14px), and that is the entire budget. One tint facing a plain
+ * word takes 3px of it, leaving 1.8px and 1.2px; two tints facing each other
+ * share the single gap between them, so each takes a little (2px, 1px at 14px).
+ * Both sizes are checked here because the tighter one is the one that fails.
+ *
+ * 3px is not a taste. At the 6px/4px this used to carry the overhang was wider
+ * than the gap, so the tint covered the space outright and ran ~1.2px into the
+ * next word — reported as "no space between the chip and the next word". The
+ * clearance check below is what catches a return to that.
  *
  * Six things are asserted, in the order they can break:
  *
@@ -70,27 +74,27 @@ const SENTENCE = 'Pay rent tomorrow 5pm !high #home and call the plumber tomorro
 /** The two font sizes the field uses, the widths that select them, and the
  * padding each side should resolve to. */
 const VIEWPORTS = [
-  { label: 'base 16px', width: 420, outer: 6, inner: 2, vertical: 2, wordSpacing: 0 },
-  { label: 'md:text-sm 14px', width: 900, outer: 4, inner: 1, vertical: 2, wordSpacing: 0 },
+  { label: 'base 16px', width: 420, outer: 3, inner: 2, vertical: 2, wordSpacing: 0 },
+  { label: 'md:text-sm 14px', width: 900, outer: 3, inner: 1, vertical: 2, wordSpacing: 0 },
 ];
 
 /** The smallest gap between two tints that still reads as two tints. */
 const MIN_CLEARANCE = 0.5;
 
 /**
- * How far a tint's box may reach past the last glyph of the word before it.
+ * The clear space a tint's box must leave before the word it follows.
  *
- * Not zero, deliberately. A tint's padding is cancelled by a negative margin, so
- * the word gap is the entire budget for it: at 6px of padding the box edge lands
- * within ~1.1px of the neighbouring glyph's ink, which is the price of roomy
- * pills without the word-spacing the user rejected. The measured table is on
- * `TINT_PAD_OUTER_LEFT` in QuickAddBar.tsx.
+ * This is the check that should have caught the padding the user reported. It
+ * used to be a tolerance in the other direction — the box was allowed to reach
+ * 1.5px *past* the previous word — and 6px of padding, which covered the whole
+ * word space and ran into the next word, sat comfortably inside that allowance.
+ * With the padding back inside the budget the box has to stay clear instead.
  *
- * What this still catches is a tint that has grown far enough to read as
- * touching the word — the v0.40.1 regression, where 0.4em of word spacing plus
- * padding put the edge several px into the letter.
+ * 0.5px rather than 0: the point is that the gap still reads as a gap. At the
+ * shipped 3px the box clears the previous word by 1.8px at 16px and 1.2px at
+ * 14px, so there is 1.3px of headroom before this bites — and 5px trips it.
  */
-const TINT_INK_TOLERANCE = 1.5;
+const MIN_INK_CLEARANCE = 0.5;
 
 let cookies = '';
 function merge(res) {
@@ -153,16 +157,32 @@ for (const viewport of VIEWPORTS) {
 
   try {
     /*
-     * `networkidle`, not `domcontentloaded`. Opening the sheet from the
+     * `networkidle` is not enough, and this comment used to claim it was.
+     *
+     * Two separate timing hazards, both measured. Opening the sheet from the
      * server-rendered button before hydration settles closes it again ~200ms
-     * later — measured, not guessed: the field is present when the click returns
-     * and gone two frames on. Waiting for the page to settle avoids that and keeps
-     * this check about the tint rather than about hydration timing.
+     * later — the field is present when the click returns and gone two frames
+     * on. And against a freshly deployed server the route compiles on demand, so
+     * the sheet's chunk can still be in flight when the click lands: nothing
+     * opens at all, and this probe timed out on a build that was fine — 3/3
+     * failures cold, 12/12 passes once warm, with no open-then-close between.
+     *
+     * So retry the click until the sheet is actually up rather than sleeping and
+     * hoping. The `waitFor` after the loop still fails hard, so a sheet that
+     * never opens is still a failure of this probe, not something a retry hides.
      */
     await page.goto(`${BASE}/tasks`, { waitUntil: 'networkidle' });
     await page.waitForSelector('button[aria-label="Add a task"]:visible', { timeout: 30000 });
-    await page.locator('button[aria-label="Add a task"]:visible').first().click();
+    const addButton = page.locator('button[aria-label="Add a task"]:visible').first();
     const input = page.locator('[role="dialog"] input[aria-label="Quick add a task"]:visible').first();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await addButton.click();
+      const opened = await input
+        .waitFor({ timeout: 1000 })
+        .then(() => true)
+        .catch(() => false);
+      if (opened) break;
+    }
     await input.waitFor({ timeout: 30000 });
     await input.fill(SENTENCE);
     await page.waitForTimeout(700);
@@ -254,7 +274,7 @@ for (const viewport of VIEWPORTS) {
     );
 
     let worst = Infinity;
-    let clipped = null;
+    let crowded = null;
     for (let i = 0; i < tinted.length; i += 1) {
       if (i > 0) worst = Math.min(worst, tinted[i].box[0] - tinted[i - 1].box[1]);
       /*
@@ -265,16 +285,16 @@ for (const viewport of VIEWPORTS) {
       let j = data.rows.indexOf(tinted[i]) - 1;
       while (j >= 0 && data.rows[j].lastGlyphEnd === null) j -= 1;
       if (j >= 0) {
-        const intrusion = data.rows[j].lastGlyphEnd - tinted[i].box[0];
-        if (intrusion > TINT_INK_TOLERANCE) {
-          clipped = `${tinted[i].text} reaches ${intrusion.toFixed(2)}px into ${JSON.stringify(data.rows[j].text)}`;
+        const clearance = tinted[i].box[0] - data.rows[j].lastGlyphEnd;
+        if (clearance < MIN_INK_CLEARANCE) {
+          crowded = `${tinted[i].text} leaves ${clearance.toFixed(2)}px before ${JSON.stringify(data.rows[j].text)}`;
         }
       }
     }
     record(
-      `${viewport.label}: no tint reaches more than ${TINT_INK_TOLERANCE}px into the word before it`,
-      clipped === null,
-      clipped ?? '',
+      `${viewport.label}: every tint clears the word before it by ${MIN_INK_CLEARANCE}px`,
+      crowded === null,
+      crowded ?? '',
     );
     record(
       `${viewport.label}: no two tints overlap, with margin`,
