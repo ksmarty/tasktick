@@ -8,6 +8,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ksmarty/tasktick/issues",
   "requirements": [],
-  "version": "0.42.0",
+  "version": "0.42.1",
   "zeroconf": ["_tasktick._tcp.local."]
 }

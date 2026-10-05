@@ -83,16 +83,15 @@ jobs:
       # mismatch shows up as a skip rather than a confusing TypeError.
       #
       # `hassil` and `home-assistant-intents` are component requirements, which pip
-      # does not install alongside Home Assistant itself — they are resolved when
-      # a component is first used. They must match the installed Home Assistant:
-      # 2024.11.0 pins hassil 1.7.4 and 2026.2 pins 3.5.0, and the wrong one fails
-      # at import with an `ImportError` naming a symbol rather than a version.
-      # Installing them unpinned tracks the newest Home Assistant, which is the
-      # one this job runs.
+      # does not install alongside Home Assistant itself. They are installed by
+      # `install_ha_test_deps.py` at the versions this Home Assistant pins — the
+      # newest `hassil` is a pre-release, so an unpinned install silently resolves
+      # to an older one and the conversation component then fails to import.
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pyyaml homeassistant hassil home-assistant-intents
+          python -m pip install pytest pyyaml homeassistant
+          python integrations/home-assistant/scripts/install_ha_test_deps.py
 
       - name: Test
         working-directory: integrations/home-assistant
