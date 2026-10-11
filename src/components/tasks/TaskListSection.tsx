@@ -36,14 +36,17 @@
  *
  * ## Events share the list
  *
- * A section renders its tasks and then its events. Events are `CalendarItem`s
+ * A section renders its tasks and its events as one date-ordered stream: each
+ * event is inserted at the point its own date belongs among the tasks, rather
+ * than appended under all of them (see `sectionRows`). Events are `CalendarItem`s
  * from `/api/calendar/items`, drawn by `EventRow` with a calendar glyph where the
  * checkbox sits; they are never completable and never reordered.
  *
  * ## Completion animates, and this is the one place that can make it
  *
- * `AnimatePresence` wraps the section's task rows — and only its tasks, since an
- * event row never leaves for a completion. It is here rather than in either
+ * `AnimatePresence` wraps the section's rows — tasks and events both, because
+ * the wrapper has to hold the whole stream for the interleaved order to be the
+ * order that is drawn. It is here rather than in either
  * screen because this component owns the `<ul>` a row is a child of: presence
  * only works on the direct children of the wrapper, so the wrapper has to sit
  * between the `<ul>` and the rows. It renders no DOM of its own, so the rows stay
@@ -138,6 +141,7 @@ import { canReorder, reorderIds, reorderableIds } from './optimistic';
 import { EventRow } from './EventRow';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
 import type { TaskSection } from './sections';
+import { sectionRows } from './sections';
 import { GLASS_TINT } from './surface';
 
 interface DragState {
@@ -300,6 +304,13 @@ export function TaskListSection({
   const taskCount = section.tasks.length;
   const eventCount = section.events.length;
   /*
+   * The section's rows, merged into one date-ordered stream (`sectionRows`).
+   * Computed here rather than by the caller because this is the component that
+   * owns the `<ul>`: the order the rows are drawn in is its own concern, and the
+   * caller only decides which tasks and events belong to the group.
+   */
+  const rows = sectionRows(section, zone);
+  /*
    * The count is every row the section renders, not just its tasks: a group
    * whose header said "2" while three event rows sat under it was the bug. The
    * screen-reader line spells out the split, so "2 tasks, 1 event" is announced
@@ -388,44 +399,45 @@ export function TaskListSection({
                */
               <ul className="-mx-5 -mb-4 flex flex-col text-base text-foreground">
                 <AnimatePresence initial={false}>
-                  {section.tasks.map((task, index) => (
-                    <TaskRow
-                      key={task.id}
-                      ref={(node) => {
-                        if (node) rowRefs.current.set(task.id, node);
-                        else rowRefs.current.delete(task.id);
-                      }}
-                      task={task}
-                      zone={zone}
-                      timeFormat={timeFormat}
-                      onToggle={onToggle}
-                      onOpen={onOpen}
-                      accent={listColorFor?.(task) ?? null}
-                      onDelete={onDelete}
-                      onWontDo={onWontDo}
-                      onPin={onPin}
-                      disabled={disabled}
-                      drag={dragPropsFor(task)}
-                      first={index === 0}
-                      last={eventCount === 0 && index === taskCount - 1}
-                      showDate={showDate}
-                    />
-                  ))}
+                  {rows.map((row, index) =>
+                    row.kind === 'task' ? (
+                      <TaskRow
+                        key={row.key}
+                        ref={(node) => {
+                          if (node) rowRefs.current.set(row.key, node);
+                          else rowRefs.current.delete(row.key);
+                        }}
+                        task={row.task}
+                        zone={zone}
+                        timeFormat={timeFormat}
+                        onToggle={onToggle}
+                        onOpen={onOpen}
+                        accent={listColorFor?.(row.task) ?? null}
+                        onDelete={onDelete}
+                        onWontDo={onWontDo}
+                        onPin={onPin}
+                        disabled={disabled}
+                        drag={dragPropsFor(row.task)}
+                        first={index === 0}
+                        last={index === rows.length - 1}
+                        showDate={showDate}
+                      />
+                    ) : (
+                      <EventRow
+                        key={row.key}
+                        event={row.event}
+                        zone={zone}
+                        timeFormat={timeFormat}
+                        onOpen={onOpenEvent}
+                        calendars={calendars}
+                        dark={dark}
+                        first={index === 0}
+                        last={index === rows.length - 1}
+                        showDate={showDate}
+                      />
+                    ),
+                  )}
                 </AnimatePresence>
-                {section.events.map((event, index) => (
-                  <EventRow
-                    key={event.key}
-                    event={event}
-                    zone={zone}
-                    timeFormat={timeFormat}
-                    onOpen={onOpenEvent}
-                    calendars={calendars}
-                    dark={dark}
-                    first={taskCount === 0 && index === 0}
-                    last={index === eventCount - 1}
-                    showDate={showDate}
-                  />
-                ))}
               </ul>
             ),
           },

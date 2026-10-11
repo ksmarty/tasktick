@@ -25,6 +25,8 @@ export type ReminderSource = 'event' | 'habit';
 export interface NotificationRecipient {
   userId: string;
   zone: string;
+  /** The account's week start, so weekly habit periods are read the same way the habit screen reads them. */
+  weekStartsOn: number;
 }
 
 /**
@@ -76,6 +78,7 @@ export async function notificationRecipients(): Promise<NotificationRecipient[]>
     .select({
       userId: userSettings.userId,
       zone: userSettings.timezone,
+      weekStartsOn: userSettings.weekStartsOn,
       appriseUrl: userSettings.appriseUrl,
       appriseKey: userSettings.appriseKey,
     })
@@ -87,7 +90,7 @@ export async function notificationRecipients(): Promise<NotificationRecipient[]>
 
   return rows
     .filter((row) => pushUsers.has(row.userId) || ((row.appriseUrl ?? '').trim().length > 0 && row.appriseKey.length > 0))
-    .map((row) => ({ userId: row.userId, zone: row.zone }));
+    .map((row) => ({ userId: row.userId, zone: row.zone, weekStartsOn: row.weekStartsOn }));
 }
 
 /**

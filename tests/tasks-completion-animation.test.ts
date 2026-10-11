@@ -228,12 +228,13 @@ describe('completing a task animates the row, and the recurring case does not', 
 
   it('keeps presence scoped to one section’s rows, suppressed on first paint', () => {
     expect(SECTION).toContain("import { AnimatePresence } from 'framer-motion';");
-    // One wrapper per section, around the tasks only: events never leave for a
-    // completion, and `initial={false}` is what keeps a tab switch from drawing
-    // the list row by row.
+    // One wrapper per section, around the merged row stream: an event can sit
+    // between two tasks, so the wrapper has to hold the whole stream for the
+    // interleaved order to be the order that is drawn — and `initial={false}` is
+    // what keeps a tab switch from drawing the list row by row.
     expect(SECTION).toContain('<AnimatePresence initial={false}>');
     const rows = SECTION.slice(SECTION.indexOf('<AnimatePresence initial={false}>'));
-    expect(rows.indexOf('section.tasks.map')).toBeLessThan(rows.indexOf('</AnimatePresence>'));
+    expect(rows.indexOf('rows.map((row, index)')).toBeLessThan(rows.indexOf('</AnimatePresence>'));
   });
 
   it('folds an emptied section card too, clipping only while it leaves', () => {

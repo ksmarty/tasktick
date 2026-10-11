@@ -44,9 +44,22 @@
  * focuses an `autoFocus` node during the commit phase), and `onOpenAutoFocus`
  * cancels Radix's own deferred autofocus so nothing re-focuses a frame later. The
  * raw probe result for this is in the migration report.
+ *
+ * ## The `@` shortcut
+ *
+ * Typing `@` opens the list menu: the lists matching what has been typed into the
+ * token, best match first, with the arrow keys and Enter to pick one. Choosing
+ * splices the canonical token over what was typed (`listToken`) — quoted when the
+ * name has a space in it, which is how `@"Reading list"` names a list the bare
+ * grammar cannot. The menu is driven by the caret's own token (`listTokenAt`), so
+ * it opens only while the caret is inside one and closes the moment the name is
+ * complete: a shortcut, not a panel to dismiss. Escape closes the menu alone —
+ * the dialog's own Escape would take the typed sentence with it.
  */
 import {
   useCallback,
+  useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -55,7 +68,7 @@ import {
   type RefObject,
 } from 'react';
 import { MagicWandIcon } from '@svg-animated-icons/react/magic-wand';
-import { parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
+import { listToken, parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
 import { useResource } from '@/lib/store';
 import type { Calendar as CalendarRecord, Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
@@ -73,10 +86,13 @@ import { cn } from '@/lib/utils';
 import { CalendarCombobox } from '@/components/calendar/CalendarCombobox';
 import { dueLabel } from './TaskMeta';
 import {
+  listTokenAt,
   planQuickAdd,
   quickAddChips,
   highlightSegments,
   quickAddHighlights,
+  suggestLists,
+  type ListLike,
   type QuickAddChip,
   type QuickAddChipKind,
   type QuickAddContext,
@@ -219,6 +235,11 @@ interface QuickAddState {
   /** The chosen calendar id, or `''` for no calendar. */
   calendarId: string;
   setCalendarId: (calendarId: string) => void;
+  /**
+   * The lists `@` can resolve to — the account's own, in the order the server
+   * sorts them, which is what the shortcut menu offers.
+   */
+  lists: readonly ListLike[];
 }
 
 function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): QuickAddState {
@@ -313,6 +334,7 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
     calendars: writableCalendars,
     calendarId,
     setCalendarId,
+    lists: context.lists,
   };
 }
 
@@ -357,7 +379,84 @@ function QuickAddInput({
     else inputRef.current?.focus();
   }
 
+  /*
+   * The `@` list shortcut.
+   *
+   * Everything is derived from the value and the caret: the token under the caret
+   * (`listTokenAt`), the lists matching what has been typed into it, and whether
+   * that query is already a complete name — a complete token needs no menu, which
+   * is also what stops the menu reappearing over the name that was just chosen.
+   */
+  const listboxId = useId();
+  const [caret, setCaret] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  const token = useMemo(() => listTokenAt(state.value, caret), [state.value, caret]);
+  const typed = token?.query ?? '';
+  const complete =
+    typed !== '' && state.lists.some((list) => list.name.trim().toLowerCase() === typed.toLowerCase());
+  const suggestions = useMemo(() => (token ? suggestLists(state.lists, typed) : []), [state.lists, token, typed]);
+  const menuOpen = token !== null && !complete && !dismissed;
+  /** The row the keyboard is on, clamped: a shorter list must never leave the highlight past its end. */
+  const highlighted = suggestions.length ? Math.min(activeIndex, suggestions.length - 1) : -1;
+
+  // Typing on re-opens what Escape closed: the dismissal belongs to the query it
+  // was pressed on, not to the field.
+  useEffect(() => setDismissed(false), [typed]);
+  // The highlighted row follows the query, so a shorter list never leaves the
+  // highlight past its end.
+  useEffect(() => setActiveIndex(0), [typed]);
+
+  const accept = useCallback(
+    (list: ListLike) => {
+      const current = listTokenAt(state.value, caret);
+      if (!current) return;
+
+      const inserted = listToken(list.name);
+      const head = state.value.slice(0, current.start);
+      const tail = state.value.slice(current.end).replace(/^\s+/, '');
+      const next = `${head}${inserted} ${tail}`;
+      const position = head.length + inserted.length + 1;
+
+      state.setValue(next);
+      setCaret(position);
+      setDismissed(true);
+      // The caret lands after the inserted token so the title keeps being typed
+      // where it left off — and only once React has committed the new value.
+      requestAnimationFrame(() => inputRef.current?.setSelectionRange(position, position));
+    },
+    [caret, inputRef, state.setValue, state.value],
+  );
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (menuOpen) {
+      const count = suggestions.length;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setActiveIndex((index) => (count ? (index + step + count) % count : 0));
+        return;
+      }
+      if ((event.key === 'Enter' || event.key === 'Tab') && count) {
+        event.preventDefault();
+        accept(suggestions[highlighted >= 0 ? highlighted : 0]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        /*
+         * Escape closes the menu and nothing else. `stopPropagation` on the
+         * native event is what keeps Radix's document-level dismisser from
+         * seeing the key at all, so the typed sentence survives — pressing it
+         * again, with the menu already closed, still closes the dialog.
+         */
+        event.preventDefault();
+        event.stopPropagation();
+        setDismissed(true);
+        return;
+      }
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault();
       void submit();
@@ -464,7 +563,21 @@ function QuickAddInput({
           disabled={!state.online}
           placeholder="Add a task…"
           aria-label="Quick add a task"
-          onChange={(event) => state.setValue(event.target.value)}
+          /*
+           * Combobox wiring. The field owns the menu and reports whether it is
+           * open and which row is highlighted; the menu never takes focus,
+           * because focus leaving the field is what would dismiss it.
+           */
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? listboxId : undefined}
+          aria-activedescendant={highlighted >= 0 ? `${listboxId}-${highlighted}` : undefined}
+          onChange={(event) => {
+            state.setValue(event.target.value);
+            setCaret(event.target.selectionStart ?? event.target.value.length);
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={onKeyDown}
           onScroll={syncHighlightScroll}
           className={cn('relative pr-16 pl-9')}
@@ -490,6 +603,50 @@ function QuickAddInput({
           )}
         </Button>
       </div>
+
+      {/*
+       * The list shortcut's menu, directly under the field it belongs to. Rows are
+       * buttons rather than options on a focusable list: `mousedown` is cancelled
+       * so the field keeps focus, because focus leaving it is what closes the menu
+       * — and the click that follows still lands.
+       */}
+      {menuOpen ? (
+        suggestions.length ? (
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label="Lists"
+            className="flex max-h-44 flex-col overflow-y-auto rounded-md border border-border"
+          >
+            {suggestions.map((list, index) => (
+              <button
+                key={list.id}
+                id={`${listboxId}-${index}`}
+                type="button"
+                role="option"
+                aria-selected={index === highlighted}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => accept(list)}
+                className={cn(
+                  'flex min-h-9 items-center gap-2 px-3 text-left text-sm',
+                  index === highlighted ? 'bg-accent text-accent-foreground' : 'text-foreground',
+                )}
+              >
+                <span className="truncate">{list.name}</span>
+                {index === highlighted ? (
+                  <span className="ml-auto text-xs text-muted-foreground">Enter</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : typed ? (
+          // A name nothing matches is still a valid answer: the submit path
+          // creates the list, so the menu says so rather than staying silent.
+          <p className="px-1 text-xs text-muted-foreground">
+            No list matches “{typed}” — adding the task will create it.
+          </p>
+        ) : null
+      ) : null}
 
       {/*
        * The calendar picker sits between the field and the chips: it is part of

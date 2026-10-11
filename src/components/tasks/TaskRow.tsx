@@ -4,8 +4,9 @@
  * The signature list row.
  *
  * Leading edge: a shadcn `Checkbox` inside its own 44px touch target. Body: a
- * button whose first line carries the title, the pin and the trailing due date,
- * and whose second line is the derived meta (`TaskMeta`). Behind the row a
+ * button whose first line carries the title and, at the trailing edge, the
+ * derived state glyphs (`TaskGlyphs`) immediately left of the due date, and whose
+ * second line is the tag chips (`TaskMeta`). Behind the row a
  * swipe-left reveals Complete, Pin/Unpin and Delete. A long press either lifts
  * the row for reordering (on touch) or — on a pointer that can hover — right-click opens a
  * shadcn `ContextMenu` of the extra actions; never both, so a finger drag is
@@ -151,7 +152,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { resolveSwipeAxis, type SwipeAxis } from './swipe-axis';
-import { DueDateLabel, TaskMeta } from './TaskMeta';
+import { DueDateLabel, TaskGlyphs, TaskMeta } from './TaskMeta';
 
 /** Width of the revealed Complete + Pin/Unpin + Delete trio (3 × 76px, i.e. `w-57`). */
 export const SWIPE_ACTION_WIDTH = 228;
@@ -727,6 +728,7 @@ export function TaskRow({
           </span>
           <TaskMeta task={task} className="relative" />
         </span>
+        <TaskGlyphs task={task} className="relative self-center" />
         <DueDateLabel
           task={task}
           zone={zone}

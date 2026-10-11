@@ -73,6 +73,8 @@ export function TagPicker({
       onOpenChange={onOpenChange}
       side="bottom"
       title={title}
+      /* See ListPicker: the filter field must not take focus on open. */
+      autoFocus={false}
       className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
       <PickerFilter value={query} onChange={setQuery} noun="tags" />

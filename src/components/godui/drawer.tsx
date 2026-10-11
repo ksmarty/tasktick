@@ -37,6 +37,14 @@
  *  6. `FocusScope` (`@radix-ui/react-focus-scope`) wraps the panel's content, so
  *     a drawer opened from inside a Radix dialog takes the focus lock from it —
  *     see "Why the drawer owns focus as well as pointer events" below.
+ *  7. `autoFocus` (default `true`) is forwarded to that `FocusScope`. Radix's
+ *     scope focuses its first focusable element by default, which for a picker
+ *     is the filter field — so opening the List picker raised the keyboard
+ *     before the user had touched anything. The two pickers that own a text
+ *     field pass `autoFocus={false}`.
+ *  8. The portal root shrinks to the *visible* viewport while a software
+ *     keyboard is up, and the panel is capped to it — see "Why the sheet
+ *     follows the visual viewport" below.
  *
  * The source's `z-modal` is kept as-is: the z-index tokens are defined in
  * `globals.css` (`--z-index-modal`), so the semantic class resolves. GodUI's
@@ -85,6 +93,27 @@
  * `trapped` is what pauses the outer scope; `loop` keeps Tab inside the drawer.
  * Both match what Radix uses for a modal dialog.
  *
+ * ## Why the sheet follows the visual viewport
+ *
+ * A bottom sheet is anchored to the bottom of the *layout* viewport, and a
+ * software keyboard does not change the layout viewport: it covers the lower
+ * part of it. So tapping the List picker's filter field raised the keyboard over
+ * the sheet — the field the user was typing into, and everything below it, was
+ * behind the keyboard, which is what "the popup is hidden below the keyboard"
+ * reported.
+ *
+ * `window.visualViewport` is the rectangle the user can actually see, and it is
+ * the only thing that shrinks for the keyboard. While the drawer is open and a
+ * keyboard covers more than a rounding error of the page, the portal root's
+ * bottom edge is moved up to the visible bottom (the panel is anchored to it, so
+ * the sheet rises with it) and the panel is capped at the root's own height. The
+ * cap matters because `max-h-[70dvh]` and `max-h-[90vh]` are both measured
+ * against the layout viewport, so a 70% sheet on a phone whose keyboard takes
+ * 40% of the screen would otherwise hang off the top of the display.
+ *
+ * With no keyboard (or no `visualViewport`, which is only the very old case) the
+ * inset is 0, no style is applied, and the drawer is byte-for-byte what it was.
+ *
  * No `@godui/godui-theme` import exists in the published source — the registry
  * dependency is a stylesheet merge, not a code import — so there was nothing to
  * drop.
@@ -109,6 +138,13 @@ export type DrawerProps = {
   title?: React.ReactNode;
   /** Extra classes for the panel. */
   className?: string;
+  /**
+   * Move focus into the drawer when it opens. Radix's focus scope focuses its
+   * first focusable element, which in a picker is the filter field — and on a
+   * phone that raises the keyboard before the user has touched anything. Pass
+   * `false` from a drawer whose first control is a text field.
+   */
+  autoFocus?: boolean;
   children?: React.ReactNode;
   /** Element to portal into. Defaults to the owning document's body. */
   container?: HTMLElement | null;
@@ -151,6 +187,40 @@ function usePortalTarget(container: HTMLElement | null | undefined) {
   };
 }
 
+/**
+ * How much of the layout viewport a software keyboard is covering, in CSS px.
+ *
+ * `visualViewport` is the only rectangle that shrinks for the keyboard; the
+ * layout viewport (`innerHeight`) does not. A few pixels of difference are
+ * rounding, not a keyboard, so anything under 8px is reported as 0 and the
+ * drawer keeps its default geometry.
+ */
+function useKeyboardInset(active: boolean, ownerDocument: Document | null): number {
+  const [inset, setInset] = React.useState(0);
+
+  React.useEffect(() => {
+    const view = ownerDocument?.defaultView;
+    const visual = view?.visualViewport;
+    if (!active || !view || !visual) {
+      setInset(0);
+      return;
+    }
+    const sync = () => {
+      const covered = view.innerHeight - (visual.height + visual.offsetTop);
+      setInset(covered > 8 ? Math.round(covered) : 0);
+    };
+    sync();
+    visual.addEventListener('resize', sync);
+    visual.addEventListener('scroll', sync);
+    return () => {
+      visual.removeEventListener('resize', sync);
+      visual.removeEventListener('scroll', sync);
+    };
+  }, [active, ownerDocument]);
+
+  return inset;
+}
+
 const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
   (
     {
@@ -159,6 +229,7 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
       side = 'bottom',
       title,
       className,
+      autoFocus = true,
       children,
       container,
     },
@@ -168,6 +239,7 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
     const { ownerDocument, portalTarget, registerOwnerNode } =
       usePortalTarget(container);
     const isBottom = side === 'bottom';
+    const keyboardInset = useKeyboardInset(open && isBottom, ownerDocument);
     /*
      * A caller that sets the panel's bottom padding is delegating the sheet's
      * bottom edge to the panel; one that sets its own (the day sheet pads an
@@ -210,7 +282,15 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
       ? createPortal(
           <AnimatePresence>
             {open ? (
-              <div className="pointer-events-auto fixed inset-0 z-modal">
+              <div
+                className="pointer-events-auto fixed inset-0 z-modal"
+                /*
+                 * Only the bottom edge moves, and only while a keyboard covers
+                 * part of the page: the panel is anchored to it, so the sheet
+                 * rises with the keyboard instead of sitting behind it.
+                 */
+                style={keyboardInset ? { bottom: keyboardInset } : undefined}
+              >
                 <motion.div
                   aria-hidden
                   initial={{ opacity: 0 }}
@@ -251,13 +331,20 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                      */
                     isBottom && callerPadsPanelBottom && BOTTOM_BAND_CLEARANCE,
                   )}
+                  /*
+                   * Inline, and only under a keyboard, because it has to beat the
+                   * caller's own `max-h-*` — those are measured against the
+                   * layout viewport, which the keyboard does not shrink. `100%`
+                   * is the portal root, whose bottom edge is the visible one.
+                   */
+                  style={keyboardInset ? { maxHeight: '100%' } : undefined}
                 >
                   {title ? (
                     <h2 className="mb-3 text-lg font-semibold text-foreground">
                       {title}
                     </h2>
                   ) : null}
-                  <FocusScope trapped loop className="overflow-y-auto">
+                  <FocusScope trapped loop autoFocus={autoFocus} className="overflow-y-auto">
                     {children}
                   </FocusScope>
                 </motion.div>

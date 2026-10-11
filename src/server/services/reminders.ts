@@ -35,7 +35,7 @@
  */
 import { addDaysToDateOnly, dateOnlyToMillis, toDateOnly } from '@/lib/dates';
 import type { DateOnly, Habit, Millis } from '@/lib/types';
-import { habitsWithReminders, matchesSchedule } from '../repos/habits';
+import { habitsWithReminders, matchesSchedule, settledHabitDates } from '../repos/habits';
 import { claimDispatch, notificationRecipients, pruneDispatches } from '../repos/reminder-dispatches';
 import { dueTaskReminders, markTaskReminderSent } from '../repos/tasks';
 import { expandedEventsInRange, type ExpandedEvent } from './calendar-items';
@@ -120,6 +120,18 @@ export function dueEventReminders(
 }
 
 /**
+ * The days a habit reminder can belong to: yesterday and today.
+ *
+ * Exported because the caller has to ask the database about exactly these dates
+ * before the reminders are computed — whether each one is already settled — and
+ * a second copy of the rule would drift from this one.
+ */
+export function habitReminderDates(zone: string, nowMs: Millis): DateOnly[] {
+  const today: DateOnly = toDateOnly(nowMs, zone);
+  return [addDaysToDateOnly(today, -1, zone), today];
+}
+
+/**
  * Habit reminders due in the window.
  *
  * A habit reminder is a time of day, so it is stored as minutes since local
@@ -127,22 +139,28 @@ export function dueEventReminders(
  * checked as well as today: a 23:59 reminder whose tick lands at 00:00:30
  * belongs to yesterday's date, and with a one-hour grace window a date-only sweep
  * of "today" would drop it every single night.
+ *
+ * `settled` carries the days this habit has already met its goal for (see
+ * `settledHabitDates`). A habit that has been ticked off is not reminded again
+ * that day — or, for a weekly habit, again that week: the point of the reminder
+ * is to get the check-in done, and it has been.
  */
 export function dueHabitReminders(
   habit: Habit,
   zone: string,
   nowMs: Millis,
   graceMs: number = REMINDER_GRACE_MS,
+  settled?: ReadonlySet<DateOnly> | null,
 ): DueReminder[] {
   /*
-   * The date comes from `nowMs`, not from the wall clock. Taking it from the
-   * clock made the function's own `nowMs` a lie: a sweep replayed at any other
-   * instant still looked at today, so every reminder missed.
+   * The dates come from `nowMs`, not from the wall clock: taking them from the
+   * clock made the function's own `nowMs` a lie, so a sweep replayed at any
+   * other instant still looked at today and every reminder missed.
    */
-  const today: DateOnly = toDateOnly(nowMs, zone);
   const due: DueReminder[] = [];
 
-  for (const date of [addDaysToDateOnly(today, -1, zone), today]) {
+  for (const date of habitReminderDates(zone, nowMs)) {
+    if (settled?.has(date)) continue;
     if (!matchesSchedule(habit, date)) continue;
     const midnightMs = dateOnlyToMillis(date, zone);
     for (const minute of habit.reminders ?? []) {
@@ -227,6 +245,8 @@ export async function dispatchRemindersForUser(
   zone: string,
   nowMs: Millis,
   deliver: NonNullable<ReminderDeps['deliver']>,
+  /** The account's week start, which decides the weekly habit periods. */
+  weekStartsOn = 1,
 ): Promise<DispatchCounts> {
   const counts: DispatchCounts = { sent: 0, skipped: 0, failed: 0 };
 
@@ -263,9 +283,19 @@ export async function dispatchRemindersForUser(
     await dispatchClaimed(userId, reminder, nowMs, deliver, counts);
   }
 
-  for (const habit of await habitsWithReminders(userId)) {
-    for (const reminder of dueHabitReminders(habit, zone, nowMs)) {
-      await dispatchClaimed(userId, reminder, nowMs, deliver, counts);
+  /*
+   * Habits are asked what they have already settled before their reminders are
+   * computed: a habit that has been checked in for the day (or, for a weekly
+   * habit, for the week) has nothing left to be reminded about, and the answer
+   * needs the check-ins, not just the habit row.
+   */
+  const habits = await habitsWithReminders(userId);
+  if (habits.length > 0) {
+    const settled = await settledHabitDates(userId, habits, habitReminderDates(zone, nowMs), weekStartsOn, zone);
+    for (const habit of habits) {
+      for (const reminder of dueHabitReminders(habit, zone, nowMs, REMINDER_GRACE_MS, settled.get(habit.id))) {
+        await dispatchClaimed(userId, reminder, nowMs, deliver, counts);
+      }
     }
   }
 
@@ -287,7 +317,7 @@ export async function runReminderSweep(nowMs: Millis = Date.now(), deps: Reminde
   const recipients = await notificationRecipients();
   for (const recipient of recipients) {
     try {
-      const counts = await dispatchRemindersForUser(recipient.userId, recipient.zone, nowMs, deliver);
+      const counts = await dispatchRemindersForUser(recipient.userId, recipient.zone, nowMs, deliver, recipient.weekStartsOn);
       total.sent += counts.sent;
       total.skipped += counts.skipped;
       total.failed += counts.failed;

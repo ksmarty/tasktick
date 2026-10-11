@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DateTime } from 'luxon';
-import { parseQuickAdd, parseDuration, summarizeQuickAdd } from '@/lib/nlp';
+import { listToken, parseQuickAdd, parseDuration, summarizeQuickAdd } from '@/lib/nlp';
 import { buildRRule, describeRRule, matchPreset, parseRRule, weekdayOfDate } from '@/lib/rrule';
 
 /** A fixed "now" so the relative-date expectations never depend on the clock. */
@@ -135,6 +135,30 @@ describe('parseQuickAdd — metadata', () => {
     expect(result.title).toBe('renew passport');
   });
 
+  it('extracts a quoted list name with spaces in it', () => {
+    // The bare token stops at a space, so a name that has one is quoted — the
+    // same trick the shell uses, and the only way `@Reading list` can be a token
+    // rather than a list called "Reading" followed by the word "list".
+    const result = parse('file the receipts @"Reading list"');
+    expect(result.listName).toBe('Reading list');
+    expect(result.title).toBe('file the receipts');
+    expect(result.matches.map((match) => match.kind)).toEqual(['list']);
+  });
+
+  it('accepts single quotes too, and never keeps them in the name', () => {
+    const result = parse("file the receipts @'Reading list'");
+    expect(result.listName).toBe('Reading list');
+    expect(result.title).toBe('file the receipts');
+  });
+
+  it('still reads an unquoted token, and leaves an address alone', () => {
+    expect(parse('renew passport @Errands').listName).toBe('Errands');
+    // No `@` token here at all: the address is just a word in the title.
+    const address = parse('email sam@example.com about the deck');
+    expect(address.listName).toBeNull();
+    expect(address.title).toBe('email sam@example.com about the deck');
+  });
+
   it('extracts priority in every supported spelling', () => {
     expect(parse('task !high').priority).toBe('high');
     expect(parse('task !h').priority).toBe('high');
@@ -200,6 +224,11 @@ describe('parseQuickAdd — whole sentence', () => {
     expect(result.estimateMinutes).toBe(120);
     expect(result.recurrenceRule).toBe('FREQ=WEEKLY');
     expect(result.isPlain).toBe(false);
+  });
+
+  it('summarizes a list the way the field writes it, quotes and all', () => {
+    expect(summarizeQuickAdd(parse('x @Errands'))).toEqual(['@Errands']);
+    expect(summarizeQuickAdd(parse('x @"Reading list"'))).toEqual(['@"Reading list"']);
   });
 
   it('leaves a plain title untouched', () => {

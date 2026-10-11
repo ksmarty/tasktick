@@ -92,6 +92,12 @@ export function ListPicker({
       onOpenChange={onOpenChange}
       side="bottom"
       title={title}
+      /*
+       * The filter field is the drawer's first focusable element, so Radix's
+       * focus scope would land on it and raise the keyboard the moment the
+       * picker opens — before the user has asked to type anything.
+       */
+      autoFocus={false}
       className="max-h-[70dvh] p-0 px-card pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
     >
       <PickerFilter value={query} onChange={setQuery} noun="lists" />

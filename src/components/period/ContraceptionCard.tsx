@@ -422,7 +422,7 @@ function MethodFormDrawer({ open, record, onOpenChange, onSaved }: MethodFormDra
       onOpenChange={onOpenChange}
       side="bottom"
       title={record ? `Edit ${METHOD_LABEL[record.method]}` : 'Add a method'}
-      className="p-0 px-card"
+      className="p-0 px-card pt-card"
     >
       <div className="flex min-w-0 flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         <p className="text-sm text-muted-foreground">

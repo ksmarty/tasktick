@@ -851,3 +851,49 @@ describe('TaskRow — closing a revealed row is the swipe in reverse', () => {
     expect(ROW).not.toMatch(/state\.axis = Math\.abs\(dx\)/);
   });
 });
+
+describe('QuickAddBar — the @ list shortcut', () => {
+  it('drives the menu from the caret’s own token', () => {
+    // The token under the caret decides whether the menu is open and what it
+    // matches, so the caret is tracked from the field's own selection — a menu
+    // that ignored the caret would open over a word in the title.
+    expect(QUICK_ADD).toContain('listTokenAt(state.value, caret)');
+    expect(QUICK_ADD).toContain('suggestLists(state.lists, typed)');
+    expect(QUICK_ADD).toContain('onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}');
+  });
+
+  it('splices the canonical token over what was typed', () => {
+    // Quoted when the name has a space in it — the one form the grammar can read
+    // back — and the caret lands after it so the title keeps being typed where it
+    // left off.
+    expect(QUICK_ADD).toContain('const inserted = listToken(list.name);');
+    expect(QUICK_ADD).toContain('inputRef.current?.setSelectionRange(position, position)');
+  });
+
+  it('never re-opens over a name that is already complete', () => {
+    expect(QUICK_ADD).toContain('const complete =');
+    expect(QUICK_ADD).toContain('const menuOpen = token !== null && !complete && !dismissed;');
+  });
+
+  it('accepts with the keyboard, and closes the menu with Escape alone', () => {
+    expect(QUICK_ADD).toContain("event.key === 'ArrowDown' || event.key === 'ArrowUp'");
+    expect(QUICK_ADD).toContain("(event.key === 'Enter' || event.key === 'Tab') && count");
+    // Radix's document-level dismisser must not see the key: the typed sentence
+    // has to survive closing the menu.
+    expect(QUICK_ADD).toContain('event.stopPropagation();');
+  });
+
+  it('renders the menu as a listbox the field owns, not a focusable list', () => {
+    expect(QUICK_ADD).toContain('role="listbox"');
+    expect(QUICK_ADD).toContain('role="option"');
+    // Focus leaving the field is what closes the menu, so the click is kept from
+    // taking it.
+    expect(QUICK_ADD).toContain('onMouseDown={(event) => event.preventDefault()}');
+    expect(QUICK_ADD).toContain('aria-activedescendant');
+  });
+
+  it('says so when nothing matches, instead of staying silent', () => {
+    // A name no list has is still a valid answer: the submit path creates it.
+    expect(QUICK_ADD).toContain('No list matches');
+  });
+});

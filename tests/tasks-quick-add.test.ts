@@ -8,9 +8,12 @@ import {
   dedupeTagNames,
   findListByName,
   highlightSegments,
+  listNameFromToken,
+  listTokenAt,
   planQuickAdd,
   quickAddChips,
   quickAddHighlights,
+  suggestLists,
   type QuickAddContext,
 } from '@/components/tasks/quick-add';
 
@@ -60,6 +63,114 @@ describe('findListByName', () => {
   it('returns null for an unknown or empty name', () => {
     expect(findListByName(LISTS, 'Nope')).toBeNull();
     expect(findListByName(LISTS, '')).toBeNull();
+  });
+});
+
+/** Lists with a space in the name, which is the case the quoted token exists for. */
+const SPACED_LISTS = [
+  { id: 'reading', name: 'Reading list' },
+  { id: 'work', name: 'Work' },
+];
+
+describe('listNameFromToken', () => {
+  it('strips the @, the quotes and the padding', () => {
+    expect(listNameFromToken('@Work')).toBe('Work');
+    expect(listNameFromToken('@"Reading list"')).toBe('Reading list');
+    expect(listNameFromToken("@'Reading list'")).toBe('Reading list');
+    expect(listNameFromToken('  groceries  ')).toBe('groceries');
+  });
+
+  it('keeps a quote that is inside the name', () => {
+    // The outer quotes are the only ones stripped, and greedily so: a name that
+    // itself contains a quote survives the trip.
+    expect(listNameFromToken('@"The "big" list"')).toBe('The "big" list');
+  });
+});
+
+describe('findListByName — names with spaces', () => {
+  it('matches a quoted token against a list with spaces in its name', () => {
+    expect(findListByName(SPACED_LISTS, 'Reading list')?.id).toBe('reading');
+    expect(findListByName(SPACED_LISTS, '@"Reading list"')?.id).toBe('reading');
+    expect(findListByName(SPACED_LISTS, '@"reading LIST"')?.id).toBe('reading');
+  });
+
+  it('still refuses a name no list has', () => {
+    expect(findListByName(SPACED_LISTS, '@"Reading"')).toBeNull();
+    expect(findListByName(SPACED_LISTS, '@"Reading list"')).not.toBeNull();
+  });
+});
+
+describe('planQuickAdd — filing into a list with spaces in its name', () => {
+  it('files into the list when the quoted name matches one', () => {
+    const { plan: result } = plan('File the receipts @"Reading list"', { lists: SPACED_LISTS });
+    expect(result?.payload.listId).toBe('reading');
+    expect(result?.createListName).toBeNull();
+  });
+
+  it('asks for the unquoted name when nothing matches', () => {
+    const { plan: result } = plan('File the receipts @"Reading list"');
+    expect(result?.payload.listId).toBeUndefined();
+    expect(result?.createListName).toBe('Reading list');
+  });
+});
+
+describe('listTokenAt', () => {
+  it('finds the token the caret is in, and what was typed into it', () => {
+    expect(listTokenAt('call Sam @gro', 13)).toEqual({ start: 9, end: 13, query: 'gro' });
+  });
+
+  it('opens on a bare @ with nothing typed into it yet', () => {
+    // The caret is *after* the `@`, which is where it is the moment it is typed.
+    expect(listTokenAt('call Sam @', 10)).toEqual({ start: 9, end: 10, query: '' });
+  });
+
+  it('is null once the caret has left the token', () => {
+    expect(listTokenAt('call Sam @gro bread', 18)).toBeNull();
+    expect(listTokenAt('call Sam @gro bread', 12)).toMatchObject({ start: 9, query: 'gr' });
+  });
+
+  it('treats a quoted token as one token, spaces and all', () => {
+    const value = 'file @"Reading list" today';
+    // Caret inside the name, and again just before the closing quote.
+    expect(listTokenAt(value, 12)).toEqual({ start: 5, end: 19, query: 'Readi' });
+    expect(listTokenAt(value, 19)).toEqual({ start: 5, end: 19, query: 'Reading list' });
+    // Past the closing quote the caret is in the title again.
+    expect(listTokenAt(value, 22)).toBeNull();
+  });
+
+  it('runs an unclosed quote on to the end, which is mid-typing', () => {
+    const value = 'file @"Reading li';
+    expect(listTokenAt(value, value.length)).toEqual({ start: 5, end: 17, query: 'Reading li' });
+  });
+
+  it('ignores an address, whose @ has no space in front of it', () => {
+    expect(listTokenAt('mail sam@example.com', 19)).toBeNull();
+  });
+});
+
+describe('suggestLists', () => {
+  const LISTS_FOR_SUGGESTIONS = [
+    { id: 'weekly', name: 'Weekly groceries' },
+    { id: 'groc', name: 'Groceries' },
+    { id: 'read', name: 'Reading list' },
+  ];
+
+  it('offers every list for a bare @, alphabetically', () => {
+    expect(suggestLists(LISTS_FOR_SUGGESTIONS, '').map((list) => list.id)).toEqual(['groc', 'read', 'weekly']);
+  });
+
+  it('puts an exact name first, then prefixes, then anything containing it', () => {
+    expect(suggestLists(LISTS_FOR_SUGGESTIONS, 'gro').map((list) => list.id)).toEqual(['groc', 'weekly']);
+    expect(suggestLists(LISTS_FOR_SUGGESTIONS, 'Groceries').map((list) => list.id)).toEqual(['groc', 'weekly']);
+  });
+
+  it('matches ignoring case, and honours the limit', () => {
+    expect(suggestLists(LISTS_FOR_SUGGESTIONS, 'READING').map((list) => list.id)).toEqual(['read']);
+    expect(suggestLists(LISTS_FOR_SUGGESTIONS, '', 2)).toHaveLength(2);
+  });
+
+  it('returns nothing when nothing matches', () => {
+    expect(suggestLists(LISTS_FOR_SUGGESTIONS, 'zzz')).toEqual([]);
   });
 });
 
@@ -163,6 +274,11 @@ describe('quickAddChips', () => {
   it('returns nothing for a plain sentence', () => {
     const { parsed } = plan('Just a task');
     expect(quickAddChips(parsed, context)).toEqual([]);
+  });
+
+  it('labels a quoted list chip with its quotes, so the sentence can be read back', () => {
+    const { parsed } = plan('File the receipts @"Reading list"');
+    expect(quickAddChips(parsed, context).find((chip) => chip.kind === 'list')?.label).toBe('@"Reading list"');
   });
 });
 

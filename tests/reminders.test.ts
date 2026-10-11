@@ -17,7 +17,7 @@ import { newId } from '@/server/crypto';
 import { getDb } from '@/server/db';
 import { reminderDispatches, taskReminders, user } from '@/server/db/schema';
 import { createCalendar, createEvent, updateCalendar } from '@/server/repos/calendars';
-import { createHabit } from '@/server/repos/habits';
+import { createHabit, checkIn } from '@/server/repos/habits';
 import { getSettings, updateSettings } from '@/server/repos/settings';
 import { createTask } from '@/server/repos/tasks';
 import type { NotificationPayload } from '@/server/services/notifications';
@@ -150,6 +150,68 @@ describe('habits', () => {
     await runReminderSweep(NOON + REMINDER_GRACE_MS + 1, { deliver: rec.deliver });
 
     expect(rec.sent).toEqual([]);
+  });
+
+  it('goes quiet for the day once the habit is checked in, and comes back the next day', async () => {
+    const habit = await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    const rec = recorder();
+
+    // Ticked off in the morning: the midday reminder has nothing left to ask for.
+    await checkIn(userId, habit.id, { count: 1, date: '2026-05-12' }, ZONE);
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+    expect(rec.sent).toEqual([]);
+
+    // A new day is a new period, so the reminder is back.
+    await runReminderSweep(NOON + 24 * 60 * 60 * 1000, { deliver: rec.deliver });
+    expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
+  });
+
+  it('keeps reminding a count habit until its goal is met, not until anything is logged', async () => {
+    const habit = await createHabit(
+      userId,
+      {
+        name: 'Water',
+        frequency: 'daily',
+        goalType: 'count',
+        goalTarget: 3,
+        reminders: [NOON_MINUTE, NOON_MINUTE + 1, NOON_MINUTE + 2],
+      },
+      ZONE,
+    );
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+    expect(rec.sent).toHaveLength(1);
+
+    // One of three: the day is not settled, so the next reminder still goes.
+    await checkIn(userId, habit.id, { count: 1, date: '2026-05-12' }, ZONE);
+    await runReminderSweep(NOON + 60_000, { deliver: rec.deliver });
+    expect(rec.sent).toHaveLength(2);
+
+    // Goal met: the day's last reminder has nothing left to ask for.
+    await checkIn(userId, habit.id, { count: 3, date: '2026-05-12' }, ZONE);
+    await runReminderSweep(NOON + 120_000, { deliver: rec.deliver });
+    expect(rec.sent).toHaveLength(2);
+  });
+
+  it('stays quiet for the rest of the week once a weekly habit is done', async () => {
+    // Two check-ins in the same Monday-started week (the 11th and the 12th) meet
+    // a goal of two, so there is nothing left to remind about on the Tuesday.
+    const habit = await createHabit(
+      userId,
+      { name: 'Long run', frequency: 'weekly', timesPerPeriod: 2, reminders: [NOON_MINUTE] },
+      ZONE,
+    );
+    await checkIn(userId, habit.id, { count: 1, date: '2026-05-11' }, ZONE);
+    await checkIn(userId, habit.id, { count: 1, date: '2026-05-12' }, ZONE);
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+    expect(rec.sent).toEqual([]);
+
+    // The following week is a fresh period, so it reminds again.
+    await runReminderSweep(NOON + 7 * 24 * 60 * 60 * 1000, { deliver: rec.deliver });
+    expect(rec.sent.map((payload) => payload.title)).toEqual(['Long run']);
   });
 });
 

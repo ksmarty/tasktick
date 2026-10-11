@@ -17,6 +17,7 @@
  *            every day · every weekday · every monday · every 2 weeks · every 3 months
  *   Meta     !high !medium !low !1 !2 !3 !!! !! ! "#work
  *            @Groceries            (list)
+ *            @"Reading list"       (list whose name has spaces)
  *            ~45m ~2h ~1h30m       (time estimate)
  *
  * Deliberately *not* supported: relative phrases that need a conversation
@@ -494,10 +495,20 @@ export function parseQuickAdd(input: string, options: QuickAddOptions): QuickAdd
 
   /* ---- 7. list ---- */
 
-  scanner.tryMatch('list', [/(?:^|\s)@([\p{L}\p{N}][\p{L}\p{N}_-]*)/u], (match) => {
-    listName = match[1].trim() || null;
-    return Boolean(listName);
-  });
+  scanner.tryMatch(
+    'list',
+    [
+      // `@"Two words"` — a list whose name has spaces, quoted so the token has an
+      // end. Tried before the bare form, which would otherwise stop at the space.
+      /(?:^|\s)@"([^"]+)"/u,
+      /(?:^|\s)@'([^']+)'/u,
+      /(?:^|\s)@([\p{L}\p{N}][\p{L}\p{N}_-]*)/u,
+    ],
+    (match) => {
+      listName = (match[1] ?? match[2] ?? match[3] ?? '').trim() || null;
+      return Boolean(listName);
+    },
+  );
 
   /* ---- 8. time estimate ---- */
 
@@ -603,6 +614,23 @@ function resolveMonthDay(month: number, day: number, year: number, yearExplicit:
 }
 
 /**
+ * The token that names `name` as a list: `@Groceries`, or `@"Groceries run"`
+ * when the name has characters a bare token cannot carry.
+ *
+ * Exported because three places have to agree on it — the summary below, the
+ * resolved chip in `./quick-add`, and the quick-add field's autocomplete, which
+ * splices exactly this text over what was typed. A name with a quote in it cannot
+ * be expressed in the grammar at all, so the quote is dropped rather than
+ * producing a token the parser would not read back.
+ */
+export function listToken(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '@';
+  const safe = trimmed.replace(/"/g, '');
+  return /[\s']/.test(safe) ? `@"${safe}"` : `@${safe}`;
+}
+
+/**
  * Extracts only the metadata a header-less Quick Add field needs, for callers
  * that just want a live badge ("Tomorrow 17:00 · High · #work").
  */
@@ -612,7 +640,7 @@ export function summarizeQuickAdd(result: QuickAddResult): string[] {
   if (result.dueTime) bits.push(result.dueTime);
   if (result.priority !== 'none') bits.push(result.priority);
   if (result.recurrenceRule) bits.push('repeats');
-  if (result.listName) bits.push(`@${result.listName}`);
+  if (result.listName) bits.push(listToken(result.listName));
   for (const tag of result.tags) bits.push(`#${tag}`);
   if (result.estimateMinutes) bits.push(`${result.estimateMinutes}m`);
   return bits;

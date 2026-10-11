@@ -1,24 +1,32 @@
 /**
- * The second line of a task row.
+ * The derived marks of a task row: the inline glyphs, the tag line, and the due
+ * date's formatter.
  *
- * Everything shown here is derived: priority, repeat, subtask progress and tags.
- * The glyphs are the row's only signal that a task is not a plain one-liner. The
- * pin is not here — it is a deliberate mark on the task itself, so it sits beside
- * the title (see `TaskRow`).
+ * ## Why the glyphs and the tags are in different places
  *
- * The list name used to lead this line. It is gone: the card's coloured edge
- * already says which list a row belongs to, so naming it again was duplication.
+ * They were one line under the title. The glyphs left it because priority,
+ * repeat and subtask progress are *state* marks — the reader checks them against
+ * the date ("this repeats, and it is due Friday"), and on the old layout the
+ * repeat icon sat on a second line while the date sat up on the trailing edge,
+ * so the eye had to travel between them. `TaskGlyphs` is now rendered inline at
+ * the row's trailing edge, immediately before `DueDateLabel`.
  *
- * The due date does not lead this line either: it lives at the row's trailing
- * edge (see `DueDateLabel`), because it is the one datum that has to keep its
- * position while the title and this line take whatever width is left.
+ * The tags stayed on the second line on purpose: a tag chip is the widest item
+ * here and would push the title's own trailing edge around if it moved inline
+ * with it. A row with both therefore reads as glyphs + date on the top line and
+ * tag chips below — the date keeps its column, which is the point.
+ *
+ * The pin is not here either — it is a deliberate mark on the task itself, so it
+ * sits beside the title (see `TaskRow`). The list name used to lead this line
+ * and is gone: the card's coloured edge already says which list a row belongs
+ * to, so naming it again was duplication.
  *
  * ## One line, one glyph size
  *
- * The line is a single non-wrapping row: it never grows to two lines, so every
- * row's meta is the same height and the list keeps a steady rhythm. When it runs
- * out of room the *meta* ellipsises — the tag chips are the only items that may
- * shrink — because the title above it always outranks it.
+ * The tag line is a single non-wrapping row: it never grows to two lines, so
+ * every row's meta is the same height and the list keeps a steady rhythm. When
+ * it runs out of room the *meta* ellipsises — the tag chips are the only items
+ * that may shrink — because the title above it always outranks it.
  *
  * ## Sizing and colour without `sx`
  *
@@ -112,25 +120,32 @@ export function DueDateLabel({ task, zone, timeFormat, showDate = false, classNa
   );
 }
 
-export interface TaskMetaProps {
+export interface TaskGlyphsProps {
   task: Task;
   className?: string;
 }
 
-export function TaskMeta({ task, className }: TaskMetaProps) {
+/**
+ * The row's inline state glyphs: priority, repeat, subtask progress.
+ *
+ * Rendered at the trailing edge, immediately left of the date, so the two things
+ * a reader compares — "how urgent / does it repeat" and "when is it due" — sit
+ * next to each other instead of one above the other.
+ *
+ * `h-5` matches the date label's own `leading-5` box, so the glyphs share its
+ * line box and the row stays optically centred. Returns null for a plain task,
+ * which keeps the trailing edge flush against the date.
+ */
+export function TaskGlyphs({ task, className }: TaskGlyphsProps) {
   const subtasks = task.subtasks ?? [];
   const doneSubtasks = subtasks.filter((subtask) => subtask.status === 'completed').length;
-  const tags = task.tags ?? [];
 
-  const hasAnything = Boolean(
-    task.priority !== 'none' || tags.length || task.recurrenceRule || subtasks.length,
-  );
-  if (!hasAnything) return null;
+  if (task.priority === 'none' && !task.recurrenceRule && !subtasks.length) return null;
 
   return (
     <span
       className={cn(
-        'flex h-5 w-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground',
+        'flex h-5 shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground',
         className,
       )}
     >
@@ -157,7 +172,27 @@ export function TaskMeta({ task, className }: TaskMetaProps) {
           <span className="sr-only">subtasks done</span>
         </span>
       ) : null}
+    </span>
+  );
+}
 
+export interface TaskMetaProps {
+  task: Task;
+  className?: string;
+}
+
+/** The row's second line: the tag chips, and nothing else. */
+export function TaskMeta({ task, className }: TaskMetaProps) {
+  const tags = task.tags ?? [];
+  if (!tags.length) return null;
+
+  return (
+    <span
+      className={cn(
+        'flex h-5 w-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground',
+        className,
+      )}
+    >
       {tags.map((tag) => (
         <Badge
           key={tag.id}

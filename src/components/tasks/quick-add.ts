@@ -19,6 +19,7 @@ import {
   todayIn,
 } from '@/lib/dates';
 import type { QuickAddMatch, QuickAddResult } from '@/lib/nlp';
+import { listToken } from '@/lib/nlp';
 import { describeRRule } from '@/lib/rrule';
 import type { Millis } from '@/lib/types';
 import type { CreateTaskPayload } from './payloads';
@@ -67,11 +68,125 @@ export function dedupeTagNames(names: readonly string[]): string[] {
   return out;
 }
 
-/** Matches `@Name` against the user's lists, ignoring case and surrounding space. */
+/**
+ * The name a list token refers to: no `@`, no surrounding quotes, no padding.
+ *
+ * One function because the parse, the resolution and the "create it for me" path
+ * all have to agree: `@"Reading list"` names the same list as a bare
+ * `@Reading` would if the grammar let it carry a space.
+ */
+export function listNameFromToken(token: string): string {
+  const bare = token.trim().replace(/^@/, '').trim();
+  const unquoted = bare.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+  return unquoted.trim();
+}
+
+/** Matches `@Name` (or `@"A name with spaces"`) against the user's lists, ignoring case and surrounding space. */
 export function findListByName(lists: readonly ListLike[], name: string): ListLike | null {
-  const needle = name.trim().replace(/^@/, '').toLowerCase();
+  const needle = listNameFromToken(name).toLowerCase();
   if (!needle) return null;
   return lists.find((list) => list.name.trim().toLowerCase() === needle) ?? null;
+}
+
+/** The `@…` token the caret sits in, and the text typed into it so far. */
+export interface QuickAddListToken {
+  /** Character offset of the `@`, so a chosen name can be spliced over it. */
+  start: number;
+  /** Just past the token: the closing quote, or the first space after it. */
+  end: number;
+  /** What has been typed after the `@`, up to the caret, quotes and padding stripped. */
+  query: string;
+}
+
+/** The offset of the first whitespace at or after `from`. */
+function nextSpaceFrom(value: string, from: number): number {
+  const space = value.slice(from).search(/\s/);
+  return space === -1 ? value.length : from + space;
+}
+
+/**
+ * The list token under the caret — what the field's autocomplete works on.
+ *
+ * A token is `@` at the start of the sentence or after a space, and it ends at
+ * the first space *after* it — unless it is quoted, in which case the closing
+ * quote ends it, which is what lets `@"Reading list"` be one token while
+ * `@Groceries bread` is a token plus a word. An opening quote with no closing
+ * one yet is the middle of typing, so that token runs on to the next space.
+ *
+ * The nearest such `@` before the caret wins, and the caret has to still be
+ * inside the token: a caret parked in the title after `@Work call Sam` must not
+ * reopen the list menu over the word "call".
+ */
+export function listTokenAt(value: string, caret: number): QuickAddListToken | null {
+  let start = -1;
+  for (let index = Math.min(caret, value.length) - 1; index >= 0; index -= 1) {
+    if (value[index] !== '@') continue;
+    // `sam@example.com` is an address, not a list: a token needs the start of
+    // the sentence or a space in front of it.
+    if (index > 0 && !/\s/.test(value[index - 1])) continue;
+
+    const quote = value[index + 1];
+    const quoted = quote === '"' || quote === "'";
+    const closing = quoted ? value.indexOf(quote, index + 2) : -1;
+    if (quoted) {
+      // Past the closing quote the token is behind the caret, not under it.
+      if (closing !== -1 && caret > closing) continue;
+    } else if (/\s/.test(value.slice(index + 1, caret))) {
+      // A bare token is ended by the first space, so a space before the caret
+      // means the caret has already left it.
+      continue;
+    }
+
+    start = index;
+    break;
+  }
+  if (start === -1) return null;
+
+  const quote = value[start + 1];
+  const quoted = quote === '"' || quote === "'";
+  const from = start + (quoted ? 2 : 1);
+  const closing = quoted ? value.indexOf(quote, start + 2) : -1;
+
+  /*
+   * Where the token ends: a closed quote ends it, a bare token ends at the next
+   * space, and a quote still open is mid-typing — that token runs to the next
+   * space *after the caret*, so accepting also replaces the rest of the name.
+   */
+  let end: number;
+  if (!quoted) end = nextSpaceFrom(value, from);
+  else if (closing !== -1) end = closing;
+  else end = nextSpaceFrom(value, Math.max(caret, from));
+
+  return { start, end, query: value.slice(from, Math.max(caret, from)).trim() };
+}
+
+/**
+ * The lists a typed query could mean, best match first.
+ *
+ * An exact name wins, then names that start with what was typed — the shortcut
+ * case, where `@gro` should offer Groceries before "Weekly groceries" — then any
+ * other name containing it. Case insensitive, and an empty query means "all of
+ * them", so a bare `@` is the discoverable way to see the lists at all.
+ */
+export function suggestLists(lists: readonly ListLike[], query: string, limit = 5): ListLike[] {
+  const needle = query.trim().toLowerCase();
+  const ranked: { list: ListLike; rank: number }[] = [];
+
+  for (const list of lists) {
+    const name = list.name.trim().toLowerCase();
+    if (!needle) {
+      ranked.push({ list, rank: 1 });
+      continue;
+    }
+    const at = name.indexOf(needle);
+    if (at === -1) continue;
+    ranked.push({ list, rank: name === needle ? 0 : at === 0 ? 1 : 2 });
+  }
+
+  return ranked
+    .sort((a, b) => a.rank - b.rank || a.list.name.localeCompare(b.list.name))
+    .slice(0, limit)
+    .map((entry) => entry.list);
 }
 
 /**
@@ -106,7 +221,7 @@ export function planQuickAdd(result: QuickAddResult, context: QuickAddContext): 
   if (result.listName) {
     const match = findListByName(context.lists, result.listName);
     if (match) payload.listId = match.id;
-    else createListName = result.listName.trim().replace(/^@/, '');
+    else createListName = listNameFromToken(result.listName) || null;
   } else {
     payload.listId = context.listId ?? context.inboxListId ?? context.defaultListId ?? null;
   }
@@ -217,7 +332,7 @@ export function quickAddChips(result: QuickAddResult, context: QuickAddContext):
       case 'tag':
         return dedupeTagNames(result.tags).map((name) => ({ kind, label: `#${name}` }));
       case 'list':
-        return result.listName ? [{ kind, label: `@${result.listName}` }] : [];
+        return result.listName ? [{ kind, label: listToken(result.listName) }] : [];
       case 'estimate':
         return result.estimateMinutes ? [{ kind, label: humanDuration(result.estimateMinutes) }] : [];
       default:

@@ -6,7 +6,7 @@
  * here and unit-tested, so the view components stay presentational.
  */
 import type { AgendaBuckets } from '@/lib/agenda-types';
-import { addDaysToDateOnly, taskDay, toDateOnly } from '@/lib/dates';
+import { addDaysToDateOnly, taskDay, taskSortInstant, toDateOnly } from '@/lib/dates';
 import type { CalendarItem, DateOnly, Task } from '@/lib/types';
 
 export type TaskSectionTone = 'default' | 'danger';
@@ -298,4 +298,71 @@ export function buildListSections(
   }
 
   return sections;
+}
+
+/**
+ * One row of a rendered section: a task or a calendar event.
+ *
+ * Discriminated rather than two parallel lists because the section is one list
+ * on screen, and the key is carried here so the renderer does not have to know
+ * that a task is keyed by `id` and an event by `key`.
+ */
+export type SectionRow =
+  | { kind: 'task'; key: string; task: Task }
+  | { kind: 'event'; key: string; event: CalendarItem };
+
+/**
+ * A section's rows in render order: the tasks, with each event inserted at the
+ * point its own date belongs.
+ *
+ * ## Why the tasks are not re-sorted
+ *
+ * The tasks arrive in an order somebody already chose — the server's default
+ * (timed work first, undated last) or the user's own manual drag. Re-sorting
+ * them here would silently undo a drag the moment the list re-rendered, so this
+ * function only ever *inserts events*: a task never moves relative to another
+ * task, whatever order it was handed in.
+ *
+ * ## Why events are not simply appended
+ *
+ * They used to be, and that is what made Later read as unsorted: a section whose
+ * far-future events all sat under its undated tasks looked like a list with two
+ * orders in it. Each event is therefore emitted immediately before the first
+ * dated task that is due after it, which puts it exactly where its date belongs
+ * in an already date-ordered section — and leaves the tasks' own order alone in
+ * one that is not.
+ *
+ * A task with no date has nothing to compare against, so it cannot be a
+ * boundary: it stays where the caller put it (at the end, in every order the
+ * server produces) and the events that follow it in time are emitted before it.
+ * Events are ordered by start, so the result is ascending by date throughout.
+ */
+export function sectionRows(section: TaskSection, zone: string): SectionRow[] {
+  const tasks: SectionRow[] = section.tasks.map((task) => ({
+    kind: 'task',
+    key: task.id,
+    task,
+  }));
+  if (section.events.length === 0) return tasks;
+
+  /** Each task's own moment; `null` for a task that has no date at all. */
+  const moments = section.tasks.map((task) => taskSortInstant(task, zone));
+  const events = [...section.events].sort((a, b) => a.startMs - b.startMs);
+
+  const rows: SectionRow[] = [];
+  let next = 0;
+
+  for (const event of events) {
+    while (next < tasks.length) {
+      const moment = moments[next];
+      if (moment === null || moment > event.startMs) break;
+      rows.push(tasks[next]);
+      next += 1;
+    }
+    rows.push({ kind: 'event', key: event.key, event });
+  }
+
+  for (; next < tasks.length; next += 1) rows.push(tasks[next]);
+
+  return rows;
 }

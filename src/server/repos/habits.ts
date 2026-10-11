@@ -302,6 +302,100 @@ export async function habitsWithReminders(userId: string): Promise<Habit[]> {
   return rows.map(rowToHabit).filter((habit) => (habit.reminders?.length ?? 0) > 0);
 }
 
+/**
+ * Which of `dates` are already *settled* for each habit — the days whose period
+ * has met the habit's goal.
+ *
+ * The reminder sweep asks this before it fires, so a habit that has been ticked
+ * off goes quiet until the next time it is actually due: a boolean habit the
+ * moment it is checked in, a count or duration habit once the amount logged
+ * reaches its target, and a weekly or monthly habit once the period has had its
+ * `timesPerPeriod` check-ins.
+ *
+ * The arithmetic is the habit screen's own — `periodKey`, `periodTarget` and
+ * `entryWeight` — rather than a second implementation of it, and the answer is
+ * per *period*, not per day: a weekly habit that is already done for the week
+ * has nothing left to remind about on Wednesday, which is the "until I am
+ * supposed to check in again" half of the rule.
+ *
+ * Only the entries the candidate dates' periods can contain are read. A period
+ * is at most a month long, so the window stays bounded whatever the frequency —
+ * this runs on every reminder tick and must not pull a year of check-ins.
+ */
+export async function settledHabitDates(
+  userId: string,
+  habits: readonly Habit[],
+  dates: readonly DateOnly[],
+  weekStartsOn: number,
+  zone: string,
+): Promise<Map<string, Set<DateOnly>>> {
+  const settled = new Map<string, Set<DateOnly>>();
+  if (habits.length === 0 || dates.length === 0) return settled;
+
+  // The earliest day any candidate date's period can begin on, so a single read
+  // covers every period involved.
+  let from: DateOnly | null = null;
+  let to: DateOnly | null = null;
+  for (const habit of habits) {
+    for (const date of dates) {
+      const start = periodKey(habit, date, weekStartsOn, zone).start;
+      if (from === null || start < from) from = start;
+      if (to === null || date > to) to = date;
+    }
+  }
+  if (from === null || to === null) return settled;
+
+  const db = getDb();
+  const rows = await db
+    .select({
+      habitId: habitEntries.habitId,
+      date: habitEntries.date,
+      count: habitEntries.count,
+      value: habitEntries.value,
+    })
+    .from(habitEntries)
+    .where(
+      and(
+        eq(habitEntries.userId, userId),
+        inArray(
+          habitEntries.habitId,
+          habits.map((habit) => habit.id),
+        ),
+        gte(habitEntries.date, from),
+        lte(habitEntries.date, to),
+      ),
+    );
+
+  const byHabit = new Map<string, { date: DateOnly; count: number; value: number | null }[]>();
+  for (const row of rows) {
+    const list = byHabit.get(row.habitId) ?? [];
+    list.push({ date: row.date, count: row.count, value: row.value });
+    byHabit.set(row.habitId, list);
+  }
+
+  for (const habit of habits) {
+    const entries = byHabit.get(habit.id);
+    if (!entries?.length) continue;
+
+    const totals = new Map<string, number>();
+    for (const entry of entries) {
+      const { key } = periodKey(habit, entry.date, weekStartsOn, zone);
+      totals.set(key, (totals.get(key) ?? 0) + entryWeight(habit.goalType, entry.count, entry.value));
+    }
+
+    const target = periodTarget(habit);
+    for (const date of dates) {
+      const { key } = periodKey(habit, date, weekStartsOn, zone);
+      if ((totals.get(key) ?? 0) < target) continue;
+      const set = settled.get(habit.id) ?? new Set<DateOnly>();
+      set.add(date);
+      settled.set(habit.id, set);
+    }
+  }
+
+  return settled;
+}
+
 export async function listHabits(options: ListHabitsOptions): Promise<Habit[]> {
   const db = getDb();
   const { userId, zone, weekStartsOn } = options;

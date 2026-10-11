@@ -13,9 +13,11 @@ export { TaskListSection, type TaskListSectionProps } from './TaskListSection';
 export { taskAccentLookup } from './row-colors';
 export {
   DueDateLabel,
+  TaskGlyphs,
   TaskMeta,
   dueLabel,
   type DueDateLabelProps,
+  type TaskGlyphsProps,
   type TaskMetaProps,
   type DueLabel,
   type DueTone,

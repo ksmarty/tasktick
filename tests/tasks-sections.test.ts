@@ -9,7 +9,9 @@ import {
   buildTodaySections,
   countRemaining,
   SECTION_BUCKET,
+  sectionRows,
   todayProgress,
+  type TaskSection,
 } from '@/components/tasks/sections';
 
 function task(id: string, patch: Partial<Task> = {}): Task {
@@ -487,5 +489,107 @@ describe('buildListSections — Later shows one occurrence per series', () => {
     ]);
 
     expect(sections.find((s) => s.id === 'later')?.events.map((e) => e.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('sectionRows', () => {
+  const zone = 'utc';
+
+  /** A rendered group, however it was bucketed. */
+  function group(tasks: Task[], events: CalendarItem[] = []): TaskSection {
+    return {
+      id: 'later',
+      title: 'Later',
+      tasks,
+      events,
+      tone: 'default',
+      defaultCollapsed: false,
+      reorderable: true,
+    };
+  }
+
+  function event(id: string, startDate: string, patch: Partial<CalendarItem> = {}): CalendarItem {
+    const startMs = Date.parse(`${startDate}T09:00:00Z`);
+    return {
+      key: `event:${id}:${startMs}`,
+      kind: 'event',
+      id,
+      title: `Event ${id}`,
+      startMs,
+      endMs: startMs + 60 * 60 * 1000,
+      isAllDay: false,
+      color: 'blue',
+      calendarId: 'cal',
+      ...patch,
+    };
+  }
+
+  /** The row stream as ids, so the order is what the assertion reads. */
+  const order = (section: TaskSection): string[] =>
+    sectionRows(section, zone).map((row) => (row.kind === 'task' ? row.task.id : row.event.id));
+
+  it('puts an event where its date belongs, between the tasks', () => {
+    const section = group(
+      [task('a', { dueDate: '2025-05-20' }), task('b', { dueDate: '2025-05-30' })],
+      [event('e', '2025-05-25')],
+    );
+
+    expect(order(section)).toEqual(['a', 'e', 'b']);
+  });
+
+  it('never reorders the tasks, however they arrived', () => {
+    // The caller already chose an order — the server's default, or the user's
+    // own drag. Only events are inserted; a task must not move relative to
+    // another task, or a manual drag would silently undo itself on re-render.
+    const section = group(
+      [task('b', { dueDate: '2025-05-30' }), task('a', { dueDate: '2025-05-20' })],
+      [event('e', '2025-05-25')],
+    );
+
+    const rows = order(section);
+    expect(rows.indexOf('b')).toBeLessThan(rows.indexOf('a'));
+    expect(rows).toEqual(['e', 'b', 'a']);
+  });
+
+  it('keeps a task with no date at the end, with a later event above it', () => {
+    // A task with no date cannot be a boundary — it has nothing to compare
+    // against — so it stays where the caller put it and a far-future event is
+    // emitted before it.
+    const section = group([task('a', { dueDate: '2025-05-20' }), task('n')], [event('e', '2025-06-01')]);
+
+    expect(order(section)).toEqual(['a', 'e', 'n']);
+  });
+
+  it('keeps a task due at the event’s own moment ahead of it', () => {
+    const startMs = Date.parse('2025-05-25T09:00:00Z');
+    const section = group([task('a', { dueAtMs: startMs, isAllDay: false })], [event('e', '2025-05-25')]);
+
+    expect(order(section)).toEqual(['a', 'e']);
+  });
+
+  it('returns the tasks untouched when a group has no events', () => {
+    const section = group([task('a', { dueDate: '2025-05-20' }), task('n')]);
+    expect(order(section)).toEqual(['a', 'n']);
+  });
+
+  it('keys a task by its id and an event by its item key', () => {
+    const item = event('e', '2025-05-25');
+    const rows = sectionRows(group([task('a', { dueDate: '2025-05-20' })], [item]), zone);
+
+    expect(rows.map((row) => row.key)).toEqual(['a', item.key]);
+  });
+
+  it('does not reorder the section’s own event list', () => {
+    const late = event('late', '2025-05-30');
+    const early = event('early', '2025-05-25');
+    const section = group([task('a', { dueDate: '2025-05-20' })], [late, early]);
+
+    expect(order(section)).toEqual(['a', 'early', 'late']);
+    // The sort is on a copy: the section is data the caller still owns.
+    expect(section.events.map((e) => e.id)).toEqual(['late', 'early']);
+  });
+
+  it('is empty for an empty group', () => {
+    expect(sectionRows(group([]), zone)).toEqual([]);
   });
 });

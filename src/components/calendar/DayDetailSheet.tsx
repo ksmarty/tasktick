@@ -69,7 +69,7 @@ export function DayDetailSheet({
   const description = relativeDayLabel(date, prefs.zone);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} side="bottom" title={title} className="p-0 px-card">
+    <Drawer open={open} onOpenChange={onOpenChange} side="bottom" title={title} className="p-0 px-card pt-card">
       <div className="flex flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         <p className="text-sm text-muted-foreground">{description}</p>
 

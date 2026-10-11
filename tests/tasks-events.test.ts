@@ -152,11 +152,14 @@ describe('TaskRow — the strip is added, the title is truncated', () => {
 });
 
 describe('TaskListSection — events render beside the tasks', () => {
-  it('renders an EventRow for each event, after the tasks', () => {
+  it('draws the tasks and the events as one date-ordered stream', () => {
     expect(SECTION).toContain("from './EventRow'");
     expect(SECTION).toContain('<EventRow');
-    expect(SECTION).toContain('section.events.map');
-    expect(SECTION.indexOf('section.tasks.map')).toBeLessThan(SECTION.indexOf('section.events.map'));
+    // One list, one order. The interleaving lives in `sectionRows`, so the
+    // renderer maps a single row stream rather than appending the events after
+    // the tasks — which is what used to make a group read as two orders.
+    expect(SECTION).toContain('const rows = sectionRows(section, zone);');
+    expect(SECTION).toContain('rows.map((row, index)');
   });
 
   it('merges the row layout onto the li, one element per row', () => {
@@ -167,7 +170,7 @@ describe('TaskListSection — events render beside the tasks', () => {
   });
 
   it('resolves each task row accent through the lookup it was given', () => {
-    expect(SECTION).toContain('accent={listColorFor?.(task) ?? null}');
+    expect(SECTION).toContain('accent={listColorFor?.(row.task) ?? null}');
   });
 });
 
