@@ -49,6 +49,15 @@ const AFFECTS: { test: RegExp; prefixes: string[] }[] = [
   { test: /^\/api\/tags(\/|$|\?)/, prefixes: ['/api/tags', '/api/bootstrap', '/api/tasks'] },
   { test: /^\/api\/habits(\/|$|\?)/, prefixes: ['/api/habits', '/api/stats', '/api/bootstrap'] },
   { test: /^\/api\/events(\/|$|\?)/, prefixes: ['/api/events', '/api/calendar/items', '/api/bootstrap'] },
+  // A refresh-all reaches every remote source at once, so it can change more
+  // than the calendar rows the `/api/calendars` row below covers: mirrored
+  // events, and VTODO tasks a CalDAV collection mirrors. The union matches the
+  // caldav row's, and it has to be listed *before* that generic row or the
+  // plain `/api/calendars` test would swallow this path.
+  {
+    test: /^\/api\/calendars\/sync(\/|$|\?)/,
+    prefixes: ['/api/calendars', '/api/calendar/items', '/api/events', '/api/tasks', '/api/bootstrap'],
+  },
   { test: /^\/api\/calendars(\/|$|\?)/, prefixes: ['/api/calendars', '/api/calendar/items', '/api/bootstrap'] },
   { test: /^\/api\/settings(\/|$|\?)/, prefixes: ['/api/settings', '/api/bootstrap'] },
   { test: /^\/api\/focus(\/|$|\?)/, prefixes: ['/api/focus', '/api/stats'] },
@@ -98,8 +107,17 @@ const QUEUEABLE_PREFIXES = [
  * their notification settings work). Holding one of those and replaying it
  * minutes later would produce a result nobody is waiting for, or no result where
  * one was promised.
+ *
+ * A refresh-all joins them for the same reason a probe does: it exists to answer
+ * "is my calendar up to date *now*", and the answer to a replayed one is
+ * worthless — the scheduler will have swept those sources anyway.
  */
-const NEVER_QUEUEABLE = ['/api/settings/apprise/test', '/api/settings/push', '/api/push'];
+const NEVER_QUEUEABLE = [
+  '/api/settings/apprise/test',
+  '/api/settings/push',
+  '/api/push',
+  '/api/calendars/sync',
+];
 
 /** The pathname of a path, without its query string. */
 export function pathnameOf(path: string): string {

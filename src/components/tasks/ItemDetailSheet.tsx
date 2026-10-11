@@ -632,13 +632,24 @@ export function ItemDetailSheet({
    */
   const isReadOnly = readOnly ?? (event ? Boolean(event.readonly) : false);
 
+  /*
+   * The panel's padding, stated per edge.
+   *
+   * `p-0` neutralises the vendored panel's own `p-5` and nothing else here
+   * re-adds the top: with `px-card` alone the title sat flush against the
+   * sheet's rounded top edge, which is what a tap on a calendar item showed.
+   * `pt-card` gives it the same 1rem the sides have, so the title has air above
+   * it and the body starts where the eye expects. The bottom stays 0 on purpose
+   * — the body's own `pb-[max(0.25rem,env(safe-area-inset-bottom))]` owns the
+   * safe area, and a panel pad there would double it.
+   */
   return (
     <Drawer
       open={open}
       onOpenChange={onOpenChange}
       side="bottom"
       title={title}
-      className="p-0 px-card"
+      className="p-0 px-card pt-card"
     >
       {item ? (
         <div className="flex flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">

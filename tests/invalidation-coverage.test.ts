@@ -135,6 +135,11 @@ describe('the table resolves to the sets the screens depend on', () => {
     ['POST', '/api/lists', ['/api/lists', '/api/bootstrap', '/api/tasks']],
     ['POST', '/api/events', ['/api/events', '/api/calendar/items', '/api/bootstrap']],
     ['POST', '/api/calendars', ['/api/calendars', '/api/calendar/items', '/api/bootstrap']],
+    [
+      'POST',
+      '/api/calendars/sync',
+      ['/api/calendars', '/api/calendar/items', '/api/events', '/api/tasks', '/api/bootstrap'],
+    ],
     ['POST', '/api/focus', ['/api/focus', '/api/stats']],
     ['POST', '/api/settings', ['/api/settings', '/api/bootstrap']],
     ['POST', '/api/ical/subscriptions', ['/api/ical', '/api/calendars', '/api/calendar/items', '/api/bootstrap']],

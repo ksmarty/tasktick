@@ -34,6 +34,24 @@
  * and the live one wipes everything, which is the case that matters: a session
  * revoked elsewhere, followed by a different account signing in on this device,
  * must never be able to read the previous account's cache.
+ *
+ * ## Why the stored scope is announced before the handshake
+ *
+ * The reads the last session persisted are only restored once a scope is
+ * announced (`onScopeEvent` → `hydrateCache` in `store.ts`), so announcing it
+ * only *after* the handshake held the whole restore behind a network round trip
+ * — and behind two full IndexedDB scans after that. On a cold start the app
+ * therefore requested `/api/bootstrap` and `/api/calendar/items` with an empty
+ * cache and rendered their skeletons for as long as the server took, when the
+ * previous session's answer was already on disk.
+ *
+ * `runInit` now reads the stored scope, adopts it and emits `resolved` before it
+ * even looks at the handshake, so the restore runs in parallel with it. The
+ * handshake still decides everything it decided before: same scope → re-tag and
+ * resolve, different scope → purge. The only new exposure is one round trip of
+ * the previous session's data on a device where a *different* account is signing
+ * in — the same exposure the placeholder scope always accepted, now bounded by
+ * the handshake instead of unbounded.
  */
 import { ENTRY_STORE, META_STORE, idbClear, idbGet, idbGetAll, idbPut } from './offline-db';
 import { clearPersistedEntries } from './offline-store';
@@ -268,12 +286,11 @@ function postToServiceWorker(message: unknown, transfer: Transferable[] = []): P
 
 async function fetchLiveScope(): Promise<string | null> {
   /*
-   * Bounded on purpose. This is the FIRST thing the page waits for: starting the
-   * write queue and restoring IndexedDB both begin only once `runInit` gets past
-   * it. On a link that hangs — accepted, never answered, so no `offline` event
-   * ever fires — an unbounded fetch here meant the stored data was never
-   * restored until the browser gave up. The stored scope is a perfectly good
-   * answer in that case.
+   * Bounded on purpose. On a link that hangs — accepted, never answered, so no
+   * `offline` event ever fires — an unbounded fetch here meant the live session
+   * was never decided and the stored scope was never used. The stored scope is a
+   * perfectly good answer, and `runInit` has already adopted it by the time this
+   * resolves: an abort or a failure here costs the handshake, not the restore.
    */
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SESSION_TIMEOUT_MS);
@@ -298,7 +315,23 @@ async function fetchLiveScope(): Promise<string | null> {
 async function runInit(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const [stored, live] = await Promise.all([readStoredScope(), fetchLiveScope()]);
+  /*
+   * The stored scope first, adopted and announced before the handshake is
+   * awaited. See "Why the stored scope is announced before the handshake" at the
+   * top of this file: this is the line that makes a cold start show the previous
+   * session's reads immediately instead of after a round trip and two scans.
+   *
+   * Both reads are started together so adopting the stored scope does not delay
+   * the handshake; the local IndexedDB get is what is waited on first.
+   */
+  const liveScope = fetchLiveScope();
+  const stored = await readStoredScope();
+  if (stored) {
+    scope = stored;
+    emit({ type: 'resolved', scope: stored });
+  }
+
+  const live = await liveScope;
 
   if (live) {
     if (stored && stored !== live && stored !== UNVERIFIED_SCOPE) {
@@ -335,9 +368,9 @@ async function runInit(): Promise<void> {
   } else {
     // No live session: either signed out (no stored scope either) or offline
     // with a session we cannot verify. In both cases the stored scope is what
-    // the local data was tagged with.
+    // the local data was tagged with — and it was adopted and announced above,
+    // so there is nothing left to decide here.
     scope = stored;
-    if (stored) emit({ type: 'resolved', scope: stored });
   }
 
   startQueuePump();

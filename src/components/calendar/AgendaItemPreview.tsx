@@ -23,11 +23,27 @@
  * a subscribed feed or a read-only collection opens the sheet without an Edit
  * action.
  *
+ * ## Staying mounted through the close
+ *
+ * `CalendarScreen` clears its `detail` state when the sheet closes, so this
+ * component is handed `item={null}` at the exact moment the close begins. It
+ * used to `return null` on that, which unmounted the drawer — and the drawer's
+ * `AnimatePresence`, which is the thing that plays the closing animation — so
+ * the sheet disappeared instead of sliding away. The tasks page animated
+ * correctly for the one reason that is easy to miss: its `ItemDetailSheet` is
+ * mounted unconditionally and only its `open` flag changes.
+ *
+ * So the last item is remembered and kept rendered while the sheet is closed.
+ * `item` always wins for what is *shown* (`shown = item ?? remembered`), which
+ * keeps a new tap immediate, and the remembered copy only exists to give the
+ * exit animation a panel to animate. `null` still means "never opened here".
+ *
  * Kept beside `AgendaTaskEditor` rather than inside `CalendarScreen` so the
  * screen owns only the two states — which item is being previewed, and which
  * editor is open — and the fetch/fallback lives with the other calendar sheet
  * wrapper.
  */
+import { useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Drawer } from '@/components/godui/drawer';
@@ -62,16 +78,29 @@ export function AgendaItemPreview({
   listColor = null,
   onEdit,
 }: AgendaItemPreviewProps) {
-  if (!item) return null;
+  /*
+   * The last item that was open, kept so the drawer has something to render
+   * while its exit animation plays. `item` wins whenever it is set, so a new tap
+   * is never one render behind the previous one — see the note at the top of the
+   * file for why this is here at all.
+   */
+  const [remembered, setRemembered] = useState<CalendarItem | null>(item);
 
-  if (item.kind === 'event') {
+  useEffect(() => {
+    if (item) setRemembered(item);
+  }, [item]);
+
+  const shown = item ?? remembered;
+  if (!shown) return null;
+
+  if (shown.kind === 'event') {
     return (
       <ItemDetailSheet
         open={open}
         onOpenChange={onOpenChange}
-        event={item}
+        event={shown}
         calendarName={calendarName}
-        readOnly={item.readonly ?? false}
+        readOnly={shown.readonly ?? false}
         zone={zone}
         timeFormat={timeFormat}
         onEdit={onEdit}
@@ -81,7 +110,7 @@ export function AgendaItemPreview({
 
   return (
     <TaskPreview
-      item={item}
+      item={shown}
       open={open}
       onOpenChange={onOpenChange}
       listName={listName}
@@ -141,7 +170,15 @@ function TaskPreview({
   }
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} side="bottom" title={item.title} className="p-0 px-card">
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      side="bottom"
+      title={item.title}
+      /* The same per-edge padding as the loaded sheet, so the title does not
+         move up when the task detail lands — see `ItemDetailSheet`. */
+      className="p-0 px-card pt-card"
+    >
       <div className="flex flex-col gap-stack pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
         {resource.error ? (
           <Alert variant="destructive" role="alert">

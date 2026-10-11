@@ -51,6 +51,7 @@ import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
 import { FilterIcon } from '@svg-animated-icons/react/filter';
 import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { ReloadIcon } from '@svg-animated-icons/react/reload';
 import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide } from 'lucide-react';
 import { useShellPane } from '@/components/app/ShellPane';
 import { useAppearance } from '@/app/providers';
@@ -59,12 +60,21 @@ import type { CalendarLookup } from '@/components/calendar/types';
 import { accentHex } from '@/lib/colors';
 import { todayIn, addDaysToDateOnly, fromDateOnly, timeIn, toDateOnly } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
-import { useResource } from '@/lib/store';
+import { api } from '@/lib/api-client';
+import { affectsFor } from '@/lib/offline-rules';
+import { useMutation, useResource } from '@/lib/store';
 import type { CalendarItem, Task } from '@/lib/types';
-import type { BootstrapPayload, CalendarItemsPayload, CompleteTaskPayload } from '@/lib/view-types';
+import type {
+  BootstrapPayload,
+  CalendarItemsPayload,
+  CalendarRefreshResult,
+  CompleteTaskPayload,
+} from '@/lib/view-types';
+import { useToast } from '@/components/app/Toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { calendarRefreshReport } from '@/components/calendar/refresh';
 import { CompletionUndo } from './CompletionUndo';
 import { EmptyTasks } from './EmptyTasks';
 import { SectionFold } from './SectionFold';
@@ -318,6 +328,33 @@ export function TasksView() {
     [today, zone],
   );
   const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', eventWindow);
+
+  const { toast } = useToast();
+
+  /*
+   * Refresh every remote calendar, then re-read what a sync can change.
+   *
+   * The control lives on this screen because this is where a missing event gets
+   * noticed. It is one button for the whole sweep — a user with three sources
+   * should not have to find three separate controls — and it does both halves of
+   * the job: it asks the server to sync its remote sources, and it drops the
+   * local reads so the list is re-read immediately rather than whenever the sync
+   * happens to finish.
+   *
+   * `affectsFor` is not optional here. A sync can change the calendar rows, the
+   * events it mirrors *and* the VTODO tasks it mirrors, and hand-listing those
+   * prefixes is exactly how the offline table and the live callers drifted apart
+   * before — see `@/lib/offline-rules`.
+   */
+  const refreshCalendars = useMutation(() => api.post<CalendarRefreshResult>('/api/calendars/sync'), {
+    invalidates: affectsFor('POST', '/api/calendars/sync'),
+    onSuccess: (result) => {
+      const report = calendarRefreshReport(result);
+      toast({ title: report.title, description: report.description, variant: report.variant });
+    },
+    onError: (message) =>
+      toast({ title: 'Calendar refresh failed', description: message, variant: 'error' }),
+  });
   const events = useMemo(
     () => (calendarItems.data?.items ?? []).filter((item) => item.kind === 'event'),
     [calendarItems.data],
@@ -572,6 +609,21 @@ export function TasksView() {
             icon={completedVisible ? EyeOpenIcon : EyeNoneIcon}
             variant={completedVisible ? 'filled' : 'tinted'}
             onClick={toggleCompleted}
+          />
+          {/*
+           * Refresh every remote calendar. It sits with the other list controls
+           * rather than on the calendar screen: this is where a missing event is
+           * noticed, and the sweep is about the data behind this list. The glyph
+           * spins while the sweep is in flight, which is the only feedback
+           * available for an action whose result is a toast.
+           */}
+          <HeaderActionButton
+            aria-label="Refresh calendars"
+            aria-busy={refreshCalendars.isPending || undefined}
+            disabled={refreshCalendars.isPending}
+            icon={ReloadIcon}
+            iconClassName={refreshCalendars.isPending ? 'animate-spin text-lg' : undefined}
+            onClick={() => void refreshCalendars.run()}
           />
           {/*
            * Desktop only. The floating band — and with it the action button — is

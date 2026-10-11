@@ -30,6 +30,8 @@ export interface HeaderActionButtonProps {
   iconClassName?: string;
   onClick?: () => void;
   disabled?: boolean;
+  /** Set while the action is in flight, so the state is announced, not only painted. */
+  'aria-busy'?: boolean;
   /** For toggle controls: the pressed state is exposed, not only painted. */
   'aria-pressed'?: boolean;
   /** `tinted` is the quiet default; `filled` marks an engaged state. */

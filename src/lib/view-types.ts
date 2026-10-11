@@ -132,6 +132,47 @@ export interface CheckInPayload {
   doneToday: boolean;
 }
 
+/**
+ * One CalDAV account's part of a refresh-all.
+ *
+ * The same counters a single-account run reports, kept per source rather than
+ * summed by the server: a refresh that half-worked has to be able to say *which*
+ * account went quiet, and only the client knows how to lay that out.
+ */
+export interface CalendarRefreshAccount {
+  id: string;
+  name: string;
+  status: SyncRunPayload['status'];
+  pulled: number;
+  pushed: number;
+  deletedLocal: number;
+  deletedRemote: number;
+  conflicts: number;
+  error: string | null;
+}
+
+/** One iCal feed's part of a refresh-all. */
+export interface CalendarRefreshSubscription {
+  id: string;
+  name: string;
+  created: number;
+  updated: number;
+  deleted: number;
+  error: string | null;
+}
+
+/**
+ * Response of `POST /api/calendars/sync`.
+ *
+ * Both lists hold only the sources that were actually contacted: a paused
+ * account and a hidden feed are skipped the way the scheduler skips them, so an
+ * empty pair means "nothing remote is connected", not "nothing changed".
+ */
+export interface CalendarRefreshResult {
+  accounts: CalendarRefreshAccount[];
+  subscriptions: CalendarRefreshSubscription[];
+}
+
 /** Response of `POST /api/caldav/accounts/[id]/sync` and `/discover`. */
 export interface SyncRunPayload {
   kind: 'full' | 'incremental' | 'push' | 'discover';
