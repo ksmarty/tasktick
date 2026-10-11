@@ -106,6 +106,45 @@ const nextConfig = {
 
   eslint: { ignoreDuringBuilds: true },
 
+  /*
+   * Keep the instrumentation hook's node-only imports out of the edge compiler.
+   *
+   * The hook is compiled twice in development, and only in development: Next's
+   * dev entry handler adds it to the node server compiler *and* to the edge
+   * compiler, while `next build` deletes the edge copy whenever there is no
+   * middleware (`createEntrypoints` in Next's `build/entries.js`). The hook's
+   * graph is node-only — it reaches `web-push` (`https-proxy-agent` ->
+   * `agent-base` -> `require('http')`), the SQLite/PG layer and
+   * `bonjour-service` — so the edge copy cannot resolve a dozen node builtins
+   * and *every* route in `next dev` answers 500 with
+   * `Module not found: Can't resolve 'http'`, blaming `src/instrumentation.ts`.
+   *
+   * These three modules are excluded through `externals` rather than
+   * `resolve.alias` on purpose: externals match the request before the resolver
+   * runs, so the `@/*` paths from `tsconfig.json` cannot claim them first.
+   *
+   * Safe by construction: `register()` returns immediately unless
+   * `NEXT_RUNTIME === 'nodejs'`, so the edge copy of the hook is a stub that
+   * never runs. The node compiler — the one that does run, in development and in
+   * the image — is left exactly as it is.
+   */
+  webpack(config, { nextRuntime }) {
+    if (nextRuntime !== 'edge') return config;
+
+    const nodeOnlyModules = [
+      '@/server/services/reminder-scheduler',
+      '@/server/services/scheduler',
+      '@/server/mdns',
+    ];
+
+    config.externals = [
+      ...(Array.isArray(config.externals) ? config.externals : []),
+      Object.fromEntries(nodeOnlyModules.map((module) => [module, '{}'])),
+    ];
+
+    return config;
+  },
+
   async headers() {
     return [
       {
