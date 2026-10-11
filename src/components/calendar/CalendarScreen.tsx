@@ -746,6 +746,24 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         prefs={prefs}
         filter={filterCalendar ? { id: filterCalendar.id, name: filterCalendar.name, color: filterCalendar.color } : null}
         onChanged={refresh}
+        /*
+         * The toast's Edit action. The seed is inert once `eventId` is set — the
+         * sheet reads the record — so a plain fallback prefill is enough, and a
+         * just-created event is always on a writable calendar.
+         */
+        onEditCreated={(event) =>
+          setEditor({
+            open: true,
+            eventId: event.id,
+            readOnly: false,
+            defaults: {
+              date: selected,
+              startMinute: DEFAULT_EVENT_START_MINUTE,
+              endMinute: DEFAULT_EVENT_START_MINUTE + 60,
+              calendarId: event.calendarId,
+            },
+          })
+        }
       />
 
       <AgendaTaskEditor

@@ -150,6 +150,14 @@ export interface EventEditorSheetProps {
    * calendar, and a write there would land locally and silently never sync.
    */
   readOnly?: boolean;
+  /**
+   * Called with the record a **new** event just produced, so the screen can put
+   * an action on the toast that reopens this sheet on it.
+   *
+   * Only a creation carries the action: an edit was already what the user asked
+   * for, so offering to edit it again would be noise.
+   */
+  onEditCreated?: (event: CalendarEvent) => void;
 }
 
 /** The wire shape of `POST /api/events`, matching `createEventSchema`. */
@@ -203,6 +211,7 @@ export function EventEditorSheet({
   onChanged,
   filter = null,
   readOnly = false,
+  onEditCreated,
 }: EventEditorSheetProps) {
   const { data: existing, error, isInitialLoading } = useResource<CalendarEvent>(
     eventId ? `/api/events/${eventId}` : null,
@@ -297,6 +306,7 @@ export function EventEditorSheet({
             readOnly={readOnly}
             onClose={() => onOpenChange(false)}
             onChanged={onChanged}
+            onEditCreated={onEditCreated}
           />
         )}
       </DialogContent>
@@ -376,6 +386,7 @@ function EventForm({
   readOnly,
   onClose,
   onChanged,
+  onEditCreated,
 }: {
   event: CalendarEvent | null;
   defaults: EventDefaults;
@@ -385,6 +396,7 @@ function EventForm({
   readOnly: boolean;
   onClose: () => void;
   onChanged: () => void;
+  onEditCreated?: (event: CalendarEvent) => void;
 }) {
   const { toast } = useToast();
   const today = todayIn(prefs.zone);
@@ -479,12 +491,20 @@ function EventForm({
     setSaving(true);
     try {
       const body = buildBody();
-      if (event) await api.patch<CalendarEvent>(`/api/events/${event.id}`, body);
-      else await api.post<CalendarEvent>('/api/events', body);
+      const saved = event
+        ? await api.patch<CalendarEvent>(`/api/events/${event.id}`, body)
+        : await api.post<CalendarEvent>('/api/events', body);
 
       await invalidate(EVENT_WRITE_PREFIXES);
       onChanged();
-      toast({ title: event ? 'Event updated' : 'Event created', variant: 'success' });
+      toast({
+        title: event ? 'Event updated' : 'Event created',
+        variant: 'success',
+        // A creation is the one case where the user may want to go straight on
+        // to the record — to add a location, a repeat or attendees.
+        action:
+          !event && onEditCreated ? { label: 'Edit', onClick: () => onEditCreated(saved) } : undefined,
+      });
       onClose();
     } catch (error) {
       toast({

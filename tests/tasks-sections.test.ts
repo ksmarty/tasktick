@@ -560,6 +560,19 @@ describe('sectionRows', () => {
     expect(order(section)).toEqual(['a', 'e', 'n']);
   });
 
+  it('leaves the undated run the group leads with above every event', () => {
+    // Later leads with its dateless work (see `undatedFirst`), so an event must
+    // not be placed over it: nothing about a task with no date is later than a
+    // date, and hoisting it to the top only to push it under an event would
+    // undo the point of hoisting it.
+    const section = group(
+      [task('n1'), task('n2'), task('a', { dueDate: '2025-05-20' })],
+      [event('e', '2025-05-25')],
+    );
+
+    expect(order(section)).toEqual(['n1', 'n2', 'a', 'e']);
+  });
+
   it('keeps a task due at the event’s own moment ahead of it', () => {
     const startMs = Date.parse('2025-05-25T09:00:00Z');
     const section = group([task('a', { dueAtMs: startMs, isAllDay: false })], [event('e', '2025-05-25')]);
@@ -591,5 +604,91 @@ describe('sectionRows', () => {
 
   it('is empty for an empty group', () => {
     expect(sectionRows(group([]), zone)).toEqual([]);
+  });
+});
+
+describe('buildListSections — Later leads with the undated work', () => {
+  const options = { zone: 'utc', today: '2025-05-12' };
+
+  /** A minimal calendar item, so the row stream can be checked with an event in it. */
+  function event(id: string, startDate: string): CalendarItem {
+    const startMs = Date.parse(`${startDate}T09:00:00Z`);
+    return {
+      key: `event:${id}:${startMs}`,
+      kind: 'event',
+      id,
+      title: `Event ${id}`,
+      startMs,
+      endMs: startMs + 60 * 60 * 1000,
+      isAllDay: false,
+      color: 'blue',
+      calendarId: 'cal',
+    };
+  }
+
+  it('puts the undated tasks first when the caller asks for it', () => {
+    // The horizon is not an order: a date a month out is no more pressing than
+    // no date at all, and the dateless pile is the part a person scans. Both
+    // sides of the split keep the order they arrived in.
+    const sections = buildListSections(
+      [
+        task('far', { dueDate: '2025-06-30' }),
+        task('someday'),
+        task('sooner', { dueDate: '2025-05-25' }),
+        task('eventually'),
+      ],
+      { ...options, undatedFirst: true },
+    );
+
+    expect(sections.find((s) => s.id === 'later')?.tasks.map((t) => t.id)).toEqual([
+      'someday',
+      'eventually',
+      'far',
+      'sooner',
+    ]);
+  });
+
+  it('leaves the arrival order alone when it is not asked for', () => {
+    // The server's own order puts undated work last, and every caller that does
+    // not opt in — the Today screen's agenda, a test, another screen — still
+    // gets it.
+    const sections = buildListSections([task('far', { dueDate: '2025-06-30' }), task('someday')], options);
+
+    expect(sections[0].tasks.map((t) => t.id)).toEqual(['far', 'someday']);
+  });
+
+  it('never touches the other groups', () => {
+    // Only Later: every other group is ordered by a date, which the hoist has
+    // nothing to say about.
+    const sections = buildListSections(
+      [
+        task('someday'),
+        task('today', { dueDate: '2025-05-12' }),
+        task('pinned', { isPinned: true }),
+        task('late', { dueDate: '2025-05-01' }),
+      ],
+      { ...options, undatedFirst: true },
+    );
+
+    expect(sections.map((s) => s.id)).toEqual(['pinned', 'overdue', 'today', 'later']);
+    expect(sections.find((s) => s.id === 'today')?.tasks.map((t) => t.id)).toEqual(['today']);
+    expect(sections.find((s) => s.id === 'overdue')?.tasks.map((t) => t.id)).toEqual(['late']);
+  });
+
+  it('hoists the undated work in front of a far-future event, not behind it', () => {
+    // The two rules have to agree: `sectionRows` inserts each event by date, so
+    // the hoist is only worth doing if the row stream keeps the undated run on
+    // top.
+    const sections = buildListSections(
+      [task('someday'), task('far', { dueDate: '2025-06-30' })],
+      { ...options, undatedFirst: true },
+      [event('e', '2025-07-04')],
+    );
+
+    const later = sections.find((s) => s.id === 'later');
+    expect(later).toBeDefined();
+    expect(
+      sectionRows(later!, options.zone).map((row) => (row.kind === 'task' ? row.task.id : row.event.id)),
+    ).toEqual(['someday', 'far', 'e']);
   });
 });

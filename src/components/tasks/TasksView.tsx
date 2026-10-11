@@ -383,8 +383,22 @@ export function TasksView() {
   );
 
   const sections = useMemo(
-    () => buildListSections(visibleRows, { zone, today }, filteredEvents),
-    [visibleRows, zone, today, filteredEvents],
+    () =>
+      buildListSections(
+        visibleRows,
+        {
+          zone,
+          today,
+          /*
+           * Only under the default sort. Later is the horizon, where the undated
+           * work is what a person scans, so it leads there — but a sort the user
+           * picked, or a manual drag, already states the order they want.
+           */
+          undatedFirst: state.sort === DEFAULT_TASK_VIEW.sort,
+        },
+        filteredEvents,
+      ),
+    [visibleRows, zone, today, filteredEvents, state.sort],
   );
 
   /**
@@ -811,6 +825,9 @@ export function TasksView() {
         onOpenChange={setQuickAddOpen}
         listId={state.listId}
         onCreated={refresh}
+        // The toast's own action, so a just-typed task can be opened on the
+        // screen that would have edited it anyway.
+        onEditCreated={(task) => setEditor({ open: true, task })}
       />
       {/*
        * The event editor, the same one the calendar screen uses. Its Edit action
@@ -834,6 +851,22 @@ export function TasksView() {
         calendars={data?.calendars ?? []}
         prefs={{ zone, weekStartsOn, timeFormat }}
         onChanged={refreshAfterEventWrite}
+        /*
+         * The toast's Edit action. The seed is inert once `eventId` is set — the
+         * sheet reads the record — so a plain today's-date prefill is enough.
+         */
+        onEditCreated={(event) =>
+          setEventEditor({
+            open: true,
+            eventId: event.id,
+            defaults: {
+              date: today,
+              startMinute: 9 * 60,
+              endMinute: 10 * 60,
+              calendarId: event.calendarId,
+            },
+          })
+        }
       />
       <ListManagerDialog
         open={listManager.open}

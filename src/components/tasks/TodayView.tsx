@@ -354,7 +354,13 @@ export function TodayView() {
         onDismiss={() => setUndoTask(null)}
       />
 
-      <QuickAddBar open={quickAddOpen} onOpenChange={setQuickAddOpen} onCreated={refresh} />
+      <QuickAddBar
+        open={quickAddOpen}
+        onOpenChange={setQuickAddOpen}
+        onCreated={refresh}
+        // The toast's own action, so a just-typed task can be opened here.
+        onEditCreated={(task) => setEditor({ open: true, task })}
+      />
       <ItemDetailSheet
         open={detail !== null}
         onOpenChange={(open) => {

@@ -135,6 +135,17 @@ export interface ListSectionOptions {
   zone: string;
   /** Today's floating day, injected so the grouping is testable. */
   today: DateOnly;
+  /**
+   * Lead Later with the work that has no date at all.
+   *
+   * The server's default sort puts undated work last, which is right for a list
+   * ordered by urgency and wrong for Later: that group is the horizon, where a
+   * date months away is no more pressing than no date at all, and the undated
+   * pile is the part a person actually scans. It is a presentation choice, so it
+   * is made here — and only when the caller says so, because any sort the user
+   * picked, or a manual drag, already states the order they want.
+   */
+  undatedFirst?: boolean;
 }
 
 /**
@@ -193,7 +204,9 @@ export const LIST_GROUPS: readonly { id: string; title: string; tone: TaskSectio
  * Pinned is tested first, so it wins over every day bucket; Overdue is anything
  * due before today; Next 7 days is the rest of the week-long horizon after
  * tomorrow; Later is everything else, undated work included, so nothing has a
- * home it does not belong in.
+ * home it does not belong in. Later can be asked to lead with that undated work
+ * (`undatedFirst`): inside that one group a date is not an order, and the
+ * dateless pile is the part of it worth seeing first.
  *
  * Events are bucketed by the day they start and never pinned. A past event is
  * dropped: the caller asks the calendar for today onward, and an event that has
@@ -236,6 +249,19 @@ export function buildListSections(
     else if (day === tomorrow) buckets.get('tomorrow')?.push(task);
     else if (day && day <= horizon) buckets.get('next7days')?.push(task);
     else buckets.get('later')?.push(task);
+  }
+
+  /*
+   * Later leads with its undated work when the caller asks for it. Stable on
+   * both sides of the split: the undated tasks keep the order they arrived in,
+   * and so do the dated ones.
+   */
+  if (options.undatedFirst) {
+    const later = buckets.get('later');
+    const undated = later?.filter((task) => taskDay(task, zone) === null) ?? [];
+    if (later && undated.length > 0 && undated.length < later.length) {
+      buckets.set('later', [...undated, ...later.filter((task) => taskDay(task, zone) !== null)]);
+    }
   }
 
   /*
@@ -333,8 +359,10 @@ export type SectionRow =
  * one that is not.
  *
  * A task with no date has nothing to compare against, so it cannot be a
- * boundary: it stays where the caller put it (at the end, in every order the
- * server produces) and the events that follow it in time are emitted before it.
+ * boundary: it stays where the caller put it, and the events that follow it in
+ * time are emitted before it. The undated run at the front is different — Later
+ * is asked to lead with it (see `undatedFirst`) — and nothing may be placed
+ * above it by date, so that run is emitted before any event is considered.
  * Events are ordered by start, so the result is ascending by date throughout.
  */
 export function sectionRows(section: TaskSection, zone: string): SectionRow[] {
@@ -351,6 +379,12 @@ export function sectionRows(section: TaskSection, zone: string): SectionRow[] {
 
   const rows: SectionRow[] = [];
   let next = 0;
+
+  // The undated run the section leads with, before any date can claim a place.
+  while (next < tasks.length && moments[next] === null) {
+    rows.push(tasks[next]);
+    next += 1;
+  }
 
   for (const event of events) {
     while (next < tasks.length) {

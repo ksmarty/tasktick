@@ -126,6 +126,14 @@ export interface QuickAddBarProps {
   /** The list the task lands in — the list being viewed, or the list's own row. */
   listId?: string | null;
   onCreated?: (task: Task) => void;
+  /**
+   * Called with the task a creation just produced, so the screen can put an
+   * action on the toast that opens that task's editor.
+   *
+   * Only a creation carries the action: an edit was already what the user asked
+   * for, so offering to edit it again would be noise.
+   */
+  onEditCreated?: (task: Task) => void;
 }
 
 /**
@@ -309,7 +317,11 @@ interface QuickAddState {
   tags: readonly ListLike[];
 }
 
-function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): QuickAddState {
+function useQuickAdd(
+  listId: string | null,
+  onCreated?: (task: Task) => void,
+  onEditCreated?: (task: Task) => void,
+): QuickAddState {
   const { data: bootstrap } = useResource<BootstrapPayload>('/api/bootstrap', undefined, { staleAfterMs: 60_000 });
   const zone = bootstrap?.settings.timezone ?? bootstrap?.user.timezone ?? 'utc';
   const weekStartsOn = bootstrap?.settings.weekStartsOn ?? 1;
@@ -384,10 +396,13 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
       title: 'Task added',
       description: `${task.title} · ${dueLabel(task, zone, timeFormat)?.label ?? 'No date'}`,
       variant: 'success',
+      // The one case where the user may want to keep going on the same task —
+      // to add notes, subtasks or a repeat.
+      action: onEditCreated ? { label: 'Edit', onClick: () => onEditCreated(task) } : undefined,
     });
     onCreated?.(task);
     return true;
-  }, [actions, calendarId, context, onCreated, result, timeFormat, toast, value, zone]);
+  }, [actions, calendarId, context, onCreated, onEditCreated, result, timeFormat, toast, value, zone]);
 
   return {
     value,
@@ -953,8 +968,14 @@ function QuickAddInput({
 }
 
 /** The quick-add dialog: the one way to type a task in a sentence. */
-export function QuickAddBar({ open, onOpenChange, listId = null, onCreated }: QuickAddBarProps) {
-  const state = useQuickAdd(listId, onCreated);
+export function QuickAddBar({
+  open,
+  onOpenChange,
+  listId = null,
+  onCreated,
+  onEditCreated,
+}: QuickAddBarProps) {
+  const state = useQuickAdd(listId, onCreated, onEditCreated);
   /*
    * One ref for the field, owned here rather than inside the panel, because two
    * mechanisms have to agree on it: the panel's layout effect (the same-task

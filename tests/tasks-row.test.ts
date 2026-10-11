@@ -949,3 +949,35 @@ describe('QuickAddBar — the @ list shortcut', () => {
     expect(QUICK_ADD).toContain('No list matches');
   });
 });
+
+describe('QuickAddBar — the toast after a creation offers the record', () => {
+  it('puts an Edit action on the toast, only for a task just created', () => {
+    // The one moment the user may want to keep going on the same task: the
+    // sentence is typed, the row exists, and the editor is where notes, subtasks
+    // and a repeat live. The action is the *created* record, never a bare
+    // navigation, so the editor opens on the task that was just made.
+    expect(QUICK_ADD).toContain('onEditCreated?: (task: Task) => void;');
+    expect(QUICK_ADD).toContain(
+      "action: onEditCreated ? { label: 'Edit', onClick: () => onEditCreated(task) } : undefined,",
+    );
+  });
+
+  it('threads the callback to the hook that raises the toast', () => {
+    // The toast is raised inside `useQuickAdd`, so the callback has to travel
+    // with it rather than being handled in the panel.
+    expect(QUICK_ADD).toContain('const state = useQuickAdd(listId, onCreated, onEditCreated);');
+    expect(QUICK_ADD).toContain('onCreated?: (task: Task) => void;');
+  });
+
+  it('is wired by both screens that host the bar', () => {
+    expect(VIEW).toContain('onEditCreated={(task) => setEditor({ open: true, task })}');
+    expect(TODAY).toContain('onEditCreated={(task) => setEditor({ open: true, task })}');
+  });
+
+  it('opens the event editor again when the created item was an event', () => {
+    // The tasks screen hosts the calendar's event editor too, so its toast
+    // reopens that sheet on the event that was just created.
+    expect(VIEW).toContain('onEditCreated={(event) =>');
+    expect(VIEW).toContain('eventId: event.id');
+  });
+});

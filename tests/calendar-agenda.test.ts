@@ -275,3 +275,25 @@ describe('a tap opens the preview, and Edit opens the editor', () => {
     expect(PREVIEW).toContain('readOnly={item.readonly ?? false}');
   });
 });
+
+describe('the toast after a creation offers the record', () => {
+  const EDITOR = source('calendar/EventEditorSheet.tsx');
+
+  it('carries an Edit action only when the event was just created', () => {
+    // An edit was already what the user asked for; a creation is the one case
+    // where they may want to go straight on to the record — to add a location, a
+    // repeat or attendees.
+    expect(EDITOR).toContain(
+      "!event && onEditCreated ? { label: 'Edit', onClick: () => onEditCreated(saved) } : undefined",
+    );
+    // The create branch used to discard what the API returned, so there was
+    // nothing to reopen on.
+    expect(EDITOR).toContain('const saved = event');
+    expect(EDITOR).toContain('onEditCreated?: (event: CalendarEvent) => void;');
+  });
+
+  it('is offered by the screen that creates events', () => {
+    expect(SCREEN).toContain('onEditCreated={(event) =>');
+    expect(SCREEN).toContain('eventId: event.id');
+  });
+});
