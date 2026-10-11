@@ -743,6 +743,16 @@ function QuickAddInput({
           placeholder="Add a task…"
           aria-label="Quick add a task"
           /*
+           * No smart punctuation. iOS's "double space inserts a period" is part
+           * of auto-correction for the field, and the sentence grammar never
+           * wants a period — a trailing ". " would land in the task's title and
+           * would also split the token the caret is in. Turning correction off
+           * is what disables the shortcut; `spellCheck` only removes the
+           * underline, so it is off for the same reason and nothing else.
+           */
+          autoCorrect="off"
+          spellCheck={false}
+          /*
            * Combobox wiring. The field owns the menu and reports whether it is
            * open and which row is highlighted; the menu never takes focus,
            * because focus leaving the field is what would dismiss it.

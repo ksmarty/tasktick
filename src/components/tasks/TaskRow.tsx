@@ -649,12 +649,18 @@ export function TaskRow({
           // `size-5` is 20px, the title's `text-base leading-tight` line box, so
           // the tick and the words it ticks are the same height.
           //
+          // `border-2` is deliberate: the vendored box is drawn with a hairline
+          // border, which all but disappears against the card at arm's length on
+          // a phone, and it is the border that carries the priority's hue while
+          // the box is open. The width wins over the primitive's `border`
+          // through `cn` (twMerge), so nothing else has to change.
+          //
           // The priority's hue rides on the box itself (`priorityCheckbox`): the
           // border while it is open, the fill once it is ticked. `none` returns
           // no class at all, so a task without a priority keeps the neutral
           // `border-foreground/25` it always had.
           className={cn(
-            'size-5',
+            'size-5 border-2',
             priorityCheckbox(task.priority) || 'border-foreground/25',
             wontDo && !completed && 'opacity-60',
           )}

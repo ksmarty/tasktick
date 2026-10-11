@@ -183,6 +183,7 @@ import { ReminderPicker, describeReminders } from './ReminderPicker';
 import { RepeatPicker } from './RepeatPicker';
 import { SubTaskList } from './SubTaskList';
 import { TagPicker } from './TagPicker';
+import { TagManagerDialog } from './TagManagerDialog';
 import { priorityColor, priorityLabel } from './priority';
 import type { TaskPatch } from './payloads';
 import { useTaskActions } from './useTaskActions';
@@ -446,6 +447,8 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const [picker, setPicker] = useState<PickerId | null>(null);
   /** The list manager, hosted here so it outlives the ListPicker drawer. */
   const [manageLists, setManageLists] = useState(false);
+  /** The tag manager, hosted here for the same reason. */
+  const [manageTags, setManageTags] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** The due-date popover is controlled so picking a day closes it. */
   const [dateOpen, setDateOpen] = useState(false);
@@ -659,7 +662,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
           onEscapeKeyDown={(event) => {
             // A sub-picker or the list manager is open: Escape and the backdrop
             // must not close the editor out from under it.
-            if (picker || confirmOpen || manageLists) event.preventDefault();
+            if (picker || confirmOpen || manageLists || manageTags) event.preventDefault();
           }}
           /*
            * No autofocus on the title on the edit path. Radix would focus the
@@ -1149,7 +1152,9 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
         onChange={(next) => edit({ tagIds: next })}
         disabled={disabled}
         onCreate={actions.createTag}
+        onManage={() => setManageTags(true)}
       />
+      <TagManagerDialog open={manageTags} onOpenChange={setManageTags} />
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent showCloseButton={false} className="gap-0 p-0">

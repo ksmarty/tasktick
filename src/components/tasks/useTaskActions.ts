@@ -22,7 +22,7 @@ import type { AccentColor, List, Tag, Task } from '@/lib/types';
 import type { CompleteTaskPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
 import { fireConfetti } from '@/components/godui/confetti';
-import type { BulkAction, BulkPayload, CreateTaskPayload, ListPatch, TaskPatch } from './payloads';
+import type { BulkAction, BulkPayload, CreateTaskPayload, ListPatch, TagPatch, TaskPatch } from './payloads';
 
 export const OFFLINE_NOTICE = 'You are offline, so changes cannot be saved yet. They will work again once you reconnect.';
 
@@ -69,7 +69,11 @@ export interface TaskActions {
   /** Deletes a list; its tasks move to the Inbox on the server. */
   removeList(id: string): Promise<boolean>;
   /** Creates a tag from the tag picker's inline field. */
-  createTag(name: string): Promise<Tag | undefined>;
+  createTag(name: string, color?: AccentColor): Promise<Tag | undefined>;
+  /** Renames or recolours a tag. */
+  updateTag(id: string, input: TagPatch): Promise<Tag | undefined>;
+  /** Deletes a tag; the server detaches it from every task that carried it. */
+  removeTag(id: string): Promise<boolean>;
   patch(id: string, input: TaskPatch): Promise<Task | undefined>;
   remove(id: string): Promise<boolean>;
   bulk(ids: readonly string[], action: BulkAction, payload?: BulkPayload): Promise<boolean>;
@@ -202,14 +206,45 @@ export function useTaskActions(zone: string): TaskActions {
   );
 
   const tagMutation = useMutation(
-    async (name: string) => {
+    async (name: string, color?: AccentColor) => {
       try {
-        return await api.post<Tag>('/api/tags', { name });
+        return await api.post<Tag>('/api/tags', color ? { name, color } : { name });
       } catch (error) {
         throw writeFailure(error, 'Could not create the tag');
       }
     },
     { invalidates: TAG_WRITE_PREFIXES, onError: fail },
+  );
+
+  const tagPatchMutation = useMutation(
+    async (id: string, input: TagPatch) => {
+      try {
+        return await api.patch<Tag>(`/api/tags/${id}`, input);
+      } catch (error) {
+        throw writeFailure(error, 'Could not save the tag');
+      }
+    },
+    { invalidates: TAG_WRITE_PREFIXES, onError: fail },
+  );
+
+  const tagRemoveMutation = useMutation(
+    async (id: string) => {
+      try {
+        return await api.delete<{ deleted: boolean }>(`/api/tags/${id}`);
+      } catch (error) {
+        throw writeFailure(error, 'Could not delete the tag');
+      }
+    },
+    {
+      invalidates: TAG_WRITE_PREFIXES,
+      onSuccess: () =>
+        toast({
+          title: 'Tag deleted',
+          description: 'It was removed from every task that carried it.',
+          variant: 'info',
+        }),
+      onError: fail,
+    },
   );
 
   const patchMutation = useMutation(
@@ -308,11 +343,28 @@ export function useTaskActions(zone: string): TaskActions {
   );
 
   const createTag = useCallback(
-    async (name: string) => {
+    async (name: string, color?: AccentColor) => {
       if (refuseWhenOffline()) return undefined;
-      return tagMutation.run(name);
+      return tagMutation.run(name, color);
     },
     [refuseWhenOffline, tagMutation],
+  );
+
+  const updateTag = useCallback(
+    async (id: string, input: TagPatch) => {
+      if (refuseWhenOffline()) return undefined;
+      return tagPatchMutation.run(id, input);
+    },
+    [refuseWhenOffline, tagPatchMutation],
+  );
+
+  const removeTag = useCallback(
+    async (id: string) => {
+      if (refuseWhenOffline()) return false;
+      const result = await tagRemoveMutation.run(id);
+      return result !== undefined;
+    },
+    [refuseWhenOffline, tagRemoveMutation],
   );
 
   const patch = useCallback(
@@ -362,6 +414,8 @@ export function useTaskActions(zone: string): TaskActions {
       listPatchMutation.isPending ||
       listRemoveMutation.isPending ||
       tagMutation.isPending ||
+      tagPatchMutation.isPending ||
+      tagRemoveMutation.isPending ||
       patchMutation.isPending ||
       removeMutation.isPending ||
       bulkMutation.isPending ||
@@ -372,6 +426,8 @@ export function useTaskActions(zone: string): TaskActions {
     updateList,
     removeList,
     createTag,
+    updateTag,
+    removeTag,
     patch,
     remove,
     bulk,

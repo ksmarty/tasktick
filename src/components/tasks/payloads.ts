@@ -72,6 +72,12 @@ export interface ListPatch {
   archived?: boolean;
 }
 
+/** What a tag can be changed to; both fields are optional, as the API's patch is. */
+export interface TagPatch {
+  name?: string;
+  color?: AccentColor;
+}
+
 export type BulkAction = 'complete' | 'delete' | 'move' | 'priority' | 'addTag' | 'removeTag';
 
 /** Body of `POST /api/tasks/bulk`. */

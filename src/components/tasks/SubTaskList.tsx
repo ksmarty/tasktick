@@ -82,6 +82,8 @@ export function SubTaskList({
                   onCheckedChange={() => onToggle(subtask)}
                   aria-label={completed ? `Mark ${subtask.title} incomplete` : `Complete ${subtask.title}`}
                   aria-checked={completed}
+                  // The same thicker box the row itself uses (see `TaskRow`).
+                  className="border-2"
                 />
 
                 <Input

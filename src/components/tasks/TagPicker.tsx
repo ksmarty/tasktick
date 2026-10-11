@@ -3,14 +3,19 @@
 /**
  * Tag picker with inline creation.
  *
- * Creating a tag here is the same `POST /api/tags` the settings screen uses, so a
- * tag invented mid-edit is immediately a real tag everywhere else.
+ * Creating a tag here is the same `POST /api/tags` the manager dialog uses, so a
+ * tag invented mid-edit is immediately a real tag everywhere else — and the
+ * "Manage tags" row hands the rename/recolour/delete half to
+ * `TagManagerDialog`, exactly as the list picker hands its half to
+ * `ListManagerDialog`. The picker itself stays a picker: it selects, it does not
+ * edit.
  *
  * The overlay is the GodUI `Drawer`, matching the other pickers: content-height
  * panel, swipe-down to dismiss.
  */
 import { useState } from 'react';
 import { CheckIcon } from '@svg-animated-icons/react/check';
+import { Pencil1Icon } from '@svg-animated-icons/react/pencil-1';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { Tag as TagIcon } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
@@ -29,6 +34,8 @@ export interface TagPickerProps {
   onChange: (tagIds: string[]) => void;
   /** Creates a tag and resolves to it, so the new one can be selected at once. */
   onCreate?: (name: string) => Promise<Tag | undefined>;
+  /** Opens the tag manager, the way the list picker opens the list manager. */
+  onManage?: () => void;
   disabled?: boolean;
   /** Heading; the bulk bar labels it "Add tag to N tasks". */
   title?: string;
@@ -41,6 +48,7 @@ export function TagPicker({
   value,
   onChange,
   onCreate,
+  onManage,
   disabled = false,
   title = 'Tags',
 }: TagPickerProps) {
@@ -152,6 +160,21 @@ export function TagPicker({
         <Button type="button" className="w-full" onClick={() => onOpenChange(false)}>
           Done
         </Button>
+
+        {onManage ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full justify-start"
+            onClick={() => {
+              onOpenChange(false);
+              onManage();
+            }}
+          >
+            <Pencil1Icon className="size-4 text-base" />
+            Manage tags
+          </Button>
+        ) : null}
       </div>
     </Drawer>
   );
