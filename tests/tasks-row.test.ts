@@ -72,6 +72,7 @@ const EDITOR = source('TaskEditorSheet.tsx');
 const VIEW = source('TasksView.tsx');
 const TODAY = source('TodayView.tsx');
 const ACCORDION = read('components/godui/accordion.tsx');
+const POPOVER = read('components/ui/popover.tsx');
 const SEARCH = read('app/(app)/search/page.tsx');
 const MATRIX = read('app/(app)/matrix/page.tsx');
 
@@ -391,6 +392,50 @@ describe('QuickAddBar — synchronous focus contract', () => {
       expect(view).toContain('flushSync(() => setQuickAddOpen(true))');
       expect(view).toContain('usePrimaryAction(openQuickAdd)');
     }
+  });
+});
+
+describe('QuickAddBar — the tint is the completion hue, and a menu leaves the caret alone', () => {
+  it('tints what it understood in chart-2, never in the accent', () => {
+    /*
+     * The accent is the user's own choice of colour, so it is the wrong hue for
+     * a highlight: a tinted word has to read as "understood", not as "the
+     * primary action". `--chart-2` is the teal the app already spends on
+     * completion, and the fill/outline split stays as it was — a moment is
+     * filled, a piece of metadata is outlined.
+     */
+    expect(QUICK_ADD).toContain('const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {');
+    expect(QUICK_ADD).toContain("'bg-chart-2/30'");
+    expect(QUICK_ADD).toContain("'ring-1 ring-chart-2/55 ring-inset'");
+    expect(QUICK_ADD).not.toContain('bg-primary/30');
+    expect(QUICK_ADD).not.toContain('ring-primary/55');
+  });
+
+  it('closes the menu on the pick without taking focus off the sentence', () => {
+    /*
+     * Radix autofocuses a popover's content when it opens and hands focus back
+     * to the trigger when it closes. Either one blurs the field, and iOS closes
+     * the keyboard the moment the field blurs — so the pick itself is what
+     * dismisses the menu (`PopoverClose`, whose handler composes with the row's
+     * own `onSelect`), and both focus restores are refused.
+     */
+    expect(QUICK_ADD).toContain('const MENU_CONTENT_PROPS = {');
+    expect(QUICK_ADD).toContain('onCloseAutoFocus: (event: Event) => event.preventDefault(),');
+    expect(QUICK_ADD).toContain('<PopoverClose asChild>');
+    expect(QUICK_ADD.match(/\{\.\.\.MENU_CONTENT_PROPS\}/g)).toHaveLength(5);
+    expect(QUICK_ADD.match(/onMouseDown=\{\(event\) => event\.preventDefault\(\)\}/g)).toHaveLength(7);
+    expect(POPOVER).toContain('PopoverClose');
+    expect(POPOVER).toContain("PopoverPrimitive.Close");
+  });
+
+  it('gates both of the All-tasks reads on the bootstrap, so a warm cache paints first', () => {
+    /*
+     * The gated read is a store hit the moment the persisted scope is restored,
+     * so the rows are on screen in the first paint; the ungated one was a
+     * network round trip, which is what the skeleton was really waiting for.
+     */
+    expect(VIEW).toContain('const bootstrapReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);');
+    expect(VIEW.match(/enabled: bootstrapReady/g)).toHaveLength(2);
   });
 });
 

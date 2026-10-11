@@ -38,6 +38,12 @@ function PopoverContent({
   )
 }
 
+function PopoverClose({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Close>) {
+  return <PopoverPrimitive.Close data-slot="popover-close" {...props} />
+}
+
 function PopoverAnchor({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
@@ -81,6 +87,7 @@ export {
   Popover,
   PopoverTrigger,
   PopoverContent,
+  PopoverClose,
   PopoverAnchor,
   PopoverHeader,
   PopoverTitle,

@@ -98,7 +98,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { calendarColorHex } from '@/components/calendar/colors';
 import { dueLabel } from './TaskMeta';
@@ -139,16 +139,25 @@ export interface QuickAddBarProps {
 /**
  * The tint per recognised kind — two treatments, deliberately not a rainbow.
  *
- *   - the temporal kinds (date, time, repeat, estimate) take the app's primary
- *     tint, because they are the words that move the task in time and the
- *     confirmation the user is actually looking for;
- *   - the meta kinds (tag, list, priority) take an outlined primary edge instead
- *     of a fill, because they classify the task rather than schedule it.
+ *   - the temporal kinds (date, time, repeat, estimate) take the app's
+ *     completion hue (`--chart-2`) as a fill, because they are the words that
+ *     move the task in time and the confirmation the user is actually looking
+ *     for;
+ *   - the meta kinds (tag, list, priority) take an outlined edge of the same hue
+ *     instead of a fill, because they classify the task rather than schedule it.
  *
- * Both use the one accent hue — a fill and an outline, not two colours — so the
- * sentence stays legible and the resolved chips below remain the place colour is
- * allowed to do more work. A second hue here would be a rainbow the app's
- * Celestial Sapphire palette has nothing to say with.
+ * Deliberately not `primary`. The accent is the user's own choice of tint and it
+ * is already the colour of everything *actionable* on this sheet — the calendar
+ * chip's unresolved label, a repeat that is set — so spending it on the layer
+ * behind the sentence as well made that layer read as a second button.
+ * `--chart-2` is the hue the app already spends on recognition (the completion
+ * tick, the swipe's Complete), which is what this layer actually says: this word
+ * was understood.
+ *
+ * Both treatments use that one hue — a fill and an outline, not two colours — so
+ * the sentence stays legible and the resolved chips below remain the place
+ * colour is allowed to do more work. A second hue here would be a rainbow the
+ * app's Celestial Sapphire palette has nothing to say with.
  *
  * The alphas are set for **contrast against the field**, not for subtlety. At
  * `/15` the fill was faint enough to read as a rendering artefact rather than as
@@ -157,13 +166,13 @@ export interface QuickAddBarProps {
  * own foreground text at full strength on top of it.
  */
 const HIGHLIGHT_CLASS: Record<QuickAddChipKind, string> = {
-  date: 'bg-primary/30',
-  time: 'bg-primary/30',
-  repeat: 'bg-primary/30',
-  estimate: 'bg-primary/30',
-  tag: 'ring-1 ring-primary/55 ring-inset',
-  list: 'ring-1 ring-primary/55 ring-inset',
-  priority: 'ring-1 ring-primary/55 ring-inset',
+  date: 'bg-chart-2/30',
+  time: 'bg-chart-2/30',
+  repeat: 'bg-chart-2/30',
+  estimate: 'bg-chart-2/30',
+  tag: 'ring-1 ring-chart-2/55 ring-inset',
+  list: 'ring-1 ring-chart-2/55 ring-inset',
+  priority: 'ring-1 ring-chart-2/55 ring-inset',
 };
 
 /**
@@ -256,9 +265,28 @@ const REPEAT_OPTIONS = [
 ] as const;
 
 /**
+ * Keeps the sentence focused while a toolbar menu is open.
+ *
+ * Radix focuses a menu's content when it opens and hands focus back to the
+ * trigger when it closes. Both moves take the caret out of the field, and iOS
+ * answers a field that loses focus by dropping the keyboard — so the sheet the
+ * user is mid-sentence in would fold away as soon as they touched a tool. Every
+ * one of these menus is an edit to that same sentence, so neither focus move
+ * belongs here: the field keeps the caret, the menu floats over it, and the
+ * keyboard stays up.
+ */
+const MENU_CONTENT_PROPS = {
+  onOpenAutoFocus: (event: Event) => event.preventDefault(),
+  onCloseAutoFocus: (event: Event) => event.preventDefault(),
+} as const;
+
+/**
  * One row in a toolbar menu: an optional leading glyph, a label, and a tick when
  * it is the chosen one. `menuitemradio` rather than `menuitem`, because every
  * one of these menus sets a single value.
+ *
+ * Wrapped in `PopoverClose`, so picking an option is also what dismisses the
+ * menu — one tap, one outcome, with the sentence still focused behind it.
  */
 function MenuRow({
   selected = false,
@@ -272,20 +300,30 @@ function MenuRow({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      role="menuitemradio"
-      aria-checked={selected}
-      onClick={onSelect}
-      className={cn(
-        'flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm',
-        selected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
-      )}
-    >
-      {glyph}
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      {selected ? <CheckIcon className="size-4 shrink-0" aria-hidden /> : null}
-    </button>
+    <PopoverClose asChild>
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={selected}
+        /*
+         * A tap must not take focus off the sentence. Radix hands focus back to
+         * the trigger when a menu closes, which is what used to drop the
+         * keyboard the moment an option was picked; keeping the field focused
+         * here and refusing that restore (see `MENU_CONTENT_PROPS`) leaves the
+         * caret — and the keyboard — exactly where they were.
+         */
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onSelect}
+        className={cn(
+          'flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm',
+          selected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
+        )}
+      >
+        {glyph}
+        <span className="min-w-0 flex-1 truncate">{children}</span>
+        {selected ? <CheckIcon className="size-4 shrink-0" aria-hidden /> : null}
+      </button>
+    </PopoverClose>
   );
 }
 
@@ -788,6 +826,7 @@ function QuickAddInput({
                 variant="ghost"
                 aria-label="Calendar"
                 className="h-9 min-w-0 gap-1.5 rounded-full px-2 text-sm text-muted-foreground"
+                onMouseDown={(event) => event.preventDefault()}
               >
                 <CalendarIcon className="size-4 shrink-0" aria-hidden />
                 {/*
@@ -800,7 +839,7 @@ function QuickAddInput({
                 </span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" role="menu" className="w-64 p-1">
+            <PopoverContent align="start" role="menu" className="w-64 p-1" {...MENU_CONTENT_PROPS}>
               <MenuRow selected={!selectedCalendar} onSelect={() => state.setCalendarId('')}>
                 No calendar
               </MenuRow>
@@ -835,11 +874,12 @@ function QuickAddInput({
                 'size-9 shrink-0 rounded-full',
                 currentPriority === 'none' ? 'text-muted-foreground' : priorityColor(currentPriority),
               )}
+              onMouseDown={(event) => event.preventDefault()}
             >
               <Flag className="size-4" aria-hidden />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" role="menu" className="w-44 p-1">
+          <PopoverContent align="start" role="menu" className="w-44 p-1" {...MENU_CONTENT_PROPS}>
             <MenuRow selected={currentPriority === 'none'} onSelect={() => setPriority(null)}>
               No priority
             </MenuRow>
@@ -864,11 +904,12 @@ function QuickAddInput({
               size="icon"
               aria-label="Tag"
               className="size-9 shrink-0 rounded-full text-muted-foreground"
+              onMouseDown={(event) => event.preventDefault()}
             >
               <TagIcon className="size-4" aria-hidden />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" role="menu" className="w-56 p-1">
+          <PopoverContent align="start" role="menu" className="w-56 p-1" {...MENU_CONTENT_PROPS}>
             {state.tags.length ? (
               state.tags.map((tag) => (
                 <MenuRow
@@ -898,11 +939,12 @@ function QuickAddInput({
                 'size-9 shrink-0 rounded-full',
                 state.result.recurrenceRule ? 'text-primary' : 'text-muted-foreground',
               )}
+              onMouseDown={(event) => event.preventDefault()}
             >
               <LoopIcon className="size-4" aria-hidden />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" role="menu" className="w-48 p-1">
+          <PopoverContent align="start" role="menu" className="w-48 p-1" {...MENU_CONTENT_PROPS}>
             {REPEAT_OPTIONS.map((option) => (
               <MenuRow key={option.token} onSelect={() => appendToken(option.token)}>
                 {option.label}
@@ -925,11 +967,12 @@ function QuickAddInput({
               size="icon"
               aria-label="More"
               className="size-9 shrink-0 rounded-full text-muted-foreground"
+              onMouseDown={(event) => event.preventDefault()}
             >
               <DotsHorizontalIcon className="size-4" aria-hidden />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-64 p-3">
+          <PopoverContent align="start" className="w-64 p-3" {...MENU_CONTENT_PROPS}>
             <p className="text-xs text-muted-foreground">
               Type it the way you would say it: “Pay rent tomorrow 5pm !high #home”, “@Work call
               Sam”, “every monday gym”.

@@ -170,8 +170,25 @@ export function TasksView() {
   const tags = useMemo(() => data?.tags ?? [], [data?.tags]);
   const lookups = useMemo(() => ({ lists, tags }), [lists, tags]);
 
+  /*
+   * Both reads wait for the bootstrap, which is what lets a cold start paint
+   * from disk instead of from the network.
+   *
+   * The store restores its persisted copies in one pass — bootstrap, tasks,
+   * events — and announces them together, but a read that starts before that
+   * pass lands paints the skeleton and then waits for a round trip the user can
+   * see. Gating on the bootstrap means the read cannot begin until the restore
+   * has happened (the bootstrap is one of the resources that pass fills), so the
+   * first paint is the data from disk and the request behind it is a silent
+   * revalidation. `CalendarScreen` reads its month the same way, which is why
+   * events already appeared instantly.
+   *
+   * An error counts as ready: a bootstrap that failed must not hold the list
+   * hostage — this is a hint about when to start, not a dependency.
+   */
+  const bootstrapReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);
   const query = useMemo(() => taskQuery(state), [state]);
-  const resource = useResource<Task[]>('/api/tasks', query);
+  const resource = useResource<Task[]>('/api/tasks', query, { enabled: bootstrapReady });
   const tasks = useMemo(() => resource.data ?? [], [resource.data]);
 
   const [searchDraft, setSearchDraft] = useState(state.q);
@@ -327,7 +344,9 @@ export function TasksView() {
     }),
     [today, zone],
   );
-  const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', eventWindow);
+  const calendarItems = useResource<CalendarItemsPayload>('/api/calendar/items', eventWindow, {
+    enabled: bootstrapReady,
+  });
 
   const { toast } = useToast();
 
