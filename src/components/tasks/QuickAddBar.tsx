@@ -4,13 +4,24 @@
  * Natural-language quick add.
  *
  * One presentation: a bottom sheet opened from the shell's action button, on
- * every screen alike. It parses on every keystroke (`parseQuickAdd`), shows
- * exactly what was understood in place — the recognised fragments of the
- * sentence are tinted behind the real input — and repeats it as resolved chips
- * below. The caret lands in the field the moment the dialog opens, and a
- * successful submit closes it — one task is one gesture. A submit that *fails*
- * leaves the dialog open with the sentence still in the field, so nothing typed is
- * lost to an error.
+ * every screen alike, holding two things — the sentence, and the toolbar of
+ * things a sentence cannot say. It parses on every keystroke (`parseQuickAdd`)
+ * and shows exactly what was understood in place: the recognised fragments are
+ * tinted behind the real input, so the confirmation is the user's own words
+ * rather than a row of chips repeating them. The caret lands in the field the
+ * moment the dialog opens, and a successful submit closes it — one task is one
+ * gesture. A submit that *fails* leaves the dialog open with the sentence still
+ * in the field, so nothing typed is lost to an error.
+ *
+ * ## The sentence is the state
+ *
+ * Every toolbar control — the calendar, the priority flag, a tag, a repeat —
+ * edits the *sentence*, appending the token the parser already understands, and
+ * never a field of its own. `parseQuickAdd` is therefore still the only thing
+ * that decides what the task gets: there is no second source of truth that the
+ * next keystroke would overwrite, and what the toolbar shows is what the tinted
+ * layer shows, because both are read from the same parse. The calendar is the
+ * one exception, and only because the grammar has no token for it.
  *
  * ## The highlight is the parser's own ranges, not a second regex
  *
@@ -65,15 +76,20 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from 'react';
-import { MagicWandIcon } from '@svg-animated-icons/react/magic-wand';
+import { ArrowUpIcon } from '@svg-animated-icons/react/arrow-up';
+import { CalendarIcon } from '@svg-animated-icons/react/calendar';
+import { CheckIcon } from '@svg-animated-icons/react/check';
+import { DotsHorizontalIcon } from '@svg-animated-icons/react/dots-horizontal';
+import { LoopIcon } from '@svg-animated-icons/react/loop';
+import { Flag, Tag as TagIcon } from 'lucide-react';
 import { listToken, parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
 import { useResource } from '@/lib/store';
 import type { Calendar as CalendarRecord, Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -82,9 +98,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { CalendarCombobox } from '@/components/calendar/CalendarCombobox';
+import { calendarColorHex } from '@/components/calendar/colors';
 import { dueLabel } from './TaskMeta';
+import { priorityColor, priorityLabel } from './priority';
 import {
   listTokenAt,
   planQuickAdd,
@@ -216,6 +234,53 @@ function facesTint(segments: readonly QuickAddSegment[], index: number, directio
   return false;
 }
 
+/**
+ * The toolbar's repeat choices. The tokens are the ones `@/lib/nlp` already
+ * understands (`every day`, `every weekday`, …), so picking one is the same as
+ * typing it — no second vocabulary for the same idea.
+ */
+const REPEAT_OPTIONS = [
+  { label: 'Every day', token: 'every day' },
+  { label: 'Every weekday', token: 'every weekday' },
+  { label: 'Every week', token: 'every week' },
+  { label: 'Every month', token: 'every month' },
+  { label: 'Every year', token: 'every year' },
+] as const;
+
+/**
+ * One row in a toolbar menu: an optional leading glyph, a label, and a tick when
+ * it is the chosen one. `menuitemradio` rather than `menuitem`, because every
+ * one of these menus sets a single value.
+ */
+function MenuRow({
+  selected = false,
+  glyph,
+  onSelect,
+  children,
+}: {
+  selected?: boolean;
+  glyph?: ReactNode;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        'flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm',
+        selected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
+      )}
+    >
+      {glyph}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {selected ? <CheckIcon className="size-4 shrink-0" aria-hidden /> : null}
+    </button>
+  );
+}
+
 interface QuickAddState {
   value: string;
   setValue: (value: string) => void;
@@ -240,6 +305,8 @@ interface QuickAddState {
    * sorts them, which is what the shortcut menu offers.
    */
   lists: readonly ListLike[];
+  /** The account's tags, for the toolbar's tag menu. */
+  tags: readonly ListLike[];
 }
 
 function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): QuickAddState {
@@ -335,6 +402,7 @@ function useQuickAdd(listId: string | null, onCreated?: (task: Task) => void): Q
     calendarId,
     setCalendarId,
     lists: context.lists,
+    tags: bootstrap?.tags ?? [],
   };
 }
 
@@ -429,6 +497,68 @@ function QuickAddInput({
     [caret, inputRef, state.setValue, state.value],
   );
 
+  /*
+   * The toolbar's actions all edit the sentence, because the sentence is the
+   * state: `parseQuickAdd` is the only thing that decides what the task gets, so
+   * a button that wrote a field directly would be a second source of truth that
+   * the next keystroke overwrote.
+   */
+  const writeSentence = useCallback(
+    (text: string) => {
+      state.setValue(text);
+      setCaret(text.length);
+      /*
+       * Focus and caret go back to the end of what was written, in a rAF: React
+       * has to commit the new value first, and iOS only keeps the keyboard up
+       * while the focus still belongs to the gesture that raised it.
+       */
+      requestAnimationFrame(() => {
+        inputRef.current?.focus({ preventScroll: true });
+        inputRef.current?.setSelectionRange(text.length, text.length);
+      });
+    },
+    [inputRef, state],
+  );
+
+  /** Append a token — and the space after it, so the title keeps being typed. */
+  const appendToken = useCallback(
+    (token: string) => {
+      const base = state.value.replace(/\s+$/, '');
+      writeSentence(base ? `${base} ${token} ` : `${token} `);
+    },
+    [state.value, writeSentence],
+  );
+
+  /**
+   * Set the priority by rewriting the sentence's own `!priority` token: the old
+   * one is removed and the new one appended, so what the menu shows and what the
+   * parser reads can never disagree. `null` clears it.
+   */
+  const setPriority = useCallback(
+    (next: 'high' | 'medium' | 'low' | null) => {
+      const match = state.result.matches.find((candidate) => candidate.kind === 'priority');
+      const without = match
+        ? `${state.value.slice(0, match.index)}${state.value.slice(match.index + match.text.length)}`
+        : state.value;
+      const base = without.replace(/\s+/g, ' ').trim();
+      const token = next ? `!${next}` : '';
+      const text = [base, token].filter(Boolean).join(' ');
+      writeSentence(text ? `${text} ` : '');
+    },
+    [state.result.matches, state.value, writeSentence],
+  );
+
+  /*
+   * The calendar chip's label, in the order the reader cares: the calendar the
+   * task will actually be filed into, then the date the sentence named (which is
+   * what the sheet is confirming), then the field's own name.
+   */
+  const dateChip = state.chips.find((chip) => chip.kind === 'date' || chip.kind === 'time') ?? null;
+  const selectedCalendar =
+    state.calendars.find((calendar) => calendar.id === state.calendarId) ?? null;
+  const calendarLabel = selectedCalendar?.name ?? dateChip?.label ?? 'Calendar';
+  const currentPriority = state.result.priority;
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (menuOpen) {
       const count = suggestions.length;
@@ -502,10 +632,6 @@ function QuickAddInput({
   return (
     <div className="flex flex-col gap-stack">
       <div className="relative">
-        <MagicWandIcon
-          className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-base text-muted-foreground"
-          aria-hidden
-        />
         {/*
          * The tint layer. It is `aria-hidden` so the field is read once, not
          * twice, and `pointer-events-none` so it never steals a tap or a caret
@@ -517,7 +643,7 @@ function QuickAddInput({
           aria-hidden
           className={cn(
             'pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-md border border-transparent',
-            'px-3 py-1 pl-9 pr-16 text-base select-none text-transparent md:text-sm',
+            'px-3 py-1 text-base select-none text-transparent md:text-sm',
             'whitespace-pre',
           )}
         >
@@ -580,28 +706,8 @@ function QuickAddInput({
           onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={onKeyDown}
           onScroll={syncHighlightScroll}
-          className={cn('relative pr-16 pl-9')}
+          className="relative"
         />
-        <Button
-          type="button"
-          size="sm"
-          className="absolute top-1/2 right-1.5 h-6 -translate-y-1/2 px-2 text-xs"
-          disabled={!state.online || !state.value.trim() || state.busy}
-          aria-busy={state.busy || undefined}
-          onClick={() => void submit()}
-        >
-          {state.busy ? (
-            // `status` + a name, so the wait is announced rather than silent —
-            // the same announcement MUI's spinner carried.
-            <span
-              role="status"
-              aria-label="Saving"
-              className="size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
-            />
-          ) : (
-            'Add'
-          )}
-        </Button>
       </div>
 
       {/*
@@ -649,42 +755,197 @@ function QuickAddInput({
       ) : null}
 
       {/*
-       * The calendar picker sits between the field and the chips: it is part of
-       * what the task *is*, like the list, so it belongs with the input rather
-       * than in the confirmation row below. Hidden when the account has no
-       * writable collection, because then there is nothing to choose between.
+       * The toolbar: what the sentence did not say, as small controls, with the
+       * submit at the trailing edge — the shape iOS uses for the same job.
+       *
+       * The confirmation chips that used to sit here are gone on purpose. They
+       * repeated what the tinted layer already shows in place, in the words the
+       * user actually typed, and the row cost a line of the sheet every time.
+       * The one thing the chips carried that the tint does not — the resolved
+       * date as text — is now the calendar chip's label.
        */}
-      {state.calendars.length ? (
-        <CalendarCombobox
-          value={state.calendarId}
-          calendars={state.calendars}
-          onChange={state.setCalendarId}
-          allowNone
-        />
-      ) : null}
-
-      {state.online ? (
-        <div className="flex min-h-7 flex-wrap items-center gap-1.5">
-          {state.chips.length ? (
-            state.chips.map((chip, index) => (
-              <Badge
-                key={`${chip.kind}-${index}`}
-                variant={chip.kind === 'priority' ? 'default' : 'outline'}
-                className={cn(
-                  'h-7 px-2 text-xs',
-                  chip.kind === 'priority' && 'bg-chart-4 text-white',
-                )}
+      <div className="flex items-center gap-1">
+        {state.calendars.length ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label="Calendar"
+                className="h-9 min-w-0 gap-1.5 rounded-full px-2 text-sm text-muted-foreground"
               >
-                {chip.label}
-              </Badge>
-            ))
+                <CalendarIcon className="size-4 shrink-0" aria-hidden />
+                {/*
+                 * The date is the primary-coloured half of the chip until a
+                 * calendar is actually chosen: it is what the sheet is
+                 * confirming, and the calendar is the thing still missing.
+                 */}
+                <span className={cn('truncate', !selectedCalendar && 'text-primary')}>
+                  {calendarLabel}
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" role="menu" className="w-64 p-1">
+              <MenuRow selected={!selectedCalendar} onSelect={() => state.setCalendarId('')}>
+                No calendar
+              </MenuRow>
+              {state.calendars.map((calendar) => (
+                <MenuRow
+                  key={calendar.id}
+                  selected={calendar.id === state.calendarId}
+                  glyph={
+                    <span
+                      aria-hidden
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: calendarColorHex(calendar) }}
+                    />
+                  }
+                  onSelect={() => state.setCalendarId(calendar.id)}
+                >
+                  {calendar.name}
+                </MenuRow>
+              ))}
+            </PopoverContent>
+          </Popover>
+        ) : null}
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Priority"
+              className={cn(
+                'size-9 shrink-0 rounded-full',
+                currentPriority === 'none' ? 'text-muted-foreground' : priorityColor(currentPriority),
+              )}
+            >
+              <Flag className="size-4" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" role="menu" className="w-44 p-1">
+            <MenuRow selected={currentPriority === 'none'} onSelect={() => setPriority(null)}>
+              No priority
+            </MenuRow>
+            {(['high', 'medium', 'low'] as const).map((priority) => (
+              <MenuRow
+                key={priority}
+                selected={currentPriority === priority}
+                glyph={<Flag className={cn('size-4 shrink-0', priorityColor(priority))} aria-hidden />}
+                onSelect={() => setPriority(priority)}
+              >
+                {priorityLabel(priority)}
+              </MenuRow>
+            ))}
+          </PopoverContent>
+        </Popover>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Tag"
+              className="size-9 shrink-0 rounded-full text-muted-foreground"
+            >
+              <TagIcon className="size-4" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" role="menu" className="w-56 p-1">
+            {state.tags.length ? (
+              state.tags.map((tag) => (
+                <MenuRow
+                  key={tag.id}
+                  selected={state.result.tags.includes(tag.name)}
+                  onSelect={() => appendToken(`#${tag.name}`)}
+                >
+                  #{tag.name}
+                </MenuRow>
+              ))
+            ) : (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                No tags yet — type #name in the sentence to make one.
+              </p>
+            )}
+          </PopoverContent>
+        </Popover>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Repeat"
+              className={cn(
+                'size-9 shrink-0 rounded-full',
+                state.result.recurrenceRule ? 'text-primary' : 'text-muted-foreground',
+              )}
+            >
+              <LoopIcon className="size-4" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" role="menu" className="w-48 p-1">
+            {REPEAT_OPTIONS.map((option) => (
+              <MenuRow key={option.token} onSelect={() => appendToken(option.token)}>
+                {option.label}
+              </MenuRow>
+            ))}
+          </PopoverContent>
+        </Popover>
+
+        {/*
+         * The ellipsis carries the grammar hint that the chips row used to hold
+         * open — the sheet itself is now just the sentence and its tools — and
+         * the offline notice, which is the one message that must not be hidden
+         * behind a tap when it applies.
+         */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="More"
+              className="size-9 shrink-0 rounded-full text-muted-foreground"
+            >
+              <DotsHorizontalIcon className="size-4" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 p-3">
+            <p className="text-xs text-muted-foreground">
+              Type it the way you would say it: “Pay rent tomorrow 5pm !high #home”, “@Work call
+              Sam”, “every monday gym”.
+            </p>
+          </PopoverContent>
+        </Popover>
+
+        <Button
+          type="button"
+          size="icon"
+          aria-label="Add task"
+          className="ml-auto size-9 shrink-0 rounded-full"
+          disabled={!state.online || !state.value.trim() || state.busy}
+          aria-busy={state.busy || undefined}
+          onClick={() => void submit()}
+        >
+          {state.busy ? (
+            // `status` + a name, so the wait is announced rather than silent —
+            // the same announcement MUI's spinner carried.
+            <span
+              role="status"
+              aria-label="Saving"
+              className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+            />
           ) : (
-            <span className="text-xs text-muted-foreground">
-              Try “Pay rent tomorrow 5pm !high #home”, “@Work call Sam”, or “every monday gym”.
-            </span>
+            <ArrowUpIcon className="size-4" aria-hidden />
           )}
-        </div>
-      ) : (
+        </Button>
+      </div>
+
+      {state.online ? null : (
         <span className="text-xs text-muted-foreground">{state.offlineNotice}</span>
       )}
     </div>
@@ -751,20 +1012,24 @@ export function QuickAddBar({ open, onOpenChange, listId = null, onCreated }: Qu
         }}
       >
         <div className="flex flex-col gap-stack px-card pt-card pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]">
-          <div className="flex flex-col gap-1">
-            {/*
-             * No explicit `id` on the title: Radix renders
-             * `<h2 id={context.titleId} {...titleProps}>` — the caller's props
-             * come last, so passing an `id` would override the generated one and
-             * leave the content's `aria-labelledby` pointing at nothing. The
-             * dialog is named from this text either way; the id is not a
-             * contract.
-             */}
-            <DialogTitle className="text-base font-semibold">New task</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Type it the way you would say it — the date, priority and tags are read out of the sentence.
-            </DialogDescription>
-          </div>
+          {/*
+           * The title and the description are for the screen reader only. The
+           * sheet the user sees is the sentence and its toolbar — a visible "New
+           * task" heading would be a label over a field that already says what it
+           * is, and the paragraph explaining the grammar now lives behind the
+           * ellipsis, where it is available without being in the way. Radix still
+           * needs a title (it names the dialog from it), so it stays, hidden.
+           *
+           * No explicit `id` on it: Radix renders `<h2 id={context.titleId}
+           * {...titleProps}>` — the caller's props come last, so passing an `id`
+           * would override the generated one and leave the content's
+           * `aria-labelledby` pointing at nothing.
+           */}
+          <DialogTitle className="sr-only">New task</DialogTitle>
+          <DialogDescription className="sr-only">
+            Type it the way you would say it — the date, priority and tags are read out of the
+            sentence.
+          </DialogDescription>
           <QuickAddInput
             state={state}
             open={open}

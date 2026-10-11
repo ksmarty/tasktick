@@ -143,10 +143,24 @@ describe('a mirrored item loses its Edit action', () => {
 
   it('removes the action rather than disabling it', () => {
     // A dead button that can never be enabled is worse than no button.
-    expect(DETAIL).toContain('{isReadOnly ? null : (');
+    expect(DETAIL).toContain('isReadOnly ? undefined : (');
     expect(DETAIL).not.toMatch(/<Button[^>]*disabled/);
     expect(DETAIL).toContain('<Pencil1Icon');
     expect(DETAIL).toContain('Edit');
+  });
+
+  it('puts the action in the sheet own corner, not at the end of the body', () => {
+    // The iOS shape: the one action belongs to the sheet's chrome, level with
+    // the title, instead of sitting below everything the sheet describes.
+    expect(DETAIL).toContain('titleAction=');
+    expect(DETAIL).toContain('aria-label="Edit"');
+    expect(DETAIL).toContain('variant="ghost"');
+    expect(DETAIL).not.toContain('mt-1 w-full');
+  });
+
+  it('shows the priority row only when a priority is set', () => {
+    // A task with no priority used to print `Priority: None`.
+    expect(DETAIL).toContain("task.priority === 'none' ? null : (");
   });
 
   it('does not explain the absence with a notice', () => {

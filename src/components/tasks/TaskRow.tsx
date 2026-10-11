@@ -153,6 +153,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { resolveSwipeAxis, type SwipeAxis } from './swipe-axis';
 import { DueDateLabel, TaskGlyphs, TaskMeta } from './TaskMeta';
+import { priorityCheckbox, priorityLabel } from './priority';
 
 /** Width of the revealed Complete + Pin/Unpin + Delete trio (3 × 76px, i.e. `w-57`). */
 export const SWIPE_ACTION_WIDTH = 228;
@@ -647,7 +648,16 @@ export function TaskRow({
           onCheckedChange={toggle}
           // `size-5` is 20px, the title's `text-base leading-tight` line box, so
           // the tick and the words it ticks are the same height.
-          className={cn('size-5 border-foreground/25', wontDo && !completed && 'opacity-60')}
+          //
+          // The priority's hue rides on the box itself (`priorityCheckbox`): the
+          // border while it is open, the fill once it is ticked. `none` returns
+          // no class at all, so a task without a priority keeps the neutral
+          // `border-foreground/25` it always had.
+          className={cn(
+            'size-5',
+            priorityCheckbox(task.priority) || 'border-foreground/25',
+            wontDo && !completed && 'opacity-60',
+          )}
         />
       </motion.span>
 
@@ -747,6 +757,17 @@ export function TaskRow({
        * to nobody; out here it is exposed in reading order.
        */}
       {task.isPinned ? <span className="sr-only">Pinned</span> : null}
+
+      {/*
+       * The priority, in words. The row used to carry a lightning bolt for this
+       * and the bolt is gone — the checkbox wears the priority's colour now — so
+       * this is what keeps the weight audible. It sits out here for the same
+       * reason the pin marker does: the `Open …` button's `aria-label` overrides
+       * its contents, so a marker inside it would be announced to nobody.
+       */}
+      {task.priority !== 'none' ? (
+        <span className="sr-only">{priorityLabel(task.priority)} priority</span>
+      ) : null}
 
       {gripVisible ? (
         // The grip is the pointer drag handle: keeping the HTML5 drag here and

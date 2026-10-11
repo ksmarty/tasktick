@@ -44,7 +44,12 @@
  *     field pass `autoFocus={false}`.
  *  8. The portal root shrinks to the *visible* viewport while a software
  *     keyboard is up, and the panel is capped to it — see "Why the sheet
- *     follows the visual viewport" below.
+ *     follows the visual viewport" below. The measurement is clamped to half
+ *     the viewport and dropped while the document is hidden, because iOS hands
+ *     back a stale visual-viewport rectangle after an app switch.
+ *  9. `titleAction` renders beside the title, at the panel's trailing edge, for
+ *     a control that belongs to the sheet rather than to its body — the detail
+ *     sheet's edit button.
  *
  * The source's `z-modal` is kept as-is: the z-index tokens are defined in
  * `globals.css` (`--z-index-modal`), so the semantic class resolves. GodUI's
@@ -114,6 +119,23 @@
  * With no keyboard (or no `visualViewport`, which is only the very old case) the
  * inset is 0, no style is applied, and the drawer is byte-for-byte what it was.
  *
+ * ## Why a background switch used to float the sheet
+ *
+ * Reported: after switching to another app and coming back, a bottom sheet on
+ * the tasks page was pinned to the *top* of the screen. That is the same inset,
+ * stale in the other direction — a rectangle claiming to cover most of the page,
+ * so the root's bottom edge jumped up to just under the top.
+ *
+ * iOS does not resize the visual viewport while a document is hidden, and it
+ * does not reliably fire `resize` on the way back, so the effect could keep the
+ * measurement it took before the switch. Two guards: a hidden document reports
+ * 0 (there is no keyboard to clear while the app is away, and the sync on the
+ * way back re-measures), and a measurement over half the layout viewport is
+ * discarded — a phone keyboard does not cross that line, so a rectangle that
+ * claims to is stale rather than real. `visibilitychange`, `pageshow`, `focus`,
+ * the window's own `resize` and `orientationchange` are listened to as well, so
+ * the geometry is re-derived instead of remembered.
+ *
  * No `@godui/godui-theme` import exists in the published source — the registry
  * dependency is a stylesheet merge, not a code import — so there was nothing to
  * drop.
@@ -136,6 +158,12 @@ export type DrawerProps = {
   side?: DrawerSide;
   /** Optional accessible title rendered at the top. */
   title?: React.ReactNode;
+  /**
+   * A control rendered beside the title, at the panel's trailing edge — for an
+   * action that belongs to the sheet rather than to its body, such as the
+   * detail sheet's edit button.
+   */
+  titleAction?: React.ReactNode;
   /** Extra classes for the panel. */
   className?: string;
   /**
@@ -194,6 +222,13 @@ function usePortalTarget(container: HTMLElement | null | undefined) {
  * layout viewport (`innerHeight`) does not. A few pixels of difference are
  * rounding, not a keyboard, so anything under 8px is reported as 0 and the
  * drawer keeps its default geometry.
+ *
+ * The rectangle is re-derived rather than remembered. iOS keeps reporting the
+ * last one it had while the document is hidden and does not always fire
+ * `resize` when it comes back, so a background switch can leave a stale
+ * measurement behind — and a stale measurement over half the viewport is what
+ * pinned a sheet to the top of the screen. Hidden documents therefore report 0,
+ * and a value past half the layout viewport is discarded as stale.
  */
 function useKeyboardInset(active: boolean, ownerDocument: Document | null): number {
   const [inset, setInset] = React.useState(0);
@@ -206,15 +241,35 @@ function useKeyboardInset(active: boolean, ownerDocument: Document | null): numb
       return;
     }
     const sync = () => {
+      if (ownerDocument.visibilityState === 'hidden') {
+        setInset(0);
+        return;
+      }
       const covered = view.innerHeight - (visual.height + visual.offsetTop);
-      setInset(covered > 8 ? Math.round(covered) : 0);
+      const limit = Math.round(view.innerHeight * 0.5);
+      setInset(covered > 8 ? Math.min(Math.round(covered), limit) : 0);
     };
     sync();
     visual.addEventListener('resize', sync);
     visual.addEventListener('scroll', sync);
+    /*
+     * The keyboard is not the only thing that changes the geometry, and none of
+     * these are guaranteed to arrive after a background switch — so listen to
+     * all of them and let the last one win.
+     */
+    view.addEventListener('resize', sync);
+    view.addEventListener('orientationchange', sync);
+    view.addEventListener('pageshow', sync);
+    view.addEventListener('focus', sync);
+    ownerDocument.addEventListener('visibilitychange', sync);
     return () => {
       visual.removeEventListener('resize', sync);
       visual.removeEventListener('scroll', sync);
+      view.removeEventListener('resize', sync);
+      view.removeEventListener('orientationchange', sync);
+      view.removeEventListener('pageshow', sync);
+      view.removeEventListener('focus', sync);
+      ownerDocument.removeEventListener('visibilitychange', sync);
     };
   }, [active, ownerDocument]);
 
@@ -228,6 +283,7 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
       onOpenChange,
       side = 'bottom',
       title,
+      titleAction,
       className,
       autoFocus = true,
       children,
@@ -339,10 +395,24 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                    */
                   style={keyboardInset ? { maxHeight: '100%' } : undefined}
                 >
-                  {title ? (
-                    <h2 className="mb-3 text-lg font-semibold text-foreground">
-                      {title}
-                    </h2>
+                  {title || titleAction ? (
+                    /*
+                     * The title and its action share a row so the action sits
+                     * against the panel's trailing edge, level with the first
+                     * line of the title — the iOS "edit in the corner" shape.
+                     */
+                    <div className="mb-3 flex items-start justify-between gap-stack">
+                      {title ? (
+                        <h2 className="min-w-0 flex-1 text-lg font-semibold text-foreground">
+                          {title}
+                        </h2>
+                      ) : (
+                        <span className="min-w-0 flex-1" />
+                      )}
+                      {titleAction ? (
+                        <span className="shrink-0">{titleAction}</span>
+                      ) : null}
+                    </div>
                   ) : null}
                   <FocusScope trapped loop autoFocus={autoFocus} className="overflow-y-auto">
                     {children}

@@ -36,13 +36,16 @@
  * size (`text-sm`, Tailwind's scale) — which is also why one class switches the
  * whole line's glyphs at once.
  *
- * Colours come from `priority.ts` (a monochrome class per priority) and from the
- * theme's muted foreground. Tag colours are user data rather than theme tokens,
- * so they survive as a small dot inside an otherwise monochrome chip: the tag's
- * name is its identity, and spending a full coloured pill and border on it made
- * the meta line busier than the title above it.
+ * Colours come from the theme's muted foreground. Tag colours are user data
+ * rather than theme tokens, so they survive as a small dot inside an otherwise
+ * monochrome chip: the tag's name is its identity, and spending a full coloured
+ * pill and border on it made the meta line busier than the title above it.
+ *
+ * Priority has no glyph here at all. It used to — a lightning bolt tinted by
+ * `priority.ts` — and it left with the monochrome ramp: the row's checkbox wears
+ * the priority's colour now (see `priorityCheckbox`) and the row announces the
+ * weight in words, so a second mark on the same line was saying it twice.
  */
-import { LightningBoltIcon } from '@svg-animated-icons/react/lightning-bolt';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { Half1Icon } from '@svg-animated-icons/react/half-1';
 import { accentHex } from '@/lib/colors';
@@ -50,7 +53,6 @@ import type { Task } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { dueLabel, type DueTone } from './due-label';
-import { priorityColor, priorityLabel } from './priority';
 
 // The label and its types were defined here before being split into a pure
 // module so they could be unit-tested in node; they stay importable from here so
@@ -126,11 +128,12 @@ export interface TaskGlyphsProps {
 }
 
 /**
- * The row's inline state glyphs: priority, repeat, subtask progress.
+ * The row's inline state glyphs: repeat, subtask progress.
  *
  * Rendered at the trailing edge, immediately left of the date, so the two things
- * a reader compares — "how urgent / does it repeat" and "when is it due" — sit
- * next to each other instead of one above the other.
+ * a reader compares — "does it repeat" and "when is it due" — sit next to each
+ * other instead of one above the other. Priority is not here: the checkbox at
+ * the row's leading edge carries it, in colour.
  *
  * `h-5` matches the date label's own `leading-5` box, so the glyphs share its
  * line box and the row stays optically centred. Returns null for a plain task,
@@ -140,7 +143,7 @@ export function TaskGlyphs({ task, className }: TaskGlyphsProps) {
   const subtasks = task.subtasks ?? [];
   const doneSubtasks = subtasks.filter((subtask) => subtask.status === 'completed').length;
 
-  if (task.priority === 'none' && !task.recurrenceRule && !subtasks.length) return null;
+  if (!task.recurrenceRule && !subtasks.length) return null;
 
   return (
     <span
@@ -149,15 +152,6 @@ export function TaskGlyphs({ task, className }: TaskGlyphsProps) {
         className,
       )}
     >
-      {task.priority !== 'none' ? (
-        <span
-          className={cn('inline-flex shrink-0 items-center', priorityColor(task.priority))}
-        >
-          <LightningBoltIcon className={META_GLYPH} aria-hidden />
-          <span className="sr-only">{priorityLabel(task.priority)} priority</span>
-        </span>
-      ) : null}
-
       {task.recurrenceRule ? (
         <span className="inline-flex shrink-0 items-center">
           <LoopIcon className={META_GLYPH} aria-hidden />

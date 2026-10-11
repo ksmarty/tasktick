@@ -394,6 +394,58 @@ describe('QuickAddBar — synchronous focus contract', () => {
   });
 });
 
+describe('QuickAddBar — the toolbar edits the sentence', () => {
+  it('keeps the sentence as the only state the controls write', () => {
+    /*
+     * The redesign gave the sheet a toolbar, and the tempting shape for one is a
+     * field per control. That would be a second source of truth: the parser
+     * decides what the task gets, so a flag that wrote `priority` directly would
+     * be overwritten by the next keystroke. Every control therefore appends or
+     * rewrites a token `parseQuickAdd` already understands.
+     */
+    expect(QUICK_ADD).toContain('const writeSentence = useCallback(');
+    expect(QUICK_ADD).toContain('const appendToken = useCallback(');
+    expect(QUICK_ADD).toContain('const setPriority = useCallback(');
+    expect(QUICK_ADD).toContain('appendToken(`#${tag.name}`)');
+    expect(QUICK_ADD).toContain('appendToken(option.token)');
+    expect(QUICK_ADD).toContain("const token = next ? `!${next}` : '';");
+  });
+
+  it('names every toolbar control for a screen reader', () => {
+    for (const label of ['Calendar', 'Priority', 'Tag', 'Repeat', 'More', 'Add task']) {
+      expect(QUICK_ADD).toContain(`aria-label="${label}"`);
+    }
+    expect(QUICK_ADD).toContain('role="menuitemradio"');
+    expect(QUICK_ADD).toContain('aria-checked={selected}');
+  });
+
+  it('carries the resolved date on the calendar chip, where the chips row used to', () => {
+    expect(QUICK_ADD).toContain('const dateChip = state.chips.find(');
+    expect(QUICK_ADD).toContain(
+      "const calendarLabel = selectedCalendar?.name ?? dateChip?.label ?? 'Calendar';",
+    );
+    expect(QUICK_ADD).toContain("!selectedCalendar && 'text-primary'");
+  });
+
+  it('drops the confirmation chips row — the tint already says it in place', () => {
+    expect(QUICK_ADD).not.toContain('<Badge');
+  });
+
+  it('submits from a circular button at the trailing edge', () => {
+    expect(QUICK_ADD).toContain('className="ml-auto size-9 shrink-0 rounded-full"');
+    expect(QUICK_ADD).toContain('aria-label="Add task"');
+    expect(QUICK_ADD).toContain('aria-label="Saving"');
+  });
+
+  it('keeps the dialog titled for the screen reader only', () => {
+    // Radix names the dialog from the title, but the sheet the user sees is the
+    // sentence and its toolbar: a visible heading would label a field that
+    // already says what it is, and the grammar hint moved behind the ellipsis.
+    expect(QUICK_ADD).toContain('<DialogTitle className="sr-only">New task</DialogTitle>');
+    expect(QUICK_ADD).toContain('<DialogDescription className="sr-only">');
+  });
+});
+
 describe('the converted screens', () => {
   it('keeps the editor’s twelve fields and its debounced save', () => {
     for (const label of ['Title', 'Notes', 'Link', 'Pin to top', 'Decrease estimated time', 'Increase estimated time']) {

@@ -7,7 +7,7 @@
  * only way to *read* an item: every screen that wanted to show "what is this"
  * had to open a form. This is the missing middle step — a bottom sheet that
  * shows the item's own details and carries the one action that leaves it, an
- * **Edit** button wired to the editor the caller already owns.
+ * edit button wired to the editor the caller already owns.
  *
  * ## Reusable by design
  *
@@ -26,6 +26,19 @@
  * supplementary: the sheet renders the item's own fields immediately, and adds
  * the rest when they land (a failed read simply omits them). Every row is
  * conditional on having a value, so nothing prints `Location: —` five times.
+ *
+ * ## The edit action lives in the corner
+ *
+ * The action used to be a full-width button at the bottom of the sheet, which
+ * put the one thing a reader wants to *do* below everything they wanted to
+ * *read* — and on a phone it sat under the keyboard whenever a field was
+ * focused. It is now a small icon at the panel's trailing edge, level with the
+ * title, which is the shape iOS uses for the same job: the sheet's own chrome
+ * carries the action, and the body stays a pure description of the item.
+ *
+ * The drawer owns the placement (`titleAction`, see
+ * `components/godui/drawer.tsx`), so the sheet only decides whether it has an
+ * action at all. A read-only item passes nothing and the corner stays empty.
  *
  * ## Read-only items
  *
@@ -355,9 +368,14 @@ function TaskDetails({
         </Field>
       ) : null}
 
-      <Field icon={<LightningBoltIcon className={cn('text-base', priorityColor(task.priority))} />} label="Priority">
-        {priorityLabel(task.priority)}
-      </Field>
+      {task.priority === 'none' ? null : (
+        <Field
+          icon={<LightningBoltIcon className={cn('text-base', priorityColor(task.priority))} />}
+          label="Priority"
+        >
+          {priorityLabel(task.priority)}
+        </Field>
+      )}
 
       {repeats ? (
         <Field icon={<LoopIcon />} label="Repeats">
@@ -649,6 +667,28 @@ export function ItemDetailSheet({
       onOpenChange={onOpenChange}
       side="bottom"
       title={title}
+      /*
+       * The one action, in the sheet's own chrome rather than its body. `ghost`
+       * keeps it from reading as a primary action — the sheet's job is to show
+       * the item — and the negative insets pull the icon back onto the panel's
+       * own padding so it lines up with the trailing edge of every value below
+       * it. A read-only item simply has no action, which is the same absence as
+       * before, just in a different corner.
+       */
+      titleAction={
+        isReadOnly ? undefined : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Edit"
+            className="-mt-1 -mr-2 size-9 rounded-full text-muted-foreground hover:text-foreground"
+            onClick={onEdit}
+          >
+            <Pencil1Icon className="size-4" disableHover />
+          </Button>
+        )
+      }
       className="p-0 px-card pt-card"
     >
       {item ? (
@@ -671,13 +711,6 @@ export function ItemDetailSheet({
               timeFormat={timeFormat}
             />
           ) : null}
-
-          {isReadOnly ? null : (
-            <Button type="button" className="mt-1 w-full" onClick={onEdit}>
-              <Pencil1Icon className="size-4 text-base" disableHover />
-              Edit
-            </Button>
-          )}
         </div>
       ) : null}
     </Drawer>
