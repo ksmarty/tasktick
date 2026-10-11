@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePorcelain, readSwVersion } from '../scripts/sw-version.mjs';
+import { appChangedFiles, parsePorcelain, readSwVersion } from '../scripts/sw-version.mjs';
 
 /*
  * These pin the two halves of `npm run verify:sw` that were wrong while the
@@ -44,5 +44,45 @@ describe('the service-worker version guard', () => {
    */
   it('keeps a rename entry whole', () => {
     expect(parsePorcelain('R  src/old.ts -> src/new.ts\n')).toEqual(['src/old.ts -> src/new.ts']);
+  });
+
+  /*
+   * Only the paths a browser runs count as "the app". Before this filter, every
+   * changed path was compared against the worker's absence, so a README fix
+   * refused a release. With one release now cut per push to main, that would
+   * have made a worker bump mandatory on every documentation change.
+   */
+  it('counts only the paths a browser runs as app-facing', () => {
+    expect(
+      appChangedFiles([
+        'src/app/tasks/page.tsx',
+        'public/sw.js',
+        'package.json',
+        'README.md',
+        'tests/pwa-sw.test.ts',
+        '.github/workflows/auto-increment.yml',
+        'scripts/check-sw-version.mjs',
+        'integrations/home-assistant/custom_components/tasktick/__init__.py',
+      ]),
+    ).toEqual(['src/app/tasks/page.tsx', 'public/sw.js', 'package.json']);
+  });
+
+  /*
+   * A file moved into src/ from outside is app-facing, even though the rename
+   * entry begins with the old path. `parsePorcelain` is fed the raw output so
+   * the test sees exactly the string the check sees.
+   */
+  it('treats a rename into src/ as app-facing', () => {
+    expect(appChangedFiles(parsePorcelain('R  old/thing.ts -> src/thing.ts\n'))).toEqual([
+      'old/thing.ts -> src/thing.ts',
+    ]);
+  });
+
+  it('still ignores a rename between two paths the browser never sees', () => {
+    expect(appChangedFiles(parsePorcelain('R  docs/a.md -> docs/b.md\n'))).toEqual([]);
+  });
+
+  it('finds nothing app-facing in a docs-only release', () => {
+    expect(appChangedFiles(['README.md', 'docs/setup.md', '.github/workflows/ci.yml'])).toEqual([]);
   });
 });

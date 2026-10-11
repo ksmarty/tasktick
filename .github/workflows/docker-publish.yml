@@ -6,8 +6,8 @@ on:
     tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: Extra image tag to publish (optional, e.g. rc1)
+      version:
+        description: Version to publish, e.g. 0.43.0 (optional; adds 0.43.0 and 0.43)
         required: false
         type: string
 
@@ -53,6 +53,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A push event derives its tags from the ref, which is why a tag push
+      # publishes 0.43.0 and 0.43. `auto-increment.yml` cannot push a tag that
+      # triggers this workflow — a push made with GITHUB_TOKEN starts no runs at
+      # all — so it dispatches this workflow instead, and a dispatch has no
+      # version-bearing ref to read. Derive the two semver tags from the input so
+      # a dispatched run publishes the same tags a tag push would.
+      - name: Derive the semver tags from the dispatched version
+        id: semver
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          RAW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${RAW_VERSION#v}"
+          IFS=. read -r MAJOR MINOR _REST <<< "$VERSION"
+          echo "exact=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -64,7 +82,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+            type=raw,value=${{ steps.semver.outputs.exact }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+            type=raw,value=${{ steps.semver.outputs.minor }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
           labels: |
             org.opencontainers.image.title=TaskTick
             org.opencontainers.image.description=Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync.

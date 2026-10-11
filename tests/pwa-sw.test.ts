@@ -373,6 +373,32 @@ async function announce(harness: Harness, scope: string): Promise<void> {
   harness.writes.length = 0;
 }
 
+/**
+ * The first message to arrive on `port`, however many ticks that takes.
+ *
+ * The worker posts its acknowledgement from inside `event.waitUntil`, and the
+ * port delivers it on a task the test cannot see. Waiting a single
+ * `setTimeout(0)` was enough on an idle machine and flaked in the full parallel
+ * suite, where that delivery task was still queued when the assertion ran —
+ * `expected [] to deeply equal [ { ok: true } ]`, on CI, intermittently.
+ *
+ * Waiting for the message itself is deterministic; the timeout only exists so a
+ * genuinely missing acknowledgement fails with a clear error instead of hanging
+ * until the suite's own timeout.
+ */
+function nextPortMessage(port: MessagePort, timeoutMs = 2000): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`no message on the port within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    port.onmessage = (event) => {
+      clearTimeout(timer);
+      resolve(event.data);
+    };
+  });
+}
+
 /** An API response as the server really sends it: 200, JSON, `no-store`. */
 function json(body: string, status = 200): FakeResponse {
   return new FakeResponse(body, {
@@ -497,15 +523,13 @@ describe('/api/** reads are cache-first with a per-session cache', () => {
     const harness = createHarness();
     await announce(harness, 's1');
 
-    const replies: unknown[] = [];
     const channel = new MessageChannel();
-    channel.port1.onmessage = (event) => replies.push(event.data);
+    const reply = nextPortMessage(channel.port1);
     await harness.message({ type: 'invalidate', prefixes: ['/api/tasks'] }, [channel.port2]);
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
     // The acknowledgement is what lets `invalidate()` in the store refetch only
     // after the worker has actually dropped the entry.
-    expect(replies).toEqual([{ ok: true }]);
+    expect(await reply).toEqual({ ok: true });
     channel.port1.close();
   });
 

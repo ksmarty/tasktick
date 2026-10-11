@@ -17,9 +17,15 @@
  *
  * ## What it compares
  *
- * The two files most likely to change with a release: `package.json` (the version)
- * and everything under `public/` and `src/`. If any of those differ from the last
- * release commit and `VERSION` did not move, the release is refused.
+ * The paths a browser actually runs: `package.json` (the version), everything
+ * under `src/`, and everything under `public/`. If any of those differ from the
+ * last release commit and `VERSION` did not move, the release is refused.
+ *
+ * Anything else — docs, tests, workflows, scripts — ships nothing to a client,
+ * so a release that touched only those is compared against nothing and passes.
+ * That filter (`appChangedFiles`) matters more now that a release is cut
+ * automatically on every push to main: without it, a README fix would fail CI
+ * and demand a meaningless worker bump.
  *
  * ## Two ways this check has been useless, both fixed here
  *
@@ -41,7 +47,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { parsePorcelain, readSwVersion } from './sw-version.mjs';
+import { parsePorcelain, readSwVersion, appChangedFiles } from './sw-version.mjs';
 
 const sh = (args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 
@@ -61,13 +67,25 @@ const changed = [
   ...sh(['diff', '--name-only', `${previousTag}..HEAD`]).split('\n'),
   ...parsePorcelain(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' })),
 ].filter(Boolean);
-const swChanged = changed.includes('public/sw.js');
+
+/*
+ * Only app-facing paths are compared. A release that touched nothing a browser
+ * runs — a README, a workflow, a test — needs no new worker byte and must not be
+ * refused for lacking one. See `appChangedFiles`.
+ */
+const appChanged = appChangedFiles(changed);
+if (appChanged.length === 0) {
+  console.log(`[check-sw] nothing app-facing changed since ${previousTag}; nothing to compare`);
+  process.exit(0);
+}
+
+const swChanged = appChanged.includes('public/sw.js');
 
 if (!swChanged) {
   console.error(
     [
       '',
-      `[check-sw] REFUSING: ${changed.length} file(s) changed since ${previousTag}, but public/sw.js did not.`,
+      `[check-sw] REFUSING: ${appChanged.length} app file(s) changed since ${previousTag}, but public/sw.js did not.`,
       '',
       '  A byte-identical service worker is never installed, so existing clients stay',
       '  pinned to the old shell and the old chunks indefinitely — the release simply',

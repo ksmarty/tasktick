@@ -34,3 +34,27 @@ export function parsePorcelain(text) {
     .map((line) => line.slice(3).trim())
     .filter(Boolean);
 }
+
+/**
+ * The subset of changed paths that ships to a browser: the worker's own
+ * directory, the client source, and the manifest that names the version.
+ *
+ * `check-sw-version.mjs` refuses a release whose app changed without the worker
+ * moving, because a byte-identical `public/sw.js` is never installed. What it
+ * must *not* refuse is a release that changed nothing a browser runs — a README
+ * edit, a workflow tweak, a new test. Comparing every changed path against the
+ * worker's absence made those pushes fail CI and, once version bumps became
+ * automatic (one release per push to main), would have made a pointless worker
+ * bump mandatory on every documentation change.
+ *
+ * A staged rename arrives as one entry, `old -> new` (see `parsePorcelain`), and
+ * a file moved *into* `src/` from outside is app-facing even though the entry
+ * begins with the old path. So both sides of the arrow are tested, not the
+ * entry as a whole.
+ */
+export function appChangedFiles(paths) {
+  const isAppPath = (path) =>
+    path === 'package.json' || path.startsWith('src/') || path.startsWith('public/');
+
+  return paths.filter((path) => path.split('->').some((side) => isAppPath(side.trim())));
+}
