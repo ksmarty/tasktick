@@ -153,6 +153,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { resolveSwipeAxis, type SwipeAxis } from './swipe-axis';
 import { DueDateLabel, TaskGlyphs, TaskMeta } from './TaskMeta';
+import type { DueFormat } from './due-label';
 import { priorityCheckbox, priorityLabel } from './priority';
 
 /** Width of the revealed Complete + Pin/Unpin + Delete trio (3 × 76px, i.e. `w-57`). */
@@ -220,11 +221,10 @@ export interface TaskRowProps {
   /** Squares the top of the first row's press region (it is not at a corner). */
   first?: boolean;
   /**
-   * The row is outside the Today section, so its trailing label is the date
-   * rather than a clock time. The section knows this; the row does not (see
-   * `TaskListSection`).
+   * Which shape the trailing label takes — see `DueFormat`. The section knows
+   * this; the row does not (see `TaskListSection`).
    */
-  showDate?: boolean;
+  format?: DueFormat;
   className?: string;
   ref?: Ref<HTMLLIElement>;
 }
@@ -247,7 +247,7 @@ export function TaskRow({
   drag,
   last = false,
   first = false,
-  showDate = false,
+  format = 'relative',
   className,
   ref,
 }: TaskRowProps) {
@@ -749,7 +749,7 @@ export function TaskRow({
           task={task}
           zone={zone}
           timeFormat={timeFormat}
-          showDate={showDate}
+          format={format}
           className="shrink-0 self-center"
         />
       </button>

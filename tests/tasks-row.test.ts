@@ -843,25 +843,35 @@ describe('section-aware trailing label', () => {
 
   it('is told its section by the only component that knows it', () => {
     // The rows are presentational; TaskListSection is what holds the section id,
-    // so it derives the flag once and passes it down rather than each screen
+    // so it derives the shape once and passes it down rather than each screen
     // remembering which labels need a date.
-    expect(SECTION).toContain("const showDate = section.id !== 'today';");
-    expect(SECTION).toContain('showDate={showDate}');
+    expect(SECTION).toContain(
+      "const format: DueFormat = section.id === 'today' ? 'relative' : section.id === 'tomorrow' ? 'clock' : 'absolute';",
+    );
+    expect(SECTION).toContain('format={format}');
   });
 
   it('renders the absolute date outside Today for both row shapes', () => {
-    // A task goes through DueDateLabel -> dueLabel(..., showDate); an event
+    // A task goes through DueDateLabel -> dueLabel(..., format); an event
     // formats its own trailing label with the same helper.
-    expect(ROW).toContain('showDate={showDate}');
-    expect(META).toContain('dueLabel(task, zone, timeFormat, showDate)');
+    expect(ROW).toContain('format={format}');
+    expect(META).toContain('dueLabel(task, zone, timeFormat, format)');
     expect(EVENT_ROW).toContain('absoluteDayLabel(toDateOnly(event.startMs, zone), zone)');
-    expect(EVENT_ROW).toContain('showDate');
+    expect(EVENT_ROW).toContain('format');
   });
 
-  it('keeps Today as the one section that keeps a clock time', () => {
-    // The rule keys off the section id, not a per-screen flag, so adding a new
-    // non-Today section changes nothing here.
-    expect(SECTION).toContain("section.id !== 'today'");
+  it('keeps Today as the one section that keeps the relative day', () => {
+    // The rule keys off the section id, not a per-screen flag.
+    expect(SECTION).toContain("section.id === 'today' ? 'relative'");
+  });
+
+  it('gives Tomorrow the clock alone, in both row shapes', () => {
+    // The section header already names the day, so the row's trailing slot
+    // carries the time, the span, or "All day" — see `clockLabel`.
+    expect(SECTION).toContain("section.id === 'tomorrow' ? 'clock'");
+    expect(EVENT_ROW).toContain(
+      'clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs)',
+    );
   });
 });
 

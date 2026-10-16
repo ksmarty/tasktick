@@ -6,21 +6,43 @@
  * DOM (the repo runs vitest in node with no jsdom, so a `.tsx` module cannot be
  * imported there).
  *
- * The label has two shapes:
+ * The label has three shapes, chosen by the section the row is in:
  *
- *  - **Inside Today:** the relative day plus the clock time, e.g. `Today 17:00`.
- *    A time is what the user acts on when the row is due now.
- *  - **Anywhere else:** the absolute day, e.g. `Wed 30 Sep`. A time is noise
- *    under "Next 7 days" or "Later", where an event three weeks out reads the
- *    same as one tomorrow morning.
+ *  - **Inside Today** (`relative`): the relative day plus the clock time, e.g.
+ *    `Today 17:00`. The row is due now, so the time is what the user acts on.
+ *  - **Inside Tomorrow** (`clock`): the clock time alone — the span it occupies
+ *    when it has two, e.g. `09:00 – 10:00` — or `All day`. The section header has
+ *    already named the day, and repeating it in every row spends the row's one
+ *    trailing slot on the thing the header gave away. *When* is what is left.
+ *  - **Anywhere else** (`absolute`): the absolute day, e.g. `Tue Sep 30`. Under
+ *    "Next 7 days" or "Later" the day is the discriminator, and a clock time
+ *    three weeks out reads the same as one tomorrow morning.
  *
  * The tone is independent of the format, so an overdue date stays destructive
  * whichever shape it takes.
  */
-import { formatDayMonth, formatTime, fromDateOnly, isOverdue, relativeDayLabel, taskDay, todayIn } from '@/lib/dates';
-import type { DateOnly, Task } from '@/lib/types';
+import {
+  formatDayMonth,
+  formatTime,
+  fromDateOnly,
+  isOverdue,
+  relativeDayLabel,
+  taskDay,
+  todayIn,
+  type FormatPrefs,
+} from '@/lib/dates';
+import type { DateOnly, Millis, Task } from '@/lib/types';
 
 export type DueTone = 'danger' | 'tint' | 'secondary';
+
+/**
+ * Which shape the trailing label takes.
+ *
+ * Decided by the section, and derived in one place (`TaskListSection`) rather
+ * than passed in by each screen: a screen that forgot would silently show a
+ * date under a header that already says it.
+ */
+export type DueFormat = 'relative' | 'clock' | 'absolute';
 
 export interface DueLabel {
   label: string;
@@ -34,6 +56,47 @@ export type DueLabelTask = Pick<
   Task,
   'dueAtMs' | 'dueDate' | 'startAtMs' | 'startDate' | 'status' | 'isAllDay'
 >;
+
+/**
+ * `All day`, a clock time, or the span between two of them.
+ *
+ * The shape both row kinds share when their section has already named the day,
+ * which is why it is here rather than in either row: a task with a start and a
+ * due reads as a span exactly as an event does, one with only a due reads as a
+ * time, and anything with no clock time at all reads as `All day`.
+ *
+ * `joiner` is the visible en dash by default. The accessible name passes `to`,
+ * because a screen reader announces a dash as punctuation and "09:00 to 10:00"
+ * is what a person says — the same split `DayAgenda` makes.
+ */
+export function clockLabel(
+  item: { startMs: Millis | null; endMs: Millis | null; isAllDay: boolean },
+  prefs: FormatPrefs,
+  joiner = '–',
+): string {
+  if (item.isAllDay || item.startMs === null) return 'All day';
+  const start = formatTime(item.startMs, prefs);
+  // A zero-length item is a time, not a span of no length.
+  if (item.endMs === null || item.endMs <= item.startMs) return start;
+  return `${start} ${joiner} ${formatTime(item.endMs, prefs)}`;
+}
+
+/** The `clock` shape for a task: its own span, its due time, or `All day`. */
+export function taskClockLabel(
+  task: Pick<DueLabelTask, 'startAtMs' | 'dueAtMs' | 'isAllDay'>,
+  prefs: FormatPrefs,
+): string {
+  return clockLabel(
+    {
+      // A task's start is only meaningful next to its due date, so the pair is
+      // read as a span when both exist and as a single time otherwise.
+      startMs: task.startAtMs ?? task.dueAtMs,
+      endMs: task.startAtMs === null ? null : task.dueAtMs,
+      isAllDay: task.isAllDay,
+    },
+    prefs,
+  );
+}
 
 /**
  * The absolute day a row outside the Today section carries: `Tue Sep 30`.
@@ -50,30 +113,33 @@ export function absoluteDayLabel(day: DateOnly, zone: string): string {
 }
 
 /**
- * "Today 17:00", "Yesterday", "Thu 22 May" — plus the colour that tells the user
- * whether it is late, due now, or simply scheduled.
+ * "Today 17:00", "09:00 – 10:00", "Thu 22 May" — plus the colour that tells the
+ * user whether it is late, due now, or simply scheduled.
  *
- * `showDate` swaps the relative label for the absolute day; the caller passes it
- * for every section except Today (see `DueDateLabel`).
+ * `format` is the shape; see `DueFormat`. The caller passes it from the section
+ * it is rendering (`TaskListSection`).
  */
 export function dueLabel(
   task: DueLabelTask,
   zone: string,
   timeFormat: '12h' | '24h',
-  showDate = false,
+  format: DueFormat = 'relative',
 ): DueLabel | null {
   const day = taskDay(task, zone);
   if (!day) return null;
 
   const overdue = isOverdue(task, zone);
   const dueToday = !overdue && day === todayIn(zone);
+  const prefs: FormatPrefs = { zone, timeFormat, weekStartsOn: 0 };
   const withTime = task.dueAtMs !== null && !task.isAllDay;
-  const time = withTime
-    ? ` ${formatTime(task.dueAtMs as number, { zone, timeFormat, weekStartsOn: 0 })}`
-    : '';
 
   return {
-    label: showDate ? absoluteDayLabel(day, zone) : `${relativeDayLabel(day, zone)}${time}`,
+    label:
+      format === 'absolute'
+        ? absoluteDayLabel(day, zone)
+        : format === 'clock'
+          ? taskClockLabel(task, prefs)
+          : `${relativeDayLabel(day, zone)}${withTime ? ` ${formatTime(task.dueAtMs as number, prefs)}` : ''}`,
     tone: overdue ? 'danger' : dueToday ? 'tint' : 'secondary',
     day,
   };

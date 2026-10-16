@@ -44,7 +44,7 @@ import type { CalendarLookup } from '@/components/calendar/types';
 import { formatTime, toDateOnly } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { absoluteDayLabel } from './due-label';
+import { absoluteDayLabel, clockLabel, type DueFormat } from './due-label';
 import { CalendarGlyph } from './static-glyphs';
 
 /** A stable empty lookup, so an event with no calendars passed still paints. */
@@ -68,11 +68,10 @@ export interface EventRowProps {
   /** Rounds the bottom corner of the last row, so its strip follows the card. */
   last?: boolean;
   /**
-   * The row is outside the Today section, so its trailing label is the date
-   * rather than "All day" or a clock time. The section knows this; the row does
-   * not (see `TaskListSection`).
+   * Which shape the trailing label takes — see `DueFormat`. The section knows
+   * this; the row does not (see `TaskListSection`).
    */
-  showDate?: boolean;
+  format?: DueFormat;
   className?: string;
 }
 
@@ -85,17 +84,39 @@ export function EventRow({
   dark = false,
   first = false,
   last = false,
-  showDate = false,
+  format = 'relative',
   className,
 }: EventRowProps) {
-  const timeLabel = showDate
-    ? absoluteDayLabel(toDateOnly(event.startMs, zone), zone)
-    : event.isAllDay
-      ? 'All day'
-      : formatTime(event.startMs, { zone, timeFormat, weekStartsOn: 0 });
+  const prefs = { zone, timeFormat, weekStartsOn: 0 } as const;
+  /*
+   * The trailing label, in the shape the section asked for.
+   *
+   * `clock` is Tomorrow: the section header has already named the day, so what
+   * is left to say is *when* — the span the event occupies, or `All day`. The
+   * span is why the two row kinds do not share a label here: an event has a
+   * duration and a task has an instant.
+   */
+  const timeLabel =
+    format === 'absolute'
+      ? absoluteDayLabel(toDateOnly(event.startMs, zone), zone)
+      : format === 'clock'
+        ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs)
+        : event.isAllDay
+          ? 'All day'
+          : formatTime(event.startMs, prefs);
+
+  /*
+   * The accessible name says "09:00 to 10:00" where the row shows an en dash:
+   * a screen reader announces the dash as punctuation, and the spoken form is
+   * what a person would say. `DayAgenda` makes the same split.
+   */
+  const spokenTime =
+    format === 'clock'
+      ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, 'to')
+      : timeLabel;
 
   const accessibleName = [
-    timeLabel,
+    spokenTime,
     event.title,
     'event',
     event.location ? `at ${event.location}` : null,

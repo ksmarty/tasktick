@@ -142,6 +142,7 @@ import { EventRow } from './EventRow';
 import { TaskRow, type TaskRowDrag } from './TaskRow';
 import type { TaskSection } from './sections';
 import { sectionRows } from './sections';
+import type { DueFormat } from './due-label';
 import { GLASS_TINT } from './surface';
 
 interface DragState {
@@ -295,12 +296,16 @@ export function TaskListSection({
 
   const danger = section.tone === 'danger';
   /*
-   * Every row knows its section here and nowhere else. Today is the one group
-   * where a clock time is the useful thing; everywhere else the trailing label
-   * is the date, so the rows are told which they are. The rule is the section
-   * id, not a prop each screen has to remember to pass.
+   * Every row knows its section here and nowhere else, because this is the only
+   * component that holds the section id.
+   *
+   * The three shapes are `DueFormat`: Today keeps the relative day and the clock
+   * time, Tomorrow drops the day the header already named and keeps only *when*
+   * — the time, the span, or `All day` — and everything else carries the date,
+   * where a clock time three weeks out is noise. The rule is the section id, not
+   * a prop each screen has to remember to pass.
    */
-  const showDate = section.id !== 'today';
+  const format: DueFormat = section.id === 'today' ? 'relative' : section.id === 'tomorrow' ? 'clock' : 'absolute';
   const taskCount = section.tasks.length;
   const eventCount = section.events.length;
   /*
@@ -420,7 +425,7 @@ export function TaskListSection({
                         drag={dragPropsFor(row.task)}
                         first={index === 0}
                         last={index === rows.length - 1}
-                        showDate={showDate}
+                        format={format}
                       />
                     ) : (
                       <EventRow
@@ -433,7 +438,7 @@ export function TaskListSection({
                         dark={dark}
                         first={index === 0}
                         last={index === rows.length - 1}
-                        showDate={showDate}
+                        format={format}
                       />
                     ),
                   )}

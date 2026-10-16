@@ -21,6 +21,7 @@ export {
   type TaskMetaProps,
   type DueLabel,
   type DueTone,
+  type DueFormat,
 } from './TaskMeta';
 export { TaskEditorSheet, type TaskEditorSheetProps } from './TaskEditorSheet';
 export { ItemDetailSheet, type ItemDetailSheetProps } from './ItemDetailSheet';

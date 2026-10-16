@@ -52,13 +52,13 @@ import { accentHex } from '@/lib/colors';
 import type { Task } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { dueLabel, type DueTone } from './due-label';
+import { dueLabel, type DueFormat, type DueTone } from './due-label';
 
 // The label and its types were defined here before being split into a pure
 // module so they could be unit-tested in node; they stay importable from here so
 // the feature's public surface is unchanged.
 export { absoluteDayLabel, dueLabel } from './due-label';
-export type { DueLabel, DueTone } from './due-label';
+export type { DueFormat, DueLabel, DueTone } from './due-label';
 
 /** The one glyph size for the whole meta line. */
 const META_GLYPH = 'text-sm';
@@ -74,11 +74,11 @@ export interface DueDateLabelProps {
   zone: string;
   timeFormat: '12h' | '24h';
   /**
-   * Show the absolute date instead of the relative day + time. The row is told
-   * its section by `TaskListSection`; Today is the only one that keeps a clock
-   * time.
+   * Which shape the trailing label takes — see `DueFormat`. The row is told its
+   * section by `TaskListSection`; Today keeps the relative day and the clock
+   * time, Tomorrow the clock time alone, and everything else the date.
    */
-  showDate?: boolean;
+  format?: DueFormat;
   className?: string;
 }
 
@@ -103,8 +103,8 @@ export interface DueDateLabelProps {
  * puts both centres on the same pixel. It is a line-height, not a margin: the
  * box grows around the text and the baseline never moves.
  */
-export function DueDateLabel({ task, zone, timeFormat, showDate = false, className }: DueDateLabelProps) {
-  const due = dueLabel(task, zone, timeFormat, showDate);
+export function DueDateLabel({ task, zone, timeFormat, format = 'relative', className }: DueDateLabelProps) {
+  const due = dueLabel(task, zone, timeFormat, format);
   if (!due) return null;
 
   return (
