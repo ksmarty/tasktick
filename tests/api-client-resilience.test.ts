@@ -146,6 +146,32 @@ describe('a network already known to be unusable', () => {
   });
 });
 
+describe('a read that must come from the origin', () => {
+  it('carries the header the worker reads before answering from its own copy', async () => {
+    const fetchMock = jsonFetch({ ok: true, data: [{ id: 't1' }] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.get('/api/tasks', undefined, { fresh: true });
+
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({ 'X-TaskTick-Fresh': '1' });
+  });
+
+  it('leaves an ordinary read alone, so the cached answer it wants is kept', async () => {
+    // The header is opt-in: the service worker's copy is the right answer for a
+    // read that is not a revalidation, and asking for the origin on every read
+    // would put a network round trip in front of every screen.
+    const fetchMock = jsonFetch({ ok: true, data: [] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.get('/api/tasks');
+    await api.get('/api/tasks', { window: 'today' });
+
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1].headers).not.toHaveProperty('X-TaskTick-Fresh');
+    }
+  });
+});
+
 describe('what a response says about the network', () => {
   it('reads a thrown fetch as unreachable', async () => {
     vi.stubGlobal(

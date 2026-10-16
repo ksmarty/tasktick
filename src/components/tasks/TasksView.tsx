@@ -367,6 +367,15 @@ export function TasksView() {
    */
   const refreshCalendars = useMutation(() => api.post<CalendarRefreshResult>('/api/calendars/sync'), {
     invalidates: affectsFor('POST', '/api/calendars/sync'),
+    /*
+     * Refetch even when the sweep reports a failure. The POST is deliberately
+     * unbounded (a provider can legitimately take a minute), so a phone
+     * suspending the app mid-sweep aborts it and the caller sees an error —
+     * while the server may have pulled, pushed and stored everything before the
+     * response was lost. Without this, the one control a user reaches for when
+     * something is missing was also the one that left the screen stale.
+     */
+    invalidateOnError: true,
     onSuccess: (result) => {
       const report = calendarRefreshReport(result);
       toast({ title: report.title, description: report.description, variant: report.variant });

@@ -170,7 +170,7 @@ export function useResource<T>(
       let run!: Promise<void>;
       run = (async () => {
         try {
-          const data = await api.get<T>(key!, queryRef.current as never);
+          const data = await api.get<T>(key!, queryRef.current as never, { fresh: force });
           // Ignore a response that a newer request has already superseded.
           if (getEntry<T>(cacheKey).version === version) {
             if (pendingAffects(cacheKey)) {
@@ -236,13 +236,38 @@ export function useResource<T>(
     return registerLoader(cacheKey, (force) => load(force));
   }, [cacheKey, enabled, load]);
 
+  /*
+   * A screen that comes back to the foreground revalidates *forcibly*.
+   *
+   * This used to be an ordinary `load()`, which the `staleAfterMs` gate answered
+   * from memory whenever the data was under fifteen seconds old, and which the
+   * service worker answered from its own copy beyond that. Both are the same
+   * story from the user's seat: leave the app, add something (or let the server
+   * pull something in), come back, and the screen shows what it showed before.
+   * `load(true)` asks the origin and only falls back to the cached copy if the
+   * origin does not answer, so "the events eventually show up" becomes "the
+   * events are there".
+   *
+   * The other half of the same resume is `pageshow`: iOS restores a backgrounded
+   * web app from the back/forward cache, which fires `pageshow` with `persisted`
+   * set and need not fire `visibilitychange` at all. They are separate listeners
+   * because the events are unrelated — a bfcache restore arrives while the
+   * document is already visible.
+   */
   useEffect(() => {
     if (!revalidateOnFocus) return;
-    const onFocus = () => {
-      if (document.visibilityState === 'visible') void load();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load(true);
     };
-    document.addEventListener('visibilitychange', onFocus);
-    return () => document.removeEventListener('visibilitychange', onFocus);
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) void load(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onPageShow);
+    };
   }, [load, revalidateOnFocus]);
 
   useEffect(() => {
@@ -494,7 +519,27 @@ export interface MutationState {
  */
 export function useMutation<TArgs extends unknown[], TResult = unknown>(
   fn: (...args: TArgs) => Promise<TResult>,
-  options: { invalidates?: string[]; onSuccess?: (result: TResult, args: TArgs) => void; onError?: (message: string) => void } = {},
+  options: {
+    invalidates?: string[];
+    /**
+     * Drop and refetch even when the write failed.
+     *
+     * Off by default, because a rejected write changed nothing: refetching every
+     * read it would have touched is a burst of requests to be told what the
+     * screen already shows.
+     *
+     * It is right for a write whose failure does not mean nothing happened. A
+     * calendar sync is the case in point: the sweep is deliberately unbounded (a
+     * provider can legitimately take a minute), so a phone suspending the app
+     * mid-sweep aborts it and the caller sees a failure — while the server may
+     * have pulled, pushed and stored everything before the response was lost.
+     * The user's own "refresh calendars" button then reported a failure and left
+     * the stale month on screen, which is exactly the wrong pair of outcomes.
+     */
+    invalidateOnError?: boolean;
+    onSuccess?: (result: TResult, args: TArgs) => void;
+    onError?: (message: string) => void;
+  } = {},
 ) {
   const [isPending, setPending] = useState(false);
   const mounted = useRef(true);
@@ -516,6 +561,8 @@ export function useMutation<TArgs extends unknown[], TResult = unknown>(
         options.onSuccess?.(result, args);
         return result;
       } catch (error) {
+        const prefixes = options.invalidates ?? [];
+        if (options.invalidateOnError && prefixes.length > 0) await invalidate(prefixes);
         options.onError?.(errorMessage(error));
         return undefined;
       } finally {

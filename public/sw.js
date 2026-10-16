@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v44';
+const VERSION = 'tasktick-v45';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -188,6 +188,31 @@ const NAVIGATION_TIMEOUT_MS = 3000;
 
 /** Older entries are dropped once the API cache grows past this many reads. */
 const API_CACHE_MAX_ENTRIES = 120;
+
+/**
+ * The header that says "the origin's answer, or the copy I already had".
+ *
+ * The page sends it on a read it is making *because* something changed — a
+ * revalidation on resume, a refetch after a write. Those reads must not be
+ * answered from this cache: the copy here is the body from before the change,
+ * and handing it back is how a screen came back from an app switch showing the
+ * month it had before. The sender is `src/lib/api-client.ts`; see
+ * `FRESH_READ_HEADER` there.
+ */
+const FRESH_READ_HEADER = 'X-TaskTick-Fresh';
+
+/**
+ * Bumped whenever this session's cached reads are dropped.
+ *
+ * A read that started before the drop has a `fetch` in flight and stores its
+ * response when it lands — which is a body the page has already invalidated and
+ * is right now replacing. The cache is per-session and the entry would be
+ * overwritten by the refetch in the ordinary case, but a *later* read of a
+ * prefix nothing refetched would be served the superseded body. Capturing this
+ * number when the read starts and comparing it before storing is what makes a
+ * drop mean "nothing that began before me is stored".
+ */
+let apiEpoch = 0;
 
 /** The app shell: one HTML document that boots the client router offline. */
 const SHELL_URL = '/';
@@ -477,6 +502,12 @@ async function clearSessionScope() {
 async function invalidateSessionReads(prefixes) {
   const wanted = prefixes.filter((prefix) => typeof prefix === 'string' && prefix.startsWith(API_PREFIX));
   if (wanted.length === 0) return;
+
+  /*
+   * Bumped before the first `await`, so a read that is already in flight — and
+   * whose response is on its way back — is told that its body is superseded.
+   */
+  apiEpoch += 1;
 
   const scope = await readSessionScope();
   if (!scope) return;
@@ -774,6 +805,11 @@ function isRoutePayloadRequest(request, url) {
  *
  * The copy in (2) can only be trusted because a write invalidates it first — see
  * `invalidateSessionReads` and the `invalidate` message.
+ *
+ * One read opts out of (2): a revalidation carrying `FRESH_READ_HEADER` is a read
+ * the page is making *because* something changed, so it is answered from the
+ * network and only falls back to its own copy if the network does not answer.
+ * See that constant for why the page has to be able to say so.
  */
 async function sessionRead(request, event) {
   const scope = await readSessionScope();
@@ -819,10 +855,19 @@ async function sessionRead(request, event) {
    */
   const key = new Request(request.url, { method: 'GET' });
   const cached = await cache.match(key);
+  /** Whether this read insists on the origin's answer; see `FRESH_READ_HEADER`. */
+  const wantsFresh = request.headers.get(FRESH_READ_HEADER) === '1';
+  /** The cache generation this read belongs to; see `apiEpoch`. */
+  const epoch = apiEpoch;
 
   const network = fetch(request)
     .then((response) => {
-      if (isSessionReadCacheable(request, response)) {
+      /*
+       * An answer that a drop has already superseded is not stored. It is still
+       * returned to the caller that asked for it — the store discards a response
+       * a newer load has replaced — but the cache keeps the newer body.
+       */
+      if (isSessionReadCacheable(request, response) && epoch === apiEpoch) {
         /*
          * Off the response path, for the same reason as a navigation: the caller
          * must not wait for a disk write it did not ask for.
@@ -844,8 +889,12 @@ async function sessionRead(request, event) {
    *
    * `network` is started above and stores whatever it gets, so a connection that
    * returns mid-request still warms the entry.
+   *
+   * A read that asked for the origin's answer (`FRESH_READ_HEADER`) is the one
+   * exception: it skips this branch entirely and is answered below, from the
+   * network if the network answers at all.
    */
-  if (cached) {
+  if (cached && !wantsFresh) {
     if (typeof event.waitUntil === 'function') event.waitUntil(network);
     return cached;
   }
@@ -859,7 +908,13 @@ async function sessionRead(request, event) {
   const fresh = await Promise.race([network, delay(API_TIMEOUT_MS)]);
   if (fresh) return fresh;
   if (typeof event.waitUntil === 'function') event.waitUntil(network);
-  return offlineResponse();
+  /*
+   * A read that insisted on the origin still prefers an old copy of this
+   * session's own data to the machine-readable offline answer: it is the screen
+   * the user left, and the request that timed out is still running and will
+   * replace it. Only a read with nothing at all to fall back on gets the 503.
+   */
+  return cached ?? offlineResponse();
 }
 
 /**

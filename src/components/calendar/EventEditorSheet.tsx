@@ -47,7 +47,8 @@
  * surface. Failures that need the user's attention *inside* the form — a load
  * error, a bad range — are inline, next to the field that caused them.
  */
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { DateTime } from 'luxon';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
@@ -222,6 +223,23 @@ export function EventEditorSheet({
   const isEdit = Boolean(eventId);
   const ready = !isEdit || Boolean(existing);
 
+  /*
+   * The title field, and the one case that wants focus: a *new* event.
+   *
+   * Creating an event is typing a title and then filling in when — so the sheet
+   * opens with the caret already in the field the user is about to type into,
+   * and on a phone that means the keyboard is up before the first tap. Editing
+   * is the opposite: the form arrives filled in, and the user came to read or
+   * change one field, so stealing focus into the title would raise a keyboard
+   * over the very thing they opened it to look at. That asymmetry is why this is
+   * conditional rather than the sheet's default.
+   *
+   * It is a ref rather than `autoFocus` on the input because `EventForm` mounts
+   * through a portal and its own layout effect is the synchronous path; see the
+   * focus effect in `EventForm` and `CalendarScreen.createAt`.
+   */
+  const titleRef = useRef<HTMLInputElement>(null);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -238,16 +256,25 @@ export function EventEditorSheet({
         className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0 sm:max-w-lg"
         aria-labelledby="event-editor-title"
         /*
-         * No autofocus on the title. Radix would focus the first focusable
-         * control — the title input — so opening the editor to *read* or change
-         * one field immediately put the caret in the title and, on iOS, raised
-         * the keyboard. The tasks quick-add sheet owns the deliberately
-         * synchronous focus it needs for the keyboard (see `QuickAddBar`); this
-         * sheet does not, so it starts without stealing focus. Keyboard users
-         * still reach the form on the first Tab. Same rule as
-         * `TaskEditorSheet`.
+         * No autofocus on the title when editing. Radix would focus the first
+         * focusable control — the title input — so opening the editor to *read*
+         * or change one field immediately put the caret in the title and, on
+         * iOS, raised the keyboard. Keyboard users still reach the form on the
+         * first Tab. Same rule as `TaskEditorSheet`.
+         *
+         * Creating is the exception, and it focuses deliberately: the caret goes
+         * into the title, in this same handler, so the keyboard is up with the
+         * sheet. This is the second of two paths — `EventForm`'s layout effect
+         * runs first, inside the tap's own task (see `CalendarScreen.createAt`),
+         * and this one re-asserts the focus after Radix's own autofocus would
+         * have run, which is what recovers it when the sheet was opened by
+         * closing another dialog and that dialog's focus restore fired in
+         * between.
          */
-        onOpenAutoFocus={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          if (!isEdit) titleRef.current?.focus({ preventScroll: true });
+        }}
         /*
          * The close control is the dialog's own (`DialogClose`), not the
          * primitive's default, because that one is a bare 16px glyph in a 16px
@@ -304,6 +331,7 @@ export function EventEditorSheet({
             prefs={prefs}
             filter={filter}
             readOnly={readOnly}
+            titleRef={titleRef}
             onClose={() => onOpenChange(false)}
             onChanged={onChanged}
             onEditCreated={onEditCreated}
@@ -384,6 +412,7 @@ function EventForm({
   prefs,
   filter,
   readOnly,
+  titleRef,
   onClose,
   onChanged,
   onEditCreated,
@@ -394,6 +423,8 @@ function EventForm({
   prefs: CalendarPrefs;
   filter: CalendarFilter | null;
   readOnly: boolean;
+  /** The title field, focused here when this form is a new event. */
+  titleRef: RefObject<HTMLInputElement | null>;
   onClose: () => void;
   onChanged: () => void;
   onEditCreated?: (event: CalendarEvent) => void;
@@ -404,6 +435,26 @@ function EventForm({
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [customReminderOpen, setCustomReminderOpen] = useState(false);
+
+  /*
+   * A new event puts the caret in the title, in the commit that mounted it.
+   *
+   * A *layout* effect, not a passive one, and that distinction is the whole
+   * point: iOS raises the keyboard only when `focus()` runs in the task that
+   * handled the tap, and a passive effect is flushed after the browser has had
+   * its chance to paint — a frame later, in another task, where the gesture is
+   * spent and the keyboard never appears. The caller flushes this commit inside
+   * the tap (`CalendarScreen.createAt`), so the focus still belongs to the
+   * gesture. `EventEditorSheet` re-asserts the same focus in `onOpenAutoFocus`;
+   * see the note there.
+   *
+   * Nothing focuses on the edit path — the form arrives filled in and the user
+   * came to read it.
+   */
+  useLayoutEffect(() => {
+    if (event || readOnly) return;
+    titleRef.current?.focus({ preventScroll: true });
+  }, [event, readOnly, titleRef]);
 
   const patch = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
 
@@ -548,6 +599,7 @@ function EventForm({
       */}
       <div className="flex min-h-0 flex-1 flex-col gap-card overflow-y-auto px-card py-card">
         <Input
+          ref={titleRef}
           aria-label="Title"
           placeholder="Title"
           value={draft.title}

@@ -533,6 +533,87 @@ describe('/api/** reads are cache-first with a per-session cache', () => {
     channel.port1.close();
   });
 
+  it('does not answer a read that asks for the origin from this cache', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/calendar/items?start=1`, () => json('["stale"]'));
+
+    // The page is revalidating *because* something changed — on resume, or after
+    // a write. The copy here is the body from before that change, so it must not
+    // be the answer; the fresh one has to come off the wire.
+    const response = await harness.get(`${ORIGIN}/api/calendar/items?start=1`, () => json('["fresh"]'), {
+      headers: { 'X-TaskTick-Fresh': '1' },
+    });
+    expect(response?.body).toBe('["fresh"]');
+  });
+
+  it('refreshes its own copy from a fresh read, so the next ordinary read is current', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    await harness.get(`${ORIGIN}/api/tasks`, () => json('["stale"]'));
+
+    await harness.get(`${ORIGIN}/api/tasks`, () => json('["fresh"]'), {
+      headers: { 'X-TaskTick-Fresh': '1' },
+    });
+
+    expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/api/tasks`)?.body).toBe('["fresh"]');
+  });
+
+  it('falls back to its own copy when a fresh read gets no answer in time', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = createHarness();
+      await announce(harness, 's1');
+      await harness.get(`${ORIGIN}/api/tasks`, () => json('["cached"]'));
+
+      // A link that hangs rather than refuses. The screen that resumed wants the
+      // origin, but an old copy of its own data beats an offline error, and the
+      // request that timed out is still running and will replace it.
+      const pending = harness.get(`${ORIGIN}/api/tasks`, () => new Promise<FakeResponse>(() => undefined) as never, {
+        headers: { 'X-TaskTick-Fresh': '1' },
+        awaitWaits: false,
+      });
+      await vi.advanceTimersByTimeAsync(API_TIMEOUT_MS + 1);
+      const response = await pending;
+      expect(response?.status).toBe(200);
+      expect(response?.body).toBe('["cached"]');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still answers a fresh read with the offline response when it has nothing', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+    const response = await harness.get(`${ORIGIN}/api/tasks`, () => new Error('offline'), {
+      headers: { 'X-TaskTick-Fresh': '1' },
+    });
+    expect(response?.status).toBe(503);
+  });
+
+  it('does not store a read that began before an invalidation', async () => {
+    const harness = createHarness();
+    await announce(harness, 's1');
+
+    let release!: (response: FakeResponse) => void;
+    const inFlight = new Promise<FakeResponse>((resolve) => {
+      release = resolve;
+    });
+    const pending = harness.get(`${ORIGIN}/api/tasks`, () => inFlight as never, { awaitWaits: false });
+
+    // Wait until the worker has actually issued the request — it captures its
+    // cache generation on the way in, so from here its body is pre-invalidation.
+    await vi.waitFor(() => expect(harness.fetchCalls).toContain(`GET ${ORIGIN}/api/tasks`));
+
+    await harness.message({ type: 'invalidate', prefixes: ['/api/tasks'] });
+    release(json('["pre-write"]'));
+    await pending;
+
+    // Storing it would put a superseded body back for the next read of a prefix
+    // the refetch did not happen to cover.
+    expect(harness.caches.get(API_CACHE)?.get(`${ORIGIN}/api/tasks`)).toBeUndefined();
+  });
+
   it('keeps the hard ceilings bounded for reads with nothing cached', () => {
     // A read with nothing cached still needs a ceiling, but it should not be an
     // open-ended one; six seconds was the reported "~5 seconds".

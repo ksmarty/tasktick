@@ -96,6 +96,31 @@ function buildUrl(path: string, query?: Query): string {
 const QUEUEABLE_TIMEOUT_MS = 3000;
 
 /**
+ * Marks a read as "the origin's answer, or nothing".
+ *
+ * The service worker answers a `/api/**` read from this session's own copy the
+ * moment it has one, and refreshes that copy in the background (see
+ * `sessionRead` in `public/sw.js`). That is the right trade for a screen
+ * painting on a bad link, and the wrong one for a read the app makes *because*
+ * something changed: it hands back the body from before the change, and the
+ * fresher one the worker fetched alongside it lands in the cache for the *next*
+ * read. A screen that resumes and revalidates then renders pre-write data and
+ * only catches up one read later — "I added it, switched apps, came back, and it
+ * was not there until later".
+ *
+ * So a forced revalidation says so, in a header the worker can see before it
+ * decides. `X-` keeps it a non-simple header, which means a cross-origin request
+ * would need a preflight — irrelevant here, since the API is same-origin only,
+ * and a useful property anywhere else.
+ */
+export const FRESH_READ_HEADER = 'X-TaskTick-Fresh';
+
+/** Headers for a read that must not be answered from the worker's copy. */
+export function freshReadHeaders(fresh: boolean): Record<string, string> | undefined {
+  return fresh ? { [FRESH_READ_HEADER]: '1' } : undefined;
+}
+
+/**
  * One request, no queueing. `sendNow` is the same thing exported, and is what the
  * offline queue replays through — a replayed write must not be able to re-enter
  * the queue that is currently draining.
@@ -240,7 +265,7 @@ async function queueFailedWrite(method: HttpMethod, path: string, body: unknown,
   return queueWrite(method, path, body);
 }
 
-async function request<T>(method: HttpMethod, path: string, body?: unknown, query?: Query): Promise<T> {
+async function request<T>(method: HttpMethod, path: string, body?: unknown, query?: Query, headers?: Record<string, string>): Promise<T> {
   const url = buildUrl(path, query);
 
   /*
@@ -265,7 +290,7 @@ async function request<T>(method: HttpMethod, path: string, body?: unknown, quer
   }
 
   try {
-    return await transport<T>(method, url, body);
+    return await transport<T>(method, url, body, headers);
   } catch (error) {
     const queued = await queueFailedWrite(method, url, body, error);
     if (queued !== undefined) return queued as T;
@@ -274,7 +299,14 @@ async function request<T>(method: HttpMethod, path: string, body?: unknown, quer
 }
 
 export const api = {
-  get: <T>(path: string, query?: Query) => request<T>('GET', path, undefined, query),
+  /**
+   * `options.fresh` asks for the origin's answer rather than the service
+   * worker's copy of it — see `FRESH_READ_HEADER`. It is what a revalidation the
+   * app chose to make passes, and only that: an ordinary read keeps the cached
+   * answer it wants.
+   */
+  get: <T>(path: string, query?: Query, options?: { fresh?: boolean }) =>
+    request<T>('GET', path, undefined, query, freshReadHeaders(options?.fresh === true)),
   post: <T>(path: string, body?: unknown, query?: Query) => request<T>('POST', path, body, query),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),

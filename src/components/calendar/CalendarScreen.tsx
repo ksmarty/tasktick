@@ -64,6 +64,7 @@
  */
 import { usePrimaryAction } from '@/lib/events';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { useShellPane } from '@/components/app/ShellPane';
@@ -552,17 +553,29 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
         calendars.find((calendar) => calendar.isDefault && !calendar.readOnly)?.id ??
         calendars.find((calendar) => !calendar.readOnly)?.id ??
         null;
-      setDaySheetDate(null);
-      setEditor({
-        open: true,
-        eventId: null,
-        readOnly: false,
-        defaults: {
-          date,
-          startMinute,
-          endMinute: Math.min(startMinute + 60, 24 * 60),
-          calendarId: defaultCalendarId,
-        },
+      /*
+       * Both state changes are flushed synchronously, inside the gesture.
+       *
+       * Creating an event focuses its title (see `EventEditorSheet`), and iOS
+       * raises the keyboard only when `focus()` runs in the task that handled
+       * the tap — the field has to be in the DOM before this handler returns,
+       * which is what `flushSync` guarantees. It also closes the day sheet in
+       * the same commit, so its focus restore cannot land after the editor has
+       * already taken the caret.
+       */
+      flushSync(() => {
+        setDaySheetDate(null);
+        setEditor({
+          open: true,
+          eventId: null,
+          readOnly: false,
+          defaults: {
+            date,
+            startMinute,
+            endMinute: Math.min(startMinute + 60, 24 * 60),
+            calendarId: defaultCalendarId,
+          },
+        });
       });
     },
     [filterCalendar, calendars],
