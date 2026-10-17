@@ -1,6 +1,6 @@
 /**
  * `compactTimes` — a whole hour's minutes dropped from the times on the task
- * list — and the five-minute step every time picker takes.
+ * list — and the five-minute choices every time picker offers.
  *
  * Both are small, and both are the kind of thing that decays quietly: a label
  * that stops compacting still renders, and a picker that steps by a minute still
@@ -38,6 +38,7 @@ const EVENT_EDITOR = source('src/components/calendar/EventEditorSheet.tsx');
 const TASK_EDITOR = source('src/components/tasks/TaskEditorSheet.tsx');
 const MATRIX_SHEET = source('src/app/(app)/matrix/MatrixTaskSheet.tsx');
 const HABIT_EDITOR = source('src/components/habits/HabitEditorSheet.tsx');
+const PICKER = source('src/components/time/TimeField.tsx');
 
 /** Every `.sql` migration in a dialect's directory, concatenated. */
 const migrations = (dialect: 'sqlite' | 'pg'): string =>
@@ -226,16 +227,36 @@ describe('the rows are told the setting, and default to on', () => {
   });
 });
 
-describe('every time picker steps by five minutes', () => {
-  it('is one constant, so the four sheets cannot disagree', () => {
+describe('every time picker offers five minutes', () => {
+  it('is one constant, so the control and the labels cannot disagree', () => {
     expect(TIME_INPUT_STEP_SECONDS).toBe(300);
     expect(DATES).toContain('export const TIME_INPUT_STEP_SECONDS = 300;');
   });
 
-  it('is used by the event, task, matrix and habit sheets', () => {
+  it('builds its minutes from that constant rather than asking the browser to step', () => {
+    // `step` on `<input type="time">` is the right HTML and it works on Chrome,
+    // Android and the desktop — but Safari on iOS does not implement `step` on a
+    // time input at all, so the native minute wheel lists all sixty minutes
+    // whatever the attribute says. The choices have to come from the control,
+    // which is what `TimeField` is.
+    expect(PICKER).toContain('const STEP_MINUTES = TIME_INPUT_STEP_SECONDS / 60;');
+    expect(PICKER).toContain('const GRID_MINUTES = Array.from({ length: 60 / STEP_MINUTES }, (_, index) => index * STEP_MINUTES);');
     for (const sheet of [EVENT_EDITOR, TASK_EDITOR, MATRIX_SHEET, HABIT_EDITOR]) {
-      expect(sheet).toContain('step={TIME_INPUT_STEP_SECONDS}');
+      expect(sheet).not.toContain('step={TIME_INPUT_STEP_SECONDS}');
+      expect(sheet).toContain('TimePicker');
     }
+  });
+
+  it('keeps a minute that is off the grid, so opening an editor never rewrites a time', () => {
+    // An event made before this control existed, or synced from another
+    // calendar, can sit on any minute; it stays selectable instead of being
+    // silently rounded to the nearest five.
+    expect(PICKER).toContain('!GRID_MINUTES.includes(current)');
+  });
+
+  it('emits `HH:mm`, the string every caller already converted', () => {
+    expect(PICKER).toContain("onChange(`${next}:${minute === '' ? '00' : minute}`)");
+    expect(PICKER).toContain('onChange(`${hour}:${next}`)');
   });
 
   it('is no longer the quarter hour the event editor alone used', () => {

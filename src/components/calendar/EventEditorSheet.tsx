@@ -73,6 +73,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TimeField as TimePicker } from '@/components/time/TimeField';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
@@ -81,7 +82,6 @@ import { api, errorMessage } from '@/lib/api-client';
 import {
   addDaysToDateOnly,
   combineDateAndTime,
-  TIME_INPUT_STEP_SECONDS,
   timeIn,
   toDateOnly,
   todayIn,
@@ -1064,17 +1064,18 @@ function DateField({
 }
 
 /**
- * A wall-clock `HH:mm`, from a native time input.
+ * A wall-clock `HH:mm`, from the shared five-minute picker.
  *
- * The input is **bounded**, not full-width. A native time field is one short
- * value plus a picker glyph; stretched across the form (`w-full`, which is what
- * it was) it read as an over-long empty box with its glyph jammed against the
- * form's edge — and on a narrow phone the native control's own intrinsic width
- * could push past that edge. `w-36` keeps the two time columns identical and
- * still clears the control's content need, while leaving the date to its left
- * enough room for `ccc LLL d yyyy` on a 390px phone. The wrapper's `min-w-0`
- * means the column can always shrink it rather than letting a grid track
- * overflow.
+ * This used to be a native `<input type="time">` carrying `step={300}`. That is
+ * the right HTML and it works on Chrome, Android and the desktop — but Safari
+ * on iOS does not implement `step` on a time input at all, so on the device this
+ * app is mostly used from the minute wheel still listed all sixty minutes.
+ * `TimeField` supplies the five-minute choices itself.
+ *
+ * The field is **bounded**, not full-width: two selects and their gap come to
+ * 9.25rem, which still leaves the date to their left room for `ccc LLL d yyyy`
+ * on a 390px phone. The wrapper's `min-w-0` means the column can always shrink
+ * it rather than letting a grid track overflow.
  */
 function TimeField({
   id,
@@ -1090,18 +1091,11 @@ function TimeField({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <Label htmlFor={id}>{label}</Label>
-      <Input
+      <TimePicker
         id={id}
-        type="time"
-        /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
-        step={TIME_INPUT_STEP_SECONDS}
+        ariaLabel={label}
         value={value}
-        onChange={(input) => {
-          // A cleared field must not write an empty time; the draft keeps the
-          // last good value instead.
-          if (input.target.value) onChange(input.target.value);
-        }}
-        className="w-36"
+        onChange={(next) => onChange(next as TimeOnly)}
       />
     </div>
   );

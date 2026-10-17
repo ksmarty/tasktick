@@ -535,21 +535,20 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)');
   });
 
-  it('names the time fields with an in-field label and keeps the date on the same scale', () => {
-    // The start and end time inputs and the date button are all `h-9`, i.e.
-    // 36.0px, and sit in one `5fr 4fr 4fr` grid, so the three read as one row
-    // while the date gets a quarter more room than a time field — the times are
-    // narrower, the date correspondingly wider, and a long date label is no
-    // longer ellipsised. A native time input ignores `placeholder`, so the
-    // field's name is an overlay label shown while it is empty, not an attribute
-    // nothing renders. The date button keeps the inputs' own `text-base
-    // md:text-sm` scale.
-    expect(EDITOR).toContain('type="time"');
-    expect(EDITOR).toContain('aria-label={`${label} time`}');
-    expect(EDITOR).toContain('{label}');
-    expect(EDITOR).not.toContain('placeholder="Start"');
-    expect(EDITOR).not.toContain('placeholder="End"');
-    expect(EDITOR).toContain('grid grid-cols-[5fr_4fr_4fr] items-center gap-1');
+  it('gives the two time fields the five-minute picker, under the date on its own line', () => {
+    // The start and end times used to be native `input[type=time]` — narrow
+    // controls, three of them to one `5fr 4fr 4fr` line. The five-minute picker
+    // is two selects per field, which does not fit that line, so the schedule is
+    // the date on one line and the two times on the next. The field's name is
+    // now the hour half's real placeholder — a native time input ignores
+    // `placeholder`, which is why it used to be drawn over the control instead.
+    // The date button keeps the inputs' own `text-base md:text-sm` scale.
+    expect(EDITOR).not.toContain('type="time"');
+    expect(EDITOR).toContain('ariaLabel={`${label} time`}');
+    expect(EDITOR).toContain('placeholder={label}');
+    expect(EDITOR).not.toContain('grid grid-cols-[5fr_4fr_4fr] items-center gap-1');
+    expect(EDITOR).toContain('<div className="flex flex-col gap-1">');
+    expect(EDITOR).toContain('<div className="grid grid-cols-2 gap-1">');
     expect(EDITOR).toContain('justify-start text-base md:text-sm');
   });
 
@@ -581,16 +580,12 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('rounded-md px-3 py-2 text-left text-sm');
     // The transparent frame that makes a borderless button match a bordered input.
     expect(EDITOR).toContain('border border-transparent');
-    // The date button carries `pl-3` and the time inputs `pl-2`, both not the
-    // old `px-2`: the native time control adds 2.5px of leading of its own, so
-    // `pl-2` lands the value nearer the 29.0px axis than `pl-3` did, and the
-    // narrowed time column needs the 4px.
+    // The date button carries `pl-3`, not the old `px-2`. The time halves are
+    // selects now and carry the vendored trigger's own chrome, so they are not
+    // on the text axis by padding at all.
     expect(EDITOR).toContain('gap-1 pl-3 pr-6 justify-start text-base md:text-sm');
-    expect(EDITOR).toContain('border-0 bg-transparent pl-2 pr-6 text-base outline-none md:text-sm');
     expect(EDITOR).not.toContain('items-center gap-2 px-2 justify-start');
     expect(EDITOR).not.toContain('bg-transparent px-2 text-base outline-none');
-    // The overlay label of the empty time fields sits on the same axis.
-    expect(EDITOR).toContain('absolute inset-y-0 left-3 flex items-center');
     expect(EDITOR).toContain('<h3 className="px-3 text-sm font-medium border border-transparent">Subtasks</h3>');
     const subtasks = source('SubTaskList.tsx');
     expect(subtasks).toContain('pr-1 pl-3');
@@ -614,9 +609,10 @@ describe('the converted screens', () => {
       "'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full'",
     );
     // Both field shapes carry it — the date button with its own `pl-3`, the two
-    // time inputs through the shared `TimeField` — so neither can reach its cross.
+    // time fields on the wrapper that holds the picker — so neither can reach
+    // its cross.
     expect(EDITOR.match(/pl-3 pr-6/g)?.length).toBe(1);
-    expect(EDITOR.match(/pl-2 pr-6/g)?.length).toBe(1);
+    expect(EDITOR).toContain('relative flex min-w-0 items-center gap-1 pr-6');
   });
 
   it('moves Delete to the bottom of the form and puts Cancel in the footer', () => {

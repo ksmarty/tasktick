@@ -45,11 +45,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
 import { SegmentedControl } from '@/components/godui/segmented-control';
+import { TimeField as TimePicker } from '@/components/time/TimeField';
 import { useToast } from '@/components/app/Toast';
 import { api } from '@/lib/api-client';
 import { TASK_WRITE_PREFIXES } from '@/components/tasks/useTaskActions';
 import { useMediaQuery, useMutation } from '@/lib/store';
-import { TIME_INPUT_STEP_SECONDS, timeIn } from '@/lib/dates';
+import { timeIn } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { CompleteTaskPayload } from '@/lib/view-types';
 import type { DateOnly, Priority, Task, TimeOnly } from '@/lib/types';
@@ -312,15 +313,12 @@ export function MatrixTaskSheet({ task, onOpenChange, zone, onChanged }: MatrixT
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="matrix-task-due-time">Due time</Label>
-              <Input
+              <TimePicker
                 id="matrix-task-due-time"
-                aria-label="Due time"
-                type="time"
-                /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
-                step={TIME_INPUT_STEP_SECONDS}
+                ariaLabel="Due time"
                 value={dueTime ?? ''}
                 disabled={!dueDate}
-                onChange={(event) => setDueTime(event.target.value || null)}
+                onChange={(next) => setDueTime(next === '' ? null : next)}
               />
             </div>
 

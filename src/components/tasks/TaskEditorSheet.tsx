@@ -32,22 +32,19 @@
  * already groups its own work by urgency and the Today screen already has Today
  * and Tomorrow sections, so list sections would have been a duplicate.)
  *
- * The due time is a native `<input type="time">` that stores `HH:mm`: a native
- * control renders in the user's own 12h/24h convention and emits `HH:mm` either
- * way, so the `timeFormat` setting has nothing to do here. A native time field
- * ignores `placeholder` — iOS and desktop Chrome both render no placeholder text
- * for it — so the field that names which half of the range it is carries a real
- * overlay label shown while it is empty, not a dead attribute (see `TimeField`).
+ * The due time is the shared five-minute picker (`TimeField`), which stores
+ * `HH:mm` and labels its hour half from the user's own 12h/24h convention, so
+ * the `timeFormat` setting has nothing to do here. It is two selects rather than
+ * a native time input because Safari on iOS does not implement `step` on one:
+ * the native minute wheel lists all sixty minutes there whatever the attribute
+ * says, so the five-minute choices have to come from the control. The field's name is the hour half's real placeholder — a native time
+ * input ignores `placeholder`, which is why the label used to be drawn over the
+ * control instead.
+ *
  * All three fields are `h-9` with the same type scale — 16px on a phone, 14px
- * from `md` up — and share one grid sized `5fr 4fr 4fr`: the date column is a
- * quarter wider than each time column. Equal thirds gave the date no more room
- * than a native time field, and a time field never needs a full third — its
- * value is at most `07:30 AM`. The narrower time column has to keep that value
- * whole, so the two time inputs carry `pl-2` (their text still lands within
- * 1.5px of the date glyph's axis, because the native control adds 2.5px of its
- * own leading) and the date's glyph sits 4px from its label rather than 8px.
- * Measured at 390px: date 134.6, times 107.7 each, with the whole of
- * "Sat 10 Oct" and the whole of "07:30 AM" inside them.
+ * from `md` up — but the schedule is two lines: the date, then the two times
+ * side by side. Two selects per field do not fit the one line three native
+ * controls used to share.
  *
  * ## The clear control, and the room it needs
  *
@@ -102,14 +99,10 @@
  * every row below carries a 1px transparent border beside its `px-3`, which
  * lifts its content from 28.0 to 29.0. One axis, 29.0px, for all of them.
  *
- * The schedule row keeps that axis with one measured qualification, because the
- * date column now needs the room: the date glyph still starts at 29.0px, its
- * label at 49.0px (`gap-1` where there used to be 8px of gap), and the time
- * fields' text at 27.5px — `pl-2` plus the 2.5px of leading the native time
- * control adds of its own. That is 1.5px off the axis; the old `pl-3` put the
- * same glyphs at 31.5px, 2.5px off it, because that native leading was never
- * part of the `pl-3` = 29.0px arithmetic. So the narrowed time fields are nearer
- * the one axis than the wide ones were, not further from it.
+ * The date keeps that axis: its glyph starts at 29.0px and its label at 49.0px
+ * (`gap-1` where there used to be 8px of gap). The two time halves below it are
+ * selects, so they carry the trigger's own chrome and are not placed on the text
+ * axis by padding at all.
  *
  * The transparent border is the whole trick: an input draws its 1px frame inside
  * the box, a button does not, so the rows would otherwise be a pixel out. A
@@ -174,6 +167,7 @@ import { addDaysToDateOnly, humanDuration, relativeDayLabel, TIME_INPUT_STEP_SEC
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useMediaQuery, useResource } from '@/lib/store';
 import type { DateOnly, Task } from '@/lib/types';
+import { TimeField as TimePicker } from '@/components/time/TimeField';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { ListPicker } from './ListPicker';
@@ -347,17 +341,20 @@ function ClearFieldButton({ label, onClick }: { label: string; onClick: () => vo
 }
 
 /**
- * One half of the time range: a native `input[type=time]` in the same field
- * chrome the date button uses.
+ * One half of the time range: the shared five-minute picker, plus the clear
+ * control.
  *
- * A native time input ignores `placeholder` — on iOS and desktop Chrome the
- * attribute is not rendered at all — so an empty half would read as a bare
- * "--:--", identical for both halves. The label is therefore a real overlay:
- * while the field is empty, and not focused, the native text is made transparent
- * and the label shows in its place. Focus (and a set value) restores the native
- * text, so a typist is never typing into hidden segments. The same field carries
- * the clear control, so every value the schedule row can hold has one obvious
- * way out.
+ * It used to be a native `input[type=time]` in the date button's field chrome,
+ * with the label drawn over the control's own empty glyph — a native time input
+ * ignores `placeholder`, so an empty half would otherwise have read as a bare
+ * "--:--", identical for both halves. The picker has real placeholders, so the
+ * overlay is gone and the label simply becomes the hour half's placeholder.
+ *
+ * It was also the reason the schedule row was `5fr 4fr 4fr`: a native time
+ * control is narrow, and three of them fit one line. Two selects per half do
+ * not, so the row is now the date on its own line with the two times under it.
+ * The cross stays: `pr-6` reserves its 20px plus a 4px gap, which is why the
+ * picker never sits under it.
  */
 function TimeField({
   label,
@@ -366,54 +363,23 @@ function TimeField({
   onChange,
   onClear,
 }: {
-  /** Overlay text and the accessible name's first word, e.g. "Start". */
+  /** Placeholder and the accessible name's first word, e.g. "Start". */
   label: string;
   value: string;
   disabled?: boolean;
   onChange: (value: string) => void;
   onClear: () => void;
 }) {
-  const [focused, setFocused] = useState(false);
-  const empty = value === '';
-
   return (
-    <div className="relative flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30">
-      <input
-        type="time"
-        aria-label={`${label} time`}
-        /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
-        step={TIME_INPUT_STEP_SECONDS}
+    <div className="relative flex min-w-0 items-center gap-1 pr-6">
+      <TimePicker
+        ariaLabel={`${label} time`}
+        placeholder={label}
         value={value}
         disabled={disabled}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        onChange={(event) => onChange(event.target.value)}
-        className={cn(
-          // `pl-2`: the field's value sits on the editor's one axis — 16px
-          // gutter + 1px border + 8px, plus the 2.5px of leading the native
-          // time control adds of its own, lands the glyphs at 27.5px against the
-          // 29.0px axis every other row uses. The wider `pl-3` the date button
-          // keeps would put them at 31.5px, further *off* that axis, and this
-          // row cannot spare the 4px. `pr-6`: 20px of clear control plus a 4px
-          // gap, so a 12-hour value can never run under the cross.
-          'h-full min-w-0 flex-1 border-0 bg-transparent pl-2 pr-6 text-base outline-none md:text-sm',
-          'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-          // The native control's own empty glyph is not a placeholder; hiding it
-          // is what lets the overlay label read as one. The desktop clock glyph
-          // goes too, so the value clears the clear control's corner.
-          '[&::-webkit-calendar-picker-indicator]:hidden',
-          empty && !focused && 'text-transparent',
-        )}
+        onChange={onChange}
       />
-      {empty && !focused ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted-foreground md:text-sm"
-        >
-          {label}
-        </span>
-      ) : null}
-      {!empty ? (
+      {value !== '' ? (
         <ClearFieldButton label={`Clear ${label.toLowerCase()} time`} onClick={onClear} />
       ) : null}
     </div>
@@ -744,30 +710,21 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
              * so the two controls cannot disagree. The end field is available only
              * once there is a start; an end with no beginning is not a range.
              *
-             * The three fields share one grid sized `5fr 4fr 4fr`, so the date
-             * takes a quarter more than a time field does. Equal thirds made the
-             * date the same width as the times beside it — and a native time
-             * input needs less than a date label does, so `Sat 10 Oct`
-             * ellipsised while the two time fields sat in room they never use.
-             * The times are narrower and the date correspondingly wider, and
-             * neither is a fixed width: the ratio holds at every viewport.
+             * The three fields used to share one grid sized `5fr 4fr 4fr`. Two
+             * selects per time field need far more room than the native time
+             * controls did — 116px of trigger against 107.7px for the whole old
+             * field — so the schedule is now the date on one line and the two
+             * times under it, each taking half. The date keeps its own
+             * `justify-start text-base md:text-sm` scale, and its glyph sits 4px
+             * from its label (`gap-1`) instead of 8px.
              *
-             * Narrower times only work if the value inside them still fits, and
-             * a 12-hour one is `07:30 AM` — 70px of glyphs in a field that also
-             * reserves 20px for its clear control. So the two inputs give up 4px
-             * of leading air (`pl-2`) rather than any of the value's room, and
-             * the date's glyph sits 4px from its label (`gap-1`) instead of 8px.
-             * Measured at 390px: date 134.6px, times 107.7px each; the value's
-             * glyphs end 82.7px into a time field whose value box ends at
-             * 82.7px, and `Sat 10 Oct` fits its 76.6px label box whole.
-             *
-             * The time fields are native `input[type=time]`, so they render in the
-             * user's own 12h/24h convention and emit `HH:mm` either way. Each
-             * carries an overlaid label and a clear control (see `TimeField`); the
-             * date has its own clear control inside the field as well as the
-             * calendar popover's Clear.
+             * The time fields are the shared five-minute picker, which labels its
+             * hour half from the user's own 12h/24h convention and emits `HH:mm`
+             * either way. Each carries a clear control (see `TimeField`); the date
+             * has its own clear control inside the field as well as the calendar
+             * popover's Clear.
              */}
-            <div className="grid grid-cols-[5fr_4fr_4fr] items-center gap-1">
+            <div className="flex flex-col gap-1">
               <div className="relative flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30">
                 <Popover open={dateOpen} onOpenChange={setDateOpen}>
                   <PopoverTrigger asChild>
@@ -852,34 +809,36 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 ) : null}
               </div>
 
-              <TimeField
-                label="Start"
-                value={dueTime ?? ''}
-                disabled={disabled || !dueDate}
-                onChange={(value) => {
-                  if (!value) {
-                    edit({ dueTime: null, clearDue: false });
-                    return;
-                  }
-                  edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
-                }}
-                onClear={() => edit({ dueTime: null, clearDue: false })}
-              />
+              <div className="grid grid-cols-2 gap-1">
+                <TimeField
+                  label="Start"
+                  value={dueTime ?? ''}
+                  disabled={disabled || !dueDate}
+                  onChange={(value) => {
+                    if (!value) {
+                      edit({ dueTime: null, clearDue: false });
+                      return;
+                    }
+                    edit({ dueDate: dueDate ?? todayIn(zone), dueTime: value, clearDue: false });
+                  }}
+                  onClear={() => edit({ dueTime: null, clearDue: false })}
+                />
 
-              <TimeField
-                label="End"
-                value={endTime}
-                disabled={disabled || !dueDate || !dueTime}
-                onChange={(value) => {
-                  if (!value || !dueTime) {
-                    edit({ estimateMinutes: null });
-                    return;
-                  }
-                  const diff = minutesBetweenTimes(dueTime, value);
-                  edit({ estimateMinutes: diff > 0 ? diff : null });
-                }}
-                onClear={() => edit({ estimateMinutes: null })}
-              />
+                <TimeField
+                  label="End"
+                  value={endTime}
+                  disabled={disabled || !dueDate || !dueTime}
+                  onChange={(value) => {
+                    if (!value || !dueTime) {
+                      edit({ estimateMinutes: null });
+                      return;
+                    }
+                    const diff = minutesBetweenTimes(dueTime, value);
+                    edit({ estimateMinutes: diff > 0 ? diff : null });
+                  }}
+                  onClear={() => edit({ estimateMinutes: null })}
+                />
+                </div>
             </div>
 
             <div className="flex flex-col">

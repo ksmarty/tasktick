@@ -59,8 +59,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SegmentedControl } from '@/components/godui/segmented-control';
+import { TimeField as TimePicker } from '@/components/time/TimeField';
 import { cn } from '@/lib/utils';
-import { TIME_INPUT_STEP_SECONDS } from '@/lib/dates';
 import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { api } from '@/lib/api-client';
 import { affectsFor } from '@/lib/offline-rules';
@@ -580,19 +580,15 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
                   <ul className="flex flex-col gap-2">
                     {reminders.map((time, index) => (
                       <li key={index} className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          aria-label={`Reminder ${index + 1}`}
-                          /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
-                          step={TIME_INPUT_STEP_SECONDS}
+                        <TimePicker
+                          ariaLabel={`Reminder ${index + 1}`}
                           value={time}
-                          onChange={(event) => {
-                            const next = event.target.value as TimeOnly;
+                          onChange={(next) => {
+                            const picked = next as TimeOnly;
                             setReminders((current) =>
-                              current.map((value, position) => (position === index ? next : value)),
+                              current.map((value, position) => (position === index ? picked : value)),
                             );
                           }}
-                          className="w-40"
                         />
                         <Button
                           type="button"
