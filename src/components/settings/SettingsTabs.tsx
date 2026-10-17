@@ -53,13 +53,11 @@
  * nothing as the pane scrolled under it. Keeping the rows out of the pane leaves
  * the single-scroller arrangement and its edge fade completely intact.
  *
- * ## One shell, two settings areas
+ * ## One shell
  *
- * The period settings needed the same two-row pinned shell, so the arrangement
- * lives in `SettingsNav` rather than being copied. `SettingsTabs` is the app's
- * configuration of it (the app's groups, routes, labels and admin filter); the
- * period settings configure it with their own groups and routes. The ARIA
- * decisions above are therefore made once, and a third pattern does not appear.
+ * The arrangement lives in `SettingsNav`, and `SettingsTabs` is its configuration
+ * (the app's groups, routes, labels and admin filter), so the ARIA decisions
+ * above are made once.
  *
  * ## The same contract as before
  *
@@ -149,9 +147,9 @@ export interface SettingsNavProps {
 /**
  * The pinned two-row settings navigation and its one scroll pane.
  *
- * This is the shell shared by the app's settings and the period settings; each
- * area supplies its own `groups`, `href` map, active value and labels. See the
- * file comment for why the primary row is links and the sub row is a tablist.
+ * The shell supplies the arrangement; the caller supplies its `groups`, `href`
+ * map, active value and labels. See the file comment for why the primary row is
+ * links and the sub row is a tablist.
  */
 export function SettingsNav({
   groups,
@@ -305,10 +303,6 @@ href={(current ? href[active] : first && href[first.value]) ?? fallbackHref}
  * notifications elsewhere, then the settings that change how the app behaves or
  * hand you your data. At most four sections per group is also what keeps both
  * rows one clean line at 390px.
- *
- * Period tracking is no longer a section of its own: it is a look/behaviour
- * choice, so its switch lives inside Appearance. Its period-side settings live
- * inside the mode, on `/period/settings`.
  */
 const SECTION_GROUPS: SettingsNavGroup[] = [
   {

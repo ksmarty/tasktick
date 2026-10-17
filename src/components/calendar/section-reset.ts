@@ -22,8 +22,8 @@
  *       return;
  *     }
  *
- * (`calendar`, `habits` and period mode's `period-cycle` are the sections that
- * have a "today"; the other tabs ignore the event.)
+ * (`calendar` and `habits` are the sections that have a "today"; the other tabs
+ * ignore the event.)
  *
  * ## Why it is not `router.push`ing the bare route
  *
@@ -43,17 +43,12 @@ export const SECTION_RETAP_EVENT = 'tasktick:section-retap';
 /**
  * The sections that have a "today" to return to.
  *
- * Period mode's cycle month is the same kind of thing as Calendar and Habits:
- * it carries a selected day the user can wander away from, and re-tapping its tab
- * is the app's established gesture for "take me back to today". It is listed here
- * rather than given a second event so the shell keeps one re-tap path and one
- * vocabulary.
- *
- * Period mode's log screen is deliberately *not* here: it always shows today, so
- * there is nothing for a reset to return to, and a channel nobody listens on is
- * worse than no channel.
+ * A section is listed here when it carries a selected day the user can wander
+ * away from and re-tapping its tab is the app's established gesture for "take me
+ * back to today". One event and one vocabulary cover every one of them, so a
+ * new section joins this list rather than getting a channel of its own.
  */
-export type SectionTab = 'calendar' | 'habits' | 'period-cycle';
+export type SectionTab = 'calendar' | 'habits';
 
 interface SectionRetapDetail {
   tab: SectionTab;

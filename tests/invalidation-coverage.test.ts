@@ -71,10 +71,6 @@ function clientWrites(): Call[] {
  */
 const EXEMPT = new Map<string, string>([
   [
-    'src/components/period/data.ts',
-    'The period row is the single self-prefix, and PERIOD_PREFIX doubles as the key every period reader passes to useResource — it is a read key that happens to equal the write set, so deriving it would read as the reverse of what it is.',
-  ],
-  [
     'src/components/settings/IcalSubscriptionDialog.tsx',
     'A form that never renders outside IcalSubscribeSection, which invalidates on its behalf through onSaved() using the same /api/ical rule. Deriving it here would be the second copy the table exists to remove.',
   ],
@@ -144,7 +140,6 @@ describe('the table resolves to the sets the screens depend on', () => {
     ['POST', '/api/settings', ['/api/settings', '/api/bootstrap']],
     ['POST', '/api/ical/subscriptions', ['/api/ical', '/api/calendars', '/api/calendar/items', '/api/bootstrap']],
     ['POST', '/api/ical-tokens', ['/api/ical-tokens']],
-    ['POST', '/api/period/cycles', ['/api/period']],
     [
       'POST',
       '/api/caldav/accounts/abc/sync',

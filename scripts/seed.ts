@@ -9,9 +9,6 @@
  *   npm run db:seed
  *   SEED_EMAIL=me@example.com SEED_PASSWORD=... npm run db:seed
  */
-import { periodSettings } from '@/server/db/schema';
-import { periodCycles } from '@/server/db/schema';
-import { DateTime } from 'luxon';
 import { getDb, closeDb } from '@/server/db';
 import {
   calendarEvents,
@@ -393,50 +390,6 @@ async function seedSampleAccount(): Promise<string> {
   return id;
 }
 
-/**
- * Cycle history for the sample account.
- *
- * The period screens are the least interesting when empty — a chart with no points
- * and a prediction that says "not enough data" — and demo mode exists so the user
- * can see how the app *looks*. So the sample gets a plausible history: eight cycles
- * of roughly 28 days with the variation a real one has, which is what makes the
- * prediction render as a **range** rather than a date.
- *
- * Relative to today, not hard-coded, or it would look stale within a month.
- */
-async function seedSamplePeriod(id: string): Promise<void> {
-  const db = getDb();
-  const now = DateTime.now().setZone(ZONE);
-
-  /* Roughly a month apart, with the odd short and long cycle. */
-  const lengths = [28, 27, 29, 28, 26, 30, 28, 27];
-  let start = now.minus({ days: lengths.reduce((a, b) => a + b, 0) });
-
-  for (const [index, length] of lengths.entries()) {
-    const end = start.plus({ days: 4 });
-    await db
-      .insert(periodCycles)
-      .values({
-        id: newId(),
-        userId: id,
-        startDate: start.toFormat('yyyy-MM-dd'),
-        endDate: end.toFormat('yyyy-MM-dd'),
-        flowIntensity: index % 3 === 0 ? 'heavy' : 'medium',
-      })
-      .onConflictDoNothing();
-    start = start.plus({ days: length });
-  }
-  console.log(`[seed] ${lengths.length} cycles for the sample account`);
-}
-
-async function setPeriodModeEnabled(userId: string, enabled: boolean): Promise<void> {
-  const db = getDb();
-  await db
-    .insert(periodSettings)
-    .values({ userId, enabled })
-    .onConflictDoUpdate({ target: periodSettings.userId, set: { enabled } });
-  console.log(`[seed] period mode ${enabled ? 'on' : 'off'} for the sample account`);
-}
 async function main() {
   assertNotProduction();
   try {
@@ -451,13 +404,6 @@ async function main() {
      */
     const sampleId = await seedSampleAccount();
     await seed(sampleId);
-    await seedSamplePeriod(sampleId);
-    /*
-     * Period mode on for the sample, so the demo can actually show the period
-     * interface. It is a per-user setting, and the sample has its own — without
-     * this, /period redirects to the task list and the demo shows nothing new.
-     */
-    await setPeriodModeEnabled(sampleId, true);
     console.log(`\n[seed] done. Sign in with:\n  email:    ${EMAIL}\n  password: ${PASSWORD}\n`);
   } catch (error) {
     console.error('[seed] failed:', error instanceof Error ? error.message : error);

@@ -94,8 +94,7 @@ export function DemoModeCard() {
 /**
  * The standing indicator while demo mode is on.
  *
- * Rendered by the shell so it is present on every screen, including the period
- * interface — which is the one most likely to be explored in demo mode.
+ * Rendered by the shell so it is present on every screen.
  */
 export function DemoModeBanner() {
   const [on, setOn] = useState(false);

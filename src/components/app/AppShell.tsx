@@ -55,13 +55,11 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
-import { BarChartIcon } from '@svg-animated-icons/react/bar-chart';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
 import { CheckboxIcon } from '@svg-animated-icons/react/checkbox';
 import { DashboardIcon } from '@svg-animated-icons/react/dashboard';
 import { GearIcon } from '@svg-animated-icons/react/gear';
-import { HeartIcon } from '@svg-animated-icons/react/heart';
 import { ListBulletIcon } from '@svg-animated-icons/react/list-bullet';
 import { MagnifyingGlassIcon } from '@svg-animated-icons/react/magnifying-glass';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -87,17 +85,7 @@ import { BOTTOM_BAND_CLEARANCE } from './chrome';
 /** The app's four destinations. */
 type AppTabValue = 'tasks' | 'calendar' | 'habits' | 'settings';
 
-/**
- * Period mode's four destinations.
- *
- * The values are prefixed because they share one selection model with the app's
- * tabs (`activeTab`, `pendingTab`, the roving focus), and `settings` meaning two
- * different routes depending on the mode is exactly the kind of aliasing that
- * breaks silently.
- */
-type PeriodTabValue = 'period-today' | 'period-cycle' | 'period-insights' | 'period-settings';
-
-type TabValue = AppTabValue | PeriodTabValue;
+type TabValue = AppTabValue;
 
 /**
  * The app's four destinations, in order.
@@ -115,52 +103,12 @@ const APP_TAB_ROUTES: Record<AppTabValue, string> = {
   settings: '/settings',
 };
 
-/**
- * The period interface's four destinations.
- *
- * Deliberately the same count as the app's: the pill is four slots wide at
- * 390px, and a fifth would either wrap or shrink the tap targets the bottom band
- * exists to keep large. Today leads because logging today is what the mode is
- * opened to do, and `/period` lands there.
- *
- * There is no task/calendar/habit destination here. The user was explicit that
- * enabling this *replaces* the navigation rather than extending it, so the
- * normal app is not a tab in this set — it is behind the way back on the period
- * Settings screen, which this set always reaches (the Settings tab).
- */
-const PERIOD_TAB_ROUTES: Record<PeriodTabValue, string> = {
-  'period-today': '/period',
-  'period-cycle': '/period/calendar',
-  'period-insights': '/period/insights',
-  'period-settings': '/period/settings',
-};
-
-/**
- * The prefix every period route shares.
- *
- * The mode applies to these routes and no others. That is what makes the exit
- * non-destructive: leaving the period interface to look at `/tasks` shows the
- * app's own navigation on that screen, while the account's preference is
- * untouched, so the next visit (or a cold start on `/`) lands back in the mode.
- * A mode that also replaced the navigation over the task list would leave the
- * user scrolling tasks under a tab bar where nothing they can see is selected.
- */
-const PERIOD_ROUTE_PREFIX = '/period';
-
 /** The tab a pathname selects in the app's own chrome. */
 function appRouteTab(pathname: string): AppTabValue {
   if (pathname.startsWith('/calendar')) return 'calendar';
   if (pathname.startsWith('/habits')) return 'habits';
   if (pathname.startsWith('/settings')) return 'settings';
   return 'tasks';
-}
-
-/** The tab a pathname selects in period mode's chrome. */
-function periodRouteTab(pathname: string): PeriodTabValue {
-  if (pathname.startsWith('/period/calendar')) return 'period-cycle';
-  if (pathname.startsWith('/period/insights')) return 'period-insights';
-  if (pathname.startsWith('/period/settings')) return 'period-settings';
-  return 'period-today';
 }
 
 /** Smart lists, in the order TickTick shows them. */
@@ -202,39 +150,6 @@ const APP_TABS: { value: AppTabValue; label: string; icon: React.ReactNode }[] =
 ];
 
 /**
- * Period mode's tabs — the same four slots, a different interface.
- *
- * Same icon sizing contract as `APP_TABS`: the animated icons paint at `1em`, so
- * the font-size utility is what sizes them and `size-5` names the same 20px the
- * `TabBar` reserves.
- *
- * The labels are the interface's own words: "Today" is the log screen (not the
- * app's Today filter), "Cycle" is the month, "Insights" is the predictions. The
- * second tab is not called "Calendar" because tapping it does not give you the
- * calendar — it gives you the cycle month, and the user should be able to tell
- * the two apart from the label alone.
- */
-const PERIOD_TABS: { value: PeriodTabValue; label: string; icon: React.ReactNode }[] = [
-  { value: 'period-today', label: 'Today', icon: <SunIcon className="size-5 text-xl" /> },
-  { value: 'period-cycle', label: 'Cycle', icon: <CalendarIcon className="size-5 text-xl" /> },
-  { value: 'period-insights', label: 'Insights', icon: <BarChartIcon className="size-5 text-xl" /> },
-  { value: 'period-settings', label: 'Settings', icon: <GearIcon className="size-5 text-xl" /> },
-];
-
-/**
- * Period mode's destinations as the desktop rail states them.
- *
- * The rail has room for a second line, so it uses the fuller name than the
- * band's one-word label. Same four values, so the two can never disagree about
- * where a destination points.
- */
-const PERIOD_RAIL: { value: PeriodTabValue; label: string; Icon: typeof SunIcon }[] = [
-  { value: 'period-today', label: 'Log today', Icon: SunIcon },
-  { value: 'period-cycle', label: 'Cycle calendar', Icon: CalendarIcon },
-  { value: 'period-insights', label: 'Insights', Icon: BarChartIcon },
-];
-
-/**
  * The primary action the bottom band offers, per tab.
  *
  * Only a tab whose screen subscribes to `requestPrimaryAction` appears here: an
@@ -245,17 +160,6 @@ const PERIOD_RAIL: { value: PeriodTabValue; label: string; Icon: typeof SunIcon 
  * Habits was missing from this for a while on purpose: the screen carried its
  * own "New habit" button in its header, so the band's was a duplicate. The
  * header's is gone, so the entry is back and the action is stated once.
- */
-/**
- * Period mode has no entry, and that is the decision rather than an omission.
- *
- * Everything the mode creates is created on the screen that shows it: a day's
- * log is the Today screen itself, and a past day is opened by tapping it in the
- * cycle month. A floating "+ " over the bottom of a one-handed form would cover
- * the controls it is supposed to complement, and a button that only re-opens the
- * screen you are already on is the dead button this map exists to prevent. So in
- * period mode the band falls back to the tab bar alone, exactly as Settings does
- * today.
  */
 const PRIMARY_ACTION_LABEL: Partial<Record<TabValue, string>> = {
   tasks: 'Add a task',
@@ -269,32 +173,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const { data, isInitialLoading } = useResource<BootstrapPayload>('/api/bootstrap');
 
-  /*
-   * The mode, and where it applies.
-   *
-   * The chrome follows the **route**, not the account's switch. That is the
-   * "separate interface" contract with nothing left to interpret: `/period/*` is
-   * the period interface and every other route is the app. Leaving to `/tasks`
-   * therefore shows the app's own navigation on that screen, and nothing about the
-   * account's preference is touched by going there.
-   *
-   * It is also the honest thing to render. The shell is the frame around whatever
-   * the URL resolves to, so deriving the tabs from a *setting* means the frame can
-   * disagree with the page inside it — and it did: the settings read is cached, so
-   * for the few hundred milliseconds after the switch was flipped the shell still
-   * held `enabled: false` and painted the task tabs over the period screen the user
-   * had just opened. A frame must never be a moment behind its own route.
-   *
-   * Whether a period route *should* be reachable is a separate question, and it is
-   * the period layout's: a stale deep link into a disabled mode is bounced to
-   * `/tasks` there (see `app/(app)/period/layout.tsx`) before any screen can write
-   * anything.
-   */
-  const periodMode = pathname.startsWith(PERIOD_ROUTE_PREFIX);
-
-  /* The destinations the band and the rail show, in the mode this screen is in. */
-  const tabs = periodMode ? PERIOD_TABS : APP_TABS;
-  const tabRoutes: Record<string, string> = periodMode ? PERIOD_TAB_ROUTES : APP_TAB_ROUTES;
+  /* The destinations the band and the rail show. */
+  const tabs = APP_TABS;
+  const tabRoutes: Record<string, string> = APP_TAB_ROUTES;
 
   const lists = data?.lists ?? [];
   const calendars = data?.calendars ?? [];
@@ -316,19 +197,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    * bar that reads as the page ghosting in, which is the "blur" on settings
    * navigation. The settings sub-routes share one key, so they switch without
    * replaying the fade; a move between destinations still does.
-   *
-   * The period settings are the same shape — a pinned two-row nav with a
-   * section per sub-route — so they share one key too. Without this the nav
-   * itself would remount and replay the fade under the finger on every section
-   * tap.
    */
-  const contentKey = pathname.startsWith('/settings')
-    ? '/settings'
-    : pathname.startsWith('/period/settings')
-      ? '/period/settings'
-      : pathname;
+  const contentKey = pathname.startsWith('/settings') ? '/settings' : pathname;
 
-  const routeTab: TabValue = periodMode ? periodRouteTab(pathname) : appRouteTab(pathname);
+  const routeTab: TabValue = appRouteTab(pathname);
 
   /*
    * The tab responds to the tap, not to the route.
@@ -357,18 +229,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (pendingTab && routeTab === pendingTab) setPendingTab(null);
   }, [pendingTab, routeTab]);
-
-  /*
-   * A mode change drops any half-committed tap.
-   *
-   * The pending value names a slot of the *other* set — it can be neither
-   * rendered nor matched once the chrome swaps — so leaving it set would keep the
-   * band from acknowledging the route it is actually on for as long as the
-   * navigation takes.
-   */
-  useEffect(() => {
-    setPendingTab(null);
-  }, [periodMode]);
 
   /*
    * Prefetch every tab, but only once the worker can keep the payload.
@@ -422,7 +282,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
      * did nothing at all.
      */
     if (next === routeTab) {
-      if (next === 'calendar' || next === 'habits' || next === 'period-cycle') {
+      if (next === 'calendar' || next === 'habits') {
         requestSectionReset(next);
       }
       return;
@@ -478,9 +338,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           <div className="flex items-center gap-2 px-row pt-3 pb-2">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground [&_svg]:size-5">
-              {periodMode ? <HeartIcon /> : <CheckboxIcon />}
+              <CheckboxIcon />
             </span>
-            <span className="text-lg font-semibold tracking-tight">{periodMode ? 'Period' : 'TaskTick'}</span>
+            <span className="text-lg font-semibold tracking-tight">TaskTick</span>
           </div>
 
           {/*
@@ -489,15 +349,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
            * margin on each section's last row.
            */}
           <nav
-            aria-label={periodMode ? 'Period sections' : 'Smart lists'}
+            aria-label="Smart lists"
             className="flex min-h-0 flex-1 flex-col gap-stack overflow-y-auto px-2 pb-4"
           >
-            {/* The rail is the same shape in both modes — sections of real
-                links — so the mode swaps its contents and nothing else. */}
-            {periodMode ? (
-              <PeriodRail activeTab={activeTab as PeriodTabValue} />
-            ) : (
-              <>
             <div className="flex flex-col gap-0.5">
               {SMART_LISTS.map((item) => (
                 <SidebarLink
@@ -584,28 +438,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
               ))}
             </SidebarSection>
-              </>
-            )}
           </nav>
 
-          {/*
-           * The rail's foot: the app's own Settings row, in the same place as
-           * always. In period mode there is nothing here — the only way out of
-           * the mode is the period Settings section (see `PeriodRail`), which is
-           * one row up, exactly where the app's Settings row lives. The mode's
-           * own navigation always reaches it, so the foot is never a way to
-           * switch interfaces behind the user's back.
-           */}
-          {periodMode ? null : (
-            <div className="shrink-0 border-t border-sidebar-border p-2">
-              <SidebarLink
-                href="/settings"
-                label="Settings"
-                icon={<GearIcon />}
-                active={pathname.startsWith('/settings')}
-              />
-            </div>
-          )}
+          {/* The rail's foot: the app's own Settings row. */}
+          <div className="shrink-0 border-t border-sidebar-border p-2">
+            <SidebarLink
+              href="/settings"
+              label="Settings"
+              icon={<GearIcon />}
+              active={pathname.startsWith('/settings')}
+            />
+          </div>
         </aside>
 
         {/* -------------------------------------------------------------- */}
@@ -617,14 +460,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
            * carries the Dynamic Island inset, so the title clears the island
            * instead of sliding under it.
            */}
-          {published || periodMode ? (
+          {published ? (
             <header className="shrink-0 bg-background pt-[env(safe-area-inset-top)]">
               <DemoModeBanner />
               <div className="flex h-appbar items-center gap-2 px-gutter">
-                {published ? published.leading : null}
+                {published.leading}
 
                 <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">
-                  {published ? published.title : 'Period'}
+                  {published.title}
                 </h1>
 
                 {published?.actions ? (
@@ -778,7 +621,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             value={activeTab}
             onChange={onTabChange}
             role="tablist"
-            aria-label={periodMode ? 'Period sections' : 'Main sections'}
+            aria-label="Main sections"
             onKeyDown={onTabKeyDown}
             className="min-w-0 justify-center"
           />
@@ -805,45 +648,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The desktop rail's period sections.
+ * The desktop rail's sections.
  *
- * The same four destinations as the band, in the same order, with the fuller
- * names the rail's width allows. The way back to the task interface is not a
- * separate control here — it lives on the Period settings screen, which this
- * rail always carries one row below.
- *
- * "Period settings" sits under its own caption rather than in the Period
- * section, because it is a different kind of destination — the other three are
- * places to look at the cycle, and this one is where the mode's own behaviour is
- * configured.
+ * The same destinations as the band, in the same order, with the fuller names
+ * the rail's width allows.
  */
-function PeriodRail({ activeTab }: { activeTab: PeriodTabValue }) {
-  return (
-    <>
-      <SidebarSection title="Period">
-        {PERIOD_RAIL.map((item) => (
-          <SidebarLink
-            key={item.value}
-            href={PERIOD_TAB_ROUTES[item.value]}
-            label={item.label}
-            icon={<item.Icon />}
-            active={item.value === activeTab}
-          />
-        ))}
-      </SidebarSection>
-
-      <SidebarSection title="Settings">
-        <SidebarLink
-          href={PERIOD_TAB_ROUTES['period-settings']}
-          label="Period settings"
-          icon={<GearIcon />}
-          active={activeTab === 'period-settings'}
-        />
-      </SidebarSection>
-    </>
-  );
-}
-
 function SidebarSection({
   title,
   action,

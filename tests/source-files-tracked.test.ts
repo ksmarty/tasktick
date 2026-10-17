@@ -1,13 +1,12 @@
 /**
  * Every file the suite reads must exist in a fresh clone.
  *
- * `tests/period-nav.test.ts` asserts the period routes exist as files on disk,
- * which is a real check — but it read `src/app/(app)/period/settings/data/page.tsx`
- * from the working tree only. That file was present here and absent in CI, because
- * `.gitignore` had a bare `data/` rule: a pattern without a leading slash matches a
- * directory at *any* depth, so a genuine source route was silently ignored and never
- * committed. The route 404'd in production and the suite went red on a fresh
- * checkout while staying green locally — the worst shape a failure can take.
+ * A suite that reads a source file from the working tree only proves the file
+ * exists *here*. That is how a real bug hid for a while: `.gitignore` had a bare
+ * `data/` rule, and a pattern without a leading slash matches a directory at *any*
+ * depth, so a genuine source route was silently ignored and never committed. The
+ * route 404'd in production and the suite went red on a fresh checkout while
+ * staying green locally — the worst shape a failure can take.
  *
  * So the invariant is stated once, for the whole tree: nothing under `src/` may be
  * untracked or ignored. A new source file that has not been `git add`ed fails here,
@@ -31,7 +30,7 @@ describe('a fresh clone contains every source file the tests read', () => {
   });
 
   it('has no ignored source file (a .gitignore pattern is swallowing it)', () => {
-    // The reported bug: `src/app/(app)/period/settings/data/` matched a bare `data/`.
+    // The reported bug: a source route under a `data/` directory matched a bare `data/`.
     expect(git('ls-files', '--others', '--ignored', '--exclude-standard', '--', 'src')).toEqual([]);
   });
 

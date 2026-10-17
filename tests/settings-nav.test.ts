@@ -25,8 +25,7 @@ describe('the settings primary navigation', () => {
     expect(TABS).toContain("label: 'Scheduling'");
     expect(TABS).toContain("label: 'Advanced'");
     expect(TABS).toContain('data-settings-primary');
-    // The accessible names are props of the shared shell, so the app and the
-    // period settings each name their own two rows.
+    // The accessible names are props of the shared shell.
     expect(TABS).toContain('primaryLabel="Settings groups"');
     expect(TABS).toContain('subLabel="Settings sections"');
     expect(TABS).toContain('<Link');
@@ -67,8 +66,8 @@ describe('the settings shell', () => {
   });
 
   it('is one shared shell, not a second pattern', () => {
-    // The app wrapper configures the generic nav; the period settings configure
-    // the same export. The pinned two-row arrangement exists once.
+    // The app wrapper configures the generic nav, so the pinned two-row
+    // arrangement exists once.
     expect(TABS).toContain('export function SettingsNav(');
     expect(TABS).toContain('<SettingsNav');
   });

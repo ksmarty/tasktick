@@ -80,7 +80,6 @@ const AFFECTS: { test: RegExp; prefixes: string[] }[] = [
     test: /^\/api\/ical(\/|$|\?)/,
     prefixes: ['/api/ical', '/api/calendars', '/api/calendar/items', '/api/bootstrap'],
   },
-  { test: /^\/api\/period(\/|$|\?)/, prefixes: ['/api/period'] },
   { test: /^\/api\/tokens(\/|$|\?)/, prefixes: ['/api/tokens'] },
   { test: /^\/api\/invites(\/|$|\?)/, prefixes: ['/api/invites'] },
   { test: /^\/api\/push(\/|$|\?)/, prefixes: ['/api/push'] },
