@@ -36,10 +36,33 @@ import { sendWebPush, type WebPushDelivery } from './web-push';
 /** The notification types Apprise documents. */
 export type AppriseNotificationType = 'info' | 'success' | 'warning' | 'failure';
 
+/** One button a notification can carry. Only the web push transport renders it. */
+export interface NotificationAction {
+  /** The id `notificationclick` reports back to `/api/reminders/ack`. */
+  action: string;
+  title: string;
+}
+
 export interface NotificationPayload {
   title: string;
   body: string;
   type?: AppriseNotificationType;
+  /**
+   * The app path a tap opens, such as `/tasks?task=<id>` (see `reminderLink`).
+   *
+   * Apprise has no equivalent — it posts a title and a body to a service and
+   * nothing else — so this field and the four below are read by the web push
+   * transport alone, and `buildAppriseBody` deliberately ignores them.
+   */
+  url?: string;
+  /** Collapses a later notification with the same tag onto this one. */
+  tag?: string;
+  /** The buttons a notification offers, where the platform supports them. */
+  actions?: readonly NotificationAction[];
+  /** What a button tap reports back: the item's source, id and occurrence. */
+  data?: Record<string, string>;
+  /** An app path for the notification's icon; the worker defaults to the app icon. */
+  icon?: string;
 }
 
 /** The result of one Apprise attempt. Never thrown — always returned. */

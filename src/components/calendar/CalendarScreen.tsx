@@ -114,9 +114,17 @@ export interface CalendarScreenProps {
   initialDate: DateOnly | null;
   /** `?calendar=<id>` — pins the view to one calendar. */
   initialCalendarId: string | null;
+  /**
+   * `?event=<id>` — a reminder notification's tap target.
+   *
+   * The day comes through `initialDate` as it always has; this is only the card
+   * to open on it, so the two are resolved together once the day's payload
+   * holds the item.
+   */
+  initialEventId?: string | null;
 }
 
-export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScreenProps) {
+export function CalendarScreen({ initialDate, initialCalendarId, initialEventId = null }: CalendarScreenProps) {
   const { toast } = useToast();
 
   // The shell's pane must not scroll: the grid is pinned and the agenda scrolls
@@ -288,6 +296,31 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
   const selectedItems = payload?.days[selected] ?? [];
 
   /*
+   * A reminder notification opens `/calendar?date=<day>&event=<id>`: the day is
+   * already selected by `initialDate`, and this opens the event's preview card
+   * on it — the same card a tap on the agenda row opens, because it is the same
+   * `detail` state.
+   *
+   * The id is resolved against the payload rather than fetched on its own: the
+   * preview needs the item's projection (its time, calendar and readonly flag),
+   * and that is exactly what the day's read already carries. It is read once —
+   * the ref is what stops a later revalidation from reopening a card the user
+   * has since closed.
+   */
+  const openedInitialEvent = useRef(false);
+  useEffect(() => {
+    if (openedInitialEvent.current || !initialEventId || !payload) return;
+    for (const day of Object.values(payload.days)) {
+      const found = day.find((item) => item.id === initialEventId);
+      if (found) {
+        openedInitialEvent.current = true;
+        setDetail(found);
+        return;
+      }
+    }
+  }, [initialEventId, payload]);
+
+  /*
    * The two months either side of this one, which the grid's paging track draws
    * beside it.
    *
@@ -426,10 +459,17 @@ export function CalendarScreen({ initialDate, initialCalendarId }: CalendarScree
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams({ date: selected });
     if (filterId) params.set('calendar', filterId);
+    /*
+     * The open preview is part of the URL too, so a reminder's `?event=` link is
+     * not merely read once and forgotten: the address keeps naming the card the
+     * user is looking at, which is what makes a reload and a bookmark open the
+     * same thing. Closing the card drops the parameter with it.
+     */
+    if (detail?.kind === 'event') params.set('event', detail.id);
     const next = `${window.location.pathname}?${params.toString()}`;
     if (next === `${window.location.pathname}${window.location.search}`) return;
     window.history.replaceState(null, '', next);
-  }, [selected, filterId]);
+  }, [selected, filterId, detail]);
 
   /* ------------------------------------------------------------------ */
   /* writes                                                             */

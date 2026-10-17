@@ -280,6 +280,40 @@ export function TasksView() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [searchParams, pathname, router]);
 
+  /*
+   * A reminder notification opens `/tasks?task=<id>`.
+   *
+   * Read and stripped exactly like the composer's `?new=list` flag above, so a
+   * refresh or a back-navigation does not reopen the sheet the user just closed.
+   * The task is fetched rather than looked up in the loaded list, because the
+   * notification can be for a task the current filter does not hold — it would be
+   * missing from `state.result`, and the tap would land on nothing.
+   */
+  useEffect(() => {
+    const id = searchParams.get('task');
+    if (!id) return;
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('task');
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const task = await api.get<Task>(`/api/tasks/${encodeURIComponent(id)}`);
+        if (!cancelled) setDetail({ kind: 'task', task });
+      } catch {
+        // A deep link is an enhancement: a task deleted since the reminder was
+        // sent leaves the list exactly as it was.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, pathname, router]);
+
   const chips = useMemo(() => activeFilters(state, lookups), [state, lookups]);
   const title = taskViewTitle(state, lookups);
   const activeList = state.listId ? (lists.find((list) => list.id === state.listId) ?? null) : null;

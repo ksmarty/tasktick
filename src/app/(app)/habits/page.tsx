@@ -38,7 +38,8 @@
  * completes a habit's goal for the day is exactly the celebratory moment it
  * exists for, and it is fired in the habit's own accent colour.
  */
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckCircledIcon } from '@svg-animated-icons/react/check-circled';
 import { EyeNoneIcon } from '@svg-animated-icons/react/eye-none';
@@ -127,6 +128,11 @@ export default function HabitsPage() {
   );
   /** Id of the habit whose check-in is still in flight, so only that row dims. */
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
+
+  /** The route, read for a reminder notification's deep link (`?habit=<id>`). */
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
 
   // The month the grid shows, and the day the list is scoped to. The grid is
   // the screen's header now, so selecting a day out of the shown month moves the
@@ -296,6 +302,29 @@ export default function HabitsPage() {
     setEditing(habit);
     setEditorOpen(true);
   }
+
+  /*
+   * A reminder notification opens `/habits?habit=<id>`.
+   *
+   * Read once the list has arrived — the sheet needs the whole habit, and the
+   * list is the read that already holds it — then stripped, so a refresh or a
+   * back-navigation does not reopen the editor the user just closed. A habit the
+   * list does not carry (archived, or deleted since the reminder was sent)
+   * consumes the id and changes nothing.
+   */
+  useEffect(() => {
+    if (!habits.data) return;
+    const id = searchParams.get('habit');
+    if (!id) return;
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('habit');
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+
+    const found = habits.data.find((habit) => habit.id === id);
+    if (found) openEditor(found);
+  }, [habits.data, searchParams, pathname, router]);
 
   const loading = !today || habits.isInitialLoading;
   const failed = Boolean(habits.error) && list.length === 0;

@@ -128,6 +128,17 @@ interface Harness {
   /** Cache name -> URL -> response. */
   caches: Map<string, Map<string, FakeResponse>>;
   fetchCalls: string[];
+  /** Every fetch the worker made, with the body it sent ('' when it sent none). */
+  fetchRequests: { method: string; url: string; body: string }[];
+  /** Every notification the worker showed, in order. */
+  notifications: { title: string; options: Record<string, unknown> }[];
+  /** Every `clients.openWindow()` target, in order. */
+  openWindowCalls: string[];
+  /** Which open windows were focused, and what they were navigated to. */
+  focusCalls: string[];
+  navigateCalls: string[];
+  /** The windows `clients.matchAll()` reports; empty by default. */
+  setWindowClients(urls: string[]): void;
   /** Fire `install` with the network presumably up. */
   install(route: (url: string, request: FakeRequest) => FakeResponse | Error): Promise<void>;
   activate(): Promise<void>;
@@ -148,6 +159,12 @@ function createHarness(): Harness {
   const writes: string[] = [];
   const fetchCalls: string[] = [];
   const skipWaitingCalls: string[] = [];
+  const fetchRequests: { method: string; url: string; body: string }[] = [];
+  const notifications: { title: string; options: Record<string, unknown> }[] = [];
+  const openWindowCalls: string[] = [];
+  const focusCalls: string[] = [];
+  const navigateCalls: string[] = [];
+  let windowClients: string[] = [];
 
   const cacheFor = (name: string): Map<string, FakeResponse> => {
     if (!store.has(name)) store.set(name, new Map());
@@ -184,12 +201,14 @@ function createHarness(): Harness {
 
   let route: Route = () => new FakeResponse('network');
 
-  const fetchStub = (target: unknown) => {
+  const fetchStub = (target: unknown, init?: { method?: string; body?: string }) => {
     const request =
       typeof target === 'string'
         ? new FakeRequest(target)
         : (target as FakeRequest & { clone?: () => FakeRequest });
+    const method = typeof target === 'string' ? (init?.method ?? 'GET') : request.method;
     fetchCalls.push(`${request.method} ${request.url}`);
+    fetchRequests.push({ method, url: request.url, body: typeof init?.body === 'string' ? init.body : '' });
     const result = route(request.url, request as FakeRequest);
     if (result instanceof Error) return Promise.reject(result);
     return Promise.resolve(result);
@@ -204,12 +223,19 @@ function createHarness(): Harness {
       location: { origin: ORIGIN },
       clients: {
         claim: async () => undefined,
-        matchAll: async () => [],
-        openWindow: async () => undefined,
+        matchAll: async () =>
+          windowClients.map((url) => ({
+            url,
+            focus: async () => void focusCalls.push(url),
+            navigate: async (target: string) => void navigateCalls.push(target),
+          })),
+        openWindow: async (target: string) => void openWindowCalls.push(target),
       },
       registration: {
         navigationPreload: { enable: async () => undefined },
-        showNotification: async () => undefined,
+        showNotification: async (title: string, options: Record<string, unknown>) => {
+          notifications.push({ title, options });
+        },
       },
     },
     caches,
@@ -272,6 +298,14 @@ function createHarness(): Harness {
     writes,
     caches: store,
     fetchCalls,
+    fetchRequests,
+    notifications,
+    openWindowCalls,
+    focusCalls,
+    navigateCalls,
+    setWindowClients(urls) {
+      windowClients = urls;
+    },
     skipWaitingCalls,
     dispatch,
     async install(installRoute) {
@@ -1163,5 +1197,143 @@ describe('lifecycle', () => {
     seedCache(harness, 'api-s1-tasktick-v0', {});
     await harness.activate();
     expect([...harness.caches.keys()].sort()).toEqual([PRECACHE]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* reminder notifications                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The payload the server builds for a reminder
+ * (src/lib/reminder-notification.ts) is what these events are driven with. The
+ * worker has to show the buttons it carries, keep the item's identity in `data`
+ * so a press can mean something, and keep a press and a tap apart: a button
+ * acknowledges the item and stops, a tap opens the deep link.
+ */
+function pushEvent(payload: unknown) {
+  const waits: Promise<unknown>[] = [];
+  return {
+    data: { json: () => payload, text: () => JSON.stringify(payload) },
+    waits,
+    waitUntil(value: Promise<unknown>) {
+      waits.push(value);
+    },
+  };
+}
+
+function clickEvent(action: string, data: Record<string, unknown>) {
+  const waits: Promise<unknown>[] = [];
+  return {
+    action,
+    notification: { data, close: () => undefined },
+    waits,
+    waitUntil(value: Promise<unknown>) {
+      waits.push(value);
+    },
+  };
+}
+
+describe('reminder notifications', () => {
+  const TASK_DATA = { source: 'task', sourceId: 't1', occurrenceKey: '2' };
+
+  it('shows the buttons the payload carries and keeps the item identity', async () => {
+    const harness = createHarness();
+    await harness.dispatch(
+      'push',
+      pushEvent({
+        title: 'Pay rent',
+        body: 'Due today at 09:00',
+        tag: 'task-t1',
+        url: '/tasks?task=t1',
+        actions: [{ action: 'complete', title: 'Complete' }],
+        data: TASK_DATA,
+      }),
+    );
+
+    expect(harness.notifications).toHaveLength(1);
+    const [shown] = harness.notifications;
+    expect(shown.title).toBe('Pay rent');
+    expect(shown.options).toMatchObject({
+      body: 'Due today at 09:00',
+      tag: 'task-t1',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      actions: [{ action: 'complete', title: 'Complete' }],
+      data: { url: '/tasks?task=t1', ...TASK_DATA },
+    });
+  });
+
+  it('shows no button row and the old defaults for a payload that carries none', async () => {
+    const harness = createHarness();
+    await harness.dispatch('push', pushEvent({ title: 'Standup', body: 'In 10 minutes' }));
+
+    const [shown] = harness.notifications;
+    expect(shown.options).not.toHaveProperty('actions');
+    expect(shown.options).toMatchObject({ tag: 'tasktick', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png' });
+    expect(shown.options.data).toEqual({ url: '/' });
+  });
+
+  it('drops a malformed action instead of showing a broken button', async () => {
+    const harness = createHarness();
+    await harness.dispatch(
+      'push',
+      pushEvent({
+        title: 'Pay rent',
+        actions: [{ action: '', title: 'Complete' }, { action: 'snooze' }, null, { action: 'complete', title: 'Complete' }],
+      }),
+    );
+
+    expect(harness.notifications[0].options.actions).toEqual([{ action: 'complete', title: 'Complete' }]);
+  });
+
+  it('acknowledges on a button press and does not navigate', async () => {
+    const harness = createHarness();
+    await harness.dispatch('notificationclick', clickEvent('complete', TASK_DATA));
+
+    expect(harness.fetchRequests).toEqual([
+      {
+        method: 'POST',
+        url: 'https://tasks.example.com/api/reminders/ack',
+        body: JSON.stringify({ source: 'task', sourceId: 't1', occurrenceKey: '2', action: 'complete' }),
+      },
+    ]);
+    expect(harness.openWindowCalls).toEqual([]);
+    expect(harness.navigateCalls).toEqual([]);
+  });
+
+  it('says nothing when a press carries no item identity', async () => {
+    const harness = createHarness();
+    await harness.dispatch('notificationclick', clickEvent('complete', { url: '/tasks' }));
+
+    expect(harness.fetchRequests).toEqual([]);
+    expect(harness.openWindowCalls).toEqual([]);
+  });
+
+  it('survives an acknowledgement that fails', async () => {
+    const harness = createHarness();
+    harness.setRoute(() => new Error('offline'));
+
+    await expect(harness.dispatch('notificationclick', clickEvent('complete', TASK_DATA))).resolves.toBeUndefined();
+    expect(harness.fetchRequests).toHaveLength(1);
+  });
+
+  it('opens the deep link on a tap, including an explicit default action', async () => {
+    const harness = createHarness();
+    await harness.dispatch('notificationclick', clickEvent('default', { url: '/tasks?task=t1' }));
+
+    expect(harness.openWindowCalls).toEqual(['/tasks?task=t1']);
+    expect(harness.fetchRequests).toEqual([]);
+  });
+
+  it('focuses an open window and navigates it to the deep link', async () => {
+    const harness = createHarness();
+    harness.setWindowClients(['https://tasks.example.com/tasks']);
+
+    await harness.dispatch('notificationclick', clickEvent('', { url: '/habits?habit=h1' }));
+
+    expect(harness.focusCalls).toEqual(['https://tasks.example.com/tasks']);
+    expect(harness.navigateCalls).toEqual(['/habits?habit=h1']);
+    expect(harness.openWindowCalls).toEqual([]);
   });
 });

@@ -34,6 +34,7 @@
  * tick landing exactly on a boundary cannot send the same reminder twice.
  */
 import { addDaysToDateOnly, dateOnlyToMillis, toDateOnly } from '@/lib/dates';
+import { reminderLink } from '@/lib/reminder-notification';
 import type { DateOnly, Habit, Millis } from '@/lib/types';
 import { habitsWithReminders, matchesSchedule, settledHabitDates } from '../repos/habits';
 import { claimDispatch, notificationRecipients, pruneDispatches } from '../repos/reminder-dispatches';
@@ -200,14 +201,30 @@ function describeError(error: unknown): string {
  *
  * The transport never throws by contract, but a bug in it must not abandon the
  * rest of the sweep — every later reminder in this tick would be lost with it.
+ *
+ * The payload carries where a tap should land and what the notification can do
+ * about the item (see `reminderLink`), which is the difference between a
+ * reminder that says a task is due and one that gets it done: the button
+ * finishes the item, and the tap opens the screen it belongs to rather than the
+ * app's front page.
  */
 async function deliverQuietly(
   deliver: NonNullable<ReminderDeps['deliver']>,
   userId: string,
   reminder: DueReminder,
+  zone: string,
 ): Promise<boolean> {
+  const link = reminderLink(reminder, zone);
   try {
-    await deliver(userId, { title: reminder.title, body: reminder.body, type: 'info' });
+    await deliver(userId, {
+      title: reminder.title,
+      body: reminder.body,
+      type: 'info',
+      url: link.url,
+      tag: link.tag,
+      actions: link.actions,
+      data: link.data,
+    });
     return true;
   } catch (error) {
     console.warn(`[reminder] delivery failed for ${userId} (${reminder.source} ${reminder.sourceId}): ${describeError(error)}`);
@@ -222,6 +239,7 @@ async function dispatchClaimed(
   nowMs: Millis,
   deliver: NonNullable<ReminderDeps['deliver']>,
   counts: DispatchCounts,
+  zone: string,
 ): Promise<void> {
   const claimed = await claimDispatch({
     userId,
@@ -235,7 +253,7 @@ async function dispatchClaimed(
     counts.skipped += 1;
     return;
   }
-  if (await deliverQuietly(deliver, userId, reminder)) counts.sent += 1;
+  if (await deliverQuietly(deliver, userId, reminder, zone)) counts.sent += 1;
   else counts.failed += 1;
 }
 
@@ -265,7 +283,7 @@ export async function dispatchRemindersForUser(
       body: 'Task due',
       fireAtMs: reminder.fireAtMs,
     };
-    if (await deliverQuietly(deliver, userId, due)) counts.sent += 1;
+    if (await deliverQuietly(deliver, userId, due, zone)) counts.sent += 1;
     else counts.failed += 1;
   }
 
@@ -280,7 +298,7 @@ export async function dispatchRemindersForUser(
   const span = MAX_EVENT_OFFSET_MINUTES * 60_000;
   const occurrences = await expandedEventsInRange(userId, nowMs - REMINDER_GRACE_MS - span, nowMs + span, zone);
   for (const reminder of dueEventReminders(occurrences, nowMs)) {
-    await dispatchClaimed(userId, reminder, nowMs, deliver, counts);
+    await dispatchClaimed(userId, reminder, nowMs, deliver, counts, zone);
   }
 
   /*
@@ -294,7 +312,7 @@ export async function dispatchRemindersForUser(
     const settled = await settledHabitDates(userId, habits, habitReminderDates(zone, nowMs), weekStartsOn, zone);
     for (const habit of habits) {
       for (const reminder of dueHabitReminders(habit, zone, nowMs, REMINDER_GRACE_MS, settled.get(habit.id))) {
-        await dispatchClaimed(userId, reminder, nowMs, deliver, counts);
+        await dispatchClaimed(userId, reminder, nowMs, deliver, counts, zone);
       }
     }
   }

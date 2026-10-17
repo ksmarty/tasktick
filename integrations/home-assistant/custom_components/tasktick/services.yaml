@@ -223,6 +223,166 @@ delete_event:
       selector:
         text: {}
 
+create_reminder:
+  name: Create reminder
+  description: >-
+    Create an HA Reminders reminder for a task, a habit or a calendar event.
+    Tapping the notification opens TaskTick at that task, habit or day, and its
+    acknowledge button completes the task or checks the habit in. Needs the HA
+    Reminders integration (a HACS install) to deliver anything.
+  fields:
+    title:
+      description: >-
+        What the notification says. A task or a habit supplies its own name, so
+        this is only needed for an event, which TaskTick cannot look up.
+      example: Take out the trash
+      selector:
+        text: {}
+    message:
+      example: The bins go out tonight
+      selector:
+        text:
+          multiline: true
+    task_id:
+      description: The task to remind you about. Give one of task_id, habit or event_id.
+      selector:
+        text: {}
+    habit:
+      description: A habit, by id or by name.
+      example: Go for a run
+      selector:
+        text: {}
+    event_id:
+      description: A calendar event. Give `date` as well, since TaskTick cannot look the event up.
+      selector:
+        text: {}
+    date:
+      description: The day the notification opens on. Defaults to today.
+      selector:
+        date: {}
+    complete:
+      description: >-
+        The acknowledge button that completes the task or checks the habit in.
+        An event gets no button either way, because there is nothing to finish.
+      default: true
+      selector:
+        boolean: {}
+    acknowledge_action_title:
+      description: What that button says — Complete, or Check in.
+      selector:
+        text: {}
+    icon:
+      description: "An mdi: icon name, or a URL to an image. TaskTick's own icon by default."
+      selector:
+        text: {}
+    notify_service:
+      description: >-
+        The notify service to send through, e.g. notify.mobile_app_phone. Empty
+        uses the one HA Reminders is configured with.
+      selector:
+        text: {}
+    user_name:
+      description: The name the reminder is addressed to.
+      selector:
+        text: {}
+    trigger_type:
+      description: What fires the reminder.
+      default: time
+      selector:
+        select:
+          options:
+            - time
+            - zone_enter
+            - zone_leave
+    time:
+      description: When to send it. Required by a time trigger.
+      selector:
+        time: {}
+    start_date:
+      description: The first day it may fire. Defaults to today.
+      selector:
+        date: {}
+    stop_date:
+      description: The last day it may fire. Empty repeats for ever.
+      selector:
+        date: {}
+    every_x_days:
+      description: Repeat every N days.
+      selector:
+        number:
+          min: 1
+          mode: box
+    exclude_days_of_week:
+      description: Days of the week to skip, as 0 (Monday) to 6 (Sunday).
+      selector:
+        select:
+          multiple: true
+          options:
+            - "0"
+            - "1"
+            - "2"
+            - "3"
+            - "4"
+            - "5"
+            - "6"
+    zone_entity_id:
+      description: The zone to watch. Required by a zone trigger.
+      selector:
+        entity:
+          domain: zone
+    person_entity_ids:
+      description: The people whose arrival or departure fires it.
+      selector:
+        entity:
+          domain: person
+          multiple: true
+    time_window_start:
+      description: Only send it after this time of day.
+      selector:
+        time: {}
+    time_window_end:
+      description: And not after this one.
+      selector:
+        time: {}
+    snooze_delays:
+      description: Snooze lengths in minutes, one button each.
+      selector:
+        number:
+          multiple: true
+          min: 1
+          mode: box
+    snooze_text:
+      description: What those buttons say, e.g. Snooze for {minutes}m.
+      selector:
+        text: {}
+    notification_group:
+      description: >-
+        Notifications sharing a group replace one another, and acknowledging one
+        tells the group.
+      selector:
+        text: {}
+    enabled:
+      default: true
+      selector:
+        boolean: {}
+    one_shot:
+      description: Stop after the first acknowledge.
+      default: true
+      selector:
+        boolean: {}
+    wait_time_if_no_action:
+      description: Minutes to wait before re-sending a reminder nobody answered.
+      selector:
+        number:
+          min: 1
+          mode: box
+    notification_count:
+      description: How many times to re-send it before giving up.
+      selector:
+        number:
+          min: 1
+          mode: box
+
 install_sentences:
   name: Install Assist sentences
   description: >-

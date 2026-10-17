@@ -256,6 +256,18 @@ Decisions worth knowing before you "improve" something:
   tabs' inner rail). It must go on the element that actually scrolls, because the
   mask is gated on that element's own scroll position.
 
+- **A reminder notification is a small contract, shared with Home Assistant.**
+  `src/lib/reminder-notification.ts` builds the link, the tag and the buttons, and
+  both delivery paths use it: Web Push (`public/sw.js` reads `actions` and
+  `data.url`, and a button press calls `POST /api/reminders/ack`), and the Home
+  Assistant integration's `tasktick.create_reminder`, which hands the same link to
+  HA Reminders. The three links are `?task=<id>`, `?habit=<id>` and
+  `?event=<id>&date=<day>`; each screen consumes its parameter and strips it,
+  because `TasksView` rewrites the query string from its filter state and
+  `CalendarScreen` mirrors only the date on screen. iOS ignores notification
+  buttons on Web Push, which is the reason the Home Assistant path exists at all:
+  it is the one that shows a button on an iPhone.
+
 ### Deleted rather than kept
 
 The project prefers deleting dead code to leaving it unreachable. Things that were

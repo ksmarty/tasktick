@@ -116,17 +116,26 @@ export const WEB_PUSH_TIMEOUT_MS = 10_000;
 const WEB_PUSH_TAG = 'tasktick';
 
 /**
- * The body `public/sw.js` renders. The worker's `push` handler reads
- * `title`, `body`, `tag` and `data.url` (from `url`) and nothing else — a
- * payload keyed differently arrives as a blank notification. `type` is an
- * Apprise concept and has no rendering path in the worker, so it is not sent.
+ * The body `public/sw.js` renders.
+ *
+ * The worker's `push` handler reads `title`, `body`, `tag`, `icon`, `actions`
+ * and `data` (which carries `url` from `url`) and nothing else — a payload keyed
+ * differently arrives as a blank notification. `type` is an Apprise concept and
+ * has no rendering path in the worker, so it is not sent.
+ *
+ * Every optional key is omitted rather than sent empty, so a notification that
+ * does not name an icon or a button renders exactly as it did before those
+ * fields existed: the worker's own defaults are the app icon and no buttons.
  */
 export function buildWebPushPayload(payload: NotificationPayload): string {
   return JSON.stringify({
     title: payload.title,
     body: payload.body,
-    tag: WEB_PUSH_TAG,
-    url: '/',
+    tag: payload.tag || WEB_PUSH_TAG,
+    url: payload.url || '/',
+    ...(payload.icon ? { icon: payload.icon } : {}),
+    ...(payload.actions && payload.actions.length > 0 ? { actions: payload.actions } : {}),
+    ...(payload.data ? { data: payload.data } : {}),
   });
 }
 

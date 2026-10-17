@@ -105,6 +105,27 @@ describe('all-day events', () => {
 
     expect(rec.sent.map((payload) => payload.title)).toEqual(['Provincial holiday']);
   });
+
+  it('opens the day and the event card, with no button to press', async () => {
+    const calendar = await createCalendar(userId, { name: 'Holidays' }, ZONE);
+    const event = await createEvent(
+      userId,
+      { calendarId: calendar.id, summary: 'Provincial holiday', startDate: '2026-05-12', isAllDay: true, reminders: [540] },
+      ZONE,
+    );
+    const rec = recorder();
+
+    await runReminderSweep(Date.UTC(2026, 4, 12, 9, 0, 0), { deliver: rec.deliver });
+
+    expect(rec.sent).toHaveLength(1);
+    expect(rec.sent[0]).toMatchObject({
+      // The day comes through the link, so the card opens on the day the event is
+      // actually on — an all-day event is not a "now" thing.
+      url: `/calendar?date=2026-05-12&event=${event.id}`,
+      actions: [],
+      data: { source: 'event', sourceId: event.id },
+    });
+  });
 });
 
 describe('habits', () => {
@@ -120,6 +141,21 @@ describe('habits', () => {
     expect(rec.sent).toHaveLength(1);
     expect(second.sent).toBe(0);
     expect(second.skipped).toBe(1);
+  });
+
+  it('opens the editor for the day the reminder belongs to, not the day it is read', async () => {
+    const habit = await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+
+    expect(rec.sent).toHaveLength(1);
+    expect(rec.sent[0]).toMatchObject({
+      url: `/habits?habit=${habit.id}`,
+      tag: `habit-${habit.id}-2026-05-12`,
+      actions: [{ action: 'complete', title: 'Check in' }],
+      data: { source: 'habit', sourceId: habit.id, occurrenceKey: `2026-05-12:${NOON_MINUTE}` },
+    });
   });
 
   it('does not remind on a day the schedule does not cover', async () => {
@@ -308,6 +344,28 @@ describe('tasks', () => {
     const rows = await getDb().select().from(taskReminders).where(eq(taskReminders.userId, userId));
     expect(rows).toHaveLength(1);
     expect(rows[0].sent).toBe(true);
+  });
+
+  it('carries the link that opens the task and the button that completes it', async () => {
+    const task = await createTask(
+      userId,
+      { title: 'Pay rent', dueDate: '2026-05-12', dueTime: '12:00', reminders: [{ offsetMinutes: 0 }] },
+      ZONE,
+    );
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+
+    expect(rec.sent).toHaveLength(1);
+    expect(rec.sent[0]).toMatchObject({
+      url: `/tasks?task=${task.id}`,
+      tag: `task-${task.id}`,
+      actions: [{ action: 'complete', title: 'Complete' }],
+      data: { source: 'task', sourceId: task.id },
+    });
+    // The occurrence is the task_reminders row, which is what the button's
+    // acknowledgement has to name for the claim to be the same one.
+    expect(rec.sent[0].data?.occurrenceKey).toBeTruthy();
   });
 
   it('sends only once across two sweeps', async () => {

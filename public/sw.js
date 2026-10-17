@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v50';
+const VERSION = 'tasktick-v51';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -1050,6 +1050,12 @@ function isCacheable(request, response) {
  * POSTs the subscription to `/api/push/subscribe`; this handler is what turns a
  * server push into a visible notification. iOS requires an installed (Home
  * Screen) PWA for any of this to fire at all.
+ *
+ * A reminder sends more than a title: `url` is the screen the tap opens,
+ * `actions` are the buttons it offers, and `data` is what a button reports back
+ * so `notificationclick` can acknowledge the item without parsing the URL. Every
+ * one of them is optional, and a payload without them renders exactly as it did
+ * before they existed.
  */
 self.addEventListener('push', (event) => {
   let payload = {};
@@ -1059,20 +1065,69 @@ self.addEventListener('push', (event) => {
     payload = { body: event.data ? event.data.text() : '' };
   }
 
+  const actions = Array.isArray(payload.actions)
+    ? payload.actions.filter((entry) => entry && entry.action && entry.title)
+    : [];
+
   event.waitUntil(
     self.registration.showNotification(payload.title || 'TaskTick', {
       body: payload.body || '',
       tag: payload.tag || 'tasktick',
-      data: { url: payload.url || '/' },
-      icon: '/icons/icon-192.png',
+      data: Object.assign({ url: payload.url || '/' }, payload.data || {}),
+      icon: payload.icon || '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
+      // Omitted rather than sent empty: a platform that supports actions is
+      // shown none when there are none, instead of an empty button row.
+      ...(actions.length > 0 ? { actions } : {}),
     }),
   );
 });
 
+/**
+ * Reports a notification's button to the server.
+ *
+ * The tap is the whole interaction — the app may never be opened — so this is a
+ * plain `fetch`, and it is the same write the matching API route makes. A
+ * failure is swallowed: the item stays where it was, which is where the user
+ * would look for it anyway, and a notification is not the place to report a
+ * network error.
+ */
+async function acknowledge(action, data) {
+  if (!data || !data.source || !data.sourceId) return;
+  try {
+    await fetch('/api/reminders/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: data.source,
+        sourceId: data.sourceId,
+        occurrenceKey: data.occurrenceKey || '',
+        action: action,
+      }),
+    });
+  } catch (error) {
+    // Offline, or the session expired: nothing to do, and nothing to say.
+  }
+}
+
 self.addEventListener('notificationclick', (event) => {
+  const data = event.notification.data || {};
+  const target = data.url || '/';
+  const action = event.action || '';
+
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/';
+
+  /*
+   * A button is a decision, not a navigation: it acknowledges the item and
+   * stops, so the tap that dismissed the notification does not also open the
+   * screen it just acted on. `default` is what a platform reports for a tap on
+   * the body, so it falls through to the navigation below.
+   */
+  if (action && action !== 'default') {
+    event.waitUntil(acknowledge(action, data));
+    return;
+  }
+
   event.waitUntil(
     (async () => {
       const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

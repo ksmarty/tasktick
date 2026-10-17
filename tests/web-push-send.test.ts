@@ -116,6 +116,35 @@ describe('buildWebPushPayload', () => {
   it('omits the Apprise-only type, which the worker has no path for', () => {
     expect(JSON.parse(buildWebPushPayload(PAYLOAD))).not.toHaveProperty('type');
   });
+
+  it('carries the reminder link, buttons and identity when they are given', () => {
+    expect(
+      JSON.parse(
+        buildWebPushPayload({
+          ...PAYLOAD,
+          url: '/tasks?task=task-1',
+          tag: 'task-task-1',
+          icon: '/icons/reminder.png',
+          actions: [{ action: 'complete', title: 'Complete' }],
+          data: { source: 'task', sourceId: 'task-1', occurrenceKey: '2' },
+        }),
+      ),
+    ).toEqual({
+      title: 'Task due',
+      body: 'Buy milk',
+      tag: 'task-task-1',
+      url: '/tasks?task=task-1',
+      icon: '/icons/reminder.png',
+      actions: [{ action: 'complete', title: 'Complete' }],
+      data: { source: 'task', sourceId: 'task-1', occurrenceKey: '2' },
+    });
+  });
+
+  it('drops an empty override rather than sending a key the worker must guard', () => {
+    const payload = JSON.parse(buildWebPushPayload({ ...PAYLOAD, url: '', tag: '', icon: '', actions: [] }));
+
+    expect(payload).toEqual({ title: 'Task due', body: 'Buy milk', tag: 'tasktick', url: '/' });
+  });
 });
 
 describe('sendWebPush', () => {

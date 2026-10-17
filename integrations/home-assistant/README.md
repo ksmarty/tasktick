@@ -86,6 +86,7 @@ custom intent at all**.
 | `tasktick.complete_task` | Complete by title (partial match) or by id. Repeating tasks move to their next occurrence. |
 | `tasktick.delete_task` | Delete by title or id. |
 | `tasktick.check_in_habit` | Check a habit in, optionally with a count. |
+| `tasktick.create_reminder` | Hand a reminder about a task, a habit or an event to HA Reminders, with a deep link into the app and a button that completes it. |
 | `tasktick.sync` | Ask TaskTick to sync its CalDAV and subscribed calendars now. |
 
 ### Voice (Assist)
@@ -115,12 +116,43 @@ your automation.
 
 ### Reminders
 
-`blueprints/automation/tasktick/reminder_notification.yaml` forwards a TaskTick
-reminder to a `notify` service. Import it through
-**Settings → Automations → Blueprints**, then point it at a `notify.*` target.
+TaskTick can push a reminder to your phone itself (Web Push, from the app's own
+settings). This integration is the other path — the one that goes through Home
+Assistant:
 
-TaskTick decides *when* a reminder is due and pushes it to Home Assistant; the
-blueprint only delivers it. Home Assistant does not poll for reminders.
+`tasktick.create_reminder` hands a reminder to
+[HA Reminders](https://github.com/ksmarty/ha-reminders), which owns delivery: the
+schedule, the resend loop, the snooze buttons, the notification group. One action
+is all it takes:
+
+```yaml
+action: tasktick.create_reminder
+data:
+  task_id: "{{ id }}"
+  time: "07:30:00"
+  notify_service: notify.mobile_app_phone
+```
+
+Give `task_id`, `habit` (an id or a name) or `event_id` — one of the three, plus
+`date` for an event.
+
+- Tapping the notification opens TaskTick at that task, that habit, or that day
+  with the event's card already showing.
+- Its acknowledge button says **Complete** on a task and **Check in** on a habit,
+  and it calls `tasktick.complete_task` / `tasktick.check_in_habit` back, so a
+  repeating task rolls forward and a habit is credited to the day the reminder was
+  for. An event gets **Dismiss** and nothing to run: there is nothing to finish.
+- The notification carries TaskTick's own icon (`mdi:check-circle-outline`) unless
+  you pass `icon:`.
+- Everything else HA Reminders understands — a zone trigger, a time window,
+  `every_x_days`, `exclude_days_of_week`, extra `snooze_delays`, a
+  `notification_group`, `one_shot`, the resend count — is passed straight through
+  unchanged. Its README documents the whole set.
+
+TaskTick decides *what* the reminder is about and where it opens; HA Reminders
+decides when it fires and when to give up. Home Assistant does not poll for
+reminders — HA Reminders schedules them. Calling the service without HA Reminders
+installed fails with a message that says so.
 
 ---
 

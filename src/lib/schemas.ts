@@ -247,6 +247,23 @@ export const checkInSchema = z
   })
   .strict();
 
+/**
+ * The button a notification offered, reported back by `public/sw.js`.
+ *
+ * `occurrenceKey` is carried verbatim from the payload rather than re-derived,
+ * so a button on a notification that has been sitting there for hours still
+ * says which occurrence it was for — for a habit that is the day to check in,
+ * which is not necessarily today.
+ */
+export const reminderAckSchema = z
+  .object({
+    source: z.enum(['task', 'event', 'habit']),
+    sourceId: z.string().min(1).max(200),
+    occurrenceKey: z.string().max(200).optional(),
+    action: z.literal('complete'),
+  })
+  .strict();
+
 /* -------------------------------------------------------------------------- */
 /* calendars + events                                                         */
 /* -------------------------------------------------------------------------- */
