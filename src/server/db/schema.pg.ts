@@ -200,6 +200,11 @@ export const userSettings = pgTable(
     accent: text('accent').notNull().default('blue'),
     /** `12h` | `24h` */
     timeFormat: text('time_format').notNull().default('24h'),
+    /**
+     * Shorten a whole hour's time to drop its `:00` on the task list — `9`
+     * rather than `09:00`. A time with minutes keeps them.
+     */
+    compactTimes: boolean('compact_times').notNull().default(true),
     defaultListId: text('default_list_id'),
     /** Index into the "smart list" order array; JSON. */
     smartListOrder: jsonb('smart_list_order').$type<string[]>(),

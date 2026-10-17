@@ -170,7 +170,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { CalendarCombobox } from '@/components/calendar/CalendarCombobox';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
-import { addDaysToDateOnly, humanDuration, relativeDayLabel, timeIn, todayIn } from '@/lib/dates';
+import { addDaysToDateOnly, humanDuration, relativeDayLabel, TIME_INPUT_STEP_SECONDS, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useMediaQuery, useResource } from '@/lib/store';
 import type { DateOnly, Task } from '@/lib/types';
@@ -381,6 +381,8 @@ function TimeField({
       <input
         type="time"
         aria-label={`${label} time`}
+        /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
+        step={TIME_INPUT_STEP_SECONDS}
         value={value}
         disabled={disabled}
         onFocus={() => setFocused(true)}

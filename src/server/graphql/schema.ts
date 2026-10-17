@@ -517,6 +517,8 @@ export const typeDefs = /* GraphQL */ `
     theme: String!
     accent: AccentPreference!
     timeFormat: String!
+    """Whether a whole hour's minutes are dropped from the times on the task list."""
+    compactTimes: Boolean!
     defaultListId: ID
     smartListOrder: [String!]
     pomodoroFocus: Int!
@@ -908,6 +910,7 @@ export const typeDefs = /* GraphQL */ `
     theme: String
     accent: AccentPreference
     timeFormat: String
+    compactTimes: Boolean
     defaultListId: ID
     smartListOrder: [String!]
     pomodoroFocus: Int

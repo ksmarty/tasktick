@@ -60,6 +60,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SegmentedControl } from '@/components/godui/segmented-control';
 import { cn } from '@/lib/utils';
+import { TIME_INPUT_STEP_SECONDS } from '@/lib/dates';
 import { ACCENT_LABEL, accentHex } from '@/lib/colors';
 import { api } from '@/lib/api-client';
 import { affectsFor } from '@/lib/offline-rules';
@@ -582,6 +583,8 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
                         <Input
                           type="time"
                           aria-label={`Reminder ${index + 1}`}
+                          /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
+                          step={TIME_INPUT_STEP_SECONDS}
                           value={time}
                           onChange={(event) => {
                             const next = event.target.value as TimeOnly;

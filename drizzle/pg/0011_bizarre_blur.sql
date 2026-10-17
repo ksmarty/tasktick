@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "compact_times" boolean DEFAULT true NOT NULL;

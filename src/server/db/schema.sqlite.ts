@@ -186,6 +186,11 @@ export const userSettings = sqliteTable(
     accent: text('accent').notNull().default('blue'),
     /** `12h` | `24h` */
     timeFormat: text('time_format').notNull().default('24h'),
+    /**
+     * Shorten a whole hour's time to drop its `:00` on the task list — `9`
+     * rather than `09:00`. A time with minutes keeps them.
+     */
+    compactTimes: integer('compact_times', { mode: 'boolean' }).notNull().default(true),
     defaultListId: text('default_list_id'),
     /** Index into the "smart list" order array; JSON. */
     smartListOrder: text('smart_list_order', { mode: 'json' }).$type<string[]>(),

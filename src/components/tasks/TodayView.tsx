@@ -52,6 +52,8 @@ export function TodayView() {
 
   const zone = data?.settings.timezone ?? data?.user.timezone ?? 'utc';
   const timeFormat = data?.settings.timeFormat ?? '24h';
+  /** The `compactTimes` setting; see `DueDateLabel`. On unless turned off. */
+  const compactTimes = data?.settings.compactTimes ?? true;
   const weekStartsOn = data?.settings.weekStartsOn ?? 1;
   const actions = useTaskActions(zone);
 
@@ -332,6 +334,7 @@ export function TodayView() {
                   section={section}
                   zone={zone}
                   timeFormat={timeFormat}
+                  compactTimes={compactTimes}
                   onToggle={toggleTask}
                   onOpen={setDetail}
                   listColorFor={accentForTask}

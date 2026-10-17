@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SegmentedControl, type SegmentedOption } from '@/components/godui/segmented-control';
+import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api-client';
 import { affectsFor } from '@/lib/offline-rules';
 import { useMutation } from '@/lib/store';
@@ -88,7 +89,7 @@ export function DateTimeSettings({ settings }: DateTimeSettingsProps) {
   const { toast } = useToast();
 
   const persist = useMutation(
-    async (patch: { timezone?: string; weekStartsOn?: 0 | 1; timeFormat?: '12h' | '24h' }) =>
+    async (patch: { timezone?: string; weekStartsOn?: 0 | 1; timeFormat?: '12h' | '24h'; compactTimes?: boolean }) =>
       api.patch<UserSettings>('/api/settings', patch),
     {
       invalidates: affectsFor('POST', '/api/settings'),
@@ -170,6 +171,24 @@ export function DateTimeSettings({ settings }: DateTimeSettingsProps) {
           options={CLOCK_FORMAT_OPTIONS}
           value={settings.timeFormat}
           onChange={(value) => void persist.run({ timeFormat: value === '12h' ? '12h' : '24h' })}
+        />
+      </SettingsRow>
+
+      <SettingsRow>
+        <div className="min-w-0 flex-1">
+          <Label htmlFor="settings-compact-times" className="block">
+            Compact times
+          </Label>
+          <p className="pt-0.5 text-xs text-muted-foreground">
+            Drops the minutes from a time that is on the hour on the task list — 9 rather than 09:00, 5 PM
+            rather than 5:00 PM. A time with minutes keeps them, so 09:30 still reads 09:30.
+          </p>
+        </div>
+        <Switch
+          id="settings-compact-times"
+          aria-label="Compact times on the task list"
+          checked={settings.compactTimes}
+          onCheckedChange={(next) => void persist.run({ compactTimes: next })}
         />
       </SettingsRow>
     </SettingsGroup>

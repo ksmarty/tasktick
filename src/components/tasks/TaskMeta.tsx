@@ -79,6 +79,8 @@ export interface DueDateLabelProps {
    * time, Tomorrow the clock time alone, and everything else the date.
    */
   format?: DueFormat;
+  /** Drop a whole hour's `:00` from the label — the `compactTimes` setting. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -103,8 +105,8 @@ export interface DueDateLabelProps {
  * puts both centres on the same pixel. It is a line-height, not a margin: the
  * box grows around the text and the baseline never moves.
  */
-export function DueDateLabel({ task, zone, timeFormat, format = 'relative', className }: DueDateLabelProps) {
-  const due = dueLabel(task, zone, timeFormat, format);
+export function DueDateLabel({ task, zone, timeFormat, format = 'relative', compact = false, className }: DueDateLabelProps) {
+  const due = dueLabel(task, zone, timeFormat, format, compact);
   if (!due) return null;
 
   return (

@@ -225,6 +225,8 @@ export interface TaskRowProps {
    * this; the row does not (see `TaskListSection`).
    */
   format?: DueFormat;
+  /** Drop a whole hour's `:00` from the label — the `compactTimes` setting. */
+  compact?: boolean;
   className?: string;
   ref?: Ref<HTMLLIElement>;
 }
@@ -248,6 +250,7 @@ export function TaskRow({
   last = false,
   first = false,
   format = 'relative',
+  compact = false,
   className,
   ref,
 }: TaskRowProps) {
@@ -750,6 +753,7 @@ export function TaskRow({
           zone={zone}
           timeFormat={timeFormat}
           format={format}
+          compact={compact}
           className="shrink-0 self-center"
         />
       </button>

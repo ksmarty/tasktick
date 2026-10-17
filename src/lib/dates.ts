@@ -290,6 +290,37 @@ export function formatTime(instantMs: Millis, prefs: FormatPrefs): string {
   return DateTime.fromMillis(instantMs, { zone: prefs.zone }).toFormat(timePattern(prefs));
 }
 
+/**
+ * The granularity every native time picker steps by, in seconds.
+ *
+ * 300s = five minutes. It is one constant because the question "what time?" must
+ * not have a different answer depending on which sheet asks it: the event editor
+ * stepped by the quarter hour (900) and the task editor, the habit reminders and
+ * the matrix sheet each took the browser's default of one minute, so the same
+ * gesture moved a different distance in each.
+ */
+export const TIME_INPUT_STEP_SECONDS = 300;
+
+/**
+ * Drops the minutes from a time that is on the hour: `09:00` -> `09`,
+ * `5:00 PM` -> `5 PM`.
+ *
+ * A post-processor rather than a second pattern, because the decision depends on
+ * the *value* and not on the format: the 12-hour pattern for a whole hour is
+ * `h a` and for anything else `h:mm a`, so a pattern swap would mean asking the
+ * same question twice. This works on either format's output — the minutes are
+ * always the `:00` that follows the hour — and a time with real minutes is
+ * returned untouched.
+ *
+ * The lookahead anchors the match on the minutes that end the time (or precede a
+ * space, as in the 12-hour form), so a `:00` in the middle of a longer string is
+ * not a candidate. `formatTime` never emits seconds, so in practice the match is
+ * always the hour's own minutes.
+ */
+export function dropZeroMinutes(text: string): string {
+  return text.replace(/:00(?=\s|$)/, '');
+}
+
 export function formatDateTime(instantMs: Millis, prefs: FormatPrefs, now = nowIn(prefs.zone)): string {
   const dt = DateTime.fromMillis(instantMs, { zone: prefs.zone });
   return `${formatDayMonth(dt, now)} ${dt.toFormat(timePattern(prefs))}`;

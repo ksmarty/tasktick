@@ -22,6 +22,7 @@
  * whichever shape it takes.
  */
 import {
+  dropZeroMinutes,
   formatDayMonth,
   formatTime,
   fromDateOnly,
@@ -65,26 +66,44 @@ export type DueLabelTask = Pick<
  * due reads as a span exactly as an event does, one with only a due reads as a
  * time, and anything with no clock time at all reads as `All day`.
  *
- * `joiner` is the visible en dash by default. The accessible name passes `to`,
- * because a screen reader announces a dash as punctuation and "09:00 to 10:00"
- * is what a person says — the same split `DayAgenda` makes.
+ * `options.joiner` is the visible en dash by default. The accessible name passes
+ * `to`, because a screen reader announces a dash as punctuation and
+ * "09:00 to 10:00" is what a person says — the same split `DayAgenda` makes.
+ *
+ * `options.compact` drops a whole hour's `:00` (the `compactTimes` setting), so
+ * a 09:00 task reads `09` and a 09:30 one still reads `09:30`.
  */
 export function clockLabel(
   item: { startMs: Millis | null; endMs: Millis | null; isAllDay: boolean },
   prefs: FormatPrefs,
-  joiner = '–',
+  options: ClockLabelOptions = {},
 ): string {
+  const { joiner = '–', compact = false } = options;
+  const clock = (instantMs: Millis): string => {
+    const text = formatTime(instantMs, prefs);
+    return compact ? dropZeroMinutes(text) : text;
+  };
+
   if (item.isAllDay || item.startMs === null) return 'All day';
-  const start = formatTime(item.startMs, prefs);
+  const start = clock(item.startMs);
   // A zero-length item is a time, not a span of no length.
   if (item.endMs === null || item.endMs <= item.startMs) return start;
-  return `${start} ${joiner} ${formatTime(item.endMs, prefs)}`;
+  return `${start} ${joiner} ${clock(item.endMs)}`;
+}
+
+/** How a `clock`-shaped label is spelled. */
+export interface ClockLabelOptions {
+  /** Separator between two times; `to` for a label a screen reader will speak. */
+  joiner?: string;
+  /** Drop a whole hour's `:00` — see `dropZeroMinutes`. */
+  compact?: boolean;
 }
 
 /** The `clock` shape for a task: its own span, its due time, or `All day`. */
 export function taskClockLabel(
   task: Pick<DueLabelTask, 'startAtMs' | 'dueAtMs' | 'isAllDay'>,
   prefs: FormatPrefs,
+  options: ClockLabelOptions = {},
 ): string {
   return clockLabel(
     {
@@ -95,6 +114,7 @@ export function taskClockLabel(
       isAllDay: task.isAllDay,
     },
     prefs,
+    options,
   );
 }
 
@@ -117,13 +137,15 @@ export function absoluteDayLabel(day: DateOnly, zone: string): string {
  * user whether it is late, due now, or simply scheduled.
  *
  * `format` is the shape; see `DueFormat`. The caller passes it from the section
- * it is rendering (`TaskListSection`).
+ * it is rendering (`TaskListSection`). `compact` drops a whole hour's `:00` from
+ * whichever shape carries a clock time — the `compactTimes` setting.
  */
 export function dueLabel(
   task: DueLabelTask,
   zone: string,
   timeFormat: '12h' | '24h',
   format: DueFormat = 'relative',
+  compact = false,
 ): DueLabel | null {
   const day = taskDay(task, zone);
   if (!day) return null;
@@ -132,14 +154,19 @@ export function dueLabel(
   const dueToday = !overdue && day === todayIn(zone);
   const prefs: FormatPrefs = { zone, timeFormat, weekStartsOn: 0 };
   const withTime = task.dueAtMs !== null && !task.isAllDay;
+  const dueClock = withTime
+    ? compact
+      ? dropZeroMinutes(formatTime(task.dueAtMs as number, prefs))
+      : formatTime(task.dueAtMs as number, prefs)
+    : null;
 
   return {
     label:
       format === 'absolute'
         ? absoluteDayLabel(day, zone)
         : format === 'clock'
-          ? taskClockLabel(task, prefs)
-          : `${relativeDayLabel(day, zone)}${withTime ? ` ${formatTime(task.dueAtMs as number, prefs)}` : ''}`,
+          ? taskClockLabel(task, prefs, { compact })
+          : `${relativeDayLabel(day, zone)}${dueClock ? ` ${dueClock}` : ''}`,
     tone: overdue ? 'danger' : dueToday ? 'tint' : 'secondary',
     day,
   };

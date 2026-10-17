@@ -855,7 +855,7 @@ describe('section-aware trailing label', () => {
     // A task goes through DueDateLabel -> dueLabel(..., format); an event
     // formats its own trailing label with the same helper.
     expect(ROW).toContain('format={format}');
-    expect(META).toContain('dueLabel(task, zone, timeFormat, format)');
+    expect(META).toContain('dueLabel(task, zone, timeFormat, format, compact)');
     expect(EVENT_ROW).toContain('absoluteDayLabel(toDateOnly(event.startMs, zone), zone)');
     expect(EVENT_ROW).toContain('format');
   });
@@ -870,7 +870,7 @@ describe('section-aware trailing label', () => {
     // carries the time, the span, or "All day" — see `clockLabel`.
     expect(SECTION).toContain("section.id === 'tomorrow' ? 'clock'");
     expect(EVENT_ROW).toContain(
-      'clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs)',
+      'clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { compact })',
     );
   });
 });

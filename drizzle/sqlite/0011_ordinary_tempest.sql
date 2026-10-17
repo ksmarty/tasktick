@@ -1,0 +1,1 @@
+ALTER TABLE `user_settings` ADD `compact_times` integer DEFAULT true NOT NULL;

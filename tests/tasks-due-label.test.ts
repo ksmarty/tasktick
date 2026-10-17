@@ -137,7 +137,7 @@ describe('clockLabel — a time, a span, or All day', () => {
     const item = { startMs: at('2025-05-13T09:00:00Z'), endMs: at('2025-05-13T10:30:00Z'), isAllDay: false };
     expect(clockLabel(item, PREFS)).toBe('09:00 – 10:30');
     // A screen reader announces a dash as punctuation; "to" is what a person says.
-    expect(clockLabel(item, PREFS, 'to')).toBe('09:00 to 10:30');
+    expect(clockLabel(item, PREFS, { joiner: 'to' })).toBe('09:00 to 10:30');
   });
 
   it('honours the 12-hour preference', () => {

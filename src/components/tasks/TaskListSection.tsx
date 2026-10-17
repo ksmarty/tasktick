@@ -160,6 +160,12 @@ export interface TaskListSectionProps {
   section: TaskSection;
   zone: string;
   timeFormat: '12h' | '24h';
+  /**
+   * The `compactTimes` setting: drop a whole hour's `:00` from the row's
+   * trailing label. Passed in rather than read here because the value comes from
+   * the bootstrap the screen already holds.
+   */
+  compactTimes?: boolean;
   onToggle: (task: Task) => void;
   onOpen: (task: Task) => void;
   /** Resolves a task's list colour for its row strip. */
@@ -183,6 +189,7 @@ export function TaskListSection({
   section,
   zone,
   timeFormat,
+  compactTimes = false,
   onToggle,
   onOpen,
   listColorFor,
@@ -426,6 +433,7 @@ export function TaskListSection({
                         first={index === 0}
                         last={index === rows.length - 1}
                         format={format}
+                        compact={compactTimes}
                       />
                     ) : (
                       <EventRow
@@ -439,6 +447,7 @@ export function TaskListSection({
                         first={index === 0}
                         last={index === rows.length - 1}
                         format={format}
+                        compact={compactTimes}
                       />
                     ),
                   )}

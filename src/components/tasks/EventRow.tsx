@@ -41,7 +41,7 @@
  */
 import { itemHex } from '@/components/calendar/colors';
 import type { CalendarLookup } from '@/components/calendar/types';
-import { formatTime, toDateOnly } from '@/lib/dates';
+import { dropZeroMinutes, formatTime, toDateOnly } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { absoluteDayLabel, clockLabel, type DueFormat } from './due-label';
@@ -72,6 +72,8 @@ export interface EventRowProps {
    * this; the row does not (see `TaskListSection`).
    */
   format?: DueFormat;
+  /** Drop a whole hour's `:00` from the label — the `compactTimes` setting. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -85,6 +87,7 @@ export function EventRow({
   first = false,
   last = false,
   format = 'relative',
+  compact = false,
   className,
 }: EventRowProps) {
   const prefs = { zone, timeFormat, weekStartsOn: 0 } as const;
@@ -100,10 +103,12 @@ export function EventRow({
     format === 'absolute'
       ? absoluteDayLabel(toDateOnly(event.startMs, zone), zone)
       : format === 'clock'
-        ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs)
+        ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { compact })
         : event.isAllDay
           ? 'All day'
-          : formatTime(event.startMs, prefs);
+          : compact
+            ? dropZeroMinutes(formatTime(event.startMs, prefs))
+            : formatTime(event.startMs, prefs);
 
   /*
    * The accessible name says "09:00 to 10:00" where the row shows an en dash:
@@ -112,7 +117,7 @@ export function EventRow({
    */
   const spokenTime =
     format === 'clock'
-      ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, 'to')
+      ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { joiner: 'to', compact })
       : timeLabel;
 
   const accessibleName = [

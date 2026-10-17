@@ -81,6 +81,7 @@ import { api, errorMessage } from '@/lib/api-client';
 import {
   addDaysToDateOnly,
   combineDateAndTime,
+  TIME_INPUT_STEP_SECONDS,
   timeIn,
   toDateOnly,
   todayIn,
@@ -1092,8 +1093,8 @@ function TimeField({
       <Input
         id={id}
         type="time"
-        /* 900s = the quarter-hour granularity the old time picker stepped by. */
-        step={900}
+        /* Five-minute increments; see `TIME_INPUT_STEP_SECONDS`. */
+        step={TIME_INPUT_STEP_SECONDS}
         value={value}
         onChange={(input) => {
           // A cleared field must not write an empty time; the draft keeps the

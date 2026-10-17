@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   theme: 'system',
   accent: 'blue',
   timeFormat: '24h',
+  compactTimes: true,
   defaultListId: null,
   smartListOrder: null,
   pomodoroFocus: 25,
@@ -50,6 +51,7 @@ function rowToSettings(row: typeof userSettings.$inferSelect): UserSettings {
     theme: (row.theme as UserSettings['theme']) ?? 'system',
     accent: asAccentPreference(row.accent),
     timeFormat: row.timeFormat === '12h' ? '12h' : '24h',
+    compactTimes: row.compactTimes,
     defaultListId: row.defaultListId,
     smartListOrder: row.smartListOrder,
     pomodoroFocus: row.pomodoroFocus,
@@ -98,6 +100,7 @@ export async function updateSettings(userId: string, input: SettingsUpdate): Pro
   if (input.theme !== undefined) patch.theme = input.theme;
   if (input.accent !== undefined) patch.accent = input.accent;
   if (input.timeFormat !== undefined) patch.timeFormat = input.timeFormat;
+  if (input.compactTimes !== undefined) patch.compactTimes = input.compactTimes;
   if (input.defaultListId !== undefined) patch.defaultListId = input.defaultListId;
   if (input.smartListOrder !== undefined) patch.smartListOrder = input.smartListOrder;
   if (input.pomodoroFocus !== undefined) patch.pomodoroFocus = clamp(input.pomodoroFocus, 1, 180);

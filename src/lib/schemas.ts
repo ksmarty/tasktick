@@ -321,6 +321,7 @@ export const updateSettingsSchema = z
     theme: z.enum(['light', 'dark', 'system']).optional(),
     accent: accentPreference.optional(),
     timeFormat: z.enum(['12h', '24h']).optional(),
+    compactTimes: z.boolean().optional(),
     defaultListId: z.string().nullable().optional(),
     smartListOrder: z.array(z.string()).max(40).nullable().optional(),
     pomodoroFocus: z.number().int().min(1).max(180).optional(),

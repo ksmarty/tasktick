@@ -503,6 +503,15 @@ export interface UserSettings {
   /** May be `default`, which means no accent — see `AccentPreference`. */
   accent: AccentPreference;
   timeFormat: '12h' | '24h';
+  /**
+   * Drop a whole hour's `:00` from the times on the task list — `9` rather than
+   * `09:00`, `5 PM` rather than `5:00 PM`.
+   *
+   * Only a time that *is* on the hour is shortened: a task due at 09:30 still
+   * reads `09:30`, because the minutes are the whole point of it. Off by default
+   * nowhere — it is on unless the user turns it off.
+   */
+  compactTimes: boolean;
   defaultListId: string | null;
   smartListOrder: string[] | null;
   pomodoroFocus: number;
