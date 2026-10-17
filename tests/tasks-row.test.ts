@@ -873,6 +873,15 @@ describe('section-aware trailing label', () => {
       'clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { compact })',
     );
   });
+
+  it('shows an event’s span in Today too, not just its start time', () => {
+    // Today and Tomorrow are the same clock label for an event: they differ only
+    // in what they leave out, and neither prints the day — Today's rows sit under
+    // the agenda's own day heading, and Tomorrow's under a header that says so.
+    // Branching on `clock` here is what used to reduce an event to its start.
+    expect(EVENT_ROW).not.toContain("format === 'clock'");
+    expect(EVENT_ROW).toContain('format === \'absolute\'');
+  });
 });
 
 /**

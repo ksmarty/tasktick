@@ -9,7 +9,10 @@
  * The label has three shapes, chosen by the section the row is in:
  *
  *  - **Inside Today** (`relative`): the relative day plus the clock time, e.g.
- *    `Today 17:00`. The row is due now, so the time is what the user acts on.
+ *    `Today 17:00` — or the span it occupies when it has two, e.g.
+ *    `Today 09:00 – 11:00`. The row is due now, so the time is what the user acts
+ *    on, and a task with a start and a due occupies a span exactly as an event
+ *    does.
  *  - **Inside Tomorrow** (`clock`): the clock time alone — the span it occupies
  *    when it has two, e.g. `09:00 – 10:00` — or `All day`. The section header has
  *    already named the day, and repeating it in every row spends the row's one
@@ -119,6 +122,24 @@ export function taskClockLabel(
 }
 
 /**
+ * The clock part of a task's label as a prefixed fragment — ` 09:00 – 11:00` —
+ * or nothing at all when the task has no clock time.
+ *
+ * `taskClockLabel` answers `All day` for that case, which is what the Tomorrow
+ * shape wants: its header has already named the day, so "All day" is the only
+ * thing left to say. The relative shape reads "Today" already, and "Today All
+ * day" would say the same thing twice — so it asks for nothing instead.
+ */
+function taskClockSuffix(
+  task: Pick<DueLabelTask, 'startAtMs' | 'dueAtMs' | 'isAllDay'>,
+  prefs: FormatPrefs,
+  compact: boolean,
+): string {
+  if (task.isAllDay || (task.startAtMs === null && task.dueAtMs === null)) return '';
+  return ` ${taskClockLabel(task, prefs, { compact })}`;
+}
+
+/**
  * The absolute day a row outside the Today section carries: `Tue Sep 30`.
  *
  * The year is added only when it is not the current one (`Tue Sep 30 2026`),
@@ -153,12 +174,6 @@ export function dueLabel(
   const overdue = isOverdue(task, zone);
   const dueToday = !overdue && day === todayIn(zone);
   const prefs: FormatPrefs = { zone, timeFormat, weekStartsOn: 0 };
-  const withTime = task.dueAtMs !== null && !task.isAllDay;
-  const dueClock = withTime
-    ? compact
-      ? dropZeroMinutes(formatTime(task.dueAtMs as number, prefs))
-      : formatTime(task.dueAtMs as number, prefs)
-    : null;
 
   return {
     label:
@@ -166,7 +181,7 @@ export function dueLabel(
         ? absoluteDayLabel(day, zone)
         : format === 'clock'
           ? taskClockLabel(task, prefs, { compact })
-          : `${relativeDayLabel(day, zone)}${dueClock ? ` ${dueClock}` : ''}`,
+          : `${relativeDayLabel(day, zone)}${taskClockSuffix(task, prefs, compact)}`,
     tone: overdue ? 'danger' : dueToday ? 'tint' : 'secondary',
     day,
   };

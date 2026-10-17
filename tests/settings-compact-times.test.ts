@@ -110,6 +110,17 @@ describe('the compact shape of a label', () => {
     expect(dueLabel(today, ZONE, '24h', 'relative', false)?.label).toBe('Today 17:00');
   });
 
+  it('compacts both ends of a span inside Today', () => {
+    const span = task({
+      startAtMs: Date.parse('2025-05-12T09:00:00Z'),
+      dueAtMs: Date.parse('2025-05-12T11:30:00Z'),
+      isAllDay: false,
+    });
+
+    expect(dueLabel(span, ZONE, '24h', 'relative', true)?.label).toBe('Today 09 – 11:30');
+    expect(dueLabel(span, ZONE, '24h', 'relative', false)?.label).toBe('Today 09:00 – 11:30');
+  });
+
   it('compacts both ends of a span, and neither when the setting is off', () => {
     const span = { startMs: Date.parse('2025-05-13T09:00:00Z'), endMs: Date.parse('2025-05-13T11:00:00Z'), isAllDay: false };
 

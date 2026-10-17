@@ -48,8 +48,31 @@ describe('dueLabel — relative in Today, clock in Tomorrow, absolute outside bo
     expect(due).toEqual({ label: 'Today 17:00', tone: 'tint', day: '2025-05-12' });
   });
 
-  it('drops the day in Tomorrow and keeps the clock time', () => {
-    // The section header says "Tomorrow"; the row's one trailing slot is worth
+  it('reads the span inside Today, the way Tomorrow already does', () => {
+    // A task with a start and a due occupies a span exactly as an event does,
+    // and Today is where that span is most worth reading — it is the work the
+    // user is about to do.
+    const due = dueLabel(
+      task({
+        startAtMs: Date.parse('2025-05-12T09:00:00Z'),
+        dueAtMs: Date.parse('2025-05-12T11:00:00Z'),
+        isAllDay: false,
+      }),
+      ZONE,
+      '24h',
+      'relative',
+    );
+
+    expect(due?.label).toBe('Today 09:00 – 11:00');
+  });
+
+  it('still reads just "Today" for an all-day task, not "Today All day"', () => {
+    // The relative shape has already named the day; "All day" is what Tomorrow
+    // says in place of the day it dropped, so saying both here says it twice.
+    expect(dueLabel(task({ dueDate: '2025-05-12' }), ZONE, '24h', 'relative')?.label).toBe('Today');
+  });
+
+  it('drops the day in Tomorrow and keeps the clock time', () => {    // The section header says "Tomorrow"; the row's one trailing slot is worth
     // more spent on *when* than on repeating the day it is filed under.
     const due = dueLabel(
       task({ dueAtMs: Date.parse('2025-05-13T17:00:00Z'), isAllDay: false }),

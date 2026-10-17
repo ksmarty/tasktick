@@ -41,7 +41,7 @@
  */
 import { itemHex } from '@/components/calendar/colors';
 import type { CalendarLookup } from '@/components/calendar/types';
-import { dropZeroMinutes, formatTime, toDateOnly } from '@/lib/dates';
+import { toDateOnly } from '@/lib/dates';
 import type { CalendarItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { absoluteDayLabel, clockLabel, type DueFormat } from './due-label';
@@ -94,21 +94,16 @@ export function EventRow({
   /*
    * The trailing label, in the shape the section asked for.
    *
-   * `clock` is Tomorrow: the section header has already named the day, so what
-   * is left to say is *when* — the span the event occupies, or `All day`. The
-   * span is why the two row kinds do not share a label here: an event has a
-   * duration and a task has an instant.
+   * `absolute` is every section but Today and Tomorrow, where the day is the
+   * discriminator. The other two differ only in what they *leave out*: Tomorrow
+   * has already named the day, and Today never named it in the first place
+   * because the row sits under the agenda's own day heading — so both are the
+   * clock, and the clock is the span the event occupies or `All day`.
    */
   const timeLabel =
     format === 'absolute'
       ? absoluteDayLabel(toDateOnly(event.startMs, zone), zone)
-      : format === 'clock'
-        ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { compact })
-        : event.isAllDay
-          ? 'All day'
-          : compact
-            ? dropZeroMinutes(formatTime(event.startMs, prefs))
-            : formatTime(event.startMs, prefs);
+      : clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { compact });
 
   /*
    * The accessible name says "09:00 to 10:00" where the row shows an en dash:
@@ -116,9 +111,13 @@ export function EventRow({
    * what a person would say. `DayAgenda` makes the same split.
    */
   const spokenTime =
-    format === 'clock'
-      ? clockLabel({ startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay }, prefs, { joiner: 'to', compact })
-      : timeLabel;
+    format === 'absolute'
+      ? timeLabel
+      : clockLabel(
+          { startMs: event.startMs, endMs: event.endMs, isAllDay: event.isAllDay },
+          prefs,
+          { joiner: 'to', compact },
+        );
 
   const accessibleName = [
     spokenTime,
