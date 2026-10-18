@@ -46,6 +46,7 @@ export const {
   focusSessions,
   savedFilters,
   importKeys,
+  haDeliveries,
 } = schema;
 
 export type {
@@ -70,4 +71,5 @@ export type {
   IcalTokenRow,
   ApiTokenRow,
   InviteRow,
+  HaDeliveryRow,
 } from './schema.sqlite';

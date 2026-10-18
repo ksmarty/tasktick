@@ -26,6 +26,8 @@ from urllib.parse import quote
 #: The service this one hands the reminder to.
 REMINDERS_DOMAIN = "ha_reminders"
 REMINDERS_CREATE = "create"
+REMINDERS_UPDATE = "update"
+REMINDERS_DELETE = "delete"
 
 #: The integration's own icon: `mdi:check-circle-outline`, the one its sensors
 #: already carry, so a TaskTick reminder is recognisable in a shade full of other

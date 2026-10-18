@@ -803,6 +803,36 @@ export const savedFilters = sqliteTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* delivery delegation                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where Home Assistant has taken over delivery.
+ *
+ * The `tasktick` Home Assistant integration calls `registerHaDelivery` on every
+ * poll. That single write is both the claim — *these* sources are being mirrored
+ * into Home Assistant — and the proof of life: the reminder sweep only suppresses
+ * its own notification while the row is fresh (see `HA_DELIVERY_FRESH_MS` in
+ * `src/server/services/ha-delivery.ts`), so an uninstalled integration, or an HA
+ * that stops polling, brings TaskTick's own notifications back on its own. There
+ * is nothing to switch on or off here.
+ *
+ * One row per account: a user has one Home Assistant at a time. `sources` is the
+ * subset of `task`/`habit`/`event` the integration said it mirrors, kept as JSON
+ * because it is read as a set and never queried by element.
+ */
+export const haDeliveries = sqliteTable('ha_deliveries', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  /** `task` | `habit` | `event`, as a JSON array. */
+  sources: text('sources', { mode: 'json' }).$type<string[]>().notNull(),
+  /** When the integration last checked in. */
+  registeredAtMs: integer('registered_at_ms').notNull(),
+  ...timestamps,
+});
+
+/* -------------------------------------------------------------------------- */
 /* import provenance                                                          */
 /* -------------------------------------------------------------------------- */
 
@@ -861,3 +891,4 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type IcalTokenRow = typeof icalTokens.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type InviteRow = typeof invites.$inferSelect;
+export type HaDeliveryRow = typeof haDeliveries.$inferSelect;

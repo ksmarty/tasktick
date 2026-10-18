@@ -40,6 +40,7 @@ import { habitsWithReminders, matchesSchedule, settledHabitDates } from '../repo
 import { claimDispatch, notificationRecipients, pruneDispatches } from '../repos/reminder-dispatches';
 import { dueTaskReminders, markTaskReminderSent } from '../repos/tasks';
 import { expandedEventsInRange, type ExpandedEvent } from './calendar-items';
+import { freshHaDeliveries, type MirroredSource } from './ha-delivery';
 import { deliverUserNotification, type NotificationPayload } from './notifications';
 
 /**
@@ -265,10 +266,21 @@ export async function dispatchRemindersForUser(
   deliver: NonNullable<ReminderDeps['deliver']>,
   /** The account's week start, which decides the weekly habit periods. */
   weekStartsOn = 1,
+  /**
+   * The sources a Home Assistant is delivering for this account, if any.
+   *
+   * A mirrored source is skipped outright rather than sent twice: Home Assistant's
+   * notification can finish the item and arrives on a phone that is awake, so
+   * while it is handling a source the app's own push would be a duplicate with a
+   * worse button set. Skipping also means no claim is written, so if the
+   * integration goes away the task reminder's `sent` flag is still false and the
+   * next tick is free to deliver it itself.
+   */
+  mirrored?: ReadonlySet<MirroredSource> | null,
 ): Promise<DispatchCounts> {
   const counts: DispatchCounts = { sent: 0, skipped: 0, failed: 0 };
 
-  for (const reminder of await dueTaskReminders(userId, nowMs, REMINDER_GRACE_MS)) {
+  for (const reminder of mirrored?.has('task') ? [] : await dueTaskReminders(userId, nowMs, REMINDER_GRACE_MS)) {
     const claimed = await markTaskReminderSent(userId, reminder.reminderId, nowMs);
     if (!claimed) {
       counts.skipped += 1;
@@ -296,7 +308,9 @@ export async function dispatchRemindersForUser(
    * calendar has hidden as a duplicate does not remind.
    */
   const span = MAX_EVENT_OFFSET_MINUTES * 60_000;
-  const occurrences = await expandedEventsInRange(userId, nowMs - REMINDER_GRACE_MS - span, nowMs + span, zone);
+  const occurrences = mirrored?.has('event')
+    ? []
+    : await expandedEventsInRange(userId, nowMs - REMINDER_GRACE_MS - span, nowMs + span, zone);
   for (const reminder of dueEventReminders(occurrences, nowMs)) {
     await dispatchClaimed(userId, reminder, nowMs, deliver, counts, zone);
   }
@@ -307,7 +321,7 @@ export async function dispatchRemindersForUser(
    * habit, for the week) has nothing left to be reminded about, and the answer
    * needs the check-ins, not just the habit row.
    */
-  const habits = await habitsWithReminders(userId);
+  const habits = mirrored?.has('habit') ? [] : await habitsWithReminders(userId);
   if (habits.length > 0) {
     const settled = await settledHabitDates(userId, habits, habitReminderDates(zone, nowMs), weekStartsOn, zone);
     for (const habit of habits) {
@@ -333,9 +347,23 @@ export async function runReminderSweep(nowMs: Millis = Date.now(), deps: Reminde
   const total: DispatchCounts = { sent: 0, skipped: 0, failed: 0 };
 
   const recipients = await notificationRecipients();
+  /*
+   * One read for the whole tick: which accounts a Home Assistant is delivering
+   * for, and what it is delivering. The sweep is where the decision belongs
+   * rather than the transport, because only the sweep knows both what is due and
+   * who else is already handling it.
+   */
+  const mirrored = await freshHaDeliveries(nowMs);
   for (const recipient of recipients) {
     try {
-      const counts = await dispatchRemindersForUser(recipient.userId, recipient.zone, nowMs, deliver, recipient.weekStartsOn);
+      const counts = await dispatchRemindersForUser(
+        recipient.userId,
+        recipient.zone,
+        nowMs,
+        deliver,
+        recipient.weekStartsOn,
+        mirrored.get(recipient.userId) ?? null,
+      );
       total.sent += counts.sent;
       total.skipped += counts.skipped;
       total.failed += counts.failed;

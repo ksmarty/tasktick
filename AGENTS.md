@@ -268,6 +268,22 @@ Decisions worth knowing before you "improve" something:
   buttons on Web Push, which is the reason the Home Assistant path exists at all:
   it is the one that shows a button on an iPhone.
 
+- **Home Assistant mirrors the reminders; the app does not schedule them.**
+  `src/server/services/reminder-schedule.ts` is the same schedule the sweep is
+  built on, read *forwards* (`scheduledReminders` in GraphQL) so the integration
+  can hand each slot to HA Reminders; there is one entry per recurrence slot, keyed
+  by something stable across polls (`task:<id>:off:<min>`, `habit:<id>:<minute>`,
+  `event:<id>:<offset>`), which is how the mirror tells "the time moved" from "that
+  one went away". The integration's `mirror.py` turns a slot into an HA Reminders
+  payload and `mirror_sync.py` reconciles it every poll, keyed on the *fingerprint*
+  of that payload — never on the reminder id, because editing a task's due date
+  deletes and re-inserts its reminder rows. Suppression is a *claim*, not a
+  setting: the integration calls `registerReminderDelivery` each poll and
+  `src/server/services/ha-delivery.ts` keeps the sweep quiet for those sources only
+  while the claim is fresh (`HA_DELIVERY_FRESH_MS`, 15 minutes), so a removed
+  integration brings the app's own notifications back by itself. All-day events
+  are left out on purpose: no start instant means no offset to count back from.
+
 ### Deleted rather than kept
 
 The project prefers deleting dead code to leaving it unreachable. Things that were

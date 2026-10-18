@@ -26,6 +26,7 @@ import {
   isDue,
   runReminderSweep,
 } from '@/server/services/reminders';
+import { HA_DELIVERY_FRESH_MS, registerHaDelivery } from '@/server/services/ha-delivery';
 import { disposeTempDatabase, useTempDatabase } from './sync-helpers';
 
 const ZONE = 'UTC';
@@ -455,5 +456,41 @@ describe('the real transport', () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+});
+
+describe('delivery delegation', () => {
+  it('stays quiet about a source Home Assistant is mirroring', async () => {
+    await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    await registerHaDelivery(userId, ['habit'], NOON);
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+
+    // The same reminder is on its way from Home Assistant, with a button that
+    // completes it. Sending it here as well would be a duplicate.
+    expect(rec.sent).toEqual([]);
+  });
+
+  it('keeps speaking about the sources it is not mirroring', async () => {
+    await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    await registerHaDelivery(userId, ['task', 'event'], NOON);
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+
+    expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
+  });
+
+  it('speaks again once the registration has gone stale', async () => {
+    await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    await registerHaDelivery(userId, ['habit'], NOON - HA_DELIVERY_FRESH_MS - 1);
+    const rec = recorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver });
+
+    // Nothing has refreshed the claim, so Home Assistant is not delivering
+    // anything any more — and a reminder that arrives nowhere is the worst case.
+    expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
   });
 });

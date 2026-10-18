@@ -2,7 +2,8 @@
 
 Brings a self-hosted [TaskTick](https://github.com/ksmarty/tasktick) instance into
 Home Assistant: your lists and calendars as entities, your tasks and habits as
-services, and the whole thing reachable by voice through Assist.
+services, its reminders mirrored into HA Reminders, and the whole thing
+reachable by voice through Assist.
 
 TaskTick is the source of truth. This integration is a client — it holds no state
 of its own, and everything it shows comes from the TaskTick API.
@@ -86,7 +87,7 @@ custom intent at all**.
 | `tasktick.complete_task` | Complete by title (partial match) or by id. Repeating tasks move to their next occurrence. |
 | `tasktick.delete_task` | Delete by title or id. |
 | `tasktick.check_in_habit` | Check a habit in, optionally with a count. |
-| `tasktick.create_reminder` | Hand a reminder about a task, a habit or an event to HA Reminders, with a deep link into the app and a button that completes it. |
+| `tasktick.create_reminder` | Hand *one* reminder about a task, a habit or an event to HA Reminders — the escape hatch for a trigger the automatic mirror cannot express (see Reminders). |
 | `tasktick.sync` | Ask TaskTick to sync its CalDAV and subscribed calendars now. |
 
 ### Voice (Assist)
@@ -118,41 +119,83 @@ your automation.
 
 TaskTick can push a reminder to your phone itself (Web Push, from the app's own
 settings). This integration is the other path — the one that goes through Home
-Assistant:
+Assistant — and it needs no automation at all: **everything in TaskTick that has
+a reminder is mirrored into [HA Reminders](https://github.com/ksmarty/ha-reminders)
+automatically.**
 
-`tasktick.create_reminder` hands a reminder to
-[HA Reminders](https://github.com/ksmarty/ha-reminders), which owns delivery: the
-schedule, the resend loop, the snooze buttons, the notification group. One action
-is all it takes:
+Every poll (60 seconds) the integration:
+
+1. reads the reminder schedule from TaskTick — tasks that have reminder offsets,
+   habits that have reminder times, calendar events that have reminders;
+2. makes HA Reminders match it: a reminder it has not seen before is created, one
+   whose time or message changed is updated, one that is gone from TaskTick is
+   deleted;
+3. tells TaskTick to stand down for those sources, so the reminder arrives **once**
+   — from Home Assistant, with the buttons below — instead of twice.
+
+There is nothing to configure on either side. The one thing HA Reminders needs is
+a **default notify service** (its own setting), because that is the field the
+mirror cannot know: TaskTick has no idea what your phone is called in Home
+Assistant.
+
+**All-day events are skipped**, deliberately. With no start time there is no
+instant to count a reminder offset back from, and inventing one would put a
+notification at an hour nobody chose. A timed event is mirrored like anything
+else.
+
+TaskTick stays quiet only while the integration is actually polling. Remove or
+disable the integration, or leave Home Assistant silent for more than fifteen
+minutes, and TaskTick's own notifications come back on their own — there is no
+switch to remember and no way to end up with reminders that arrive nowhere.
+
+What a mirrored notification does:
+
+- Tapping it opens TaskTick at that task, that habit, or that day with the event's
+  card already showing.
+- Its acknowledge button says **Complete** on a task and **Check in** on a habit,
+  and it calls `tasktick.complete_task` / `tasktick.check_in_habit` back, so a
+  repeating task rolls forward and a habit is credited to the day the reminder was
+  for — not the day you happened to tap. An event gets **Dismiss** and nothing to
+  run: there is nothing to finish.
+- It carries TaskTick's own icon, `mdi:check-circle-outline`.
+
+A reminder that repeats (a habit at 07:30, or a task set to remind every day) is
+mirrored as **one** HA Reminders reminder that repeats, not as a month of separate
+ones, and a habit's own weekdays come with it — a Monday/Wednesday/Friday habit
+only fires on those days.
+
+#### One-off reminders
+
+`tasktick.create_reminder` is still there for a reminder TaskTick itself does not
+know how to schedule — one with a zone trigger, a time window, extra snooze
+buttons, or a message of your own:
 
 ```yaml
 action: tasktick.create_reminder
 data:
   task_id: "{{ id }}"
-  time: "07:30:00"
+  trigger_type: zone_enter
+  zone_entity_id: zone.home
+  person_entity_ids: [person.kyle]
   notify_service: notify.mobile_app_phone
 ```
 
-Give `task_id`, `habit` (an id or a name) or `event_id` — one of the three, plus
-`date` for an event.
+Give `task_id`, `habit` (an id or a name) or `event_id` — exactly one of the
+three, plus `date` for an event. Everything else HA Reminders understands — a
+zone trigger, a time window, `every_x_days`, `exclude_days_of_week`, extra
+`snooze_delays`, a `notification_group`, `one_shot`, the resend count — is passed
+straight through unchanged; its README documents the whole set.
 
-- Tapping the notification opens TaskTick at that task, that habit, or that day
-  with the event's card already showing.
-- Its acknowledge button says **Complete** on a task and **Check in** on a habit,
-  and it calls `tasktick.complete_task` / `tasktick.check_in_habit` back, so a
-  repeating task rolls forward and a habit is credited to the day the reminder was
-  for. An event gets **Dismiss** and nothing to run: there is nothing to finish.
-- The notification carries TaskTick's own icon (`mdi:check-circle-outline`) unless
-  you pass `icon:`.
-- Everything else HA Reminders understands — a zone trigger, a time window,
-  `every_x_days`, `exclude_days_of_week`, extra `snooze_delays`, a
-  `notification_group`, `one_shot`, the resend count — is passed straight through
-  unchanged. Its README documents the whole set.
+A reminder made this way is *yours*: the mirror does not know about it and will
+not remove it, and it counts as one more reminder about that item — so if the item
+already has a reminder in TaskTick, you will get that one too. It also does not
+suppress TaskTick's own notifications, which only happens for the mirrored
+sources. Calling the service without HA Reminders installed fails with a message
+that says so.
 
-TaskTick decides *what* the reminder is about and where it opens; HA Reminders
-decides when it fires and when to give up. Home Assistant does not poll for
-reminders — HA Reminders schedules them. Calling the service without HA Reminders
-installed fails with a message that says so.
+TaskTick decides *what* a reminder is about and where it opens; HA Reminders
+decides when it fires and when to give up. Neither polls for reminders — Home
+Assistant schedules them.
 
 ---
 

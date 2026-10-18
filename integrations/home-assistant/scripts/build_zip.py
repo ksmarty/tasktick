@@ -10,12 +10,18 @@ fetch this file from the release assets rather than reading the repository — s
 the release workflow must attach it, and a release without it breaks installation
 for everyone.
 
+The integration's own ``manifest.json`` carries a hand-written version that
+nothing keeps in step with the app it talks to, so the archive is stamped from
+the repository's ``package.json`` at build time — HACS reads the version from the
+manifest, and a stale one makes it offer an update that changes nothing.
+
 Written against ``zipfile`` rather than shelling out to ``zip`` so it runs
 wherever Python does.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 import zipfile
 from pathlib import Path
@@ -23,9 +29,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "custom_components" / "tasktick"
 OUT = ROOT / "tasktick.zip"
+MANIFEST = "custom_components/tasktick/manifest.json"
+PACKAGE_JSON = ROOT.parents[1] / "package.json"
 
 # A local test run leaves these behind, and they must not ship in the archive.
 SKIP_DIRS = {"__pycache__"}
+
+
+def app_version() -> str:
+    """The version TaskTick is at, which is what the packaged integration claims."""
+    try:
+        data = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"warning: cannot read {PACKAGE_JSON} ({error}); manifest version left alone", file=sys.stderr)
+        return ""
+    return str(data.get("version", "")).strip()
+
+
+def stamped_manifest(path: Path, version: str) -> bytes:
+    """The manifest with its version replaced, everything else byte-for-byte kept."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["version"] = version
+    return (json.dumps(data, indent=2) + "\n").encode("utf-8")
 
 
 def main() -> int:
@@ -44,12 +69,19 @@ def main() -> int:
         print(f"error: no files under {SOURCE}", file=sys.stderr)
         return 1
 
+    version = app_version()
+
     OUT.unlink(missing_ok=True)
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in files:
-            archive.write(path, path.relative_to(ROOT).as_posix())
+            name = path.relative_to(ROOT).as_posix()
+            if name == MANIFEST and version:
+                archive.writestr(name, stamped_manifest(path, version))
+            else:
+                archive.write(path, name)
 
-    print(f"wrote {OUT.name}: {len(files)} files, {OUT.stat().st_size} bytes")
+    label = f", version {version}" if version else ""
+    print(f"wrote {OUT.name}: {len(files)} files, {OUT.stat().st_size} bytes{label}")
     return 0
 
 

@@ -13,6 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import TaskTickClient
 from .const import CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_SCAN_INTERVAL, DOMAIN
 from .coordinator import TaskTickCoordinator
+from .mirror_sync import ReminderMirror
 from .services import async_setup_services, async_unload_services
 from . import intents as intents_module
 
@@ -43,6 +44,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # restart while TaskTick is down retries rather than failing permanently.
     await coordinator.async_config_entry_first_refresh()
 
+    # The reminder mirror: TaskTick's schedule delivered by HA Reminders, so the
+    # user gets a notification with a button that finishes the item without
+    # configuring an automation. It rides the poll, and does nothing at all when
+    # HA Reminders is not installed.
+    mirror = ReminderMirror(hass, entry, client)
+    await mirror.async_load()
+    coordinator.mirror = mirror
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -64,6 +73,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.data[DOMAIN]:
             async_unload_services(hass)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove what the integration created elsewhere.
+
+    The reminder mirror writes real reminders into HA Reminders, so removing the
+    integration has to take them with it: left behind, they would keep firing
+    with a button that calls a service which no longer exists.
+    """
+    await ReminderMirror(hass, entry).async_stop()
 
 
 def _scan_interval(entry: ConfigEntry) -> timedelta:

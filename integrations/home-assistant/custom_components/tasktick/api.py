@@ -179,6 +179,27 @@ DELETE_EVENT_MUTATION = """
 mutation DeleteEvent($id: ID!) { deleteEvent(id: $id) { deleted } }
 """
 
+# The schedule the reminder mirror is built on. Read forwards, unlike the app's own
+# sweep, which only ever asks what is due *now*: a mirror has to know what is
+# coming so it can hand the work to something with its own timers.
+SCHEDULED_REMINDERS_QUERY = """
+query Scheduled($days: Int) {
+  scheduledReminders(days: $days) {
+    key source sourceId title body date fireAtMs repeat minuteOfDay weekDays
+  }
+}
+"""
+
+# The app stops sending its own notification for a source once this says Home
+# Assistant is covering it. It is re-sent on every poll because the claim goes
+# stale, which is exactly what makes uninstalling the integration hand delivery
+# straight back to the app.
+REGISTER_REMINDER_DELIVERY_MUTATION = """
+mutation Register($sources: [ReminderSource!]!) {
+  registerReminderDelivery(sources: $sources) { sources registeredAtMs }
+}
+"""
+
 
 class TaskTickClient:
     """A thin, typed wrapper over one instance's GraphQL endpoint."""
@@ -285,3 +306,17 @@ class TaskTickClient:
 
     async def async_delete_event(self, event_id: str) -> None:
         await self._execute(DELETE_EVENT_MUTATION, {"id": event_id})
+
+    async def async_scheduled_reminders(self, days: int | None = None) -> list[dict[str, Any]]:
+        """What TaskTick would remind about next, soonest first.
+
+        The whole reason the mirror exists: TaskTick knows the schedule, Home
+        Assistant is awake to deliver it.
+        """
+        return (await self._execute(SCHEDULED_REMINDERS_QUERY, {"days": days}))["scheduledReminders"]
+
+    async def async_register_reminder_delivery(self, sources: list[str]) -> dict[str, Any]:
+        """Claim delivery of ``sources`` so the app stops sending its own copy."""
+        return (await self._execute(REGISTER_REMINDER_DELIVERY_MUTATION, {"sources": sources}))[
+            "registerReminderDelivery"
+        ]

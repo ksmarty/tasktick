@@ -240,6 +240,56 @@ async function replaceReminders(
   if (rows.length) await db.insert(taskReminders).values(rows);
 }
 
+/** One open task that carries reminders, with the rows themselves. */
+export interface TaskWithReminders {
+  task: Task;
+  reminders: Reminder[];
+}
+
+/**
+ * Open tasks that carry at least one reminder.
+ *
+ * This is the *schedule* read, as opposed to {@link dueTaskReminders}, which is
+ * the due-now read the sweep makes. A mirror has to see reminders whose moment
+ * has not arrived yet, so it gets the rows — and, through the task, the due date
+ * and recurrence they are measured against.
+ *
+ * Completed and deleted tasks are excluded because nothing about them is worth
+ * announcing any more, and the caller would only have to filter them again.
+ */
+export async function tasksWithReminders(userId: string): Promise<TaskWithReminders[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ task: tasks, reminder: taskReminders })
+    .from(taskReminders)
+    .innerJoin(tasks, eq(tasks.id, taskReminders.taskId))
+    .where(
+      and(
+        eq(taskReminders.userId, userId),
+        eq(tasks.userId, userId),
+        isNull(tasks.completedAtMs),
+        isNull(tasks.deletedAtMs),
+      ),
+    )
+    .orderBy(asc(taskReminders.fireAtMs));
+
+  const byTask = new Map<string, TaskWithReminders>();
+  for (const row of rows) {
+    const existing = byTask.get(row.task.id);
+    const entry = existing ?? { task: rowToTask(row.task), reminders: [] };
+    entry.reminders.push({
+      id: row.reminder.id,
+      offsetMinutes: row.reminder.offsetMinutes,
+      absoluteAtMs: row.reminder.absoluteAtMs,
+      fireAtMs: row.reminder.fireAtMs,
+      sent: row.reminder.sent,
+    });
+    if (!existing) byTask.set(row.task.id, entry);
+  }
+
+  return [...byTask.values()];
+}
+
 /** A due, unsent task reminder together with the title to announce it with. */
 export interface DueTaskReminder {
   reminderId: string;

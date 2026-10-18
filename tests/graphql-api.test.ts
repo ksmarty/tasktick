@@ -339,3 +339,90 @@ describe('calendar recurrence', () => {
     expect(occurrences.every((item) => item.isRecurringInstance)).toBe(true);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* the reminder mirror                                                        */
+/* -------------------------------------------------------------------------- */
+
+const ISO_DAY = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
+describe('the reminder mirror', () => {
+  it('hands out the schedule the integration mirrors, dated the way the app means it', async () => {
+    const token = await issueApiToken(USER_A);
+    const due = Date.now() + 2 * 60 * 60 * 1000;
+    const task = await createTask(
+      USER_A,
+      { title: 'Call the plumber', dueAtMs: due, reminders: [{ offsetMinutes: -30 }] },
+      'UTC',
+    );
+
+    const response = await gql(
+      token.plaintext,
+      `query { scheduledReminders(days: 40) { key source sourceId title date fireAtMs repeat minuteOfDay weekDays } }`,
+    );
+
+    expect(response.status).toBe(200);
+    const entries = (response.body.data?.scheduledReminders ?? []) as {
+      key: string;
+      source: string;
+      sourceId: string;
+      title: string;
+      date: string;
+      fireAtMs: number;
+      repeat: string;
+      minuteOfDay: number | null;
+    }[];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual({
+      key: `task:${task.id}:off:-30`,
+      source: 'task',
+      sourceId: task.id,
+      title: 'Call the plumber',
+      date: ISO_DAY(due - 30 * 60 * 1000),
+      fireAtMs: due - 30 * 60 * 1000,
+      repeat: 'once',
+      minuteOfDay: null,
+      weekDays: null,
+    });
+  });
+
+  it('records which sources Home Assistant has taken over, in the app’s own order', async () => {
+    const token = await issueApiToken(USER_A);
+
+    const before = await gql(token.plaintext, `{ reminderDelivery { sources registeredAtMs } }`);
+    expect(before.body.data?.reminderDelivery).toBeNull();
+
+    const registered = await gql(
+      token.plaintext,
+      `mutation { registerReminderDelivery(sources: [event, task, event]) { sources registeredAtMs } }`,
+    );
+    expect(registered.status).toBe(200);
+    const receipt = registered.body.data?.registerReminderDelivery as { sources: string[]; registeredAtMs: number };
+    expect(receipt.sources).toEqual(['task', 'event']);
+    expect(receipt.registeredAtMs).toBeGreaterThan(0);
+
+    const after = await gql(token.plaintext, `{ reminderDelivery { sources } }`);
+    expect((after.body.data?.reminderDelivery as { sources: string[] }).sources).toEqual(['task', 'event']);
+  });
+
+  it('refuses a source name it cannot delegate', async () => {
+    const token = await issueApiToken(USER_A);
+    const bad = await gql(token.plaintext, `mutation { registerReminderDelivery(sources: [bogus]) { sources } }`);
+
+    expect(bad.body.errors?.[0]?.message).toMatch(/bogus/);
+    expect(bad.body.data ?? null).toBeNull();
+  });
+
+  it('shows a token only its own schedule', async () => {
+    const owner = await issueApiToken(USER_A);
+    const stranger = await issueApiToken(USER_B);
+    await createTask(USER_A, { title: 'Mine', reminders: [{ absoluteAtMs: Date.now() + 60 * 60 * 1000 }] }, 'UTC');
+
+    const mine = await gql(owner.plaintext, `{ scheduledReminders { title } }`);
+    const theirs = await gql(stranger.plaintext, `{ scheduledReminders { title } }`);
+
+    expect((mine.body.data?.scheduledReminders ?? []) as unknown[]).toHaveLength(1);
+    expect(theirs.body.data?.scheduledReminders).toEqual([]);
+  });
+});
+

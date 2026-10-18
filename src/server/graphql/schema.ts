@@ -958,6 +958,57 @@ export const typeDefs = /* GraphQL */ `
     listIds: [ID!]
   }
 
+  """Where a reminder comes from."""
+  enum ReminderSource {
+    task
+    habit
+    event
+  }
+
+  """How a delivered reminder repeats."""
+  enum ReminderRepeat {
+    once
+    daily
+  }
+
+  """
+  One reminder TaskTick would send, described so something else can deliver it.
+
+  key identifies the recurrence slot and is stable across reads: a mirror keys
+  its own bookkeeping on it, so a reminder whose time moved is recognised as the
+  same reminder rather than a new one. date is the day the reminder is *about* —
+  for an event that is its start day, not the day a "-1 day" reminder fires —
+  which is the day a link has to open.
+  """
+  type ScheduledReminder {
+    key: String!
+    source: ReminderSource!
+    sourceId: ID!
+    title: String!
+    body: String!
+    """YYYY-MM-DD, the day the reminder belongs to."""
+    date: String!
+    """When TaskTick would notify, in epoch milliseconds."""
+    fireAtMs: Float!
+    repeat: ReminderRepeat!
+    """Minute of local midnight for a repeating reminder; null for a one-shot."""
+    minuteOfDay: Int
+    """Weekdays a repeating reminder runs on, 0 = Sunday; null means every day."""
+    weekDays: [Int!]
+  }
+
+  """
+  What a Home Assistant has taken over.
+
+  sources is empty when the integration is connected but mirroring nothing. The
+  claim stops counting after fifteen minutes of silence, so uninstalling the
+  integration hands delivery back to the app without anything to switch off.
+  """
+  type ReminderDelivery {
+    sources: [ReminderSource!]!
+    registeredAtMs: Float!
+  }
+
   type Query {
     """The authenticated account."""
     me: User!
@@ -1005,6 +1056,11 @@ export const typeDefs = /* GraphQL */ `
     search(query: String!): SearchResults!
     agenda: AgendaBuckets!
     matrix: Matrix!
+
+    """Reminders TaskTick would send in the next days (default 21, max 60)."""
+    scheduledReminders(days: Int): [ScheduledReminder!]!
+    """What a Home Assistant has taken over for this account, or null."""
+    reminderDelivery: ReminderDelivery
   }
 
   type Mutation {
@@ -1072,5 +1128,12 @@ export const typeDefs = /* GraphQL */ `
     cycleApiToken: IssuedApiToken!
     """Deletes the account's token. The plaintext stops working at once."""
     revokeApiToken: DeleteResult!
+
+    """
+    Records that a Home Assistant is delivering reminders for these sources, so
+    the app stops sending its own duplicates. Called by the tasktick integration
+    on every poll; the claim goes stale by itself, so nothing has to be undone.
+    """
+    registerReminderDelivery(sources: [ReminderSource!]!): ReminderDelivery!
   }
 `;
