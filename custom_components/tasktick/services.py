@@ -515,9 +515,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_CREATE_REMINDER, handle_create_reminder,
         schema=CREATE_REMINDER_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
     )
+    # `OPTIONAL`, not `ONLY`: the handler does the work and also answers with a
+    # summary, so a caller may read the result or ignore it. The enum offers
+    # NONE, OPTIONAL and ONLY — there is no ALWAYS, and naming one that does not
+    # exist raises AttributeError here, which fails the whole config entry.
     hass.services.async_register(
         DOMAIN, SERVICE_INSTALL_SENTENCES, handle_install_sentences,
-        schema=INSTALL_SENTENCES_SCHEMA, supports_response=SupportsResponse.ALWAYS,
+        schema=INSTALL_SENTENCES_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
     )
 
 
