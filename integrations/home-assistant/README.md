@@ -76,7 +76,7 @@ integration by URL. Multicast does not cross most Docker bridge networks.
 | `calendar.*` | One calendar per TaskTick calendar, including subscribed and CalDAV ones. |
 | `sensor.*` | Counts and status — tasks due today, overdue tasks, per-habit streaks. |
 | `binary_sensor.*` | Whether a habit is still due today. |
-| `button.*` | Refresh a calendar, or force a sync. |
+| `button.*` | Two per habit: **Mark as completed** meets today's target, **Mark as incomplete** clears the day's entry. |
 
 The `todo` entities are the important ones: because they implement the standard
 to-do platform, they work with the To-do list card, `todo.add_item`,
