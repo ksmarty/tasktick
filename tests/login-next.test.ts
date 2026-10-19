@@ -61,9 +61,15 @@ describe('middleware', () => {
     // The cookie name is the app's prefix (`src/lib/auth-cookie.ts`), not
     // better-auth's default: passing the wrong one would redirect every
     // signed-in request back to the sign-in page.
-    const response = middleware(request('/tasks', `${AUTH_COOKIE_PREFIX}.session_token=abc`));
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get('location')).toBeNull();
+    for (const cookie of [
+      `${AUTH_COOKIE_PREFIX}.session_token=abc`,
+      // What production actually sends: `advanced.useSecureCookies` is on
+      // whenever APP_URL is https, and the browser returns the `__Secure-` name.
+      `__Secure-${AUTH_COOKIE_PREFIX}.session_token=abc`,
+    ]) {
+      const response = middleware(request('/tasks', cookie));
+      expect(response.status, cookie).toBe(200);
+      expect(response.headers.get('location'), cookie).toBeNull();
+    }
   });
 });

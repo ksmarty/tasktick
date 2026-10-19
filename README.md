@@ -338,6 +338,19 @@ disabled — which is the failure this avoids.
 - **The toggle is on but nothing arrives** — check `VAPID_SUBJECT` is a real
   contact address, then look at the server logs for the push service's response.
 
+#### A reminder tapped on an iPhone opens a browser
+
+iOS has no way to hand a link to an installed web app, so a reminder delivered
+through Home Assistant opens Safari (or the Home Assistant app's browser) rather
+than TaskTick on the Home Screen. That cannot be changed from the app's side.
+
+What the app does instead: the URL keeps the screen it points at (`/tasks?task=…`,
+`/habits?habit=…`, `/calendar?date=…&event=…`), and an unauthenticated request for
+one of those screens is redirected to the sign-in page with the destination
+attached. Sign in there and you land on the reminder you tapped; that browser
+keeps the session, so later taps open straight into the item. Only the first tap
+after signing out asks for a password.
+
 ---
 
 ## Deployment
