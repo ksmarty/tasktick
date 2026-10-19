@@ -30,6 +30,8 @@ interface Manifest {
   display: string;
   display_override: string[];
   orientation: string;
+  launch_handler?: { client_mode?: string };
+  handle_links?: string;
   theme_color: string;
   background_color: string;
   categories: string[];
@@ -48,6 +50,16 @@ describe('manifest.webmanifest', () => {
     expect(manifest.display).toBe('standalone');
     expect(manifest.display_override).toContain('standalone');
     expect(manifest.orientation).toBe('any');
+  });
+
+  it('captures its own links, so a notification tap opens the installed app', () => {
+    // A reminder delivered through Home Assistant carries this app's absolute
+    // URL, and Android hands an http(s) link to the browser unless the installed
+    // PWA has declared itself the handler for its own scope. `handle_links:
+    // preferred` is that declaration; `navigate-existing` then reuses the open
+    // window instead of stacking a second one per tap.
+    expect(manifest.handle_links).toBe('preferred');
+    expect(manifest.launch_handler?.client_mode).toBe('navigate-existing');
   });
 
   it('declares theme and background colours as hex', () => {

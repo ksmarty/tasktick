@@ -172,6 +172,16 @@ byte.
 - **`/` is a redirect route and redirects are never cached** — so an offline cold
   start of the installed app (whose `start_url` is `/`) has no document to serve.
   The worker maps `/` to the landing route to keep the exact-URL rule intact.
+- **The manifest declares `handle_links: preferred` on purpose.** Every
+  notification TaskTick sends — its own Web Push and every reminder it hands to
+  Home Assistant — carries an absolute app URL, and Android hands an `https` link
+  to the browser unless the installed PWA has registered as the handler for its
+  own scope. Dropping the key reopens every reminder tap in a browser tab, and
+  nothing on a desktop shows it. `tests/pwa-manifest.test.ts` pins it, beside
+  `launch_handler: navigate-existing` so a tap reuses the open window. Android
+  applies new intent filters only when the PWA is (re)installed; iOS has no
+  equivalent, where a tapped notification opens Safari and TaskTick's own Web
+  Push is the only path that lands in the app.
 
 ---
 
