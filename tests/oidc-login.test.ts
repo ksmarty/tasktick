@@ -28,6 +28,7 @@ import { resetAuthCache } from '@/server/auth';
 import { resetDialectCache } from '@/server/db/dialect';
 import { closeDb } from '@/server/db';
 import { startOidcSignIn } from '@/lib/auth-client';
+import { describeOidcCallbackError } from '@/lib/oidc-errors';
 import { describeOidcAvailability, resetOidcProbeCache } from '@/server/oidc';
 import { withProviderHeal } from '@/server/oidc-heal';
 
@@ -86,6 +87,9 @@ function basicCredentials(header: string | undefined): [string, string] | null {
  * its issuer. Everything is signed for real (RS256 + a served JWKS) so the
  * library's own verification is exercised rather than stubbed.
  */
+/** Set to an HTTP status to make the provider's JWKS endpoint answer with it. */
+let jwksFailureStatus: number | null = null;
+
 async function startProvider(port = 0) {
   const authorizations = new Map<string, PendingAuthorization>();
   const accessTokens = new Map<string, string>();
@@ -124,6 +128,14 @@ async function startProvider(port = 0) {
       }
 
       if (url.pathname === '/jwks') {
+        // A key endpoint that fails *once* is the real-world cause of the
+        // "first attempt fails, second works" report: better-auth verifies the
+        // provider's reply against these keys and does not remember a failure.
+        if (jwksFailureStatus !== null) {
+          res.writeHead(jwksFailureStatus, { 'content-type': 'application/json' });
+          res.end('{}');
+          return;
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ keys: [{ ...publicJwk, kid: KID, alg: 'RS256', use: 'sig' }] }));
         return;
@@ -281,6 +293,7 @@ function cookieJar(response: Response): string {
 }
 
 beforeEach(async () => {
+  jwksFailureStatus = null;
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tasktick-oidc-'));
   const file = path.join(tempDir, 'auth.db');
 
@@ -565,4 +578,69 @@ describe('OIDC sign-in', () => {
     expect(broken.problem).toContain('/.well-known/openid-configuration');
   });
 
+  /**
+   * The other half of a broken provider: discovery is fine, but the endpoint the
+   * *callback* needs is not. This is the failure that produced "the first
+   * attempt does nothing, the second signs me in", so it has to be reported
+   * before the click rather than after it.
+   */
+  it('reports signing keys that cannot be read, which discovery alone would hide', async () => {
+    jwksFailureStatus = 503;
+    resetOidcProbeCache();
+
+    const availability = await describeOidcAvailability();
+    expect(availability.enabled).toBe(true);
+    expect(availability.problem).toContain('/jwks');
+    expect(availability.problem).toContain('503');
+
+    jwksFailureStatus = null;
+    resetOidcProbeCache();
+    expect((await describeOidcAvailability()).problem).toBeUndefined();
+  });
+
+  /**
+   * What a failed second leg now produces instead of silence: the provider's
+   * answer comes back to `/login` with a code, and the form turns it into a
+   * sentence. `errorCallbackURL` is what routes it there, so its absence is
+   * itself the regression.
+   */
+  it('sends a failed callback back to the sign-in page with a reason', async () => {
+    const { body, cookies } = await startSignIn();
+    const authorize = new URL(body.url!);
+    const redirectUri = authorize.searchParams.get('redirect_uri')!;
+
+    // A code the provider never issued: the token exchange fails, which is the
+    // same shape as a key-verification failure from the app's point of view.
+    const callback = await handler(
+      new Request(`${redirectUri}?code=not-a-real-code&state=${authorize.searchParams.get('state')}`, {
+        method: 'GET',
+        headers: { cookie: cookies, origin: APP_ORIGIN },
+      }),
+    );
+
+    expect(callback.status).toBe(302);
+    const location = callback.headers.get('location') ?? '';
+    expect(location).toContain('/login');
+    expect(location).toMatch(/error=/);
+  });
+});
+
+describe('describeOidcCallbackError', () => {
+  it('explains a known code and keeps the code visible', () => {
+    const message = describeOidcCallbackError('unable_to_get_user_info');
+    expect(message).toContain('could not read your account details');
+    expect(message).toContain('unable_to_get_user_info');
+  });
+
+  it('says something for a code it does not know, preferring the provider’s own words', () => {
+    expect(describeOidcCallbackError('brand_new_code')).toContain('brand_new_code');
+    expect(describeOidcCallbackError('brand_new_code', 'certificate expired')).toContain(
+      'certificate expired',
+    );
+  });
+
+  it('stays quiet when the round trip did not fail', () => {
+    expect(describeOidcCallbackError(undefined)).toBeNull();
+    expect(describeOidcCallbackError('')).toBeNull();
+  });
 });

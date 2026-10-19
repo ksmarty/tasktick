@@ -42,17 +42,29 @@ export function LoginForm({
   oidcEnabled,
   oidcName,
   oidcProblem,
+  oidcFailure,
+  next,
 }: {
   oidcEnabled: boolean;
   oidcName: string;
   /** Why the provider cannot be reached, from the server-side discovery probe. */
   oidcProblem?: string;
+  /** Why the last single sign-on round trip failed, from the callback's `?error=`. */
+  oidcFailure?: string | null;
+  /**
+   * Where to go once signed in — the page the middleware caught the visitor
+   * asking for, so a reminder deep link survives the sign-in it interrupted.
+   * Already sanitised by `safeNextPath()` on the server.
+   */
+  next: string;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Seeded from the query so a failed round trip explains itself without the
+  // user having to retry first to see something happen.
+  const [error, setError] = useState<string | null>(oidcFailure ?? null);
   const [busy, setBusy] = useState(false);
   const [oidcBusy, setOidcBusy] = useState(false);
 
@@ -72,7 +84,7 @@ export function LoginForm({
     }
 
     // A full replace (not push) so the sign-in page is not in the back stack.
-    router.replace('/tasks');
+    router.replace(next);
     router.refresh();
   }
 
@@ -89,7 +101,9 @@ export function LoginForm({
     setError(null);
     setOidcBusy(true);
     try {
-      await startOidcSignIn('/tasks');
+      // The same destination on both legs: a deep link has to survive the
+      // round trip through the provider, not just a password sign-in.
+      await startOidcSignIn(next);
     } catch (oidcError) {
       setError(
         oidcError instanceof Error && oidcError.message

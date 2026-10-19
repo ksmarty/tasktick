@@ -79,6 +79,52 @@ function describeFetchFailure(error: unknown, timeoutMs: number): string {
 }
 
 /**
+ * Checks the endpoint the callback leg needs and the start leg does not.
+ *
+ * A first sign-in attempt that fails while the second succeeds is the signature
+ * of a one-off failure *after* the provider redirects back: better-auth verifies
+ * the provider's reply against its published signing keys, and a key fetch that
+ * fails once is not remembered, so the same code path works on the next try.
+ * The failure surfaces as `unable_to_get_user_info` on the callback, which is
+ * far too late to be useful — so the keys are checked here, before the click.
+ *
+ * Optional by design: a document with no `jwks_uri` is a valid generic OAuth
+ * setup, and no keys is not a problem in that case.
+ */
+async function probeSigningKeys(jwksUri: unknown): Promise<string | undefined> {
+  if (typeof jwksUri !== 'string' || !jwksUri) return undefined;
+
+  try {
+    const response = await fetch(jwksUri, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return `${jwksUri} answered HTTP ${response.status}. The server reads the provider's signing keys there, so it cannot verify the reply that comes back from the provider.`;
+    }
+
+    let document: unknown = null;
+    try {
+      document = await response.json();
+    } catch {
+      /* handled below */
+    }
+
+    const keys = (document as { keys?: unknown } | null)?.keys;
+    if (Array.isArray(keys) && keys.length > 0) return undefined;
+
+    return `${jwksUri} published no signing keys. Sign-in cannot be verified until the provider has a key for this client.`;
+  } catch (error) {
+    return `${jwksUri} could not be fetched from the server (${describeFetchFailure(
+      error,
+      PROBE_TIMEOUT_MS,
+    )}). The provider's signing keys live there, so a sign-in that reaches the callback cannot be verified.`;
+  }
+}
+
+/**
  * Fetches the discovery document and reports the first thing that would stop
  * better-auth from registering the provider.
  */
@@ -113,21 +159,24 @@ async function probeDiscovery(url: string): Promise<Probe> {
       if (typeof document !== 'object' || document === null) {
         result = { url, at: now, problem: `${url} did not return an OpenID discovery document.` };
       } else {
-        const { authorization_endpoint, token_endpoint } = document as {
+        const { authorization_endpoint, token_endpoint, jwks_uri } = document as {
           authorization_endpoint?: unknown;
           token_endpoint?: unknown;
+          jwks_uri?: unknown;
         };
         // The same two fields better-auth requires before it will register a
         // provider; a document missing them is a misconfigured issuer, not a
         // network problem, and the messages differ for a reason.
-        result =
-          typeof authorization_endpoint === 'string' && typeof token_endpoint === 'string'
-            ? { url, at: now }
-            : {
-                url,
-                at: now,
-                problem: `${url} describes no authorization and token endpoint. Check that OIDC_ISSUER points at the provider itself, not at a proxy path.`,
-              };
+        if (typeof authorization_endpoint === 'string' && typeof token_endpoint === 'string') {
+          const keyProblem = await probeSigningKeys(jwks_uri);
+          result = keyProblem ? { url, at: now, problem: keyProblem } : { url, at: now };
+        } else {
+          result = {
+            url,
+            at: now,
+            problem: `${url} describes no authorization and token endpoint. Check that OIDC_ISSUER points at the provider itself, not at a proxy path.`,
+          };
+        }
       }
     }
   } catch (error) {

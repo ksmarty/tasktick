@@ -55,12 +55,24 @@ export const signOut: typeof authClient.signOut = (async (...args: Parameters<ty
  * The response body is better-auth's own shape (`{ url, redirect }`), NOT this
  * app's `{ ok, data }` envelope, so `api` from `@/lib/api-client` is not used.
  */
-export async function startOidcSignIn(callbackURL = '/tasks'): Promise<void> {
+export async function startOidcSignIn(
+  callbackURL = '/tasks',
+  /**
+   * Where a *failed* round trip returns to.
+   *
+   * Without this the callback leg's failures (a provider that answers, a token
+   * exchange that fails, a reply that arrives too late) land on better-auth's
+   * own `/api/auth/error` page and the app learns nothing — which is what made a
+   * first attempt fail without a word. Sent so the reason comes back to the
+   * sign-in form, where `describeOidcCallbackError()` can explain it.
+   */
+  errorCallbackURL = '/login',
+): Promise<void> {
   const response = await fetch('/api/auth/sign-in/social', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ provider: 'oidc', callbackURL }),
+    body: JSON.stringify({ provider: 'oidc', callbackURL, errorCallbackURL }),
   });
 
   // Named explicitly rather than via `typeof payload`: an inline `as typeof` in

@@ -21,6 +21,7 @@ import { currentDialect } from './db/dialect';
 import { schema } from './db/schema';
 import { invites, user as userTable } from './db/schema';
 import { newId } from './crypto';
+import { AUTH_COOKIE_PREFIX } from '@/lib/auth-cookie';
 import { getEnv, oidcConfigured } from '@/lib/env';
 import { isLocalNetworkOrigin, originFromRequest } from '@/lib/network';
 import { ensureUserBootstrap } from './bootstrap';
@@ -202,7 +203,7 @@ function createAuth() {
 
     advanced: {
       useSecureCookies: env.APP_URL.startsWith('https://'),
-      cookiePrefix: 'tasktick',
+      cookiePrefix: AUTH_COOKIE_PREFIX,
     },
 
     /**

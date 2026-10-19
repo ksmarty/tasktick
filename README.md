@@ -247,6 +247,13 @@ container log, and a line under the single sign-on button explaining what
 failed. Neither needs a restart to clear: the next sign-in attempt re-resolves
 the provider and succeeds once it answers.
 
+A failure *after* the provider redirects back — its keys could not be fetched,
+the code had already expired, the email it returned did not match — no longer
+disappears. The sign-in request asks better-auth to return failed round trips to
+`/login`, so the reason is shown in the sign-in form with the provider's own
+error code, and the signing keys are checked by the same pre-flight probe as
+discovery.
+
 ### Calendar subscriptions (iCal)
 
 Pull a remote `.ics` feed into a read-only calendar, next to the CalDAV
