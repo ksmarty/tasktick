@@ -26,12 +26,15 @@ HACS installs the integration from `tasktick.zip`, which is attached to every
 TaskTick release and built by CI. Inside the TaskTick repository the integration's
 source is `custom_components/tasktick/` at the repository root — the layout HACS
 requires — while this directory holds its tests, the archive builder and this
-document.
+document. The archive carries those files at *its* root, because HACS unpacks a
+release archive straight into `config/custom_components/tasktick/` without
+stripping a prefix.
 
 ### Manual
 
 Copy `custom_components/tasktick/` into your Home Assistant
-`config/custom_components/` directory and restart.
+`config/custom_components/` directory and restart — or download `tasktick.zip`
+from a release and unpack it into `config/custom_components/tasktick/`.
 
 ---
 
