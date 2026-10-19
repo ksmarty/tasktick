@@ -146,10 +146,15 @@ else.
 
 Home Assistant is never the only way a reminder arrives. Remove or disable the
 integration, leave Home Assistant quiet for more than fifteen minutes, or run
-without HA Reminders — and TaskTick sends that reminder itself, exactly as it did
-before. A failed call falls back the same way, so a delivery that cannot happen
-costs a slower notification rather than a lost one, and there is no switch to
-remember.
+without HA Reminders (or with a version older than its one-off `notify` service)
+— and TaskTick sends that reminder itself, exactly as it did before. A failed
+call falls back the same way, so a delivery that cannot happen costs a slower
+notification rather than a lost one, and there is no switch to remember.
+
+Upgrading from a release that mirrored the schedule: the reminders that mirror
+created are deleted from HA Reminders on the first setup after the update, and
+the list it kept of them is removed with them, so nothing is left firing for a
+schedule TaskTick no longer maintains.
 
 What a delivered reminder does:
 
