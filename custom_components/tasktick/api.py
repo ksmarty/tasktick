@@ -114,7 +114,7 @@ query Snapshot {
     startDate reminders streak longestStreak completionRate doneToday progress
   }
   calendars { id name color isVisible provider readOnly isDefault }
-  stats(days: 30) { completedByDay totalCompleted currentStreakDays }
+  stats(days: 30) { completedByDay { date count } totalCompleted currentStreakDays }
 }
 """
 
