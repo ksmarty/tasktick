@@ -51,7 +51,7 @@ describe('mDNS advertisement', () => {
     // check that reads both. Without it the advertisement is published and
     // silently never matched.
     const manifest = JSON.parse(
-      readFileSync(new URL('../integrations/home-assistant/custom_components/tasktick/manifest.json', import.meta.url), 'utf8'),
+      readFileSync(new URL('../custom_components/tasktick/manifest.json', import.meta.url), 'utf8'),
     ) as { zeroconf?: string[] };
 
     expect(manifest.zeroconf).toEqual([MDNS_FQDN]);

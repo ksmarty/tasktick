@@ -33,3 +33,6 @@ yarn-error.log*
 
 # The HACS archive, rebuilt by CI and attached to releases.
 integrations/home-assistant/tasktick.zip
+
+# Python bytecode, left behind by running the integration's tests locally.
+__pycache__/

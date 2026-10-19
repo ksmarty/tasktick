@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Builds the archive HACS installs, at integrations/home-assistant/tasktick.zip.
 
-The layout inside the zip is ``custom_components/tasktick/...``, not this
-repository's own directory structure. HACS unpacks the archive straight into
-``config/``, so the integration has to sit where Home Assistant looks for it.
+The integration's source lives at ``custom_components/tasktick/`` in the root of
+this repository, which is where HACS insists an integration sits, and the layout
+inside the zip is the same one: HACS unpacks the archive straight into
+``config/``, so the archive has to carry the integration where Home Assistant
+looks for it.
 
 ``hacs.json`` at the repository root sets ``zip_release: true``, which makes HACS
 fetch this file from the release assets rather than reading the repository — so
@@ -26,11 +28,12 @@ import sys
 import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "custom_components" / "tasktick"
-OUT = ROOT / "tasktick.zip"
+REPO = Path(__file__).resolve().parents[3]
+HOME_ASSISTANT = Path(__file__).resolve().parents[1]
+SOURCE = REPO / "custom_components" / "tasktick"
+OUT = HOME_ASSISTANT / "tasktick.zip"
 MANIFEST = "custom_components/tasktick/manifest.json"
-PACKAGE_JSON = ROOT.parents[1] / "package.json"
+PACKAGE_JSON = REPO / "package.json"
 
 # A local test run leaves these behind, and they must not ship in the archive.
 SKIP_DIRS = {"__pycache__"}
@@ -62,7 +65,7 @@ def main() -> int:
         path
         for path in SOURCE.rglob("*")
         if path.is_file()
-        and not any(part in SKIP_DIRS for part in path.relative_to(ROOT).parts)
+        and not any(part in SKIP_DIRS for part in path.relative_to(REPO).parts)
         and path.suffix != ".pyc"
     )
     if not files:
@@ -74,7 +77,7 @@ def main() -> int:
     OUT.unlink(missing_ok=True)
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in files:
-            name = path.relative_to(ROOT).as_posix()
+            name = path.relative_to(REPO).as_posix()
             if name == MANIFEST and version:
                 archive.writestr(name, stamped_manifest(path, version))
             else:

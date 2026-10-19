@@ -15,7 +15,7 @@ import re
 import pytest
 import yaml
 
-PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "tasktick"
+PACKAGE = Path(__file__).resolve().parents[3] / "custom_components" / "tasktick"
 SENTENCES = PACKAGE / "custom_sentences" / "en" / "tasktick.yaml"
 
 _SLOT_RE = re.compile(r"\{([a-z_]+)\}")

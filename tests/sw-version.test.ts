@@ -62,7 +62,7 @@ describe('the service-worker version guard', () => {
         'tests/pwa-sw.test.ts',
         '.github/workflows/auto-increment.yml',
         'scripts/check-sw-version.mjs',
-        'integrations/home-assistant/custom_components/tasktick/__init__.py',
+        'custom_components/tasktick/__init__.py',
       ]),
     ).toEqual(['src/app/tasks/page.tsx', 'public/sw.js', 'package.json']);
   });

@@ -15,8 +15,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_JSON = ROOT.parents[1] / "package.json"
-MANIFEST = ROOT / "custom_components" / "tasktick" / "manifest.json"
+REPO = ROOT.parents[1]
+PACKAGE_JSON = REPO / "package.json"
+MANIFEST = REPO / "custom_components" / "tasktick" / "manifest.json"
 
 
 def _build_zip_module():
@@ -50,5 +51,24 @@ def test_stamping_changes_the_version_and_nothing_else() -> None:
 def test_the_script_ships_the_integration_where_home_assistant_looks() -> None:
     module = _build_zip_module()
 
-    assert module.SOURCE == ROOT / "custom_components" / "tasktick"
+    assert module.SOURCE == REPO / "custom_components" / "tasktick"
     assert module.OUT == ROOT / "tasktick.zip"
+
+
+def test_the_repository_keeps_the_layout_hacs_accepts() -> None:
+    """HACS reads ROOT/custom_components/<domain>/ and refuses anything else.
+
+    The source sat under `integrations/home-assistant/` once, which read better in
+    a repository that is mostly an app, and it made HACS answer an install
+    attempt with "Repository structure for v0.42.16 is not compliant" — the
+    directory *is* the check, so pin it here instead of learning it from a user.
+    """
+    hacs = json.loads((REPO / "hacs.json").read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+    assert manifest["domain"] == "tasktick"
+    assert [path.name for path in (REPO / "custom_components").iterdir() if path.is_dir()] == [
+        "tasktick"
+    ]
+    assert hacs["zip_release"] is True
+    assert hacs["filename"] == (ROOT / "tasktick.zip").name

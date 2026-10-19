@@ -33,7 +33,8 @@ you write code rather than after.
 | No arbitrary spacing values; no static spacing in an inline `style` | `node scripts/check-spacing.mjs` | Four layout tokens: `p-card`, `px-gutter`, `gap-stack`, `px-row`. Computed values — a colour, SVG geometry, a measured px — are fine. |
 | SQLite and Postgres schemas stay identical | `tests/schema-parity.test.ts` | Add a table to **both** `schema.sqlite.ts` and `schema.pg.ts`, plus a migration for each dialect and the meta snapshot. |
 | Sub-agents must not commit, tag or push | git hooks | Enforced mechanically. See §7. |
-| `public/sw.js` `VERSION` bumps on **every** deploy that changes a precached file | `npm run verify:sw` (CI runs it with `fetch-depth: 0`) | Not "when its behaviour changes" — a byte-identical worker is never installed, so existing clients stay pinned to the old shell *and* the old chunks. Currently `tasktick-v36`. |
+| `public/sw.js` `VERSION` bumps on **every** deploy that changes a precached file | `npm run verify:sw` (CI runs it with `fetch-depth: 0`) | Not "when its behaviour changes" — a byte-identical worker is never installed, so existing clients stay pinned to the old shell *and* the old chunks. Currently `tasktick-v54`. |
+| The Home Assistant integration lives at `custom_components/tasktick/` in the repository root | `integrations/home-assistant/tests/test_build_zip.py` | HACS reads an integration from exactly `ROOT/custom_components/<domain>/` and nowhere else: from any other directory it answers an install attempt with "Repository structure … is not compliant". Its tests, the archive builder and its README stay under `integrations/home-assistant/`. |
 
 `src/components/ui/**` (shadcn) and `src/components/godui/**` (vendored) are
 **exempt** from the spacing checker. Everything you write is not.

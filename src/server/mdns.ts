@@ -3,7 +3,8 @@
  *
  * ## Why this exists
  *
- * The integration under `integrations/home-assistant/` registers a `zeroconf`
+ * The integration in `custom_components/tasktick/` at the root of this
+ * repository registers a `zeroconf`
  * matcher for `_tasktick._tcp`, which turns "type the URL and paste a token" into
  * "a card appears with the address already filled in". Without an advertisement
  * the user has to know both, and the second one is a value they have to go and

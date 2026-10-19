@@ -23,9 +23,10 @@ Home Assistant **2024.11.0** or newer is required, which HACS enforces from
 `hacs.json` at the root of that repository.
 
 HACS installs the integration from `tasktick.zip`, which is attached to every
-TaskTick release and built by CI from `integrations/home-assistant/`. If you are
-reading this inside the TaskTick repository rather than a release asset, that
-directory *is* the integration.
+TaskTick release and built by CI. Inside the TaskTick repository the integration's
+source is `custom_components/tasktick/` at the repository root — the layout HACS
+requires — while this directory holds its tests, the archive builder and this
+document.
 
 ### Manual
 
@@ -230,10 +231,11 @@ probably revoked. Add a new one and use **Reconfigure** on the integration.
 
 ## Development
 
-The integration lives in `integrations/home-assistant/` inside the TaskTick
-repository. Tests need no Home Assistant installation of their own — they use
-lightweight stand-ins — but they do import `homeassistant`, so run them in a
-virtualenv that has it:
+The integration's source is `custom_components/tasktick/` at the root of the
+TaskTick repository, because that is the only layout HACS accepts; its tests, the
+archive builder and this document live in `integrations/home-assistant/`. Tests
+need no Home Assistant installation of their own — they use lightweight stand-ins
+— but they do import `homeassistant`, so run them in a virtualenv that has it:
 
 ```bash
 cd integrations/home-assistant
