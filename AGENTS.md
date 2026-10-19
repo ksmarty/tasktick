@@ -355,10 +355,14 @@ incidentally, and do not build UI that implies they work.
 
 - **Reminders fire from an in-process ticker, not a queue.**
   `startReminderScheduler()` (`src/server/services/reminder-scheduler.ts`) is
-  started unconditionally by `src/instrumentation.ts`, sweeps every 60 seconds
-  through `runReminderSweep` (`src/server/services/reminders.ts`), and fans out
-  through Apprise **and** Web Push. Three consequences worth knowing before
-  "improving" it:
+  started unconditionally by `src/instrumentation.ts` and wakes at the top of
+  every minute — aligned to the wall clock, plus `REMINDER_SETTLE_MS` (250 ms),
+  because a reminder's fire time is a minute and an interval spaced from boot
+  would announce it however many seconds after that minute the process happened
+  to start. Each tick sweeps through `runReminderSweep`
+  (`src/server/services/reminders.ts`) and fans out through Apprise, Web Push
+  and any Home Assistant webhook the integration registered. Three consequences
+  worth knowing before "improving" it:
   - A reminder more than `REMINDER_GRACE_MS` (one hour) late is **dropped**, not
     delivered late — a server that was down overnight does not send a burst at
     boot.
