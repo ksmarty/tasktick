@@ -341,88 +341,63 @@ describe('calendar recurrence', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* the reminder mirror                                                        */
+/* the delivery registration                                                  */
 /* -------------------------------------------------------------------------- */
 
-const ISO_DAY = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+describe('the delivery registration', () => {
+  const WEBHOOK = 'https://ha.example.test/api/webhook/9f2c0a5e';
 
-describe('the reminder mirror', () => {
-  it('hands out the schedule the integration mirrors, dated the way the app means it', async () => {
-    const token = await issueApiToken(USER_A);
-    const due = Date.now() + 2 * 60 * 60 * 1000;
-    const task = await createTask(
-      USER_A,
-      { title: 'Call the plumber', dueAtMs: due, reminders: [{ offsetMinutes: -30 }] },
-      'UTC',
-    );
-
-    const response = await gql(
-      token.plaintext,
-      `query { scheduledReminders(days: 40) { key source sourceId title date fireAtMs repeat minuteOfDay weekDays } }`,
-    );
-
-    expect(response.status).toBe(200);
-    const entries = (response.body.data?.scheduledReminders ?? []) as {
-      key: string;
-      source: string;
-      sourceId: string;
-      title: string;
-      date: string;
-      fireAtMs: number;
-      repeat: string;
-      minuteOfDay: number | null;
-    }[];
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toEqual({
-      key: `task:${task.id}:off:-30`,
-      source: 'task',
-      sourceId: task.id,
-      title: 'Call the plumber',
-      date: ISO_DAY(due - 30 * 60 * 1000),
-      fireAtMs: due - 30 * 60 * 1000,
-      repeat: 'once',
-      minuteOfDay: null,
-      weekDays: null,
-    });
-  });
-
-  it('records which sources Home Assistant has taken over, in the app’s own order', async () => {
+  it('records where Home Assistant wants this account’s reminders', async () => {
     const token = await issueApiToken(USER_A);
 
-    const before = await gql(token.plaintext, `{ reminderDelivery { sources registeredAtMs } }`);
+    const before = await gql(token.plaintext, `{ reminderDelivery { webhookUrl registeredAtMs } }`);
     expect(before.body.data?.reminderDelivery).toBeNull();
 
     const registered = await gql(
       token.plaintext,
-      `mutation { registerReminderDelivery(sources: [event, task, event]) { sources registeredAtMs } }`,
+      `mutation { registerReminderDelivery(webhookUrl: "${WEBHOOK}") { webhookUrl registeredAtMs } }`,
     );
     expect(registered.status).toBe(200);
-    const receipt = registered.body.data?.registerReminderDelivery as { sources: string[]; registeredAtMs: number };
-    expect(receipt.sources).toEqual(['task', 'event']);
+    const receipt = registered.body.data?.registerReminderDelivery as { webhookUrl: string; registeredAtMs: number };
+    expect(receipt.webhookUrl).toBe(WEBHOOK);
     expect(receipt.registeredAtMs).toBeGreaterThan(0);
 
-    const after = await gql(token.plaintext, `{ reminderDelivery { sources } }`);
-    expect((after.body.data?.reminderDelivery as { sources: string[] }).sources).toEqual(['task', 'event']);
+    const after = await gql(token.plaintext, `{ reminderDelivery { webhookUrl } }`);
+    expect((after.body.data?.reminderDelivery as { webhookUrl: string }).webhookUrl).toBe(WEBHOOK);
   });
 
-  it('refuses a source name it cannot delegate', async () => {
+  it('replaces the previous webhook rather than keeping both', async () => {
     const token = await issueApiToken(USER_A);
-    const bad = await gql(token.plaintext, `mutation { registerReminderDelivery(sources: [bogus]) { sources } }`);
+    await gql(token.plaintext, `mutation { registerReminderDelivery(webhookUrl: "${WEBHOOK}") { webhookUrl } }`);
+    await gql(
+      token.plaintext,
+      `mutation { registerReminderDelivery(webhookUrl: "https://other.example.test/api/webhook/x") { webhookUrl } }`,
+    );
 
-    expect(bad.body.errors?.[0]?.message).toMatch(/bogus/);
+    const after = await gql(token.plaintext, `{ reminderDelivery { webhookUrl } }`);
+    expect((after.body.data?.reminderDelivery as { webhookUrl: string }).webhookUrl).toBe(
+      'https://other.example.test/api/webhook/x',
+    );
+  });
+
+  it('refuses a registration with no webhook in it', async () => {
+    const token = await issueApiToken(USER_A);
+    const bad = await gql(token.plaintext, `mutation { registerReminderDelivery(webhookUrl: "  ") { webhookUrl } }`);
+
+    expect(bad.body.errors?.[0]?.message).toMatch(/webhook URL is required/i);
     expect(bad.body.data ?? null).toBeNull();
   });
 
-  it('shows a token only its own schedule', async () => {
+  it('shows a token only its own registration', async () => {
     const owner = await issueApiToken(USER_A);
     const stranger = await issueApiToken(USER_B);
-    await createTask(USER_A, { title: 'Mine', reminders: [{ absoluteAtMs: Date.now() + 60 * 60 * 1000 }] }, 'UTC');
+    await gql(owner.plaintext, `mutation { registerReminderDelivery(webhookUrl: "${WEBHOOK}") { webhookUrl } }`);
 
-    const mine = await gql(owner.plaintext, `{ scheduledReminders { title } }`);
-    const theirs = await gql(stranger.plaintext, `{ scheduledReminders { title } }`);
+    const mine = await gql(owner.plaintext, `{ reminderDelivery { webhookUrl } }`);
+    const theirs = await gql(stranger.plaintext, `{ reminderDelivery { webhookUrl } }`);
 
-    expect((mine.body.data?.scheduledReminders ?? []) as unknown[]).toHaveLength(1);
-    expect(theirs.body.data?.scheduledReminders).toEqual([]);
+    expect((mine.body.data?.reminderDelivery as { webhookUrl: string }).webhookUrl).toBe(WEBHOOK);
+    expect(theirs.body.data?.reminderDelivery).toBeNull();
   });
 });
 

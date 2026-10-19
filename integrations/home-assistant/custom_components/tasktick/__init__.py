@@ -13,7 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import TaskTickClient
 from .const import CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_SCAN_INTERVAL, DOMAIN
 from .coordinator import TaskTickCoordinator
-from .mirror_sync import ReminderMirror
+from .delivery import ReminderDelivery, async_discard_mirrored_reminders
 from .services import async_setup_services, async_unload_services
 from . import intents as intents_module
 
@@ -44,13 +44,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # restart while TaskTick is down retries rather than failing permanently.
     await coordinator.async_config_entry_first_refresh()
 
-    # The reminder mirror: TaskTick's schedule delivered by HA Reminders, so the
-    # user gets a notification with a button that finishes the item without
-    # configuring an automation. It rides the poll, and does nothing at all when
-    # HA Reminders is not installed.
-    mirror = ReminderMirror(hass, entry, client)
-    await mirror.async_load()
-    coordinator.mirror = mirror
+    # The reminder transport: TaskTick still owns the schedule, but its reminders
+    # are posted here and answered with a notification that has a button for
+    # finishing the item. It rides the poll so the claim stays fresh, and does
+    # nothing at all when HA Reminders is not installed.
+    delivery = ReminderDelivery(hass, client)
+    await delivery.async_start()
+    coordinator.delivery = delivery
+
+    # Upgrading from a release that mirrored the schedule: take its reminders back
+    # out of HA Reminders rather than leaving them to fire for a schedule nothing
+    # maintains. The store it recorded them in is removed with them, so this is a
+    # no-op from the second setup onwards.
+    await async_discard_mirrored_reminders(hass, entry)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -69,20 +75,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        coordinator: TaskTickCoordinator | None = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if coordinator is not None and coordinator.delivery is not None:
+            # The webhook goes with the entry: TaskTick keeps its own delivery
+            # until the claim it holds goes stale, which is minutes, not never.
+            await coordinator.delivery.async_stop()
         if not hass.data[DOMAIN]:
             async_unload_services(hass)
     return unloaded
-
-
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove what the integration created elsewhere.
-
-    The reminder mirror writes real reminders into HA Reminders, so removing the
-    integration has to take them with it: left behind, they would keep firing
-    with a button that calls a service which no longer exists.
-    """
-    await ReminderMirror(hass, entry).async_stop()
 
 
 def _scan_interval(entry: ConfigEntry) -> timedelta:

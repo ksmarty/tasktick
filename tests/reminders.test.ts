@@ -459,38 +459,97 @@ describe('the real transport', () => {
   });
 });
 
-describe('delivery delegation', () => {
-  it('stays quiet about a source Home Assistant is mirroring', async () => {
+describe('delivery through Home Assistant', () => {
+  /** A stand-in for the POST, so no test opens a socket. */
+  function haRecorder(result: { delivered: boolean; error?: string } = { delivered: true }) {
+    const posted: { url: string; payload: NotificationPayload }[] = [];
+    return {
+      posted,
+      push: async (url: string, payload: NotificationPayload) => {
+        posted.push({ url, payload });
+        return result;
+      },
+    };
+  }
+
+  it('posts to the registered webhook instead of the app’s own push', async () => {
     await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
-    await registerHaDelivery(userId, ['habit'], NOON);
+    await registerHaDelivery(userId, 'https://ha.example.test/api/webhook/secret', NOON);
     const rec = recorder();
+    const ha = haRecorder();
 
-    await runReminderSweep(NOON, { deliver: rec.deliver });
+    await runReminderSweep(NOON, { deliver: rec.deliver, pushToHomeAssistant: ha.push });
 
-    // The same reminder is on its way from Home Assistant, with a button that
-    // completes it. Sending it here as well would be a duplicate.
+    // The same reminder from Home Assistant carries a button that completes it
+    // and arrives on a phone that is awake, so the app's own push stays out of it.
+    expect(ha.posted.map((entry) => entry.url)).toEqual(['https://ha.example.test/api/webhook/secret']);
     expect(rec.sent).toEqual([]);
   });
 
-  it('keeps speaking about the sources it is not mirroring', async () => {
+  it('sends the app’s own payload, so both transports say the same thing', async () => {
     await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
-    await registerHaDelivery(userId, ['task', 'event'], NOON);
+    await registerHaDelivery(userId, 'https://ha.example.test/api/webhook/secret', NOON);
+    const ha = haRecorder();
+
+    await runReminderSweep(NOON, { deliver: recorder().deliver, pushToHomeAssistant: ha.push });
+
+    const payload = ha.posted[0].payload;
+    expect(payload.title).toBe('Stretch');
+    expect(payload.tag).toMatch(/^habit-.+-2026-05-12$/);
+    expect(payload.actions).toEqual([{ action: 'complete', title: 'Check in' }]);
+    expect(payload.data).toMatchObject({ source: 'habit', sourceId: expect.any(String) });
+  });
+
+  it('delivers a task reminder too, not the sources a mirror used to name', async () => {
+    const task = await createTask(
+      userId,
+      { title: 'Water plants', dueDate: '2026-05-12', dueTime: '12:00', reminders: [{ offsetMinutes: 0 }] },
+      ZONE,
+    );
+    await registerHaDelivery(userId, 'https://ha.example.test/api/webhook/secret', NOON);
+    const ha = haRecorder();
+
+    await runReminderSweep(NOON, { deliver: recorder().deliver, pushToHomeAssistant: ha.push });
+
+    expect(ha.posted.map((entry) => entry.payload.title)).toEqual(['Water plants']);
+    const [row] = await getDb().select().from(taskReminders).where(eq(taskReminders.taskId, task.id));
+    expect(row.sent).toBe(true);
+  });
+
+  it('falls back to the app’s push when Home Assistant will not take it', async () => {
+    await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    await registerHaDelivery(userId, 'https://ha.example.test/api/webhook/secret', NOON);
     const rec = recorder();
+    const ha = haRecorder({ delivered: false, error: 'Home Assistant responded 404' });
 
-    await runReminderSweep(NOON, { deliver: rec.deliver });
+    await runReminderSweep(NOON, { deliver: rec.deliver, pushToHomeAssistant: ha.push });
 
+    // A webhook the integration has since removed must cost a slower
+    // notification, never a lost one.
+    expect(ha.posted).toHaveLength(1);
     expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
   });
 
-  it('speaks again once the registration has gone stale', async () => {
+  it('keeps to the app’s own push once the registration has gone stale', async () => {
     await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
-    await registerHaDelivery(userId, ['habit'], NOON - HA_DELIVERY_FRESH_MS - 1);
+    await registerHaDelivery(userId, 'https://ha.example.test/api/webhook/secret', NOON - HA_DELIVERY_FRESH_MS - 1);
     const rec = recorder();
+    const ha = haRecorder();
 
-    await runReminderSweep(NOON, { deliver: rec.deliver });
+    await runReminderSweep(NOON, { deliver: rec.deliver, pushToHomeAssistant: ha.push });
 
-    // Nothing has refreshed the claim, so Home Assistant is not delivering
-    // anything any more — and a reminder that arrives nowhere is the worst case.
+    expect(ha.posted).toEqual([]);
+    expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
+  });
+
+  it('does not post to an account that never registered', async () => {
+    await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    const rec = recorder();
+    const ha = haRecorder();
+
+    await runReminderSweep(NOON, { deliver: rec.deliver, pushToHomeAssistant: ha.push });
+
+    expect(ha.posted).toEqual([]);
     expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
   });
 });

@@ -240,7 +240,7 @@ type RowTypeParity = [
   Expect<Equal<sqliteSchema.FocusSessionRow, pgSchema.FocusSessionRow>>,
   Expect<Equal<sqliteSchema.SavedFilterRow, pgSchema.SavedFilterRow>>,
   Expect<Equal<sqliteSchema.ImportKeyRow, pgSchema.ImportKeyRow>>,
-  Expect<Equal<sqliteSchema.HaDeliveryRow, pgSchema.HaDeliveryRow>>,
+  Expect<Equal<sqliteSchema.HaDeliveryTargetRow, pgSchema.HaDeliveryTargetRow>>,
 ];
 
 /**

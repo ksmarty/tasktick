@@ -3,6 +3,7 @@
   "name": "TaskTick",
   "codeowners": ["@ksmarty"],
   "config_flow": true,
+  "dependencies": ["http", "webhook"],
   "documentation": "https://github.com/ksmarty/tasktick/tree/main/integrations/home-assistant",
   "integration_type": "service",
   "iot_class": "local_polling",

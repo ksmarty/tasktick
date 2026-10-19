@@ -23,11 +23,16 @@ from datetime import date, datetime, time as dtime
 from typing import Any
 from urllib.parse import quote
 
-#: The service this one hands the reminder to.
+#: The services of the integration this one hands reminders to.
 REMINDERS_DOMAIN = "ha_reminders"
 REMINDERS_CREATE = "create"
 REMINDERS_UPDATE = "update"
 REMINDERS_DELETE = "delete"
+#: The one-off notification service: it sends a notification and stores nothing,
+#: which is what makes it usable as a transport rather than a second schedule.
+#: Older HA Reminders releases do not have it, and its absence is how this
+#: integration knows not to claim TaskTick's reminders (see `delivery.py`).
+REMINDERS_NOTIFY = "notify"
 
 #: The integration's own icon: `mdi:check-circle-outline`, the one its sensors
 #: already carry, so a TaskTick reminder is recognisable in a shade full of other
@@ -210,6 +215,74 @@ def reminder_payload(
         payload["acknowledge_action_title"] = acknowledge_title or ACKNOWLEDGE_TITLES.get(
             target, "Done"
         )
+    return payload
+
+
+def habit_day(occurrence_key: str) -> str:
+    """The day a habit reminder's occurrence key names, or ``""``.
+
+    The app spells a habit occurrence as ``<date>:<minute>`` (see
+    `src/lib/reminder-notification.ts`), and the date is the day a check-in from
+    the notification has to write — the notification can be tapped the next
+    morning, so it cannot be read back off the clock. A key that is not shaped
+    that way yields nothing rather than a wrong date.
+    """
+    day = occurrence_key.split(":", 1)[0]
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        return ""
+    return day
+
+
+def notification_payload(*, origin: str, notification: Mapping[str, Any]) -> dict[str, Any]:
+    """One of TaskTick's own notifications, as an `ha_reminders.notify` payload.
+
+    The app posts its `NotificationPayload` (`src/server/services/notifications.ts`)
+    verbatim, because that is the same object its Web Push transport renders: the
+    title, the body, the app path a tap opens, and `data` carrying the source, the
+    item's id and the occurrence. Everything TaskTick-specific is derived here, so
+    a reminder delivered through Home Assistant lands on the same screen and its
+    button runs the same service call as one delivered by the app itself.
+
+    Raises `ValueError` for a notification this cannot deliver — one with no title,
+    or one whose `data` does not name what it is about, since a notification
+    nothing can act on is worse than the caller's own fallback.
+    """
+    data = notification.get("data") or {}
+    if not isinstance(data, Mapping):
+        raise ValueError("a notification's data must be an object")
+
+    target = str(data.get("source") or "")
+    target_id = str(data.get("sourceId") or "")
+    if target not in ACKNOWLEDGE_TITLES or not target_id:
+        raise ValueError("a notification needs data.source and data.sourceId")
+
+    title = str(notification.get("title") or "")
+    if not title:
+        raise ValueError("a notification needs a title")
+
+    payload: dict[str, Any] = {
+        "title": title,
+        "icon": DEFAULT_ICON,
+        "acknowledge_action_title": ACKNOWLEDGE_TITLES[target],
+    }
+
+    body = str(notification.get("body") or "")
+    if body:
+        payload["message"] = body
+
+    path = str(notification.get("url") or "")
+    if path.startswith("/"):
+        # The app sends an app-absolute path, which is right for its own worker and
+        # useless in a notification: only the integration knows the origin the user
+        # reaches this instance on.
+        payload["click_url"] = f"{origin.rstrip('/')}{path}"
+
+    day = habit_day(str(data.get("occurrenceKey") or "")) if target == "habit" else ""
+    actions = acknowledge_actions(target, target_id, day)
+    if actions:
+        payload["acknowledge_actions"] = actions
     return payload
 
 

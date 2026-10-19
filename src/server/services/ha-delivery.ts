@@ -1,129 +1,117 @@
 /**
- * Who is delivering reminders, when Home Assistant has taken over.
+ * Where a Home Assistant wants its reminders delivered.
  *
  * ## Why the app has to know
  *
- * Home Assistant can mirror TaskTick's reminders (`tasktick.create_reminder`,
- * driven now by the integration's own sync) and deliver them with a button that
- * completes the item. That is strictly better than what the app can do on iPhone
- * — an installed PWA gets no reliable background wake-up — but it means the same
- * reminder would otherwise arrive twice: once from Home Assistant and once from
- * the app's own Web Push or Apprise fan-out.
+ * A `tasktick` Home Assistant installation can deliver a reminder far better
+ * than the app can on iPhone: an installed PWA gets no reliable background
+ * wake-up, while Home Assistant is already awake and its notification carries a
+ * button that completes the item or checks in the habit. So the integration
+ * registers a webhook with this app and the reminder sweep POSTs each due
+ * reminder there (see `src/server/services/ha-push.ts`) instead of pushing it
+ * itself.
  *
  * ## A claim, not a setting
  *
  * There is deliberately nothing to configure. The integration calls
  * {@link registerHaDelivery} on every poll, which records *that Home Assistant is
- * there* and *what it mirrors*; the reminder sweep reads it back and stays quiet
- * about those sources while the record is fresh ({@link HA_DELIVERY_FRESH_MS}).
- * Uninstall the integration, disable it, or let Home Assistant go silent for a
- * quarter of an hour and the registration goes stale on its own — and the app's
- * own notifications come back without anyone toggling anything. A user who
- * downgrades, or whose server address changed, is never left with reminders that
- * arrive nowhere.
+ * there* and *where to reach it*; the sweep delivers through it while the record
+ * is fresh ({@link HA_DELIVERY_FRESH_MS}) and falls back to the app's own push
+ * the moment a POST fails. Uninstall the integration, disable it, or let Home
+ * Assistant go silent for a quarter of an hour and the registration goes stale on
+ * its own — and the app's own transport takes over again without anyone toggling
+ * anything. A user who downgrades, or whose server address changed, is never left
+ * with reminders that arrive nowhere.
  *
  * Freshness is what makes the write safe to repeat: the integration polls every
- * minute, so a claim that is even ten minutes old means something has gone wrong
- * on the Home Assistant side.
+ * minute, so a registration that is even ten minutes old means something has gone
+ * wrong on the Home Assistant side.
  *
- * ## Why it is not derived from the push subscriptions
+ * ## Why the URL is the whole registration
  *
- * A subscription only says a device *could* receive a push. It says nothing about
- * whether something else is already handling the reminder, which is exactly the
- * question here — so the answer is recorded by the thing doing the handling.
+ * The webhook URL embeds the integration's own secret, so it is the only thing
+ * that has to be stored: the app keeps no Home Assistant token, and Home Assistant
+ * needs none from us, because the button on a delivered notification calls
+ * TaskTick's own services.
  */
 import { eq, gt } from 'drizzle-orm';
 import type { Millis } from '@/lib/types';
 import { getDb } from '../db';
-import { haDeliveries } from '../db/schema';
-
-/** The reminder sources a Home Assistant can mirror. */
-export const MIRRORED_SOURCES = ['task', 'habit', 'event'] as const;
-
-export type MirroredSource = (typeof MIRRORED_SOURCES)[number];
-
-/** True for a string that names a source this app can delegate. */
-export function isMirroredSource(value: unknown): value is MirroredSource {
-  return typeof value === 'string' && (MIRRORED_SOURCES as readonly string[]).includes(value);
-}
+import { haDeliveryTargets } from '../db/schema';
 
 /**
  * How long a registration stays believable.
  *
  * The integration polls once a minute, so fifteen missed polls is not a slow
  * network — it is an integration that is gone or broken. Long enough to ride out
- * a restart of either side, short enough that a user is not silently un-notified
- * for a day after removing the integration.
+ * a restart of either side, short enough that a user is not silently reliant on a
+ * Home Assistant that stopped answering.
  */
 export const HA_DELIVERY_FRESH_MS = 15 * 60 * 1000;
 
-/** What a registration acknowledged, echoed back to the caller. */
-export interface HaDeliveryReceipt {
-  sources: MirroredSource[];
+/** Where to deliver one account's reminders, and when that was last confirmed. */
+export interface HaDeliveryTarget {
+  /** The integration's webhook, secret and all. */
+  webhookUrl: string;
   registeredAtMs: Millis;
 }
 
 /**
- * Records that Home Assistant is delivering reminders for `sources`.
+ * Records that Home Assistant receives this account's reminders at `webhookUrl`.
  *
- * The names are de-duplicated and put in {@link MIRRORED_SOURCES} order rather
- * than the caller's, so the stored value is canonical and a later comparison
- * cannot fail over ordering. An empty list is allowed and means "Home Assistant
- * is connected but mirroring nothing", which suppresses nothing.
+ * One row per account, overwritten on every poll: a second Home Assistant
+ * replaces the first rather than doubling every notification.
  */
 export async function registerHaDelivery(
   userId: string,
-  sources: readonly MirroredSource[],
+  webhookUrl: string,
   nowMs: Millis,
-): Promise<HaDeliveryReceipt> {
+): Promise<HaDeliveryTarget> {
+  const url = webhookUrl.trim();
   const db = getDb();
-  const wanted = MIRRORED_SOURCES.filter((source) => sources.includes(source));
 
   await db
-    .insert(haDeliveries)
-    .values({ userId, sources: wanted, registeredAtMs: nowMs })
+    .insert(haDeliveryTargets)
+    .values({ userId, webhookUrl: url, registeredAtMs: nowMs })
     .onConflictDoUpdate({
-      target: haDeliveries.userId,
-      set: { sources: wanted, registeredAtMs: nowMs, updatedAt: nowMs },
+      target: haDeliveryTargets.userId,
+      set: { webhookUrl: url, registeredAtMs: nowMs, updatedAt: nowMs },
     });
 
-  return { sources: wanted, registeredAtMs: nowMs };
+  return { webhookUrl: url, registeredAtMs: nowMs };
 }
 
 /** The last registration for one account, fresh or not, or null when there is none. */
-export async function haDeliveryRegistration(
-  userId: string,
-): Promise<{ sources: MirroredSource[]; registeredAtMs: Millis } | null> {
+export async function haDeliveryRegistration(userId: string): Promise<HaDeliveryTarget | null> {
   const db = getDb();
   const [row] = await db
-    .select({ sources: haDeliveries.sources, registeredAtMs: haDeliveries.registeredAtMs })
-    .from(haDeliveries)
-    .where(eq(haDeliveries.userId, userId))
+    .select({ webhookUrl: haDeliveryTargets.webhookUrl, registeredAtMs: haDeliveryTargets.registeredAtMs })
+    .from(haDeliveryTargets)
+    .where(eq(haDeliveryTargets.userId, userId))
     .limit(1);
   if (!row) return null;
 
-  return {
-    sources: MIRRORED_SOURCES.filter((source) => (row.sources ?? []).includes(source)),
-    registeredAtMs: row.registeredAtMs,
-  };
+  return { webhookUrl: row.webhookUrl, registeredAtMs: row.registeredAtMs };
 }
 
 /**
- * The sources Home Assistant is delivering right now, or null when no *fresh*
- * registration covers this account.
+ * Where to deliver this account's reminders right now, or null when no *fresh*
+ * registration says where.
  *
- * Null rather than an empty array: the two answer different questions. Null is
- * "nobody else is delivering", an empty set is "Home Assistant is delivering, but
- * nothing in particular" — and only the first one means the app should speak.
+ * Null rather than an empty URL: the caller's question is "is somebody else
+ * delivering", and a URL with nothing in it answers it the same way as no row at
+ * all — which is what an integration that registered before it knew its own
+ * address would leave behind.
  */
-export async function haDeliverySources(
+export async function haDeliveryTarget(
   userId: string,
   nowMs: Millis,
   freshMs: number = HA_DELIVERY_FRESH_MS,
-): Promise<MirroredSource[] | null> {
+): Promise<HaDeliveryTarget | null> {
   const registration = await haDeliveryRegistration(userId);
-  if (!registration || registration.registeredAtMs <= nowMs - freshMs) return null;
-  return registration.sources;
+  if (!registration || !registration.webhookUrl) return null;
+  if (registration.registeredAtMs <= nowMs - freshMs) return null;
+  return registration;
 }
 
 /**
@@ -136,16 +124,21 @@ export async function haDeliverySources(
 export async function freshHaDeliveries(
   nowMs: Millis,
   freshMs: number = HA_DELIVERY_FRESH_MS,
-): Promise<Map<string, Set<MirroredSource>>> {
+): Promise<Map<string, HaDeliveryTarget>> {
   const db = getDb();
   const rows = await db
-    .select({ userId: haDeliveries.userId, sources: haDeliveries.sources })
-    .from(haDeliveries)
-    .where(gt(haDeliveries.registeredAtMs, nowMs - freshMs));
+    .select({
+      userId: haDeliveryTargets.userId,
+      webhookUrl: haDeliveryTargets.webhookUrl,
+      registeredAtMs: haDeliveryTargets.registeredAtMs,
+    })
+    .from(haDeliveryTargets)
+    .where(gt(haDeliveryTargets.registeredAtMs, nowMs - freshMs));
 
-  const fresh = new Map<string, Set<MirroredSource>>();
+  const fresh = new Map<string, HaDeliveryTarget>();
   for (const row of rows) {
-    fresh.set(row.userId, new Set(MIRRORED_SOURCES.filter((source) => (row.sources ?? []).includes(source))));
+    if (!row.webhookUrl) continue;
+    fresh.set(row.userId, { webhookUrl: row.webhookUrl, registeredAtMs: row.registeredAtMs });
   }
   return fresh;
 }

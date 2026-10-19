@@ -268,21 +268,24 @@ Decisions worth knowing before you "improve" something:
   buttons on Web Push, which is the reason the Home Assistant path exists at all:
   it is the one that shows a button on an iPhone.
 
-- **Home Assistant mirrors the reminders; the app does not schedule them.**
-  `src/server/services/reminder-schedule.ts` is the same schedule the sweep is
-  built on, read *forwards* (`scheduledReminders` in GraphQL) so the integration
-  can hand each slot to HA Reminders; there is one entry per recurrence slot, keyed
-  by something stable across polls (`task:<id>:off:<min>`, `habit:<id>:<minute>`,
-  `event:<id>:<offset>`), which is how the mirror tells "the time moved" from "that
-  one went away". The integration's `mirror.py` turns a slot into an HA Reminders
-  payload and `mirror_sync.py` reconciles it every poll, keyed on the *fingerprint*
-  of that payload — never on the reminder id, because editing a task's due date
-  deletes and re-inserts its reminder rows. Suppression is a *claim*, not a
-  setting: the integration calls `registerReminderDelivery` each poll and
-  `src/server/services/ha-delivery.ts` keeps the sweep quiet for those sources only
-  while the claim is fresh (`HA_DELIVERY_FRESH_MS`, 15 minutes), so a removed
-  integration brings the app's own notifications back by itself. All-day events
-  are left out on purpose: no start instant means no offset to count back from.
+- **Home Assistant delivers the reminder; TaskTick still schedules it.**
+  TaskTick's sweep owns *when*: it expands recurrence and fires a due reminder
+  exactly once, and nothing about that moved. What the integration adds is a way
+  to *reach the user*: it registers a `webhook.async_register` handler and hands
+  the URL to TaskTick through `registerReminderDelivery` (the app's
+  `HA_PUSH_*` path in `src/server/services/ha-push.ts`), and the sweep POSTs each
+  due reminder to it instead of fanning out its own push. The integration's
+  `delivery.py` turns that POST into one `ha_reminders.notify` call — a one-off
+  notification HA Reminders sends and forgets, so nothing is stored and there is
+  no second schedule to reconcile. Registration is a *claim*, not a setting: the
+  address is re-offered every poll and `HA_DELIVERY_FRESH_MS` (15 minutes) expires
+  it, so an integration that is removed, disabled or merely broken drops the app
+  back to its own notifications by itself, and a POST that does not come back 2xx
+  falls back for that one reminder. All-day events are left out on purpose: no
+  start instant means no offset to count back from. The action encoding
+  (`taskReminder╡<id>╡<group>╡<minutes>╡<user>`) and the app link are shared with
+  Web Push (`src/lib/reminder-notification.ts`) and must stay that way — the
+  button has to mean the same thing whichever path delivered it.
 
 ### Deleted rather than kept
 

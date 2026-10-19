@@ -24,7 +24,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import TaskTickAuthError, TaskTickClient, TaskTickConnectionError, TaskTickError
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, PRIORITY_ORDER, UPCOMING_DAYS
-from .mirror_sync import ReminderMirror
+from .delivery import ReminderDelivery
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,11 +108,11 @@ class TaskTickCoordinator(DataUpdateCoordinator[TaskTickData]):
         )
         self.client = client
         self.entry = entry
-        #: The reminder mirror, attached by `async_setup_entry` when there is one.
-        #: Holding it here (rather than as a coordinator listener) keeps the order
-        #: explicit: the poll that reads the snapshot is the poll that mirrors it,
-        #: and a mirror failure can never fail the poll.
-        self.mirror: ReminderMirror | None = None
+        #: The reminder transport, attached by `async_setup_entry` when there is
+        #: one. Holding it here (rather than as a coordinator listener) keeps the
+        #: order explicit: the poll that reads the snapshot is the poll that
+        #: re-offers the webhook, and a delivery failure can never fail the poll.
+        self.delivery: ReminderDelivery | None = None
 
     async def _async_update_data(self) -> TaskTickData:
         try:
@@ -136,11 +136,11 @@ class TaskTickCoordinator(DataUpdateCoordinator[TaskTickData]):
             len(data.upcoming),
         )
 
-        if self.mirror is not None:
+        if self.delivery is not None:
             try:
-                await self.mirror.async_sync()
+                await self.delivery.async_sync()
             except Exception as err:  # noqa: BLE001 - the entities must still update
-                _LOGGER.warning("the reminder mirror failed: %s", err)
+                _LOGGER.warning("the reminder transport failed: %s", err)
 
         return data
 

@@ -20,6 +20,8 @@ from custom_components.tasktick.reminders import (
     acknowledge_actions,
     app_link,
     as_list,
+    habit_day,
+    notification_payload,
     pick_target,
     reminder_payload,
     schedule_fields,
@@ -264,3 +266,110 @@ class TestValidateTrigger:
                 "person_entity_ids": ["person.kyle"],
             }
         )
+
+
+class TestHabitDay:
+    def test_a_dated_occurrence_names_its_day(self) -> None:
+        assert habit_day("2026-05-12:420") == "2026-05-12"
+
+    def test_an_occurrence_with_no_day_is_empty(self) -> None:
+        assert habit_day("420") == ""
+
+    def test_a_key_that_is_not_a_date_is_empty_rather_than_wrong(self) -> None:
+        assert habit_day("tomorrow:420") == ""
+
+    def test_a_time_that_looks_like_a_date_is_not_one(self) -> None:
+        assert habit_day("99:99") == ""
+
+
+class TestNotificationPayload:
+    """The app's own notification, as the one-off service reads it.
+
+    The payload is written out the way `deliverQuietly` builds it
+    (`src/server/services/reminders.ts`) from `reminderLink`, so a change on
+    either side of the wire has to be made in both.
+    """
+
+    @staticmethod
+    def task(**overrides) -> dict:
+        payload = {
+            "title": "Buy milk",
+            "body": "Task due",
+            "type": "info",
+            "url": "/tasks?task=t1",
+            "tag": "task-t1",
+            "actions": [{"action": "complete", "title": "Complete"}],
+            "data": {"source": "task", "sourceId": "t1", "occurrenceKey": "rem-1"},
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_a_task_carries_its_button_and_an_absolute_link(self) -> None:
+        assert notification_payload(origin=ORIGIN, notification=self.task()) == {
+            "title": "Buy milk",
+            "message": "Task due",
+            "icon": DEFAULT_ICON,
+            "click_url": "https://tasks.example.com/tasks?task=t1",
+            "acknowledge_action_title": "Complete",
+            "acknowledge_actions": [{"service": COMPLETE_TASK, "data": {"task_id": "t1"}}],
+        }
+
+    def test_a_habit_checks_in_the_day_the_occurrence_names(self) -> None:
+        payload = notification_payload(
+            origin=ORIGIN,
+            notification=self.task(
+                url="/habits?habit=h1",
+                data={"source": "habit", "sourceId": "h1", "occurrenceKey": "2026-05-12:420"},
+            ),
+        )
+        assert payload["acknowledge_action_title"] == "Check in"
+        assert payload["acknowledge_actions"] == [
+            {"service": CHECK_IN_HABIT, "data": {"habit": "h1", "date": "2026-05-12"}}
+        ]
+
+    def test_an_event_has_no_button_and_still_opens_its_day(self) -> None:
+        payload = notification_payload(
+            origin=ORIGIN,
+            notification=self.task(
+                url="/calendar?date=2026-05-12&event=e1",
+                data={"source": "event", "sourceId": "e1", "occurrenceKey": "1778:60"},
+            ),
+        )
+        assert payload["acknowledge_action_title"] == "Dismiss"
+        assert "acknowledge_actions" not in payload
+        assert payload["click_url"] == "https://tasks.example.com/calendar?date=2026-05-12&event=e1"
+
+    def test_a_trailing_slash_in_the_origin_does_not_double_up(self) -> None:
+        payload = notification_payload(
+            origin="https://tasks.example.com/", notification=self.task()
+        )
+        assert payload["click_url"] == "https://tasks.example.com/tasks?task=t1"
+
+    def test_an_empty_body_is_left_out_rather_than_blank(self) -> None:
+        payload = notification_payload(origin=ORIGIN, notification=self.task(body=""))
+        assert "message" not in payload
+
+    def test_a_relative_less_url_is_not_made_absolute(self) -> None:
+        # A path is what the app sends; anything else would be a URL from a
+        # different release and the origin here would be a guess.
+        payload = notification_payload(origin=ORIGIN, notification=self.task(url="tasks?task=t1"))
+        assert "click_url" not in payload
+
+    def test_a_notification_with_no_title_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="title"):
+            notification_payload(origin=ORIGIN, notification=self.task(title=""))
+
+    def test_a_notification_about_nothing_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="data.source"):
+            notification_payload(origin=ORIGIN, notification=self.task(data={}))
+
+    def test_an_unknown_source_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="data.source"):
+            notification_payload(
+                origin=ORIGIN,
+                notification=self.task(data={"source": "note", "sourceId": "n1"}),
+            )
+
+    def test_data_that_is_not_an_object_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="object"):
+            notification_payload(origin=ORIGIN, notification=self.task(data="task:t1"))

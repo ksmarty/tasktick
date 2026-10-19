@@ -803,30 +803,33 @@ export const savedFilters = sqliteTable(
 );
 
 /* -------------------------------------------------------------------------- */
-/* delivery delegation                                                        */
+/* Home Assistant delivery target                                             */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Where Home Assistant has taken over delivery.
+ * Where Home Assistant wants TaskTick's reminders delivered.
  *
- * The `tasktick` Home Assistant integration calls `registerHaDelivery` on every
- * poll. That single write is both the claim — *these* sources are being mirrored
- * into Home Assistant — and the proof of life: the reminder sweep only suppresses
- * its own notification while the row is fresh (see `HA_DELIVERY_FRESH_MS` in
- * `src/server/services/ha-delivery.ts`), so an uninstalled integration, or an HA
- * that stops polling, brings TaskTick's own notifications back on its own. There
- * is nothing to switch on or off here.
+ * The `tasktick` Home Assistant integration registers a webhook with this app
+ * on every poll, and the reminder sweep POSTs each due reminder to it instead
+ * of pushing it itself. That single write is both the address — *this* URL
+ * receives the reminders — and the proof of life: the sweep only delivers
+ * through Home Assistant while the row is fresh (see `HA_DELIVERY_FRESH_MS` in
+ * `src/server/services/ha-delivery.ts`), so an uninstalled integration, or an
+ * HA that stops polling, brings TaskTick's own push back on its own and
+ * nothing has ever been delivered nowhere. There is nothing to switch on or
+ * off here.
  *
- * One row per account: a user has one Home Assistant at a time. `sources` is the
- * subset of `task`/`habit`/`event` the integration said it mirrors, kept as JSON
- * because it is read as a set and never queried by element.
+ * One row per account: a user has one Home Assistant at a time. The URL embeds
+ * the integration's webhook secret, which is the only credential involved — the
+ * app stores no Home Assistant token, and Home Assistant needs none from us
+ * because the button on a delivered notification calls TaskTick's own services.
  */
-export const haDeliveries = sqliteTable('ha_deliveries', {
+export const haDeliveryTargets = sqliteTable('ha_delivery_targets', {
   userId: text('user_id')
     .primaryKey()
     .references(() => user.id, { onDelete: 'cascade' }),
-  /** `task` | `habit` | `event`, as a JSON array. */
-  sources: text('sources', { mode: 'json' }).$type<string[]>().notNull(),
+  /** The registered webhook, secret and all. */
+  webhookUrl: text('webhook_url').notNull(),
   /** When the integration last checked in. */
   registeredAtMs: integer('registered_at_ms').notNull(),
   ...timestamps,
@@ -891,4 +894,4 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type IcalTokenRow = typeof icalTokens.$inferSelect;
 export type ApiTokenRow = typeof apiTokens.$inferSelect;
 export type InviteRow = typeof invites.$inferSelect;
-export type HaDeliveryRow = typeof haDeliveries.$inferSelect;
+export type HaDeliveryTargetRow = typeof haDeliveryTargets.$inferSelect;

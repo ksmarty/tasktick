@@ -50,8 +50,7 @@ import {
 } from '@/lib/schemas';
 import type { Attendee, TaskFilter } from '@/lib/types';
 import { pushConfigured, oidcConfigured } from '@/lib/env';
-import { haDeliveryRegistration, isMirroredSource, registerHaDelivery } from '@/server/services/ha-delivery';
-import { upcomingReminders } from '@/server/services/reminder-schedule';
+import { haDeliveryRegistration, registerHaDelivery } from '@/server/services/ha-delivery';
 import { badInput, conflict, forbidden, fromRepoError, notFound } from './errors';
 import type { GraphQLContext } from './context';
 
@@ -250,8 +249,6 @@ export const resolvers: Record<string, Record<string, Resolver<any, any>>> = {
     agenda: (_p, _a, ctx) => buildAgenda(ctx.userId, ctx.zone),
     matrix: (_p, _a, ctx) => buildMatrix(ctx.userId, ctx.zone),
 
-    scheduledReminders: (_p, args: { days?: number | null }, ctx) =>
-      upcomingReminders(ctx.userId, ctx.zone, Date.now(), args.days ?? null),
     reminderDelivery: (_p, _a, ctx) => haDeliveryRegistration(ctx.userId),
   },
 
@@ -549,8 +546,11 @@ export const resolvers: Record<string, Record<string, Resolver<any, any>>> = {
       return { deleted: true };
     },
 
-    registerReminderDelivery: (_p, args: { sources: string[] }, ctx) =>
-      registerHaDelivery(ctx.userId, (args.sources ?? []).filter(isMirroredSource), Date.now()),
+    registerReminderDelivery: (_p, args: { webhookUrl: string }, ctx) => {
+      const webhookUrl = (args.webhookUrl ?? '').trim();
+      if (!webhookUrl) throw badInput('A webhook URL is required.');
+      return registerHaDelivery(ctx.userId, webhookUrl, Date.now());
+    },
   },
 
   /* ---- field resolvers that need shaping ---- */

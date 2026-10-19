@@ -179,24 +179,15 @@ DELETE_EVENT_MUTATION = """
 mutation DeleteEvent($id: ID!) { deleteEvent(id: $id) { deleted } }
 """
 
-# The schedule the reminder mirror is built on. Read forwards, unlike the app's own
-# sweep, which only ever asks what is due *now*: a mirror has to know what is
-# coming so it can hand the work to something with its own timers.
-SCHEDULED_REMINDERS_QUERY = """
-query Scheduled($days: Int) {
-  scheduledReminders(days: $days) {
-    key source sourceId title body date fireAtMs repeat minuteOfDay weekDays
-  }
-}
-"""
-
-# The app stops sending its own notification for a source once this says Home
-# Assistant is covering it. It is re-sent on every poll because the claim goes
-# stale, which is exactly what makes uninstalling the integration hand delivery
-# straight back to the app.
+# Where TaskTick should post a due reminder, registered on every poll.
+#
+# It carries a URL rather than a list of sources: Home Assistant no longer
+# re-creates the schedule, it only receives what TaskTick decides is due — so all
+# it has to tell the app is where to reach it. The webhook id in that URL is the
+# whole secret, which is why nothing else has to be sent or stored.
 REGISTER_REMINDER_DELIVERY_MUTATION = """
-mutation Register($sources: [ReminderSource!]!) {
-  registerReminderDelivery(sources: $sources) { sources registeredAtMs }
+mutation Register($webhookUrl: String!) {
+  registerReminderDelivery(webhookUrl: $webhookUrl) { webhookUrl registeredAtMs }
 }
 """
 
@@ -307,16 +298,13 @@ class TaskTickClient:
     async def async_delete_event(self, event_id: str) -> None:
         await self._execute(DELETE_EVENT_MUTATION, {"id": event_id})
 
-    async def async_scheduled_reminders(self, days: int | None = None) -> list[dict[str, Any]]:
-        """What TaskTick would remind about next, soonest first.
+    async def async_register_reminder_delivery(self, webhook_url: str) -> dict[str, Any]:
+        """Tell TaskTick where to post a reminder that is due.
 
-        The whole reason the mirror exists: TaskTick knows the schedule, Home
-        Assistant is awake to deliver it.
+        Re-sent on every poll on purpose: the app stops using the address once it
+        has not heard from Home Assistant for fifteen minutes, which is what hands
+        delivery back to the app when the integration is removed or HA is down.
         """
-        return (await self._execute(SCHEDULED_REMINDERS_QUERY, {"days": days}))["scheduledReminders"]
-
-    async def async_register_reminder_delivery(self, sources: list[str]) -> dict[str, Any]:
-        """Claim delivery of ``sources`` so the app stops sending its own copy."""
-        return (await self._execute(REGISTER_REMINDER_DELIVERY_MUTATION, {"sources": sources}))[
+        return (await self._execute(REGISTER_REMINDER_DELIVERY_MUTATION, {"webhookUrl": webhook_url}))[
             "registerReminderDelivery"
         ]

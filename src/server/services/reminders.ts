@@ -25,6 +25,18 @@
  * therefore loses that reminder rather than repeating it, which is the right way
  * round: a missed reminder is invisible, a repeated one is a bug report.
  *
+ * ## Which transport
+ *
+ * A `tasktick` Home Assistant takes this account's reminders when the integration
+ * registered a webhook, and the app's own Apprise/Web Push fan-out is the
+ * fallback — not the other way round, because Home Assistant's notification can
+ * finish the item, arrives on a phone that is awake, and is configured by the
+ * person who already runs the reminders. The choice is per account and per tick,
+ * decided by a registration the integration keeps fresh by its own polling (see
+ * `src/server/services/ha-delivery.ts`), and a POST that fails falls straight
+ * through to the app's push so a Home Assistant that went away costs a slower
+ * notification rather than a lost one.
+ *
  * ## The window
  *
  * A reminder is due when `fireAt > now - grace && fireAt <= now`. The upper bound
@@ -40,7 +52,8 @@ import { habitsWithReminders, matchesSchedule, settledHabitDates } from '../repo
 import { claimDispatch, notificationRecipients, pruneDispatches } from '../repos/reminder-dispatches';
 import { dueTaskReminders, markTaskReminderSent } from '../repos/tasks';
 import { expandedEventsInRange, type ExpandedEvent } from './calendar-items';
-import { freshHaDeliveries, type MirroredSource } from './ha-delivery';
+import { freshHaDeliveries, type HaDeliveryTarget } from './ha-delivery';
+import { sendToHomeAssistant, type HaPushDelivery } from './ha-push';
 import { deliverUserNotification, type NotificationPayload } from './notifications';
 
 /**
@@ -191,6 +204,42 @@ export interface DispatchCounts {
 /** Injectable seams. The default deliverer is the real Apprise + Web Push fan-out. */
 export interface ReminderDeps {
   deliver?: (userId: string, payload: NotificationPayload) => Promise<unknown>;
+  /**
+   * The Home Assistant leg, injectable so a test can watch the POST without a
+   * network. Nothing else about the transport is stubbed: routing, the fallback
+   * and the accounting all run for real.
+   */
+  pushToHomeAssistant?: (webhookUrl: string, payload: NotificationPayload) => Promise<HaPushDelivery>;
+}
+
+/**
+ * The deliverer for one account at one instant.
+ *
+ * With no registration this *is* the fallback, so an account without Home
+ * Assistant keeps exactly the call path it had before. With one, the POST goes
+ * first and the fallback follows only when Home Assistant did not take the
+ * reminder — a 404 from a webhook the integration has since removed, a 5xx from
+ * its own delivery failing, or no answer at all.
+ *
+ * The fallback is awaited rather than fired and forgotten: `deliverQuietly` reads
+ * its outcome to count the reminder as sent or failed, and a fallback that is
+ * still in flight when the sweep returns would be counted wrong.
+ */
+function routeDelivery(
+  target: HaDeliveryTarget | null,
+  fallback: NonNullable<ReminderDeps['deliver']>,
+  push: (webhookUrl: string, payload: NotificationPayload) => Promise<HaPushDelivery>,
+): NonNullable<ReminderDeps['deliver']> {
+  if (!target) return fallback;
+
+  return async (userId, payload) => {
+    const delivery = await push(target.webhookUrl, payload);
+    if (delivery.delivered) return;
+    console.warn(
+      `[reminder] Home Assistant did not take the reminder for ${userId}: ${delivery.error ?? 'unknown error'}; falling back`,
+    );
+    await fallback(userId, payload);
+  };
 }
 
 function describeError(error: unknown): string {
@@ -266,21 +315,10 @@ export async function dispatchRemindersForUser(
   deliver: NonNullable<ReminderDeps['deliver']>,
   /** The account's week start, which decides the weekly habit periods. */
   weekStartsOn = 1,
-  /**
-   * The sources a Home Assistant is delivering for this account, if any.
-   *
-   * A mirrored source is skipped outright rather than sent twice: Home Assistant's
-   * notification can finish the item and arrives on a phone that is awake, so
-   * while it is handling a source the app's own push would be a duplicate with a
-   * worse button set. Skipping also means no claim is written, so if the
-   * integration goes away the task reminder's `sent` flag is still false and the
-   * next tick is free to deliver it itself.
-   */
-  mirrored?: ReadonlySet<MirroredSource> | null,
 ): Promise<DispatchCounts> {
   const counts: DispatchCounts = { sent: 0, skipped: 0, failed: 0 };
 
-  for (const reminder of mirrored?.has('task') ? [] : await dueTaskReminders(userId, nowMs, REMINDER_GRACE_MS)) {
+  for (const reminder of await dueTaskReminders(userId, nowMs, REMINDER_GRACE_MS)) {
     const claimed = await markTaskReminderSent(userId, reminder.reminderId, nowMs);
     if (!claimed) {
       counts.skipped += 1;
@@ -308,9 +346,7 @@ export async function dispatchRemindersForUser(
    * calendar has hidden as a duplicate does not remind.
    */
   const span = MAX_EVENT_OFFSET_MINUTES * 60_000;
-  const occurrences = mirrored?.has('event')
-    ? []
-    : await expandedEventsInRange(userId, nowMs - REMINDER_GRACE_MS - span, nowMs + span, zone);
+  const occurrences = await expandedEventsInRange(userId, nowMs - REMINDER_GRACE_MS - span, nowMs + span, zone);
   for (const reminder of dueEventReminders(occurrences, nowMs)) {
     await dispatchClaimed(userId, reminder, nowMs, deliver, counts, zone);
   }
@@ -321,7 +357,7 @@ export async function dispatchRemindersForUser(
    * habit, for the week) has nothing left to be reminded about, and the answer
    * needs the check-ins, not just the habit row.
    */
-  const habits = mirrored?.has('habit') ? [] : await habitsWithReminders(userId);
+  const habits = await habitsWithReminders(userId);
   if (habits.length > 0) {
     const settled = await settledHabitDates(userId, habits, habitReminderDates(zone, nowMs), weekStartsOn, zone);
     for (const habit of habits) {
@@ -338,31 +374,34 @@ export async function dispatchRemindersForUser(
  * One sweep across every account that can receive a notification.
  *
  * Accounts are swept one at a time and a failing one is logged rather than
- * rethrown, so a single bad row cannot stop everyone else's reminders. The
- * prune rides along here rather than on a second timer: this is already the only
+ * rethrown, so a single bad row cannot stop everyone else's reminders. Each
+ * account is then delivered the way it prefers — through its Home Assistant when
+ * the integration has registered a webhook, otherwise through the app's own push.
+ * The prune rides along here rather than on a second timer: this is already the only
  * periodic job that owns the table.
  */
 export async function runReminderSweep(nowMs: Millis = Date.now(), deps: ReminderDeps = {}): Promise<DispatchCounts> {
-  const deliver = deps.deliver ?? ((userId: string, payload: NotificationPayload) => deliverUserNotification(userId, payload));
+  const fallback = deps.deliver ?? ((userId: string, payload: NotificationPayload) => deliverUserNotification(userId, payload));
+  const push = deps.pushToHomeAssistant ?? sendToHomeAssistant;
   const total: DispatchCounts = { sent: 0, skipped: 0, failed: 0 };
 
   const recipients = await notificationRecipients();
   /*
-   * One read for the whole tick: which accounts a Home Assistant is delivering
-   * for, and what it is delivering. The sweep is where the decision belongs
-   * rather than the transport, because only the sweep knows both what is due and
-   * who else is already handling it.
+   * One read for the whole tick: where a Home Assistant wants this account's
+   * reminders, if anywhere. The sweep is where the choice belongs rather than the
+   * transport, because only the sweep knows both what is due and where it should
+   * go — and the read is one query for every account, not one per account.
    */
-  const mirrored = await freshHaDeliveries(nowMs);
+  const homes = await freshHaDeliveries(nowMs);
   for (const recipient of recipients) {
     try {
+      const deliver = routeDelivery(homes.get(recipient.userId) ?? null, fallback, push);
       const counts = await dispatchRemindersForUser(
         recipient.userId,
         recipient.zone,
         nowMs,
         deliver,
         recipient.weekStartsOn,
-        mirrored.get(recipient.userId) ?? null,
       );
       total.sent += counts.sent;
       total.skipped += counts.skipped;
