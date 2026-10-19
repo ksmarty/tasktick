@@ -65,7 +65,7 @@ export async function startOidcSignIn(callbackURL = '/tasks'): Promise<void> {
 
   // Named explicitly rather than via `typeof payload`: an inline `as typeof` in
   // the assignment would refer to the already-narrowed `null` type.
-  type OAuthStartResponse = { url?: string; message?: string; error?: string };
+  type OAuthStartResponse = { url?: string; message?: string; error?: string; code?: string };
 
   let payload: OAuthStartResponse | null = null;
   try {
@@ -75,6 +75,15 @@ export async function startOidcSignIn(callbackURL = '/tasks'): Promise<void> {
   }
 
   if (!response.ok || !payload?.url) {
+    // The server retries a provider it failed to register at startup, so if the
+    // provider is still missing here, discovery is failing now — not a stale
+    // state that a reload would clear.
+    if (payload?.code === 'PROVIDER_NOT_FOUND') {
+      throw new Error(
+        'Single sign-on is configured but the server could not reach the identity provider. ' +
+          'Check that the app can reach OIDC_ISSUER, then try again.',
+      );
+    }
     throw new Error(
       payload?.message ?? payload?.error ?? 'Could not start single sign-on. Check the OIDC configuration.',
     );

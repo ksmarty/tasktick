@@ -28,6 +28,8 @@ import { resetAuthCache } from '@/server/auth';
 import { resetDialectCache } from '@/server/db/dialect';
 import { closeDb } from '@/server/db';
 import { startOidcSignIn } from '@/lib/auth-client';
+import { describeOidcAvailability, resetOidcProbeCache } from '@/server/oidc';
+import { withProviderHeal } from '@/server/oidc-heal';
 
 const SECRET = 'test-secret-test-secret-test-secret-oidc';
 const APP_ORIGIN = 'http://127.0.0.1:3000';
@@ -84,13 +86,21 @@ function basicCredentials(header: string | undefined): [string, string] | null {
  * its issuer. Everything is signed for real (RS256 + a served JWKS) so the
  * library's own verification is exercised rather than stubbed.
  */
-async function startProvider() {
+async function startProvider(port = 0) {
   const authorizations = new Map<string, PendingAuthorization>();
   const accessTokens = new Map<string, string>();
 
   const server = http.createServer((req, res) => {
     void (async () => {
-      const issuer = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      // A socket that outlived `close()` has no address. Answering and leaving
+      // is the honest response: throwing here would land as an unhandled
+      // rejection in whichever test happens to be running at teardown.
+      const address = server.address() as AddressInfo | null;
+      if (!address) {
+        res.writeHead(503).end();
+        return;
+      }
+      const issuer = `http://127.0.0.1:${address.port}`;
       const url = new URL(req.url ?? '/', issuer);
 
       if (url.pathname === '/.well-known/openid-configuration') {
@@ -214,7 +224,7 @@ async function startProvider() {
     })();
   });
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
   const issuer = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { server, issuer };
 }
@@ -309,7 +319,7 @@ afterEach(async () => {
   globalThis.fetch = realFetch;
   delete (globalThis as { window?: unknown }).window;
   await closeDb();
-  await new Promise<void>((resolve) => provider.close(() => resolve()));
+  if (provider.listening) await stopProvider(provider);
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -322,6 +332,27 @@ async function startSignIn() {
   const body = (await response.clone().json()) as { url?: string };
   const navigated = (globalThis as unknown as { window: { location: { href: string } } }).window.location.href;
   return { status: response.status, body, cookies: cookieJar(response), navigated };
+}
+
+/** A sign-in start request, exactly as `startOidcSignIn` posts it. */
+function signInRequest(provider = 'oidc'): Request {
+  return new Request(`${APP_ORIGIN}/api/auth/sign-in/social`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
+    body: JSON.stringify({ provider, callbackURL: '/tasks' }),
+  });
+}
+
+/**
+ * Stops the mock provider and drops its keep-alive sockets.
+ *
+ * `close()` alone only stops accepting: it waits for open connections, and the
+ * auth stack holds one, so the callback can be deferred past a test timeout. The
+ * suites that take the provider away mid-test need the wait to be finite.
+ */
+async function stopProvider(target: http.Server): Promise<void> {
+  target.closeAllConnections?.();
+  await new Promise<void>((resolve) => target.close(() => resolve()));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -425,4 +456,113 @@ describe('OIDC sign-in', () => {
     expect(origins).toContain(APP_ORIGIN);
     expect(origins).toContain('https://tasks.notato.xyz');
   });
+
+  /* ---------------------------------------------------------------------- */
+  /* the failure that was reported: a provider dropped at startup            */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * The reported symptom, reproduced and then healed.
+   *
+   * `getAuth()` decides whether to register the OIDC provider from a single
+   * discovery fetch, and a provider that is unreachable at that moment is
+   * dropped for the life of the process. The sign-in button keeps rendering and
+   * every click answers `404 PROVIDER_NOT_FOUND` until somebody restarts — which
+   * is exactly "I click it and nothing happens". Here the provider is taken away
+   * *before* the auth instance is built and then brought back, which is the
+   * deploy-time race that produces that state.
+   */
+  it('recovers when the provider was unreachable while the auth instance was built', async () => {
+    const port = Number(new URL(issuer).port);
+
+    await stopProvider(provider);
+    resetAuthCache();
+    resetOidcProbeCache();
+
+    // Poisoned exactly as a real deploy leaves it: the instance exists, the
+    // provider inside it does not.
+    const poisoned = await handler(signInRequest());
+    expect(poisoned.status).toBe(404);
+    expect(((await poisoned.json()) as { code?: string }).code).toBe('PROVIDER_NOT_FOUND');
+
+    // The provider comes back. Without the retry this next request would still
+    // 404 until the container restarted.
+    const restarted = await startProvider(port);
+    provider = restarted.server;
+
+    const { getAuthHandler } = await import('@/server/auth');
+    const route = (request: Request) => withProviderHeal(request, (req) => getAuthHandler()(req));
+    const healed = await route(signInRequest());
+
+    expect(healed.status).toBe(200);
+    const body = (await healed.json()) as { url?: string };
+    const authorize = new URL(body.url!);
+    expect(authorize.origin + authorize.pathname).toBe(`${issuer}/authorize`);
+    // The replayed request still carried its body: a clone that lost it would
+    // fail the schema and never reach the provider.
+    expect(authorize.searchParams.get('redirect_uri')).toBe(`${APP_ORIGIN}/api/auth/callback/oidc`);
+  });
+
+  it('leaves a 404 that is not about the OIDC provider alone', async () => {
+    let calls = 0;
+    const providerNotFound = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ code: 'PROVIDER_NOT_FOUND' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+
+    // Right code, wrong provider: somebody asked for one we never configure.
+    const other = await withProviderHeal(signInRequest('github'), providerNotFound);
+    expect(other.status).toBe(404);
+    expect(calls).toBe(1);
+
+    // Right provider, unrelated failure code.
+    const unrelated = await withProviderHeal(signInRequest(), async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ code: 'SOMETHING_ELSE' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    expect(unrelated.status).toBe(404);
+    expect(calls).toBe(2);
+  });
+
+  /**
+   * The other half of "nothing happens": the client used to discard this
+   * rejection with `void startOidcSignIn(...)`. It now reaches the form's error
+   * alert, so the assertion is on what the user would read.
+   */
+  it('turns an unregistered provider into a message the user can act on', async () => {
+    await stopProvider(provider);
+    resetAuthCache();
+
+    await expect(startOidcSignIn('/tasks')).rejects.toThrow(
+      /could not reach the identity provider/,
+    );
+  });
+
+  /**
+   * What the sign-in page now tells the user before they click: the reason, in a
+   * sentence, instead of an inert button.
+   */
+  it('reports why single sign-on cannot start, and stays quiet when it can', async () => {
+    resetOidcProbeCache();
+    const healthy = await describeOidcAvailability();
+    expect(healthy.enabled).toBe(true);
+    expect(healthy.name).toBe('Single sign-on');
+    expect(healthy.problem).toBeUndefined();
+
+    await stopProvider(provider);
+    resetOidcProbeCache();
+
+    const broken = await describeOidcAvailability();
+    // Still offered: the configuration is right, the network is not. Hiding the
+    // button would be a lie in the other direction.
+    expect(broken.enabled).toBe(true);
+    expect(broken.problem).toContain('/.well-known/openid-configuration');
+  });
+
 });

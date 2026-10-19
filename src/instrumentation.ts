@@ -31,6 +31,7 @@ export async function register(): Promise<void> {
   console.log(`[startup] TaskTick booting — ${env.NODE_ENV}, database ${database.dialect} at ${database.location}`);
 
   const { isWeakSecret, isAppUrlDefault } = await import('@/lib/env');
+  const { oidcConfigured } = await import('@/lib/env');
 
   if (isWeakSecret()) {
     // Not fatal: refusing to boot would lock an operator out of their own data.
@@ -98,5 +99,23 @@ export async function register(): Promise<void> {
     await startMdnsAdvertisement();
   } catch (error) {
     console.error('[startup] mDNS advertisement failed to start:', error);
+  }
+
+  /*
+   * Single sign-on is resolved once, when the auth instance is built, and a
+   * failed discovery drops the provider without an error anyone would notice —
+   * the sign-in button keeps rendering and the endpoint behind it answers 404.
+   * Checking here puts that in the container logs at the moment it happens.
+   *
+   * Last, so a slow provider cannot delay the schedulers above, and wrapped,
+   * because a diagnostic must never be the reason a server fails to boot.
+   */
+  if (oidcConfigured()) {
+    try {
+      const { describeOidcAvailability, logOidcAvailability } = await import('@/server/oidc');
+      logOidcAvailability(await describeOidcAvailability());
+    } catch (error) {
+      console.warn('[startup] could not check the OIDC provider:', error);
+    }
   }
 }

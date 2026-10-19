@@ -38,13 +38,23 @@ const GLYPH =
  * CSRF, the session cookie and error shaping are all handled by the library —
  * none of that logic changed in the move off Material; only the presentation did.
  */
-export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oidcName: string }) {
+export function LoginForm({
+  oidcEnabled,
+  oidcName,
+  oidcProblem,
+}: {
+  oidcEnabled: boolean;
+  oidcName: string;
+  /** Why the provider cannot be reached, from the server-side discovery probe. */
+  oidcProblem?: string;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [oidcBusy, setOidcBusy] = useState(false);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -64,6 +74,30 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
     // A full replace (not push) so the sign-in page is not in the back stack.
     router.replace('/tasks');
     router.refresh();
+  }
+
+  /**
+   * Starts single sign-on, and — the part that was missing — says so when it
+   * cannot.
+   *
+   * `startOidcSignIn` already throws with the server's own explanation; it used
+   * to be called with `void`, which discarded that rejection. The button then
+   * looked inert: no error, no navigation, no clue why. On success this function
+   * never returns, because the browser leaves for the provider.
+   */
+  async function onOidcSignIn() {
+    setError(null);
+    setOidcBusy(true);
+    try {
+      await startOidcSignIn('/tasks');
+    } catch (oidcError) {
+      setError(
+        oidcError instanceof Error && oidcError.message
+          ? oidcError.message
+          : 'Could not start single sign-on.',
+      );
+      setOidcBusy(false);
+    }
   }
 
   return (
@@ -168,7 +202,9 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
             variant="outline"
             size="lg"
             className="h-auto w-full justify-start gap-3 px-row py-3 text-left whitespace-normal"
-            onClick={() => void startOidcSignIn('/tasks')}
+            onClick={() => void onOidcSignIn()}
+            disabled={oidcBusy}
+            aria-busy={oidcBusy}
           >
             <span aria-hidden className="inline-flex text-lg text-primary">
               <IdCardIcon />
@@ -176,13 +212,21 @@ export function LoginForm({ oidcEnabled, oidcName }: { oidcEnabled: boolean; oid
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">{oidcName}</span>
               <span className="text-xs text-muted-foreground">
-                Continue with your identity provider
+                {oidcBusy ? 'Contacting your identity provider…' : 'Continue with your identity provider'}
               </span>
             </span>
             <span aria-hidden className="ml-auto inline-flex text-muted-foreground">
-              <ChevronRightIcon />
+              {oidcBusy ? <LoaderCircle className="animate-spin" /> : <ChevronRightIcon />}
             </span>
           </Button>
+          {oidcProblem ? (
+            <p className="text-xs leading-relaxed text-muted-foreground" role="status">
+              <span className="font-medium text-foreground">
+                Single sign-on is not reachable right now.
+              </span>{' '}
+              {oidcProblem}
+            </p>
+          ) : null}
         </>
       ) : null}
 

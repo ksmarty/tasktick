@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { getInstanceState } from '@/server/services/instance';
+import { describeOidcAvailability } from '@/server/oidc';
 
 export const metadata: Metadata = { title: 'Sign in' };
 export const dynamic = 'force-dynamic';
@@ -15,5 +16,15 @@ export default async function LoginPage() {
 
   if (state.registrationMode === 'closed' && state.userCount === 0) redirect('/register');
 
-  return <LoginForm oidcEnabled={state.oidc.enabled} oidcName={state.oidc.name} />;
+  // Only probed when the button would be shown: a signed-out page nobody can
+  // act on should not pay for a network round trip to the identity provider.
+  const oidc = state.oidc.enabled ? await describeOidcAvailability() : null;
+
+  return (
+    <LoginForm
+      oidcEnabled={state.oidc.enabled}
+      oidcName={state.oidc.name}
+      oidcProblem={oidc?.problem}
+    />
+  );
 }

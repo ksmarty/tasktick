@@ -237,6 +237,16 @@ OIDC_PROVIDER_NAME=Single sign-on
 OIDC_ALLOWED_DOMAINS=example.com     # optional allowlist
 ```
 
+`OIDC_ISSUER` must be an address **the server** can reach, which is not always
+the one your browser uses — `https://authentik.notato.xyz` from a phone and
+`http://authentik:9000` from inside the container are both common. The app
+resolves the provider's discovery document once at startup and again whenever
+the sign-in page renders, so a provider it cannot reach is reported in two
+places: a `[startup] OIDC is configured but unusable: …` warning in the
+container log, and a line under the single sign-on button explaining what
+failed. Neither needs a restart to clear: the next sign-in attempt re-resolves
+the provider and succeeds once it answers.
+
 ### Calendar subscriptions (iCal)
 
 Pull a remote `.ics` feed into a read-only calendar, next to the CalDAV
