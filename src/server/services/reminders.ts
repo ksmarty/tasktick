@@ -54,6 +54,7 @@ import { dueTaskReminders, markTaskReminderSent } from '../repos/tasks';
 import { expandedEventsInRange, type ExpandedEvent } from './calendar-items';
 import { freshHaDeliveries, type HaDeliveryTarget } from './ha-delivery';
 import { sendToHomeAssistant, type HaPushDelivery } from './ha-push';
+import { signReminderLink } from '../reminder-link';
 import { deliverUserNotification, type NotificationPayload } from './notifications';
 
 /**
@@ -233,7 +234,19 @@ function routeDelivery(
   if (!target) return fallback;
 
   return async (userId, payload) => {
-    const delivery = await push(target.webhookUrl, payload);
+    /*
+     * The tap target is signed on this route only.
+     *
+     * Home Assistant is the one route whose tap opens a *browser* — iOS cannot
+     * hand a notification's URL to the installed web app — so it is the one
+     * route where arriving without a session is the normal case. The app's own
+     * Web Push payload keeps the plain path: it is opened by a service worker
+     * inside an app that is already signed in, and a credential there would be
+     * handed to the push service for nothing (`src/server/reminder-link.ts`).
+     */
+    const tapped =
+      payload.url?.startsWith('/') === true ? { ...payload, url: signReminderLink(payload.url, userId) } : payload;
+    const delivery = await push(target.webhookUrl, tapped);
     if (delivery.delivered) return;
     console.warn(
       `[reminder] Home Assistant did not take the reminder for ${userId}: ${delivery.error ?? 'unknown error'}; falling back`,

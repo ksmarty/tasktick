@@ -344,12 +344,28 @@ iOS has no way to hand a link to an installed web app, so a reminder delivered
 through Home Assistant opens Safari (or the Home Assistant app's browser) rather
 than TaskTick on the Home Screen. That cannot be changed from the app's side.
 
-What the app does instead: the URL keeps the screen it points at (`/tasks?task=…`,
-`/habits?habit=…`, `/calendar?date=…&event=…`), and an unauthenticated request for
-one of those screens is redirected to the sign-in page with the destination
-attached. Sign in there and you land on the reminder you tapped; that browser
-keeps the session, so later taps open straight into the item. Only the first tap
-after signing out asks for a password.
+What the app does instead is make that browser arrive signed in:
+
+- **The tap target is signed.** A reminder sent through Home Assistant carries a
+  URL like `/api/auth/reminder-link?next=%2Ftasks%3Ftask%3Dabc&token=…`. The token
+  is an HMAC under a key derived from `BETTER_AUTH_SECRET`, names one user, and
+  **expires after 15 minutes**. Following it creates that user's session and
+  redirects to the reminder's own screen (`/tasks?task=…`, `/habits?habit=…`,
+  `/calendar?date=…&event=…`), so the tap lands on the item rather than the list.
+- **Nothing is stored to mint one.** The token is self-contained, and the
+  destination is not part of it: `next` is validated as a path of this app both
+  when the link is minted and when it is followed, so editing it can move you
+  around TaskTick but never off it.
+- **An expired link is not a dead end.** Tapping a two-hour-old notification
+  falls back to the sign-in page, which carries the same `next`: sign in and you
+  still land on the reminder.
+- **The app's own Web Push is not signed.** That notification is opened by a
+  service worker inside an app that is already signed in, so no credential is
+  sent to the push service for it.
+
+If a link is forwarded or posted somewhere it should not have been, it is worth
+at most a 15-minute window to one account's session — treat one as you would a
+reminder itself.
 
 ---
 

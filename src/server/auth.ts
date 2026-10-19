@@ -11,10 +11,13 @@
  *   - optional generic OIDC single sign-on
  *   - provisioning of a new account's Inbox, default calendar and settings
  */
-import { betterAuth } from 'better-auth';
+import { betterAuth, type BetterAuthPlugin } from 'better-auth';
+import { createAuthEndpoint } from 'better-auth/api';
+import { setSessionCookie } from 'better-auth/cookies';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { genericOAuth } from 'better-auth/plugins';
 import { nextCookies } from 'better-auth/next-js';
+import { z } from 'zod';
 import { eq, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import { currentDialect } from './db/dialect';
@@ -24,6 +27,8 @@ import { newId } from './crypto';
 import { AUTH_COOKIE_PREFIX } from '@/lib/auth-cookie';
 import { getEnv, oidcConfigured } from '@/lib/env';
 import { isLocalNetworkOrigin, originFromRequest } from '@/lib/network';
+import { safeNextPath } from '@/lib/safe-next';
+import { verifyReminderLink } from './reminder-link';
 import { ensureUserBootstrap } from './bootstrap';
 
 const { user, session, account, verification } = schema;
@@ -107,6 +112,65 @@ function buildOAuthPlugins() {
       ],
     }),
   ];
+}
+
+/**
+ * One-tap sign-in for a reminder link (`src/server/reminder-link.ts`).
+ *
+ * A reminder delivered through Home Assistant is tapped in Safari on iOS — the
+ * platform cannot hand a URL to the installed web app — so the tap arrives with
+ * no session and, before this, always stopped at the password prompt. The link
+ * now carries a fifteen-minute signed token for one user; following it creates
+ * that user's session and redirects to the reminder's own screen.
+ *
+ * Why an endpoint of better-auth's rather than a Next route: creating a session
+ * and writing its cookie is better-auth's job (`internalAdapter.createSession` +
+ * `setSessionCookie`, exactly what the magic-link plugin does), and an endpoint
+ * is handed the context those need. Hand-rolling the cookie would mean
+ * re-implementing its signing and attributes, which is how sessions that look
+ * valid but are not get created.
+ *
+ * Registered unconditionally: it has nothing to do with OIDC, and an instance
+ * without single sign-on still delivers reminders through Home Assistant.
+ */
+function reminderLinkPlugin(): BetterAuthPlugin {
+  return {
+    id: 'reminder-link',
+    endpoints: {
+      reminderLink: createAuthEndpoint(
+        '/reminder-link',
+        {
+          method: 'GET',
+          query: z.object({ token: z.string(), next: z.string().optional() }),
+        },
+        async (ctx) => {
+          /*
+           * The destination is read from the query rather than the token, so a
+           * link that has aged out can still say where it was going: it falls
+           * back to the sign-in page, which carries the same `next` and lands
+           * the user on their reminder after they sign in.
+           */
+          const destination = safeNextPath(ctx.query.next);
+          const signInAgain = () =>
+            ctx.redirect(`/login?next=${encodeURIComponent(destination)}&error=expired_reminder_link`);
+
+          const claims = verifyReminderLink(ctx.query.token);
+          if (!claims) throw signInAgain();
+
+          const user = await ctx.context.internalAdapter.findUserById(claims.userId);
+          // A reminder outliving the account it was sent to, or one sent to an
+          // account disabled since: neither may mint a session.
+          if (!user || (user as { banned?: boolean }).banned) throw signInAgain();
+
+          const session = await ctx.context.internalAdapter.createSession(user.id);
+          if (!session) throw signInAgain();
+
+          await setSessionCookie(ctx, { session, user });
+          throw ctx.redirect(destination);
+        },
+      ),
+    },
+  };
 }
 
 /**
@@ -272,7 +336,7 @@ function createAuth() {
       },
     },
 
-    plugins: [...buildOAuthPlugins(), nextCookies()],
+    plugins: [...buildOAuthPlugins(), reminderLinkPlugin(), nextCookies()],
   });
 }
 

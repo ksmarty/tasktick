@@ -27,6 +27,7 @@ import {
   runReminderSweep,
 } from '@/server/services/reminders';
 import { HA_DELIVERY_FRESH_MS, registerHaDelivery } from '@/server/services/ha-delivery';
+import { REMINDER_LINK_PATH, verifyReminderLink } from '@/server/reminder-link';
 import { disposeTempDatabase, useTempDatabase } from './sync-helpers';
 
 const ZONE = 'UTC';
@@ -500,6 +501,24 @@ describe('delivery through Home Assistant', () => {
     expect(payload.data).toMatchObject({ source: 'habit', sourceId: expect.any(String) });
   });
 
+  it('signs the tap target, because this is the route whose tap opens a browser', async () => {
+    await createHabit(userId, { name: 'Stretch', frequency: 'daily', reminders: [NOON_MINUTE] }, ZONE);
+    await registerHaDelivery(userId, 'https://ha.example.test/api/webhook/secret', NOON);
+    const ha = haRecorder();
+
+    await runReminderSweep(NOON, { deliver: recorder().deliver, pushToHomeAssistant: ha.push });
+
+    const { url, data } = ha.posted[0].payload;
+    expect(url.startsWith(`${REMINDER_LINK_PATH}?`)).toBe(true);
+
+    // The link still says where it opens, and the token names the account the
+    // reminder was sent to — so a browser with no session lands on the item
+    // instead of stopping at the sign-in page.
+    const href = new URL(url, 'http://127.0.0.1:3000');
+    expect(href.searchParams.get('next')).toBe(`/habits?habit=${data.sourceId}`);
+    expect(verifyReminderLink(href.searchParams.get('token') ?? '')?.userId).toBe(userId);
+  });
+
   it('delivers a task reminder too, not the sources a mirror used to name', async () => {
     const task = await createTask(
       userId,
@@ -528,6 +547,12 @@ describe('delivery through Home Assistant', () => {
     // notification, never a lost one.
     expect(ha.posted).toHaveLength(1);
     expect(rec.sent.map((payload) => payload.title)).toEqual(['Stretch']);
+
+    // The fallback is the app's own push, opened inside an app that is already
+    // signed in, so it keeps the plain path: no credential goes to the push
+    // service for a tap that never leaves the app.
+    expect(rec.sent[0].url.startsWith(REMINDER_LINK_PATH)).toBe(false);
+    expect(rec.sent[0].url).toMatch(/^\/habits\?habit=/);
   });
 
   it('keeps to the app’s own push once the registration has gone stale', async () => {

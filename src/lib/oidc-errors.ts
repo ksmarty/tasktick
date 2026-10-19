@@ -51,6 +51,14 @@ const CALLBACK_ERRORS: Record<string, string> = {
     'The provider did not return an email address, and TaskTick needs one to identify you.',
   email_not_verified: 'The provider returned an unverified email address. Verify it there, then try again.',
   access_denied: 'The sign-in was cancelled at the provider.',
+  /*
+   * Not an OIDC code: raised by the reminder-link endpoint when the token in a
+   * notification has aged out (see `src/server/reminder-link.ts`). It belongs
+   * here because this is the slot the sign-in page renders it in, and the
+   * sentence has to say what to do next rather than that something failed.
+   */
+  expired_reminder_link:
+    'That reminder link has expired. Sign in below and you will still land on the item it pointed at.',
 };
 
 /**
