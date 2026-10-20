@@ -14,6 +14,7 @@ from .api import TaskTickClient
 from .const import CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_SCAN_INTERVAL, DOMAIN
 from .coordinator import TaskTickCoordinator
 from .delivery import ReminderDelivery, async_discard_mirrored_reminders
+from .sentences import DEFAULT_LANGUAGE, async_install_sentences
 from .services import async_setup_services, async_unload_services
 from . import intents as intents_module
 
@@ -66,6 +67,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # resolve their coordinator at call time, so a second config entry does not
     # double-register them.
     intents_module.async_setup_intents(hass)
+    # Sentences, every setup: Home Assistant only loads custom sentences from the
+    # config directory, so the packaged templates have to be copied there before a
+    # sentence can match — and a release that adds one would otherwise need a
+    # manual step after every update. The installer compares before writing, so an
+    # unchanged install costs one file read.
+    await _async_install_sentences(hass)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
@@ -83,6 +90,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.data[DOMAIN]:
             async_unload_services(hass)
     return unloaded
+
+
+async def _async_install_sentences(hass: HomeAssistant) -> None:
+    """Install the Assist sentence templates, and never fail setup over it.
+
+    A config directory that cannot be written (a read-only mount, a permissions
+    mistake) is worth a warning in the log, not a config entry that will not load:
+    everything except the built-in conversation agent keeps working without them.
+    """
+    try:
+        await async_install_sentences(hass, DEFAULT_LANGUAGE)
+    except Exception as err:  # noqa: BLE001 - see the docstring
+        _LOGGER.warning("Could not install the TaskTick Assist sentences: %s", err)
 
 
 def _scan_interval(entry: ConfigEntry) -> timedelta:

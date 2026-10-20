@@ -2,9 +2,10 @@
 
 Home Assistant only ever loads custom sentences from
 ``<config>/custom_sentences/<language>/`` — never from an integration package —
-so the templates ship inside the integration and are copied into place by the
-``tasktick.install_sentences`` service, which then reloads the conversation
-agent so they take effect without a restart.
+so the templates ship inside the integration and are copied into place at setup,
+which is what makes a new release's sentences arrive with the update. The
+``tasktick.install_sentences`` service does the same thing on demand, and both
+reload the conversation agent so the sentences take effect without a restart.
 """
 
 from __future__ import annotations
@@ -57,8 +58,15 @@ async def async_install_sentences(
 ) -> dict[str, Any]:
     """Copy the packaged TaskTick sentences into the config directory.
 
-    An existing file whose content differs is backed up to ``.bak`` first, so
-    local edits are never silently overwritten.
+    Called on every setup as well as from the `install_sentences` action, so it
+    has to be cheap and quiet: the packaged file is compared before anything is
+    written, and the conversation agent is only reloaded when the content
+    actually changed. That is what makes an update install its new sentences
+    without a second visit to the UI.
+
+    An existing file whose content differs is backed up to ``.bak`` first. Put
+    your own templates in a *different* file under `custom_sentences/<lang>/`:
+    this one belongs to the integration and is replaced when its copy changes.
     """
     source = packaged_path(language)
     if not source.is_file():
@@ -84,13 +92,18 @@ async def async_install_sentences(
         return True, backup
 
     changed, backup = await hass.async_add_executor_job(_write)
-    reloaded = await async_reload_conversation(hass, language)
+    # Reloading restarts the conversation agent, so it is done only when there is
+    # something new to load — otherwise every restart would pay for it.
+    reloaded = await async_reload_conversation(hass, language) if changed else False
 
     if changed:
-        _LOGGER.info(
+        # A first install is routine; replacing a file that was not ours is the
+        # case worth noticing in the log, so the level follows the backup.
+        record = _LOGGER.warning if backup else _LOGGER.info
+        record(
             "Installed TaskTick sentences at %s%s",
             target,
-            f" (previous file backed up to {backup})" if backup else "",
+            f" (the file it replaced is saved as {backup})" if backup else "",
         )
     else:
         _LOGGER.info("TaskTick sentences already up to date at %s", target)

@@ -136,6 +136,9 @@ create_event:
   description: Create a calendar event and return it.
   fields:
     calendar:
+      description: >-
+        Name or id of the calendar to write to. Leave it out for the default
+        calendar chosen in the integration options, or TaskTick's own default.
       example: Personal
       selector:
         text: {}

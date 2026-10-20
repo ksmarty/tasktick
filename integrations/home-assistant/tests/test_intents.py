@@ -46,6 +46,7 @@ SNAPSHOT = {
     "calendars": [
         {"id": "c1", "name": "Personal", "readOnly": False, "isDefault": True},
         {"id": "c2", "name": "Holidays", "readOnly": True, "isDefault": False},
+        {"id": "c3", "name": "Work", "readOnly": False, "isDefault": False},
     ],
 }
 
@@ -83,11 +84,11 @@ class FakeClient:
         return {"id": "event-new", **payload}
 
 
-async def _build(client: FakeClient):
+async def _build(client: FakeClient, *, options: dict | None = None):
     hass = HomeAssistant("/tmp/tasktick-intent-test")
     hass.config.config_dir = "/tmp/tasktick-intent-test"
 
-    coordinator = TaskTickCoordinator(hass, config_entry(), client)
+    coordinator = TaskTickCoordinator(hass, config_entry(options=options), client)
     coordinator.async_set_updated_data(TaskTickData.from_snapshot(SNAPSHOT))
 
     refreshes: list[int] = []
@@ -120,12 +121,12 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _with_client(fn, **client_kwargs):
+def _with_client(fn, *, options: dict | None = None, **client_kwargs):
     """Run an async test body with a fresh hass + fake client."""
 
     async def _body():
         client = FakeClient(**client_kwargs)
-        hass, coordinator, refreshes = await _build(client)
+        hass, coordinator, refreshes = await _build(client, options=options)
         try:
             return await fn(hass, client, refreshes)
         finally:
@@ -410,7 +411,7 @@ def test_create_event_refuses_a_read_only_calendar() -> None:
     assert "read-only" in _with_client(body)
 
 
-def test_create_event_needs_a_time() -> None:
+def test_create_event_refuses_a_time_it_cannot_read() -> None:
     async def body(hass, client, refreshes):
         with pytest.raises(intent.IntentHandleError) as caught:
             await _handle(
@@ -421,6 +422,62 @@ def test_create_event_needs_a_time() -> None:
         return str(caught.value)
 
     assert "sometime" in _with_client(body)
+
+
+def test_create_event_without_a_time_is_all_day() -> None:
+    """A day on its own is a complete request: a birthday has no hour."""
+
+    async def body(hass, client, refreshes):
+        response = await _handle(
+            hass,
+            "TaskTickCreateEvent",
+            {"title": _slot("Kyle's birthday"), "day": _slot("today")},
+        )
+        return _speech(response), client.calls
+
+    speech, calls = _with_client(body)
+    payload = calls[0][1]
+    today = dt_util.now().date().isoformat()
+    assert payload == {
+        "calendarId": "c1",
+        "summary": "Kyle's birthday",
+        "startDate": today,
+        "endDate": today,
+        # No timestamps at all: the server reads an all-day event from the dates,
+        # and sending midnight would put it at the top of the day instead.
+        "isAllDay": True,
+    }
+    assert "all day" in speech
+
+
+def test_create_event_uses_the_calendar_chosen_in_the_options() -> None:
+    """The option decides, ahead of TaskTick's own default marker."""
+
+    async def body(hass, client, refreshes):
+        await _handle(
+            hass,
+            "TaskTickCreateEvent",
+            {"title": _slot("standup"), "time": _slot("9:30am")},
+        )
+        return client.calls
+
+    calls = _with_client(body, options={"default_calendar": "c3"})
+    assert calls[0][1]["calendarId"] == "c3"
+
+
+def test_create_event_falls_back_past_a_read_only_option() -> None:
+    """A calendar that became a read-only subscription is not a destination."""
+
+    async def body(hass, client, refreshes):
+        await _handle(
+            hass,
+            "TaskTickCreateEvent",
+            {"title": _slot("dentist"), "time": _slot("9am")},
+        )
+        return client.calls
+
+    calls = _with_client(body, options={"default_calendar": "c2"})
+    assert calls[0][1]["calendarId"] == "c1"
 
 
 def test_every_registered_intent_is_handled() -> None:

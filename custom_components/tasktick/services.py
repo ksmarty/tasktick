@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import CONF_DEFAULT_CALENDAR, DOMAIN
 from .coordinator import TaskTickCoordinator, TaskTickData, get_coordinator
 from .reminders import (
     REMINDERS_CREATE,
@@ -32,6 +32,7 @@ from .reminders import (
     validate_trigger,
 )
 from .sentences import DEFAULT_LANGUAGE, async_install_sentences
+from .util import default_calendar_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -387,12 +388,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = get_coordinator(hass)
         calendar_id = _resolve(coordinator, call.data.get(ATTR_CALENDAR), "calendar")
         if calendar_id is None:
-            calendar_id = next(
-                (item["id"] for item in coordinator.data.calendars if item.get("isDefault")),
-                None,
+            # The same order the voice path uses, so a calendar chosen once in
+            # the options is the answer for both.
+            calendar_id = default_calendar_id(
+                coordinator.data.calendars,
+                coordinator.entry.options.get(CONF_DEFAULT_CALENDAR),
             )
         if calendar_id is None:
-            raise ServiceValidationError("no calendar given, and none is marked default")
+            raise ServiceValidationError("no calendar given, and no writable one to fall back on")
         summary = call.data.get(ATTR_SUMMARY)
         if not summary:
             raise ServiceValidationError("an event needs a summary")

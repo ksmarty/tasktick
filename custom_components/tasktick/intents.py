@@ -23,8 +23,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.util import dt as dt_util
 
+from .const import CONF_DEFAULT_CALENDAR
 from .coordinator import TaskTickCoordinator, get_coordinator
 from .util import (
+    default_calendar_id,
     find_similar,
     normalize_word,
     parse_day_text,
@@ -167,13 +169,10 @@ class _TaskTickIntent(intent.IntentHandler):
     def _resolve_calendar(self, hass: HomeAssistant, spoken: str) -> str | None:
         coordinator = self._coordinator(hass)
         if not spoken:
-            for calendar in coordinator.data.calendars:
-                if calendar.get("isDefault") and not calendar.get("readOnly"):
-                    return calendar["id"]
-            writable = [
-                calendar for calendar in coordinator.data.calendars if not calendar.get("readOnly")
-            ]
-            return writable[0]["id"] if writable else None
+            return default_calendar_id(
+                coordinator.data.calendars,
+                coordinator.entry.options.get(CONF_DEFAULT_CALENDAR),
+            )
 
         target = normalize_word(spoken)
         for calendar in coordinator.data.calendars:
@@ -441,15 +440,18 @@ class TaskTickHabitStatusIntent(_TaskTickIntent):
 class TaskTickCreateEventIntent(_TaskTickIntent):
     """Create a calendar event.
 
-    The time is required: an event without one is a task, and guessing an hour
-    would put something in the user's calendar they did not ask for.
+    A spoken time makes a timed event; no time makes an all-day one. What the
+    handler will not do is invent an hour — "add a birthday on Friday" means the
+    whole day, whereas picking 09:00 for it puts a meeting in the calendar the
+    user never asked for.
     """
 
     intent_type = "TaskTickCreateEvent"
     description = (
         "Add an event to one of the user's TaskTick calendars. Put the event name "
         "in 'title', the calendar in 'calendar' when named, the day in 'day' "
-        "(today or tomorrow) and the start time in 'time'."
+        "(today or tomorrow) and the start time in 'time'. Leave 'time' out when "
+        "the user did not give one: that makes it an all-day event."
     )
 
     @property
@@ -458,7 +460,9 @@ class TaskTickCreateEventIntent(_TaskTickIntent):
             vol.Required("title"): vol.Any(str, int, float),
             vol.Optional("calendar"): str,
             vol.Optional("day"): str,
-            vol.Required("time"): vol.Any(str, int, float),
+            # Optional, because "add a birthday on Friday" is an all-day event and
+            # not an unanswerable question: the day is the whole information.
+            vol.Optional("time"): vol.Any(str, int, float),
             vol.Optional("minutes"): vol.Any(str, int, float),
         }
 
@@ -485,11 +489,30 @@ class TaskTickCreateEventIntent(_TaskTickIntent):
                 f"I did not understand the day {day_text}. Try today or tomorrow."
             )
 
-        parsed_time = parse_time_text(slot_text(slots, "time"))
-        if parsed_time is None:
-            raise intent.IntentHandleError(
-                f"I did not understand the time {slot_text(slots, 'time')}."
+        response = intent_obj.create_response()
+        time_text = slot_text(slots, "time")
+        if not time_text:
+            # No time means the whole day, which is what a birthday, a trip or a
+            # bin collection is. The server takes `startDate`/`endDate` for that,
+            # and an equal pair is one day — the same shape the create_event
+            # service sends for an all-day event.
+            payload = {
+                "calendarId": calendar_id,
+                "summary": title,
+                "startDate": day.isoformat(),
+                "endDate": day.isoformat(),
+                "isAllDay": True,
+            }
+            await coordinator.client.async_create_event(payload)
+            await coordinator.async_request_refresh()
+            response.async_set_speech(
+                f"Added {title} all day on {day.strftime('%A, %-d %B')}."
             )
+            return response
+
+        parsed_time = parse_time_text(time_text)
+        if parsed_time is None:
+            raise intent.IntentHandleError(f"I did not understand the time {time_text}.")
 
         start = dt_util.as_local(
             dt_util.start_of_local_day(day)
@@ -508,7 +531,6 @@ class TaskTickCreateEventIntent(_TaskTickIntent):
         )
         await coordinator.async_request_refresh()
 
-        response = intent_obj.create_response()
         response.async_set_speech(
             f"Added {title} for {start.strftime('%A at %-I:%M %p')}."
         )

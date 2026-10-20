@@ -110,19 +110,31 @@ agent, any LLM-backed agent, and the Assist app, with no extra configuration.
 | "What's my streak on reading" | `TaskTickHabitStatus` |
 | "Add lunch with Sam to my calendar tomorrow at noon" | `TaskTickCreateEvent` |
 
-An event needs a time — "at noon", "at 5pm" — because an event without one is a
-task, and guessing an hour would put something in your calendar you did not ask
-for. The event goes to the TaskTick calendar marked **default** when you name
-none, and a named calendar is matched against your real ones, so a read-only
-(CalDAV, subscribed) or misspelt one is reported rather than silently ignored.
-Say "for 90 minutes" to set the length; the default is an hour.
+An event without a time is an **all-day** event, not a task and not an invented
+hour: "add a birthday on Friday" fills the whole of Friday, because a birthday,
+a trip or a bin collection has no clock time and picking 09:00 for it puts a
+meeting in your calendar you did not ask for. Say "at noon" or "at 5pm" for a
+timed one, and "for 90 minutes" to set its length (the default is an hour).
 
-The **built-in** conversation agent needs the sentence templates installed once,
-into `custom_sentences/`, because Home Assistant only loads custom sentences
-from the config directory — run the `tasktick.install_sentences` action
-(Developer Tools → Actions) and it reloads the agent for you. An LLM-backed
-agent does not need them: it is handed the intents as tools directly. Re-run
-the action after an integration update that changes the templates.
+The event goes to the calendar you chose under **Settings → Devices & services →
+TaskTick → Configure → Default calendar** when you name none, and a named
+calendar is matched against your real ones, so a read-only (CalDAV, subscribed)
+or misspelt one is reported rather than silently ignored. The same option is
+what the `tasktick.create_event` action falls back to, so one choice covers both.
+A configured calendar that was deleted, or that has since become a read-only
+subscription, is passed over for the calendar TaskTick marks default — a
+destination that cannot be written to is not a default.
+
+The **built-in** conversation agent needs the sentence templates in
+`custom_sentences/`, because Home Assistant only loads custom sentences from the
+config directory. They are installed for you at setup, and replaced whenever a
+release changes them — an update therefore gains its new sentences without a
+visit to the UI, and the conversation agent is reloaded only when the file
+actually changed. `tasktick.install_sentences` (Developer Tools → Actions) does
+the same thing on demand. An LLM-backed agent does not need them: it is handed
+the intents as tools directly. Your own templates belong in a *different* file in
+the same directory; a local edit to `tasktick.yaml` itself is kept as `.bak`
+before the packaged copy replaces it.
 
 Dates are understood the way Assist understands them — "tomorrow", "on Friday",
 "at 5pm" — and named lists are matched against your real TaskTick lists, so a

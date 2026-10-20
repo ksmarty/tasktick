@@ -1,10 +1,14 @@
 # TaskTick — Assist sentence templates (English)
 #
 # Home Assistant only loads custom sentences from `<config>/custom_sentences/`,
-# never from an integration package, so this file is copied into place by the
-# `tasktick.install_sentences` service (Settings → Devices & Services → TaskTick
-# → Configure, or Developer Tools → Actions). Reload Assist afterwards, or
-# restart Home Assistant.
+# never from an integration package, so this file is copied there by the
+# integration itself during setup — and again after an update that changes it.
+# `tasktick.install_sentences` (Settings → Devices & Services → TaskTick →
+# Configure, or Developer Tools → Actions) re-installs it on demand.
+#
+# This copy belongs to the integration: when the packaged sentences change it is
+# replaced, and the file it replaced is kept beside it as `tasktick.yaml.bak`. Put
+# your own templates in a separate file in this directory.
 #
 # `title`, `list`, `habit`, `calendar`, `day` and `time` are wildcards: the
 # spoken text is passed through untouched and matched against the real lists,
@@ -114,3 +118,14 @@ intents:
           - "schedule {title} [on] {day} at {time} for {minutes} minutes"
           - "schedule {title} [on] {day} at {time}"
           - "schedule {title} at {time}"
+      # No {time}: an event with no spoken time is all day, which is what a
+      # birthday, a trip or a bin collection is. Leaving these out would make
+      # Assist answer "I did not understand the time ." to a sentence it read
+      # perfectly well.
+      - sentences:
+          - "add [a] [new] event {title} to [my] [calendar] {calendar} [on] {day}"
+          - "add [a] [new] event {title} [on] {day} [all day]"
+          - "create [a] [new] event {title} [on] {day}"
+          - "add [a] [new] all day event {title} [on] {day}"
+          - "add {title} to [my] calendar [on] {day}"
+          - "schedule {title} [on] {day}"

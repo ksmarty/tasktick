@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date, time
 
 from custom_components.tasktick.util import (
+    default_calendar_id,
     find_similar,
     normalize_word,
     parse_day_text,
@@ -124,3 +125,34 @@ class TestNormalisation:
     def test_title_key_strips_punctuation(self) -> None:
         assert title_key("Buy milk!") == "buy milk"
         assert title_key("Buy-milk") == "buy milk"
+
+
+class TestDefaultCalendar:
+    """The configured default, read against the calendars the server reports."""
+
+    CALENDARS = [
+        {"id": "c1", "name": "Personal", "readOnly": False, "isDefault": True},
+        {"id": "c2", "name": "Holidays", "readOnly": True, "isDefault": False},
+        {"id": "c3", "name": "Work", "readOnly": False, "isDefault": False},
+    ]
+
+    def test_the_option_wins_over_the_servers_default(self) -> None:
+        assert default_calendar_id(self.CALENDARS, "c3") == "c3"
+
+    def test_no_option_keeps_the_servers_default(self) -> None:
+        assert default_calendar_id(self.CALENDARS, None) == "c1"
+
+    def test_no_marker_at_all_falls_back_to_the_first_writable(self) -> None:
+        assert default_calendar_id([self.CALENDARS[1], self.CALENDARS[2]], None) == "c3"
+
+    def test_a_read_only_option_is_not_a_destination(self) -> None:
+        assert default_calendar_id(self.CALENDARS, "c2") == "c1"
+
+    def test_an_unknown_option_is_not_a_destination(self) -> None:
+        assert default_calendar_id(self.CALENDARS, "gone") == "c1"
+
+    def test_a_read_only_server_default_is_passed_over(self) -> None:
+        assert default_calendar_id([self.CALENDARS[1]], "c2") is None
+
+    def test_no_calendars_at_all_is_not_an_error(self) -> None:
+        assert default_calendar_id([], "c3") is None

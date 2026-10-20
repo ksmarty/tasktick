@@ -45,10 +45,12 @@
         "title": "TaskTick options",
         "data": {
           "scan_interval": "Poll interval",
-          "verify_ssl": "Verify the TLS certificate"
+          "verify_ssl": "Verify the TLS certificate",
+          "default_calendar": "Default calendar"
         },
         "data_description": {
-          "scan_interval": "How often to fetch tasks, habits and calendars. The server expands recurrence and pushes reminders itself, so this can be relaxed."
+          "scan_interval": "How often to fetch tasks, habits and calendars. The server expands recurrence and pushes reminders itself, so this can be relaxed.",
+          "default_calendar": "Where a new event goes when no calendar is named — in the `create_event` action and in the spoken sentences. Read-only calendars are skipped, and an unchanged value falls back to the calendar TaskTick marks default."
         }
       }
     }

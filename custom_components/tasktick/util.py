@@ -225,3 +225,28 @@ def local_now() -> datetime:
     from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
     return dt_util.now().replace(tzinfo=None)
+
+
+def default_calendar_id(
+    calendars: Iterable[Mapping[str, Any]], configured: str | None = None
+) -> str | None:
+    """The calendar an event goes to when the user named none.
+
+    The order is the order a person can express the choice in: the calendar
+    chosen in the integration's options, then the one TaskTick itself marks
+    default, then the first calendar that will take a write.
+
+    Read-only calendars are skipped at every step rather than only reported:
+    a configured calendar that was later deleted, or turned into a subscribed
+    feed, would otherwise fail at the server with a message about nothing the
+    user can see.
+    """
+    writable = [calendar for calendar in calendars if not calendar.get("readOnly")]
+    if configured:
+        for calendar in writable:
+            if calendar.get("id") == configured:
+                return configured
+    for calendar in writable:
+        if calendar.get("isDefault"):
+            return str(calendar["id"])
+    return str(writable[0]["id"]) if writable else None

@@ -28,6 +28,10 @@ TXT_HOST = "host"
 CONF_URL = "url"
 CONF_TOKEN = "token"
 CONF_VERIFY_SSL = "verify_ssl"
+#: The calendar an event goes to when the user names none. An option rather than
+#: entry data: it is a preference about how the integration behaves, changeable
+#: without re-authorising, and Home Assistant's options flow is exactly that.
+CONF_DEFAULT_CALENDAR = "default_calendar"
 
 DEFAULT_GRAPHQL_PATH = "/api/graphql"
 

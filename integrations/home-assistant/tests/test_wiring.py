@@ -96,6 +96,41 @@ class TestSentenceTemplates:
                 assert group.get("sentences"), f"{name} has an empty sentence list"
 
 
+class TestCreateEventReachesBothShapes:
+    @pytest.fixture(scope="class")
+    @staticmethod
+    def sentences() -> list[str]:
+        parsed = yaml.safe_load(_read(SENTENCES))
+        groups = parsed["intents"]["TaskTickCreateEvent"]["data"]
+        return [sentence for group in groups for sentence in group["sentences"]]
+
+    def test_a_sentence_omits_the_time(self, sentences: list[str]) -> None:
+        # Without one, the all-day path is unreachable by voice however good the
+        # handler is.
+        without = [s for s in sentences if "{time}" not in s]
+        assert without, f"every create-event sentence names a time: {sentences}"
+
+    def test_a_sentence_names_the_time(self, sentences: list[str]) -> None:
+        assert any("{time}" in s for s in sentences), sentences
+
+
+class TestSetupInstallsSentences:
+    def test_setup_installs_the_sentence_templates(self) -> None:
+        # Home Assistant never loads them from the package, so a setup that does
+        # not copy them leaves every TaskTick sentence unreachable after an
+        # update — the exact complaint this pins shut. A HACS update is a
+        # restart, and a restart is this call.
+        source = _read(PACKAGE / "__init__.py")
+        assert "await _async_install_sentences(hass)" in source
+
+    def test_a_failed_install_does_not_fail_setup(self) -> None:
+        # A read-only config directory must cost a warning, not the instance.
+        source = _read(PACKAGE / "__init__.py")
+        block = source.split("async def _async_install_sentences", 1)[1]
+        assert "except Exception" in block
+        assert "_LOGGER.warning" in block
+
+
 class TestIntentTypes:
     def test_the_declared_list_matches_the_registered_handlers(self) -> None:
         # The failure this prevents: a handler nothing can call, or a declared

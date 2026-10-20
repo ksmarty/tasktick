@@ -34,6 +34,9 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -48,6 +51,7 @@ from .api import (
     origin_of,
 )
 from .const import (
+    CONF_DEFAULT_CALENDAR,
     CONF_TOKEN,
     CONF_VERIFY_SSL,
     DEFAULT_SCAN_INTERVAL,
@@ -239,11 +243,13 @@ class TaskTickConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class TaskTickOptionsFlow(OptionsFlow):
-    """Scan interval, and whether to keep verifying TLS.
+    """Scan interval, TLS verification, and the calendar events land in.
 
-    Both are things that legitimately change after setup: a busy instance may
-    want a longer interval, and a self-signed certificate on the LAN is common
-    enough that turning verification off should not require deleting the entry.
+    All three are things that legitimately change after setup: a busy instance may
+    want a longer interval, a self-signed certificate on the LAN is common enough
+    that turning verification off should not require deleting the entry, and the
+    calendar an event goes to depends on how the user actually works — a household
+    with a "Family" and a "Work" feed does not want to say which one every time.
     """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -272,6 +278,51 @@ class TaskTickOptionsFlow(OptionsFlow):
                             CONF_VERIFY_SSL, self.config_entry.data.get(CONF_VERIFY_SSL, True)
                         ),
                     ): BooleanSelector(),
+                    vol.Optional(
+                        CONF_DEFAULT_CALENDAR, default=self._configured_calendar()
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=self._calendar_options(),
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
                 }
             ),
         )
+
+    def _configured_calendar(self) -> str:
+        return str(self.config_entry.options.get(CONF_DEFAULT_CALENDAR) or "")
+
+    def _calendar_options(self) -> list[dict[str, str]]:
+        """Writable calendars, plus the configured one even if it has gone.
+
+        The empty value is a real choice, not a placeholder: it means "whatever
+        TaskTick marks default", which is what an instance that had no
+        preference until now has been doing all along.
+
+        A calendar the user picked and later deleted, or turned into a read-only
+        subscription, is kept in the list and labelled: it is still what the
+        option holds, and dropping it from the form would silently rewrite the
+        choice to "default" on the next save.
+        """
+        options: list[dict[str, str]] = [
+            {"value": "", "label": "TaskTick's own default calendar"}
+        ]
+        for calendar in self._writable_calendars():
+            options.append(
+                {
+                    "value": str(calendar["id"]),
+                    "label": str(calendar.get("name") or calendar["id"]),
+                }
+            )
+        configured = self._configured_calendar()
+        if configured and all(option["value"] != configured for option in options):
+            options.append({"value": configured, "label": f"{configured} (not writable now)"})
+        return options
+
+    def _writable_calendars(self) -> list[dict[str, Any]]:
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        data = getattr(coordinator, "data", None)
+        if data is None:
+            return []
+        return [calendar for calendar in data.calendars if not calendar.get("readOnly")]
