@@ -362,20 +362,22 @@ export function DayAgenda({
                    * line. It uses the same `anchorPx` the gutter label does, so
                    * the two cannot disagree.
                    *
-                   * The circle on the line. A timed item is a filled disc in
-                   * the item's own colour; an all-day item is a hollow ring of
-                   * the same colour, because it has no moment to point at. The
-                   * colour is `hex` — the value `itemHex` already resolved for
-                   * the row — so dot, stripe and range always agree.
+                   * The circle on the line: one filled disc in the item's own
+                   * colour, for a timed item and an all-day one alike. The
+                   * all-day row used to draw a hollow ring, reasoning that it
+                   * has no moment to point at — but all-day items sort first, so
+                   * the first row of a day was the one row with an empty circle,
+                   * and it read as "not drawn" next to the filled dots below it.
+                   * The colour is `hex` — the value `itemHex` already resolved
+                   * for the row — so dot, stripe and range always agree.
                    */}
                   <span
                     className={cn(
                       'absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full',
                       TIMELINE_ANCHOR_TRANSFORM,
-                      item.isAllDay && 'border-2 bg-background',
                     )}
                     style={{
-                      ...(item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }),
+                      backgroundColor: hex,
                       top: `${anchorPx}px`,
                     }}
                   />

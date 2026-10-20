@@ -58,7 +58,7 @@ import { useAppearance } from '@/app/providers';
 import { EventEditorSheet, type EventDefaults } from '@/components/calendar/EventEditorSheet';
 import type { CalendarLookup } from '@/components/calendar/types';
 import { accentHex } from '@/lib/colors';
-import { todayIn, addDaysToDateOnly, fromDateOnly, timeIn, toDateOnly } from '@/lib/dates';
+import { todayIn, addDaysToDateOnly, fromDateOnly, relativeDayLabel, timeIn, toDateOnly } from '@/lib/dates';
 import { usePrimaryAction } from '@/lib/events';
 import { api } from '@/lib/api-client';
 import { affectsFor } from '@/lib/offline-rules';
@@ -106,6 +106,11 @@ import { buildListSections, visibleTasks, type TaskSection } from './sections';
 import { taskAccentLookup } from './row-colors';
 import { useTaskActions } from './useTaskActions';
 
+/** `GET /api/search/events` — the calendar's row shape, filtered by summary. */
+interface EventSearchPayload {
+  items: CalendarItem[];
+}
+
 /** Debounce for the search field, so typing does not fire a request per key. */
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -120,10 +125,25 @@ const SEARCH_DEBOUNCE_MS = 250;
  */
 const EVENT_HORIZON_DAYS = 365;
 
+/** Shortest query that is worth a request, matching the server's own rule. */
+const SEARCH_MIN_LENGTH = 2;
+
+/** How many matching events are listed; the rest would bury the tasks. */
+const SEARCH_EVENT_LIMIT = 20;
+
 /** Minutes since midnight for an `HH:mm` wall-clock time. */
 function minuteOfTime(time: string): number {
   const [hours, minutes] = time.split(':').map(Number);
   return (hours || 0) * 60 + (minutes || 0);
+}
+
+/**
+ * The one-line when for a matching event: `Tue 09:30` for a timed one, the day
+ * alone for an all-day one, which has no moment to name.
+ */
+function eventSearchDate(event: CalendarItem, zone: string): string {
+  const day = relativeDayLabel(toDateOnly(event.startMs, zone), zone);
+  return event.isAllDay ? day : `${day} ${timeIn(event.startMs, zone)}`;
 }
 
 /** Prefill for the event editor when an event row's Edit is tapped here. */
@@ -384,6 +404,27 @@ export function TasksView() {
     enabled: bootstrapReady,
   });
 
+  /*
+   * The other half of the search field: past events.
+   *
+   * The list below is built from `/api/tasks`, so a query used to narrow the
+   * tasks and leave the calendar behind entirely. This is the calendar's own
+   * search — event rows by summary, across all of time, handed back as
+   * `CalendarItem`s so a hit opens the same detail sheet a calendar tap does.
+   * A window read would have been easier and wrong: `/api/calendar/items`
+   * refuses more than 400 days, and "previous events" means the ones from years
+   * ago. Only while a query is long enough to mean something, which is the rule
+   * the server applies too.
+   */
+  const searchQ = state.q.trim();
+  const searchedEvents = useResource<EventSearchPayload>(
+    '/api/search/events',
+    { q: searchQ },
+    { enabled: bootstrapReady && searchQ.length >= SEARCH_MIN_LENGTH },
+  );
+  const eventMatches =
+    searchQ.length >= SEARCH_MIN_LENGTH ? (searchedEvents.data?.items ?? []).slice(0, SEARCH_EVENT_LIMIT) : [];
+
   const { toast } = useToast();
 
   /*
@@ -621,7 +662,7 @@ export function TasksView() {
   }
 
   const loading = resource.data === undefined && !resource.error;
-  const showEmpty = !loading && !resource.error && sections.length === 0;
+  const showEmpty = !loading && !resource.error && sections.length === 0 && eventMatches.length === 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -839,6 +880,39 @@ export function TasksView() {
           </AnimatePresence>
         </div>
       )}
+
+      {/*
+       * What the tasks could not answer. A matching event is rendered as its own
+       * row rather than folded into a day section: the sections are a task
+       * grouping (Today, Later, by list), and an event from three years ago has
+       * no place in that taxonomy. The row opens the same detail sheet a
+       * calendar tap does, so nothing about it is a dead end.
+       */}
+      {eventMatches.length ? (
+        <div className="flex flex-col gap-1 px-gutter pt-3 pb-2" aria-label="Matching calendar events">
+          <h2 className="px-1 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Events
+          </h2>
+          {eventMatches.map((event) => (
+            <button
+              key={event.key}
+              type="button"
+              onClick={() => openEventDetail(event)}
+              className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2 text-left transition-colors hover:bg-accent"
+            >
+              <span
+                aria-hidden
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: accentHex(event.color) }}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm">{event.title}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {eventSearchDate(event, zone)}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       </div>
 
       <CompletionUndo

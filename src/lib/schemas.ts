@@ -5,6 +5,7 @@
  * always a payload the server accepts. Zod 4.
  */
 import { z } from 'zod';
+import { parseCron } from './cron';
 import { ACCENT_COLORS, ACCENT_PREFERENCE } from './types';
 
 /** Derived from the single source of truth in `./types`, so it cannot drift. */
@@ -68,6 +69,19 @@ export const reminderInput = z.object({
   absoluteAtMs: z.number().int().nonnegative().nullable().optional(),
 });
 
+/**
+ * A cron expression, validated by the same reader the advanced control uses, so
+ * the sentence the user saw while typing is the sentence the API refuses with.
+ */
+const cronExpression = z
+  .string()
+  .min(1)
+  .max(120)
+  .superRefine((value, ctx) => {
+    const parsed = parseCron(value);
+    if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.error });
+  });
+
 export const createTaskSchema = z
   .object({
     title: z.string().min(1, 'A title is required').max(2000),
@@ -89,6 +103,8 @@ export const createTaskSchema = z
 
     recurrenceRule: z.string().max(500).nullable().optional(),
     recurrenceMode: recurrenceMode.optional(),
+    /** Sets the repeat and the due time; see `@/server/services/cron-input`. */
+    cron: cronExpression.optional(),
     estimateMinutes: z.number().int().min(0).max(100_000).nullable().optional(),
 
     tagIds: z.array(z.string()).max(50).optional(),
@@ -123,6 +139,8 @@ export const updateTaskSchema = z
     recurrenceRule: z.string().max(500).nullable().optional(),
     recurrenceMode: recurrenceMode.optional(),
     clearRecurrence: z.boolean().optional(),
+    /** Sets the repeat and the due time; see `@/server/services/cron-input`. */
+    cron: cronExpression.optional(),
     estimateMinutes: z.number().int().min(0).max(100_000).nullable().optional(),
 
     tagIds: z.array(z.string()).max(50).optional(),

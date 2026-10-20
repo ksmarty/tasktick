@@ -101,6 +101,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { calendarColorHex } from '@/components/calendar/colors';
+import { selectableCalendars } from '@/components/calendar/selectable';
 import { dueLabel } from './TaskMeta';
 import { priorityColor, priorityLabel } from './priority';
 import {
@@ -338,9 +339,10 @@ interface QuickAddState {
   offlineNotice: string;
   busy: boolean;
   /**
-   * The calendars a task may be filed into — writable ones only, because a
-   * read-only collection accepts a local row and never writes it back. Empty
-   * when there are none, which hides the picker entirely.
+   * The calendars a task may be filed into — writable and visible ones only: a
+   * read-only collection accepts a local row and never writes it back, and a
+   * hidden calendar draws nothing, so a task filed there would look discarded.
+   * Empty when there are none, which hides the picker entirely.
    */
   calendars: CalendarRecord[];
   /** The chosen calendar id, or `''` for no calendar. */
@@ -377,7 +379,7 @@ function useQuickAdd(
   const [calendarId, setCalendarId] = useState('');
 
   const writableCalendars = useMemo(
-    () => (bootstrap?.calendars ?? []).filter((calendar) => !calendar.readOnly),
+    () => selectableCalendars(bootstrap?.calendars ?? []),
     [bootstrap],
   );
 

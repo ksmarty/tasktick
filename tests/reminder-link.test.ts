@@ -136,11 +136,19 @@ describe('following a reminder link', () => {
 
     // The link names a user that already exists; there is no sign-up in this path.
     const context = await getAuth().$context;
-    const created = await context.internalAdapter.createUser({
-      email: USER_EMAIL,
-      name: 'Reminder User',
-      emailVerified: true,
-    });
+    /*
+     * `createUser` takes the provisioning source as a second argument — the
+     * seam that lets `validateUserInfo` see where a user came from. A test user
+     * made directly is a password-provisioned one.
+     */
+    const created = await context.internalAdapter.createUser(
+      {
+        email: USER_EMAIL,
+        name: 'Reminder User',
+        emailVerified: true,
+      },
+      { method: 'email-password' },
+    );
     userId = String(created.id);
   });
 

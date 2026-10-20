@@ -5,6 +5,7 @@ import { notFound, ok, parseJson, route } from '@/server/http';
 import { deleteTask, getTask, updateTask } from '@/server/repos/tasks';
 import { getSettings } from '@/server/repos/settings';
 import { updateTaskSchema } from '@/lib/schemas';
+import { withCron } from '@/server/services/cron-input';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,7 @@ export const PATCH = route(async ({ user, params, req }) => {
   const settings = await getSettings(user.id);
 
   try {
-    const task = await updateTask(user.id, params.id, body, settings.timezone || user.timezone);
+    const task = await updateTask(user.id, params.id, withCron(body), settings.timezone || user.timezone);
     return ok(task);
   } catch (error) {
     if (error instanceof Error && error.message === 'not-found') throw notFound('That task does not exist.');

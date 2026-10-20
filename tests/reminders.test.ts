@@ -508,7 +508,9 @@ describe('delivery through Home Assistant', () => {
 
     await runReminderSweep(NOON, { deliver: recorder().deliver, pushToHomeAssistant: ha.push });
 
-    const { url, data } = ha.posted[0].payload;
+    const payload = ha.posted[0]!.payload;
+    const url = payload.url ?? '';
+    const data = payload.data!;
     expect(url.startsWith(`${REMINDER_LINK_PATH}?`)).toBe(true);
 
     // The link still says where it opens, and the token names the account the
@@ -551,8 +553,9 @@ describe('delivery through Home Assistant', () => {
     // The fallback is the app's own push, opened inside an app that is already
     // signed in, so it keeps the plain path: no credential goes to the push
     // service for a tap that never leaves the app.
-    expect(rec.sent[0].url.startsWith(REMINDER_LINK_PATH)).toBe(false);
-    expect(rec.sent[0].url).toMatch(/^\/habits\?habit=/);
+    const sent = rec.sent[0]!;
+    expect(sent.url?.startsWith(REMINDER_LINK_PATH) ?? false).toBe(false);
+    expect(sent.url).toMatch(/^\/habits\?habit=/);
   });
 
   it('keeps to the app’s own push once the registration has gone stale', async () => {

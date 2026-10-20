@@ -6,7 +6,7 @@
  */
 import { ok, route, searchParam } from '@/server/http';
 import { queryTasks } from '@/server/repos/tasks';
-import { eventsInRange } from '@/server/repos/calendars';
+import { searchCalendarEvents } from '@/server/repos/calendars';
 import { listHabits } from '@/server/repos/habits';
 import { getSettings } from '@/server/repos/settings';
 
@@ -23,13 +23,18 @@ export const GET = route(async ({ user, req }) => {
 
   const [tasks, events, habits] = await Promise.all([
     queryTasks({ userId: user.id, zone, filter: { text: query, includeCompleted: true }, sort: 'updated', limit: 40 }),
-    eventsInRange(user.id, Date.now() - 1000 * 60 * 60 * 24 * 365 * 2, Date.now() + 1000 * 60 * 60 * 24 * 365 * 2, zone),
+    /*
+     * Across all of time, not a two-year window: an event from 2019 is exactly
+     * the kind of thing a search is for, and the range read would have missed
+     * it. The repo does the matching, so the second filter below is gone.
+     */
+    searchCalendarEvents(user.id, needle, 20),
     listHabits({ userId: user.id, zone, weekStartsOn: settings.weekStartsOn, includeArchived: true }),
   ]);
 
   return ok({
     tasks,
-    events: events.filter((e) => e.summary.toLowerCase().includes(needle)).slice(0, 20),
+    events: events.slice(0, 20),
     habits: habits.filter((h) => h.name.toLowerCase().includes(needle)).slice(0, 20),
   });
 });

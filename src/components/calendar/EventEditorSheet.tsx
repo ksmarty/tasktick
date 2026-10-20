@@ -1041,7 +1041,16 @@ function DateField({
             <span className="truncate">{toDateTime(value, zone).toFormat('ccc LLL d yyyy')}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-auto p-0">
+        {/*
+         * The picker has to clear the sheet's own chrome. `PopoverContent` and
+         * `SheetContent` are both `z-50` and both portalled to the body, so a
+         * tie was settled by mount order — which put the sheet's sticky header
+         * over the picker's top row of days whenever the field sat near it.
+         * One step above the sheet, and `collisionPadding` so a picker that has
+         * to flip upward stops short of the viewport edge instead of hanging
+         * off it. The same three props are on every other date picker.
+         */}
+        <PopoverContent align="start" sideOffset={6} collisionPadding={8} className="z-[60] w-auto p-0">
           <Calendar
             mode="single"
             autoFocus

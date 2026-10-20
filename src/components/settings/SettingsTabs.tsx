@@ -76,47 +76,33 @@
  * The routes are warmed on mount, exactly as before: the shell only prefetches
  * the four tab roots, so without this every section is a cold server render.
  */
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useResource } from '@/lib/store';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { cn } from '@/lib/utils';
 import { SettingsScroll } from './SettingsScroll';
+import { searchSettings } from './filter';
+import { SECTION_GROUPS, TAB_HREF, sectionForPath, type SettingsTab } from './sections';
 
-export type SettingsTab =
-  | 'account'
-  | 'appearance'
-  | 'date-time'
-  | 'notifications'
-  | 'calendars'
-  | 'integrations'
-  | 'focus'
-  | 'api'
-  | 'data'
-  | 'admin';
+/* The shell's public type still lives here for the barrel, but its definition is
+ * now data-shaped and testable in `sections.ts` — see that file's header. */
+export type { SettingsTab };
 
-/** The route each section points at. */
-const TAB_HREF: Record<SettingsTab, string> = {
-  account: '/settings',
-  appearance: '/settings/appearance',
-  'date-time': '/settings/date-time',
-  notifications: '/settings/notifications',
-  calendars: '/settings/calendars',
-  integrations: '/settings/integrations',
-  focus: '/settings/focus',
-  api: '/settings/api',
-  data: '/settings/data-export',
-  admin: '/settings/admin',
-};
-
-/** One section in a {@link SettingsNavGroup}. */
 export interface SettingsNavSection {
   value: string;
   label: string;
   /** Hidden from accounts that are not administrators. */
   adminOnly?: boolean;
+  /**
+   * Words the settings search matches but the navigation never shows — the
+   * vocabulary someone uses when they do not know the section's name
+   * ("push" for Notifications, "backup" for Data).
+   */
+  keywords?: string[];
 }
 
 /** One primary group of sections. */
@@ -178,6 +164,22 @@ export function SettingsNav({
   );
 
   /*
+   * The search over the sections themselves.
+   *
+   * Two rows of pills is a good browse and a poor search: on a phone, finding
+   * "quiet hours" meant guessing that it lives under Notifications inside
+   * Scheduling. Typing narrows the *navigation* instead of the panel, so a hit is
+   * one tap whatever group it was in — and the group is printed on the hit, which
+   * quietly teaches where things live. See `filter.ts` for the ranking.
+   */
+  const [query, setQuery] = useState('');
+  const searching = query.trim().length > 0;
+  const matches = useMemo(
+    () => searchSettings(visibleGroups, href, query, isAdmin),
+    [visibleGroups, href, query, isAdmin],
+  );
+
+  /*
    * Which primary tab is current. Looked up in the *unfiltered* groups so that
    * `/settings/admin` still reads as Advanced for a non-administrator even
    * though the Admin sub-tab is hidden from them.
@@ -220,6 +222,53 @@ export function SettingsNav({
         data-settings-nav
         className="flex shrink-0 flex-col gap-1.5 bg-background px-gutter pt-3 pb-2"
       >
+        {/*
+         * Always visible, above both rows. A search that lives behind an icon is
+         * a search nobody finds; this is the second thing on the screen, and it
+         * is the escape hatch from the grouping rather than a replacement for it
+         * — clearing it puts the two rows straight back.
+         */}
+        <Input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Find a setting"
+          aria-label="Find a setting"
+          autoComplete="off"
+          className="h-9"
+        />
+
+        {searching ? (
+          /* The navigation *becomes* the result list: each hit is a section, and
+           * the group it belongs to is printed beside it. */
+          <nav aria-label={subLabel} className="flex flex-col">
+            {matches.length ? (
+              <ul className="flex flex-col">
+                {matches.map((match) => (
+                  <li key={match.value}>
+                    <Link
+                      href={match.href}
+                      onClick={() => setQuery('')}
+                      aria-current={match.value === active ? 'page' : undefined}
+                      className={cn(
+                        'flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted',
+                        match.value === active ? 'bg-muted font-medium' : 'text-muted-foreground',
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{match.label}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{match.group}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-2 py-2 text-sm text-muted-foreground">
+                No setting matches “{query.trim()}”.
+              </p>
+            )}
+          </nav>
+        ) : (
+          <>
         {/*
          * Three links, not tabs: each changes the group and navigates to a real
          * route, so it is navigation. `aria-current="page"` marks the group the
@@ -285,6 +334,8 @@ href={(current ? href[active] : first && href[first.value]) ?? fallbackHref}
             </TabsTrigger>
           ))}
         </TabsList>
+          </>
+        )}
       </div>
 
       {/* The panel is the one scroller; `min-h-0` lets it shrink and scroll. */}
@@ -293,58 +344,6 @@ href={(current ? href[active] : first && href[first.value]) ?? fallbackHref}
       </TabsContent>
     </Tabs>
   );
-}
-
-/**
- * The sections, grouped, in the order the primary and sub rows show them.
- *
- * The split is by subject: everything about you and how the app is set up
- * personally, then everything that connects the app to calendars and
- * notifications elsewhere, then the settings that change how the app behaves or
- * hand you your data. At most four sections per group is also what keeps both
- * rows one clean line at 390px.
- */
-const SECTION_GROUPS: SettingsNavGroup[] = [
-  {
-    label: 'Personal',
-    sections: [
-      { value: 'account', label: 'Account' },
-      { value: 'appearance', label: 'Appearance' },
-      { value: 'date-time', label: 'Date & time' },
-    ],
-  },
-  {
-    label: 'Scheduling',
-    sections: [
-      { value: 'calendars', label: 'Calendars' },
-      { value: 'integrations', label: 'Integrations' },
-      { value: 'notifications', label: 'Notifications' },
-    ],
-  },
-  {
-    label: 'Advanced',
-    sections: [
-      { value: 'focus', label: 'Focus' },
-      { value: 'data', label: 'Data' },
-      { value: 'api', label: 'API' },
-      { value: 'admin', label: 'Admin', adminOnly: true },
-    ],
-  },
-];
-
-/**
- * The section a pathname represents, or `null` when it is not a section.
- *
- * `usePathname` strips the query string and gives the canonical route, so the
- * reverse of `TAB_HREF` is all that is needed. The legacy `/settings/advanced`
- * alias has no entry in the map — it renders the Focus controls — so it is
- * mapped to Focus explicitly, which also canonicalises on click.
- */
-function sectionForPath(pathname: string): SettingsTab | null {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
-  if (path === '/settings/advanced') return 'focus';
-  const entry = (Object.entries(TAB_HREF) as [SettingsTab, string][]).find(([, href]) => href === path);
-  return entry ? entry[0] : null;
 }
 
 export interface SettingsTabsProps {

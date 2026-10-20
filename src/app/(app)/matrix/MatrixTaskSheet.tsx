@@ -275,7 +275,7 @@ export function MatrixTaskSheet({ task, onOpenChange, zone, onChanged }: MatrixT
                       </span>
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-0">
+                  <PopoverContent align="start" sideOffset={6} collisionPadding={8} className="z-[60] w-auto p-0">
                     <Calendar
                       mode="single"
                       selected={dueDate ? dateToCalendarDate(dueDate, zone) : undefined}

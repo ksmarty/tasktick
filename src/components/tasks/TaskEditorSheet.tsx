@@ -745,7 +745,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                       <span className="truncate">{dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}</span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-0">
+                  <PopoverContent align="start" sideOffset={6} collisionPadding={8} className="z-[60] w-auto p-0">
                     {/*
                      * The quick picks, above the calendar: the three days that
                      * account for nearly every date a task gets. They write
@@ -1073,7 +1073,15 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
         onOpenChange={(next) => setPicker(next ? 'repeat' : null)}
         value={recurrenceRule}
         dueDay={repeatAnchorDay}
+        cron={draft.cron}
         onChange={(rule) => edit({ recurrenceRule: rule, clearRecurrence: rule === null })}
+        /*
+         * The expression goes to the server as typed; it reads it into the rule,
+         * the due time and a reminder at it, so the stored task cannot differ from
+         * what the field previewed. An emptied box drops the field rather than
+         * sending an empty string, which the schema would refuse.
+         */
+        onCronChange={(cron) => edit({ cron: cron || undefined })}
       />
       <ReminderPicker
         open={picker === 'reminder'}

@@ -573,6 +573,54 @@ export async function eventsInRange(
   return rows.map(rowToEvent);
 }
 
+/**
+ * Events whose summary contains `needle`, newest first, across all of time.
+ *
+ * Every event the user still has, not a window of them: this is what the search
+ * fields read, and "search previous calendar events" means the ones from years
+ * ago as much as last week's. The range read above cannot answer it — it takes a
+ * start and an end, and the route in front of it refuses more than 400 days — so
+ * search goes to the rows instead of through recurrence expansion.
+ *
+ * A recurring series appears once, at the start of its first occurrence: the
+ * hit answers "do I have this event", and opening it shows the series. Hidden
+ * calendars are included, because a search that silently skipped one would look
+ * like a missing event rather than a filter; the caller decides what to show.
+ * Cancelled events are not, because they are not on anyone's calendar.
+ */
+export async function searchCalendarEvents(
+  userId: string,
+  needle: string,
+  limit = 20,
+): Promise<CalendarEvent[]> {
+  const trimmed = needle.trim().toLowerCase();
+  if (!trimmed) return [];
+
+  const db = getDb();
+  /*
+   * `%` and `_` are wildcards in a LIKE, so a user typing them would match
+   * everything. Escaping them is what makes the query mean "this text".
+   */
+  const escaped = trimmed.replace(/[\\%_]/g, (character) => `\\${character}`);
+  const rows = await db
+    .select()
+    .from(calendarEvents)
+    .where(
+      and(
+        eq(calendarEvents.userId, userId),
+        isNull(calendarEvents.deletedAtMs),
+        sql`lower(${calendarEvents.summary}) like ${`%${escaped}%`} escape '\\'`,
+        or(eq(calendarEvents.status, 'confirmed'), eq(calendarEvents.status, 'tentative')),
+      ),
+    )
+    // Timed events sort by their instant; all-day ones carry a date instead, so
+    // they are ordered by the same column with the nulls last.
+    .orderBy(sql`coalesce(${calendarEvents.startMs}, 0) desc`)
+    .limit(Math.min(Math.max(limit, 1), 100));
+
+  return rows.map(rowToEvent);
+}
+
 /** Counts for the calendar sidebar. */
 export async function calendarEventCounts(userId: string, fromMs: Millis, toMs: Millis): Promise<Record<string, number>> {
   const db = getDb();

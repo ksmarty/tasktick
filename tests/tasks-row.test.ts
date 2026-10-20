@@ -435,7 +435,13 @@ describe('QuickAddBar — the tint is the completion hue, and a menu leaves the 
      * network round trip, which is what the skeleton was really waiting for.
      */
     expect(VIEW).toContain('const bootstrapReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);');
-    expect(VIEW.match(/enabled: bootstrapReady/g)).toHaveLength(2);
+    /*
+     * Three gated reads now: the list, the calendar items, and the event search
+     * that the task field also covers. All of them are store hits on a warm cache
+     * and all of them stay silent until the bootstrap resolves, so the field never
+     * flickers between "no results" and results.
+     */
+    expect(VIEW.match(/enabled: bootstrapReady/g)).toHaveLength(3);
   });
 });
 

@@ -16,14 +16,20 @@ function read(relativeToSrc: string): string {
 }
 
 const TABS = read('components/settings/SettingsTabs.tsx');
+/*
+ * The section table lives in its own module so it can be exercised by
+ * `settings-search.test.ts` — this repo has no jsdom, so anything defined inside
+ * the client shell is only testable as source text.
+ */
+const SECTIONS = read('components/settings/sections.ts');
 const LAYOUT = read('app/(app)/settings/layout.tsx');
 const SCROLL = read('components/settings/SettingsScroll.tsx');
 
 describe('the settings primary navigation', () => {
   it('is three groups of links, not a second tablist', () => {
-    expect(TABS).toContain("label: 'Personal'");
-    expect(TABS).toContain("label: 'Scheduling'");
-    expect(TABS).toContain("label: 'Advanced'");
+    expect(SECTIONS).toContain("label: 'Personal'");
+    expect(SECTIONS).toContain("label: 'Scheduling'");
+    expect(SECTIONS).toContain("label: 'Advanced'");
     expect(TABS).toContain('data-settings-primary');
     // The accessible names are props of the shared shell.
     expect(TABS).toContain('primaryLabel="Settings groups"');
@@ -42,7 +48,7 @@ describe('the settings primary navigation', () => {
   });
 
   it('filters Admin for non-administrators and drops an emptied group', () => {
-    expect(TABS).toContain('adminOnly: true');
+    expect(SECTIONS).toContain('adminOnly: true');
     expect(TABS).toContain('!section.adminOnly || isAdmin');
     expect(TABS).toContain('.filter((group) => group.sections.length > 0)');
   });
@@ -61,8 +67,18 @@ describe('the settings shell', () => {
   });
 
   it('resolves deep links, including the legacy advanced alias', () => {
-    expect(TABS).toContain("if (path === '/settings/advanced') return 'focus';");
-    expect(TABS).toContain('href === path');
+    expect(SECTIONS).toContain("if (path === '/settings/advanced') return 'focus';");
+    expect(SECTIONS).toContain('href === path');
+    // The shell must use that resolver rather than keeping a second copy of it.
+    expect(TABS).toContain('sectionForPath(pathname)');
+  });
+
+  it('finds a setting by name, not only by its group', () => {
+    // The search is over the sections themselves; it lives in `filter.ts` and is
+    // exercised properly in `settings-search.test.ts`. Here the point is that the
+    // navigation actually renders it.
+    expect(TABS).toContain('searchSettings(visibleGroups, href, query, isAdmin)');
+    expect(TABS).toContain('aria-label="Find a setting"');
   });
 
   it('is one shared shell, not a second pattern', () => {

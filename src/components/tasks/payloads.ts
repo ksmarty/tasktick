@@ -22,6 +22,12 @@ export interface CreateTaskPayload {
   estimateMinutes?: number | null;
   recurrenceRule?: string | null;
   recurrenceMode?: 'due' | 'completion';
+  /**
+   * A five-field cron expression, sent as typed. The server reads it into the
+   * repeat rule and the due time, so what it stores cannot drift from what the
+   * control previewed.
+   */
+  cron?: string;
   /** Server creates any tag that does not exist yet. */
   tagNames?: string[];
   tagIds?: string[];
@@ -48,6 +54,8 @@ export interface TaskPatch {
   clearDue?: boolean;
   recurrenceRule?: string | null;
   clearRecurrence?: boolean;
+  /** See `CreateTaskPayload.cron`; the server derives the rule and the due time. */
+  cron?: string;
   recurrenceMode?: 'due' | 'completion';
   estimateMinutes?: number | null;
   tagIds?: string[];

@@ -72,7 +72,11 @@ describe('the gutter timeline', () => {
     expect(AGENDA).toContain('const ALLDAY_ANCHOR_PX = ROW_PAD_TOP_PX + TITLE_LINE_PX / 2;');
     expect(AGENDA).toContain("const TIMELINE_ANCHOR_TRANSFORM = '-translate-y-1/2';");
     expect(AGENDA).toContain('absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full');
-    expect(AGENDA).toContain('item.isAllDay ? { borderColor: hex } : { backgroundColor: hex }');
+    // One style for every item: the colour *is* the fill. All-day entries used to
+    // be a hollow ring here, which made the first row of every day the odd one out.
+    expect(AGENDA).toContain('backgroundColor: hex,');
+    expect(AGENDA).toContain('top: `${anchorPx}px`');
+    expect(AGENDA).not.toContain('borderColor: hex');
     expect(AGENDA).toContain('top: `${anchorPx}px`');
   });
 
@@ -136,8 +140,12 @@ describe('the gutter timeline', () => {
     expect(AGENDA).not.toContain('items-center justify-end text-right');
   });
 
-  it('reads an all-day node as a hollow ring rather than a filled disc', () => {
-    expect(AGENDA).toContain("item.isAllDay && 'border-2 bg-background'");
+  it('fills every node, the first row of a day included', () => {
+    // All-day entries sort first, so an all-day-only style was a style for "the
+    // first item of the day" — reported as a hollow circle above a solid one.
+    expect(AGENDA).not.toContain("item.isAllDay && 'border-2 bg-background'");
+    expect(AGENDA).not.toContain('borderColor: hex');
+    expect(AGENDA).toContain('backgroundColor: hex');
   });
 
   it('trims the rule to the first and last nodes so it does not dangle', () => {

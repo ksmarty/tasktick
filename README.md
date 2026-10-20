@@ -71,8 +71,17 @@ Nextcloud. See [Calendar sync](#calendar-sync).
   becomes a task with a due date, time, tag, list, priority, estimate and repeat rule
 - Recurrence with two modes: `due` (fixed cadence — "every Monday" stays Monday)
   and `completion` (cadence restarts when you tick it off)
+- **Advanced repeat mode** that takes a five-field cron expression
+  (`0 9 * * 1-5`) for the schedules the presets cannot say. The expression is read
+  as you type and again on the server: the day part becomes the repeat rule, the
+  time part the due time, and a reminder is set at it. `@daily`, `@weekly` and
+  friends work too; a range, list or step is accepted and `*/0` is refused with a
+  sentence naming the field
 - Per-task reminders at any offset before the due time
 - Multi-select bulk actions, drag-to-reorder, swipe-to-complete/delete
+- Search covers calendar events as well as tasks, with no time window — an event
+  from three years ago is still findable, and a hit opens the same detail sheet a
+  calendar tap does
 
 ### Calendar
 
@@ -97,6 +106,15 @@ Nextcloud. See [Calendar sync](#calendar-sync).
   each task's spent time
 - Eisenhower priority matrix, derived from due date and priority
 - Productivity stats: completions per day, focus minutes, current streak
+
+### Settings
+
+- Grouped navigation (Personal, Scheduling, Advanced) with a **search field** over
+  the sections themselves: type "push", "timezone" or "backup" and the navigation
+  becomes a short list of the settings that answer to that word, each captioned
+  with the group it lives in
+- Tags are managed from Settings as well as from a task, so they can be created,
+  renamed, recoloured and deleted on a phone without opening a task first
 
 ### Platform
 

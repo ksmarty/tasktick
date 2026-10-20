@@ -233,30 +233,38 @@ describe('every time picker offers five minutes', () => {
     expect(DATES).toContain('export const TIME_INPUT_STEP_SECONDS = 300;');
   });
 
-  it('builds its minutes from that constant rather than asking the browser to step', () => {
-    // `step` on `<input type="time">` is the right HTML and it works on Chrome,
-    // Android and the desktop — but Safari on iOS does not implement `step` on a
-    // time input at all, so the native minute wheel lists all sixty minutes
-    // whatever the attribute says. The choices have to come from the control,
-    // which is what `TimeField` is.
-    expect(PICKER).toContain('const STEP_MINUTES = TIME_INPUT_STEP_SECONDS / 60;');
-    expect(PICKER).toContain('const GRID_MINUTES = Array.from({ length: 60 / STEP_MINUTES }, (_, index) => index * STEP_MINUTES);');
+  it('is one native time field, stepped to five minutes', () => {
+    /*
+     * This control was two selects — an hour and a minute, built from
+     * `TIME_INPUT_STEP_SECONDS` — because Safari on iOS ignores `step` on
+     * `<input type="time">` and listed all sixty minutes. Two boxes for one time
+     * turned out to be the worse trade: they read as two fields, they take two
+     * taps, and the native wheel is what people expect under their thumb. So it is
+     * one field again, with `step` for the platforms that honour it and the
+     * platform's own wheel for the ones that do not. `TIME_INPUT_STEP_SECONDS` is
+     * still the single source of the step.
+     */
+    expect(PICKER).toContain('type="time"');
+    expect(PICKER).toContain('step={TIME_INPUT_STEP_SECONDS}');
+    expect(PICKER).not.toContain('GRID_MINUTES');
+    // One control, so no second one to disagree with it.
+    expect(PICKER.match(/<Input\b/g)).toHaveLength(1);
     for (const sheet of [EVENT_EDITOR, TASK_EDITOR, MATRIX_SHEET, HABIT_EDITOR]) {
-      expect(sheet).not.toContain('step={TIME_INPUT_STEP_SECONDS}');
       expect(sheet).toContain('TimePicker');
     }
   });
 
-  it('keeps a minute that is off the grid, so opening an editor never rewrites a time', () => {
-    // An event made before this control existed, or synced from another
-    // calendar, can sit on any minute; it stays selectable instead of being
-    // silently rounded to the nearest five.
-    expect(PICKER).toContain('!GRID_MINUTES.includes(current)');
+  it('passes the stored value straight through, so opening an editor never rewrites a time', () => {
+    // An event made before this control existed, or synced from another calendar,
+    // can sit on any minute; a controlled field shows it unchanged rather than
+    // rounding it to the nearest five.
+    expect(PICKER).toContain('value={value}');
+    expect(PICKER).not.toContain('includes(current)');
   });
 
   it('emits `HH:mm`, the string every caller already converted', () => {
-    expect(PICKER).toContain("onChange(`${next}:${minute === '' ? '00' : minute}`)");
-    expect(PICKER).toContain('onChange(`${hour}:${next}`)');
+    // The browser formats the wheel; the value it reports is already `HH:mm`.
+    expect(PICKER).toContain('onChange(event.target.value)');
   });
 
   it('is no longer the quarter hour the event editor alone used', () => {

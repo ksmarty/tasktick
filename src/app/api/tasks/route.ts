@@ -5,6 +5,7 @@ import { ok, parseJson, route, searchParam, searchParamBool, searchParamInt, sea
 import { createTask, queryTasks, type TaskSort } from '@/server/repos/tasks';
 import { getSettings } from '@/server/repos/settings';
 import { createTaskSchema } from '@/lib/schemas';
+import { withCron } from '@/server/services/cron-input';
 import type { Priority, TaskFilter, TaskStatus } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -52,6 +53,6 @@ export const POST = route(async ({ user, req }) => {
   // Fall back to the user's default list so quick-added tasks are never orphaned.
   const listId = body.listId ?? settings.defaultListId ?? null;
 
-  const task = await createTask(user.id, { ...body, listId }, zone);
+  const task = await createTask(user.id, { ...withCron(body), listId }, zone);
   return ok(task, 201);
 });

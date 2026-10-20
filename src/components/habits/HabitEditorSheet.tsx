@@ -544,7 +544,7 @@ export function HabitEditorSheet({ open, onOpenChange, habit = null, today, onCh
                       {longDateLabel(startDate)}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-0">
+                  <PopoverContent align="start" sideOffset={6} collisionPadding={8} className="z-[60] w-auto p-0">
                     <Calendar
                       mode="single"
                       selected={pickerDateOf(startDate)}

@@ -49,6 +49,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import type { Calendar as CalendarRecord } from '@/lib/types';
 import { calendarColorHex } from './colors';
+import { selectableCalendars } from './selectable';
 
 /**
  * Whether the device's primary pointer is coarse — a finger rather than a mouse.
@@ -105,14 +106,13 @@ export function CalendarCombobox({
   const selected = calendars.find((calendar) => calendar.id === value) ?? null;
 
   /*
-   * A read-only calendar is not a destination. Choosing one would store the
-   * event locally and never write it back — the same silent loss the hidden
-   * Edit action prevents — so the list offers only calendars that accept a
-   * write. The current value is still resolved across **all** calendars, so a
-   * read-only calendar already on the event keeps its name on the trigger while
-   * the user picks a writable one.
+   * Only the calendars a user could sensibly file into: writable ones (a
+   * read-only collection accepts a local row and never writes it back) and the
+   * ones they have not hidden. The current value is still resolved across
+   * **all** calendars, so a read-only or hidden calendar already on the event
+   * keeps its name on the trigger while the user picks a usable one.
    */
-  const selectable = useMemo(() => calendars.filter((calendar) => !calendar.readOnly), [calendars]);
+  const selectable = useMemo(() => selectableCalendars(calendars), [calendars]);
 
   /** Type-ahead filtering over the calendar names; empty query lists them all. */
   const matches = useMemo(() => {

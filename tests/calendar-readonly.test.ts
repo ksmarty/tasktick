@@ -192,8 +192,15 @@ describe('the event editor refuses a read-only calendar', () => {
     expect(EDITOR).toContain('if (locked || !event) return;');
   });
 
-  it('offers only writable calendars as a destination', () => {
-    expect(PICKER).toContain('calendars.filter((calendar) => !calendar.readOnly)');
+  it('offers only writable, visible calendars as a destination', () => {
+    /*
+     * The filter moved into `selectableCalendars` so the combobox and the quick-add
+     * bar cannot disagree about it, and grew `isVisible`: a hidden calendar is not
+     * a destination either, because the item filed into it draws nothing and the
+     * user reads that as the calendar having been ignored.
+     */
+    expect(PICKER).toContain('selectableCalendars(calendars)');
+    expect(PICKER).not.toContain('!calendar.readOnly');
   });
 
   it('never seeds a read-only calendar as the create default', () => {
