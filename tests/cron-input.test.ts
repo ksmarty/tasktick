@@ -36,7 +36,9 @@ describe('cronTaskFields', () => {
 
 describe('withCron', () => {
   it('leaves a body alone when it carries no expression', () => {
-    const body = { title: 'Water the plants' };
+    // Shaped like a route body: the field is optional, so an absent `cron` is the
+    // ordinary case rather than an odd one.
+    const body: { title: string; cron?: string } = { title: 'Water the plants' };
     expect(withCron(body)).toEqual(body);
     expect('cron' in withCron(body)).toBe(false);
   });

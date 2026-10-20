@@ -1081,7 +1081,19 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
          * what the field previewed. An emptied box drops the field rather than
          * sending an empty string, which the schema would refuse.
          */
-        onCronChange={(cron) => edit({ cron: cron || undefined })}
+        onCronChange={(cron) => {
+          if (!cron) {
+            edit({ cron: undefined });
+            return;
+          }
+          /*
+           * An expression names a time of day, and a time of day needs a date to
+           * land on: without one the task is all-day and the hour is dropped. So
+           * applying one to a dateless task starts it today — visible in the sheet
+           * as the date filling in, rather than a time that quietly went nowhere.
+           */
+          edit({ cron, ...(dueDate ? {} : { dueDate: today, clearDue: false }) });
+        }}
       />
       <ReminderPicker
         open={picker === 'reminder'}
