@@ -108,6 +108,21 @@ agent, any LLM-backed agent, and the Assist app, with no extra configuration.
 | "Delete buy milk" | `TaskTickDeleteTask` |
 | "Check in my reading habit" | `TaskTickCheckInHabit` |
 | "What's my streak on reading" | `TaskTickHabitStatus` |
+| "Add lunch with Sam to my calendar tomorrow at noon" | `TaskTickCreateEvent` |
+
+An event needs a time — "at noon", "at 5pm" — because an event without one is a
+task, and guessing an hour would put something in your calendar you did not ask
+for. The event goes to the TaskTick calendar marked **default** when you name
+none, and a named calendar is matched against your real ones, so a read-only
+(CalDAV, subscribed) or misspelt one is reported rather than silently ignored.
+Say "for 90 minutes" to set the length; the default is an hour.
+
+The **built-in** conversation agent needs the sentence templates installed once,
+into `custom_sentences/`, because Home Assistant only loads custom sentences
+from the config directory — run the `tasktick.install_sentences` action
+(Developer Tools → Actions) and it reloads the agent for you. An LLM-backed
+agent does not need them: it is handed the intents as tools directly. Re-run
+the action after an integration update that changes the templates.
 
 Dates are understood the way Assist understands them — "tomorrow", "on Friday",
 "at 5pm" — and named lists are matched against your real TaskTick lists, so a
