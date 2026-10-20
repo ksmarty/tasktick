@@ -43,6 +43,7 @@ export function LoginForm({
   oidcName,
   oidcProblem,
   oidcFailure,
+  expiredSession = false,
   next,
 }: {
   oidcEnabled: boolean;
@@ -51,6 +52,12 @@ export function LoginForm({
   oidcProblem?: string;
   /** Why the last single sign-on round trip failed, from the callback's `?error=`. */
   oidcFailure?: string | null;
+  /**
+   * The request carried a session cookie the server would not accept. Worth a
+   * sentence: without it, "it asked again" is indistinguishable from "the browser
+   * threw the cookie away", and the two have nothing in common to fix.
+   */
+  expiredSession?: boolean;
   /**
    * Where to go once signed in — the page the middleware caught the visitor
    * asking for, so a reminder deep link survives the sign-in it interrupted.
@@ -188,6 +195,12 @@ export function LoginForm({
         {error ? (
           <Alert variant="destructive" role="alert">
             {error}
+          </Alert>
+        ) : expiredSession ? (
+          <Alert role="status">
+            Your saved session is no longer valid, so signing in once more is
+            expected. If this happens every time you open the app, the browser is
+            discarding the cookie — see <em>HTTPS is required</em> in the README.
           </Alert>
         ) : null}
 

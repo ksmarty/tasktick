@@ -12,7 +12,7 @@
  * failure. `withProviderHeal` can only rebuild what it can rebuild, and it needs
  * a handler that asks `getAuth()` again to do it.
  */
-import { getAuth } from '@/server/auth';
+import { getAuthForRequest } from '@/server/auth';
 import { withProviderHeal } from '@/server/oidc-heal';
 import { toNextJsHandler } from 'better-auth/next-js';
 
@@ -20,7 +20,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function handle(request: Request): Promise<Response> {
-  const handlers = toNextJsHandler(getAuth());
+  const handlers = toNextJsHandler(getAuthForRequest(request));
   return request.method === 'GET' ? handlers.GET(request) : handlers.POST(request);
 }
 

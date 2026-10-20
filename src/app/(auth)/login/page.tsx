@@ -5,6 +5,8 @@ import type { NextRequest } from 'next/server';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { describeOidcCallbackError } from '@/lib/oidc-errors';
 import { safeNextPath } from '@/lib/safe-next';
+import { AUTH_COOKIE_PREFIX } from '@/lib/auth-cookie';
+import { getSessionCookie } from 'better-auth/cookies';
 import { getSessionUser } from '@/server/http';
 import { getInstanceState } from '@/server/services/instance';
 import { describeOidcAvailability } from '@/server/oidc';
@@ -32,6 +34,18 @@ export default async function LoginPage({
   const request = { headers: await headers() } as unknown as NextRequest;
   if (await getSessionUser(request)) redirect(next);
 
+  /*
+   * A session cookie that is present but rejected is a different problem from no
+   * cookie at all, and the difference is invisible from the form: one means the
+   * cookie expired or its signature no longer matches, the other means the browser
+   * never sent it (dropped for its `Secure` flag, evicted, or a different cookie
+   * jar entirely — an installed app has its own). Saying which one it is turns
+   * "it forgot me again" into something diagnosable.
+   */
+  const sentSessionCookie = Boolean(
+    getSessionCookie({ headers: request.headers } as Request, { cookiePrefix: AUTH_COOKIE_PREFIX }),
+  );
+
   // Only probed when the button would be shown: a signed-out page nobody can
   // act on should not pay for a network round trip to the identity provider.
   const oidc = state.oidc.enabled ? await describeOidcAvailability() : null;
@@ -46,6 +60,7 @@ export default async function LoginPage({
       oidcName={state.oidc.name}
       oidcProblem={oidc?.problem}
       oidcFailure={oidcFailure}
+      expiredSession={sentSessionCookie && !oidcFailure}
       // A notification deep link remembered by the middleware, so signing in
       // lands on the reminder instead of the generic list.
       next={next}

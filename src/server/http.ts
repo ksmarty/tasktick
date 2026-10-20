@@ -16,7 +16,8 @@ import { z } from 'zod';
 import { isDemoRequest, rememberSampleUserId, resolveSampleUserId, SAMPLE_EMAIL } from '@/server/demo';
 import { ensureSampleAccount } from '@/server/demo-sample';
 import { hasPassword } from './repos/accounts';
-import { getAuth } from './auth';
+import { getAuth, getAuthForScheme } from './auth';
+import { AUTH_COOKIE_PREFIX } from '@/lib/auth-cookie';
 import { getEnv, isAppUrlDefault } from '@/lib/env';
 import type { ApiResult, SessionUser } from '@/lib/types';
 
@@ -82,9 +83,25 @@ interface RouteOptions {
   admin?: boolean;
 }
 
+/**
+ * The auth instance that can verify the cookie this request actually carries.
+ *
+ * `Secure` is part of the cookie's *name* (`__Secure-<prefix>.session_token`), not
+ * only its attributes, so a request that arrives over http with the bare name can
+ * never be verified by the instance built for https — it looks for a cookie that is
+ * not there and reports "signed out". Picking by the name that arrived is the same
+ * decision the writer made, read back from the only evidence the request carries.
+ */
+function authForSessionCookie(req: NextRequest): ReturnType<typeof getAuth> {
+  const cookie = req.headers.get('cookie') ?? '';
+  if (cookie.includes(`__Secure-${AUTH_COOKIE_PREFIX}.session_token=`)) return getAuthForScheme(true);
+  if (cookie.includes(`${AUTH_COOKIE_PREFIX}.session_token=`)) return getAuthForScheme(false);
+  return getAuth();
+}
+
 /** Reads the session without throwing. Returns null when signed out. */
 export async function getSessionUser(req: NextRequest): Promise<SessionUser | null> {
-  const session = await getAuth().api.getSession({ headers: req.headers });
+  const session = await authForSessionCookie(req).api.getSession({ headers: req.headers });
   if (!session?.user) return null;
 
   const user = session.user as unknown as {

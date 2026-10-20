@@ -427,6 +427,14 @@ Not optional, and not just for security:
 - **Web Push** does not work on iOS without HTTPS.
 - **PWA installation** and the service worker require a secure context.
 - OIDC redirect URIs must be HTTPS in practice.
+- **The session cookie.** It is marked `Secure` whenever the request arrived over
+  https, and a `Secure` cookie that arrives over http is discarded by the browser
+  without an error — sign-in appears to work and the next page is signed out. The
+  decision is made per request (proxy `X-Forwarded-Proto` first, request scheme
+  second, `APP_URL` only as a fallback), so reaching the same instance at
+  `http://192.168.1.5:3000` does not try to store a cookie it cannot keep. If the
+  sign-in screen says your saved session is no longer valid every time you open
+  the installed app, that is the flag being refused: use the https address.
 
 Put TaskTick behind the reverse proxy you already run. With Caddy it is two lines:
 

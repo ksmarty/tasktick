@@ -24,7 +24,7 @@ import { currentDialect } from './db/dialect';
 import { schema } from './db/schema';
 import { invites, user as userTable } from './db/schema';
 import { newId } from './crypto';
-import { AUTH_COOKIE_PREFIX } from '@/lib/auth-cookie';
+import { AUTH_COOKIE_PREFIX, useSecureCookiesFor } from '@/lib/auth-cookie';
 import { getEnv, oidcConfigured } from '@/lib/env';
 import { isLocalNetworkOrigin, originFromRequest } from '@/lib/network';
 import { safeNextPath } from '@/lib/safe-next';
@@ -226,8 +226,14 @@ async function authorizeRegistration(usersEmail: string, inviteToken: string | n
   return { isAdmin: invite.isAdmin };
 }
 
-function createAuth() {
+function createAuth(options: { secureCookies?: boolean } = {}) {
   const env = getEnv();
+  /*
+   * Default to the configured deployment, and let a request override it: the
+   * cookie's `Secure` flag has to match the scheme the browser actually used, or
+   * the browser drops the cookie and every open of the app looks signed out.
+   */
+  const secureCookies = options.secureCookies ?? env.APP_URL.startsWith('https://');
 
   return betterAuth({
     appName: 'TaskTick',
@@ -266,7 +272,7 @@ function createAuth() {
     },
 
     advanced: {
-      useSecureCookies: env.APP_URL.startsWith('https://'),
+      useSecureCookies: secureCookies,
       cookiePrefix: AUTH_COOKIE_PREFIX,
     },
 
@@ -343,11 +349,55 @@ function createAuth() {
 export type Auth = ReturnType<typeof createAuth>;
 
 let cached: Auth | null = null;
+/**
+ * One instance per cookie scheme, because `useSecureCookies` is baked into the
+ * instance: a request over http and a request over https cannot share it.
+ */
+let cachedByScheme: { secure?: Auth; insecure?: Auth } = {};
 
 /** Lazily constructed so importing this module never touches the database. */
 export function getAuth(): Auth {
   if (!cached) cached = createAuth();
   return cached;
+}
+
+/**
+ * The instance to serve one request, with `Secure` matching how it arrived.
+ *
+ * Falls back to `getAuth()` when the request says nothing useful, so this is a
+ * drop-in for the request handlers rather than a second auth stack.
+ */
+export function getAuthForRequest(request: Request): Auth {
+  const forwarded = request.headers.get('x-forwarded-proto');
+  const protocol = /^([a-z][a-z0-9+.-]*):/i.exec(request.url)?.[1]?.toLowerCase();
+  if (!forwarded && protocol !== 'http' && protocol !== 'https') return getAuth();
+
+  return getAuthForScheme(
+    useSecureCookiesFor({
+      url: request.url,
+      forwardedProto: forwarded,
+      appUrl: getEnv().APP_URL,
+    }),
+  );
+}
+
+/**
+ * The instance whose cookie naming matches `secure`, built once and kept.
+ *
+ * Exported because reading a session is not always done from a request that knows
+ * its own scheme: a server component is handed headers, not a URL. It still knows
+ * which cookie arrived, and the name says which instance wrote it — `__Secure-…`
+ * over https, the bare name over http — so the reader picks the twin that can
+ * actually verify it.
+ */
+export function getAuthForScheme(secure: boolean): Auth {
+  const slot = secure ? 'secure' : 'insecure';
+  const existing = cachedByScheme[slot];
+  if (existing) return existing;
+
+  const built = createAuth({ secureCookies: secure });
+  cachedByScheme[slot] = built;
+  return built;
 }
 
 /** The handler mounted at `app/api/auth/[...all]/route.ts`. */
@@ -357,4 +407,5 @@ export function getAuthHandler() {
 
 export function resetAuthCache(): void {
   cached = null;
+  cachedByScheme = {};
 }
