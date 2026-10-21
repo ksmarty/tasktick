@@ -176,6 +176,30 @@ tomorrow" answers *"Added Pay rent to Inbox for Thursday, 5 March."*
 Because the `todo.*` entities also exist, both paths work — use whichever suits
 your automation.
 
+### What to expose to Assist
+
+Exposure is per-entity, and it decides two different things, so it is worth
+knowing which is which:
+
+- **TaskTick's own intents need nothing exposed.** They declare no domain, and
+  Home Assistant only drops an intent handler when it names a domain nothing
+  has exposed — which is why the seven intents above are available on a fresh
+  install with the *Expose* tab untouched.
+- **Exposing a TaskTick calendar** adds Home Assistant's own read tool
+  (`calendar_get_events`) and puts the calendar in the prompt the model sees, so
+  "what's on my calendar tomorrow" works and the model knows the calendar's
+  name. Adding is still done by `TaskTickCreateEvent`.
+- **Exposing a TaskTick list** (`todo.<list>`) enables the *todo* intents —
+  "add milk to my shopping list" via Home Assistant's own `HassListAddItem`, and
+  reading items back. Those handlers do name the `todo` domain, so they are the
+  ones exposure actually gates.
+- **Habits and sensors: nothing to expose.** A habit has no Home Assistant
+  domain of its own, so it is reachable only through `TaskTickCheckInHabit` and
+  `TaskTickHabitStatus`; exposing the sensors only pads the prompt.
+
+Exposing everything is not extensible; exposing the calendar you want read aloud
+and the lists you want named by voice is the set that changes an answer.
+
 ### Reminders
 
 TaskTick can push a reminder to your phone itself (Web Push, from the app's own

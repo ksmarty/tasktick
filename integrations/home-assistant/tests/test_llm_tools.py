@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import llm
+from homeassistant.helpers import intent, llm
 
 from custom_components.tasktick import async_setup as tasktick_setup
 from custom_components.tasktick import intents as intents_module
@@ -98,6 +98,30 @@ def test_tasktick_is_the_only_tool_that_mentions_a_calendar(tmp_path) -> None:
         name for name, text in descriptions.items() if "calendar" in text.lower()
     }
     assert mentions_calendar == {"TaskTickCreateEvent"}
+
+
+def test_tasktick_intents_do_not_need_anything_exposed(tmp_path) -> None:
+    """Exposure is what gates a core intent, and TaskTick's declare no platform.
+
+    Home Assistant drops an intent handler from the tool list when it names
+    domains and none of them are exposed (`llm.py`: `intent_handler.platforms is
+    None or intent_handler.platforms & exposed_domains`). The todo intents are
+    gated that way; these are not, which is why nothing has to be exposed for the
+    assistant to add a task, add an event, finish one or check in a habit.
+    """
+
+    async def body(hass: HomeAssistant) -> dict[str, set[str] | None]:
+        intents_module.async_setup_intents(hass)
+        return {
+            handler.intent_type: handler.platforms
+            for handler in intent.async_get(hass)
+            if handler.intent_type in intents_module.INTENT_TYPES
+        }
+
+    platforms = _run(tmp_path, body)
+
+    assert set(platforms) == set(intents_module.INTENT_TYPES)
+    assert all(value is None for value in platforms.values())
 
 
 def test_the_intents_survive_a_setup_that_never_completes(tmp_path) -> None:
