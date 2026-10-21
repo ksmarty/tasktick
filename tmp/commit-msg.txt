@@ -1,0 +1,22 @@
+Offer the assistant's tools even when TaskTick is down, and let them be listed
+
+The agent in the transcript was an OpenRouter conversation agent, which builds
+its tool list from Home Assistant's Assist API like every other agent. That list
+is built from the registered intent handlers, and those were registered in
+async_setup_entry — after the first poll. An instance that was unreachable at
+startup therefore left the entry retrying with no entities and no intents, so
+the assistant had no TaskTick tool and answered that it could only read
+calendars. Services and intents resolve the coordinator when they are called, so
+they belong in async_setup, before an entry can fail.
+
+The other half is telling the two failures apart, which is what
+tasktick.assist_tools is for: it answers with every tool Home Assistant offers a
+conversation agent, including the intent tools. A missing TaskTickCreateEvent
+means the integration is not set up, or the agent has "Control Home Assistant"
+turned off; a listed tool the model never calls is a prompt problem. Both look
+identical from the outside, and the model reports them the same way.
+
+It also answers, in a test, what the source could not: with the real intent
+handlers registered, the Assist API hands the agent TaskTickCreateEvent (named
+with the class's own casing) and core adds no second calendar tool that could
+write.
