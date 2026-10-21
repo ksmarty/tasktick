@@ -188,18 +188,28 @@ class TaskTickAddTaskIntent(_TaskTickIntent):
 
     intent_type = "TaskTickAddTask"
     description = (
-        "Add a task to the user's TaskTick list. Put what the task is in 'title'. "
-        "Name the list in 'list' when the user says which one. Set 'day' to today "
-        "or tomorrow, and 'time' for a specific time such as 5pm."
+        "Add a task to the user's TaskTick to-do list. Use this for anything the "
+        "user wants to remember to do, such as 'remind me to call the plumber'. "
+        "Put what the task is in 'title'. Name the list in 'list' when the user "
+        "says which one. 'day' takes a weekday ('friday'), 'today', 'tomorrow', "
+        "'in three days' or a date such as '2026-10-25'. 'time' takes a clock "
+        "time such as '5pm' or '17:00'."
     )
 
     @property
     def slot_schema(self) -> dict:
         return {
-            vol.Required("title"): vol.Any(str, int, float),
-            vol.Optional("list"): str,
-            vol.Optional("day"): str,
-            vol.Optional("time"): vol.Any(str, int, float),
+            vol.Required("title", description="What the task is, in the user's words"): vol.Any(
+                str, int, float
+            ),
+            vol.Optional("list", description="The list to add it to, only when named"): str,
+            vol.Optional(
+                "day",
+                description="friday, today, tomorrow, in three days, or 2026-10-25",
+            ): str,
+            vol.Optional("time", description="A clock time such as 5pm or 17:00"): vol.Any(
+                str, int, float
+            ),
         }
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
@@ -448,22 +458,36 @@ class TaskTickCreateEventIntent(_TaskTickIntent):
 
     intent_type = "TaskTickCreateEvent"
     description = (
-        "Add an event to one of the user's TaskTick calendars. Put the event name "
-        "in 'title', the calendar in 'calendar' when named, the day in 'day' "
-        "(today or tomorrow) and the start time in 'time'. Leave 'time' out when "
-        "the user did not give one: that makes it an all-day event."
+        "Add an event to one of the user's TaskTick calendars. This is how the "
+        "user's calendar is written to. Put the event name in 'title', the "
+        "calendar in 'calendar' when one is named, the day in 'day' — a weekday "
+        "('friday'), 'today', 'tomorrow', 'next monday', 'in three days' or a "
+        "date like '2026-10-25' — and the start time in 'time' ('3pm', '15:00'). "
+        "Leave 'time' out when the user gave none: that makes it an all-day "
+        "event."
     )
 
     @property
     def slot_schema(self) -> dict:
         return {
-            vol.Required("title"): vol.Any(str, int, float),
-            vol.Optional("calendar"): str,
-            vol.Optional("day"): str,
+            vol.Required("title", description="What the event is, in the user's words"): vol.Any(
+                str, int, float
+            ),
+            vol.Optional(
+                "calendar", description="The calendar to add it to, only when named"
+            ): str,
+            vol.Optional(
+                "day",
+                description="friday, today, tomorrow, next monday, in three days, or 2026-10-25",
+            ): str,
             # Optional, because "add a birthday on Friday" is an all-day event and
             # not an unanswerable question: the day is the whole information.
-            vol.Optional("time"): vol.Any(str, int, float),
-            vol.Optional("minutes"): vol.Any(str, int, float),
+            vol.Optional("time", description="A clock time such as 3pm or 15:00"): vol.Any(
+                str, int, float
+            ),
+            vol.Optional("minutes", description="How long the event lasts, in minutes"): vol.Any(
+                str, int, float
+            ),
         }
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:

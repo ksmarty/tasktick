@@ -43,19 +43,65 @@ class TestParseTimeText:
 
 
 class TestParseDayText:
+    # 2026-03-04 is a Wednesday, so "friday" is two days ahead and "wednesday"
+    # is today — the two cases that decide whether a weekday resolves forward.
+    TODAY = date(2026, 3, 4)
+
     def test_today_and_tomorrow(self) -> None:
-        today = date(2026, 3, 4)
-        assert parse_day_text("today", today=today) == today
-        assert parse_day_text("Tomorrow", today=today) == date(2026, 3, 5)
+        assert parse_day_text("today", today=self.TODAY) == self.TODAY
+        assert parse_day_text("Tomorrow", today=self.TODAY) == date(2026, 3, 5)
 
     def test_common_misrecognition(self) -> None:
         # "tomorow" is what a recogniser plausibly returns, and rejecting it
         # would make the user repeat themselves for no reason.
-        assert parse_day_text("tomorow", today=date(2026, 3, 4)) == date(2026, 3, 5)
+        assert parse_day_text("tomorow", today=self.TODAY) == date(2026, 3, 5)
 
-    def test_rejects_anything_else(self) -> None:
-        # Deliberately tiny: a wrong day is worse than asking again.
-        assert parse_day_text("next tuesday", today=date(2026, 3, 4)) is None
+    def test_weekdays_resolve_forward(self) -> None:
+        # An LLM asked for "friday at 3pm" passes the word, not a date, so the
+        # parser has to be the thing that turns it into one.
+        assert parse_day_text("friday", today=self.TODAY) == date(2026, 3, 6)
+        assert parse_day_text("fri", today=self.TODAY) == date(2026, 3, 6)
+        assert parse_day_text("Thursday", today=self.TODAY) == date(2026, 3, 5)
+        # The same weekday as today is today, not a week away: someone saying
+        # "book it for Wednesday" on a Wednesday means today.
+        assert parse_day_text("wednesday", today=self.TODAY) == self.TODAY
+
+    def test_next_weekday_is_a_week_later(self) -> None:
+        assert parse_day_text("this friday", today=self.TODAY) == date(2026, 3, 6)
+        assert parse_day_text("next friday", today=self.TODAY) == date(2026, 3, 13)
+        assert parse_day_text("next monday", today=self.TODAY) == date(2026, 3, 16)
+
+    def test_relative_spans(self) -> None:
+        assert parse_day_text("in 3 days", today=self.TODAY) == date(2026, 3, 7)
+        assert parse_day_text("in three days", today=self.TODAY) == date(2026, 3, 7)
+        assert parse_day_text("in two weeks", today=self.TODAY) == date(2026, 3, 18)
+        assert parse_day_text("in a week", today=self.TODAY) == date(2026, 3, 11)
+        assert parse_day_text("next week", today=self.TODAY) == date(2026, 3, 11)
+        assert parse_day_text("next month", today=self.TODAY) == date(2026, 4, 4)
+
+    def test_iso_dates(self) -> None:
+        assert parse_day_text("2026-10-25", today=self.TODAY) == date(2026, 10, 25)
+        assert parse_day_text("2026/10/25", today=self.TODAY) == date(2026, 10, 25)
+
+    def test_day_and_month(self) -> None:
+        assert parse_day_text("21 october", today=self.TODAY) == date(2026, 10, 21)
+        assert parse_day_text("october 21", today=self.TODAY) == date(2026, 10, 21)
+        assert parse_day_text("the 21st of october", today=self.TODAY) == date(2026, 10, 21)
+        assert parse_day_text("the 21st of March", today=self.TODAY) == date(2026, 3, 21)
+
+    def test_a_passed_day_rolls_forward(self) -> None:
+        # Scheduling in the past is never what the user meant: "the 3rd" on the
+        # 4th is next month, and a month that is behind us is next year.
+        assert parse_day_text("the 3rd", today=self.TODAY) == date(2026, 4, 3)
+        assert parse_day_text("21 october", today=date(2026, 11, 2)) == date(2027, 10, 21)
+
+    def test_yesterday_stays_in_the_past(self) -> None:
+        # Tasks are logged as well as scheduled, so a past form is still useful.
+        assert parse_day_text("yesterday", today=self.TODAY) == date(2026, 3, 3)
+
+    def test_rejects_what_it_cannot_read(self) -> None:
+        for text in ("", "   ", "haircut", "soon", "2026-02-30", "the 40th", "someday"):
+            assert parse_day_text(text, today=self.TODAY) is None, text
 
 
 class TestParseSpokenNumber:

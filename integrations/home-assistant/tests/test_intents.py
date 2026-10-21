@@ -221,12 +221,12 @@ def test_add_task_rejects_an_unknown_day() -> None:
             await _handle(
                 hass,
                 "TaskTickAddTask",
-                {"title": _slot("x"), "day": _slot("next tuesday")},
+                {"title": _slot("x"), "day": _slot("someday")},
             )
         return str(caught.value)
 
     message = _with_client(body)
-    assert "next tuesday" in message
+    assert "someday" in message
 
 
 # -- listing and managing tasks -------------------------------------------- #
@@ -448,6 +448,76 @@ def test_create_event_without_a_time_is_all_day() -> None:
         "isAllDay": True,
     }
     assert "all day" in speech
+
+
+def test_create_event_understands_a_weekday() -> None:
+    """A model says "friday", not "2026-03-06": the day slot has to translate.
+
+    The tool schema hands the model a free string, so before this the only legal
+    values were today and tomorrow and anything else came back as "I did not
+    understand the day friday" — which reads to the user as the assistant being
+    unable to add events at all.
+    """
+
+    async def body(hass, client, refreshes):
+        response = await _handle(
+            hass,
+            "TaskTickCreateEvent",
+            {"title": _slot("Haircut"), "day": _slot("friday"), "time": _slot("3pm")},
+        )
+        return _speech(response), client.calls
+
+    speech, calls = _with_client(body)
+    name, payload = calls[0]
+    assert name == "create_event"
+
+    today = dt_util.now().date()
+    friday = today + timedelta(days=(4 - today.weekday()) % 7)
+    start = dt_util.as_local(
+        dt_util.start_of_local_day(friday) + timedelta(hours=15)
+    )
+    assert payload["calendarId"] == "c1"
+    assert payload["summary"] == "Haircut"
+    assert payload["startMs"] == pytest.approx(start.timestamp() * 1000)
+    assert payload["endMs"] == pytest.approx(start.timestamp() * 1000 + 3_600_000)
+    assert "Friday" in speech
+
+
+def test_create_event_reads_a_full_date() -> None:
+    """An ISO date is the other shape a model produces, so it is accepted too."""
+
+    async def body(hass, client, refreshes):
+        await _handle(
+            hass,
+            "TaskTickCreateEvent",
+            {"title": _slot("Dentist"), "day": _slot("2026-10-25")},
+        )
+        return client.calls
+
+    calls = _with_client(body)
+    assert calls[0][1]["startDate"] == "2026-10-25"
+    assert calls[0][1]["isAllDay"] is True
+
+
+def test_the_calendar_tool_describes_the_day_slot_to_the_model() -> None:
+    """What the model reads is the description, so it has to name real forms.
+
+    `IntentTool` publishes `handler.description` and the slot markers' own
+    descriptions as the tool schema. "Execute Home Assistant TaskTickCreateEvent
+    intent" is what the model saw before this, and a model that cannot tell a
+    tool adds events answers that it can only read them.
+    """
+
+    handler = intents_module.TaskTickCreateEventIntent()
+    assert "calendar" in (handler.description or "").lower()
+    assert "friday" in (handler.description or "")
+    assert "all-day" in (handler.description or "")
+
+    keys = {str(key): key for key in handler.slot_schema}
+    day = keys["day"]
+    assert day.description and "friday" in day.description
+    time_key = keys["time"]
+    assert time_key.description and "3pm" in time_key.description
 
 
 def test_create_event_uses_the_calendar_chosen_in_the_options() -> None:

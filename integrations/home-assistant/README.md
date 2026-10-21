@@ -136,9 +136,29 @@ the intents as tools directly. Your own templates belong in a *different* file i
 the same directory; a local edit to `tasktick.yaml` itself is kept as `.bak`
 before the packaged copy replaces it.
 
-Dates are understood the way Assist understands them — "tomorrow", "on Friday",
-"at 5pm" — and named lists are matched against your real TaskTick lists, so a
-list you have not created is reported rather than silently ignored.
+Dates are understood the way people say them, and a day that has already gone
+resolves forward rather than into the past. `day` accepts:
+
+- **today**, **tomorrow**, **yesterday**, the day after tomorrow;
+- a weekday — *Friday*, *fri* — with *this* or *next* in front of it (*next
+  Friday* is the one a week further out), where saying the weekday you are
+  already on means today;
+- a span — *in three days*, *in two weeks*, *next week*, *next month*;
+- a full date — *2026-10-25* — or a day with a month: *21 October*, *October
+  21*, *the 21st of October*, and a bare *the 21st*;
+- a time as *at 5pm*, *at 17:00* or *at noon*.
+
+Anything it cannot read is reported instead of guessed: named lists and calendars
+are matched against your real ones, so a list you have not created — or a
+read-only, subscribed calendar — is named in the answer rather than silently
+ignored.
+
+Each intent also carries a description written for a model, so an LLM-backed
+agent knows what each tool does and which day and time forms to pass. That
+matters for the calendar in particular: Home Assistant's own calendar tool can
+only *read* events, so adding one goes through `TaskTickCreateEvent`, and an
+agent that cannot tell what that tool does will answer that it cannot add events
+at all.
 
 Assist replies with the day it resolved, not the word you said: "add pay rent
 tomorrow" answers *"Added Pay rent to Inbox for Thursday, 5 March."*
