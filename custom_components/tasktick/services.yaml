@@ -398,3 +398,13 @@ install_sentences:
       default: en
       selector:
         text: {}
+
+assist_tools:
+  name: List the tools the voice assistant is given
+  description: >-
+    Answer with every tool Home Assistant offers a conversation agent, including
+    the TaskTick intents. An agent can only call what is on this list, so run
+    this when the assistant says it cannot do something TaskTick can do: a
+    missing TaskTick tool means the integration is not set up or the agent has
+    "Control Home Assistant" turned off, while a present tool that is never
+    chosen is a prompt problem.

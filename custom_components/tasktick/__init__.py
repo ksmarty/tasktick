@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
 from .api import TaskTickClient
 from .const import CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL, DEFAULT_SCAN_INTERVAL, DOMAIN
@@ -27,6 +28,23 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.TODO,
 ]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the process-wide parts before any entry is set up.
+
+    Services and intent handlers need no working TaskTick instance: both resolve
+    the coordinator when they are called. Registering them here instead of in
+    `async_setup_entry` keeps them present when a setup fails — an instance that
+    is unreachable at startup leaves the entry retrying, with no entities and,
+    before this, no intents either. A voice assistant then has no TaskTick tool
+    at all and answers that it cannot do the thing, which reads as a missing
+    feature rather than a TaskTick that is down.
+    """
+
+    async_setup_services(hass)
+    intents_module.async_setup_intents(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -62,11 +80,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    async_setup_services(hass)
-    # Registered once per setup and idempotent: the handlers are process-wide and
-    # resolve their coordinator at call time, so a second config entry does not
-    # double-register them.
-    intents_module.async_setup_intents(hass)
+    # Services and intents are registered in `async_setup`, before an entry can
+    # fail, because both work without a coordinator.
     # Sentences, every setup: Home Assistant only loads custom sentences from the
     # config directory, so the packaged templates have to be copied there before a
     # sentence can match — and a release that adds one would otherwise need a

@@ -19,6 +19,7 @@ import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import llm
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_DEFAULT_CALENDAR, DOMAIN
@@ -48,6 +49,8 @@ SERVICE_DELETE_EVENT = "delete_event"
 #: Assist sentence templates are only loaded from `<config>/custom_sentences/`,
 #: so this copies them there. See sentences.py.
 SERVICE_INSTALL_SENTENCES = "install_sentences"
+#: What the voice assistant is actually handed as tools. See handle_assist_tools.
+SERVICE_ASSIST_TOOLS = "assist_tools"
 
 ATTR_LANGUAGE = "language"
 
@@ -500,6 +503,39 @@ def async_setup_services(hass: HomeAssistant) -> None:
             hass, call.data.get(ATTR_LANGUAGE, DEFAULT_LANGUAGE)
         )
 
+    async def handle_assist_tools(call: ServiceCall) -> dict[str, Any]:
+        """List the tools Home Assistant hands a conversation agent.
+
+        An agent can only call what is in this list, and it builds the list
+        itself — every registered intent handler becomes a tool, alongside its
+        own read-only calendar tool. So "the assistant says it cannot add
+        events" is either a tool that is missing from here (the integration is
+        not set up, or the agent has Home Assistant control turned off) or a
+        model that ignored a tool that is. This answers which.
+        """
+
+        context = llm.LLMContext(
+            platform="conversation",
+            context=None,
+            language=hass.config.language,
+            assistant="conversation",
+            device_id=None,
+        )
+        instance = await llm.async_get_api(hass, llm.LLM_API_ASSIST, context)
+        tools = [
+            {"name": tool.name, "description": tool.description or ""}
+            for tool in instance.tools
+        ]
+        return {
+            "tools": tools,
+            "tasktick_tools": [
+                tool["name"]
+                for tool in tools
+                if tool["name"].lower().startswith(DOMAIN)
+            ],
+            "set_up": bool(hass.data.get(DOMAIN)),
+        }
+
     hass.services.async_register(
         DOMAIN, SERVICE_CREATE_TASK, handle_create_task,
         schema=CREATE_TASK_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
@@ -526,6 +562,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_INSTALL_SENTENCES, handle_install_sentences,
         schema=INSTALL_SENTENCES_SCHEMA, supports_response=SupportsResponse.OPTIONAL,
     )
+    # `ONLY`: this one answers and does nothing else, so a plain call would return
+    # an empty result and look broken.
+    hass.services.async_register(
+        DOMAIN, SERVICE_ASSIST_TOOLS, handle_assist_tools,
+        schema=vol.Schema({}), supports_response=SupportsResponse.ONLY,
+    )
 
 
 def async_unload_services(hass: HomeAssistant) -> None:
@@ -540,5 +582,6 @@ def async_unload_services(hass: HomeAssistant) -> None:
         SERVICE_DELETE_EVENT,
         SERVICE_CREATE_REMINDER,
         SERVICE_INSTALL_SENTENCES,
+        SERVICE_ASSIST_TOOLS,
     ):
         hass.services.async_remove(DOMAIN, service)

@@ -24,6 +24,7 @@ from homeassistant.core import HomeAssistant, SupportsResponse
 
 from custom_components.tasktick.const import DOMAIN
 from custom_components.tasktick.services import (
+    SERVICE_ASSIST_TOOLS,
     SERVICE_CHECK_IN_HABIT,
     SERVICE_COMPLETE_TASK,
     SERVICE_CREATE_EVENT,
@@ -51,6 +52,7 @@ SERVICES = {
     SERVICE_DELETE_EVENT: SupportsResponse.NONE,
     SERVICE_CREATE_REMINDER: SupportsResponse.OPTIONAL,
     SERVICE_INSTALL_SENTENCES: SupportsResponse.OPTIONAL,
+    SERVICE_ASSIST_TOOLS: SupportsResponse.ONLY,
 }
 
 

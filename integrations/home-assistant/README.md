@@ -160,6 +160,16 @@ only *read* events, so adding one goes through `TaskTickCreateEvent`, and an
 agent that cannot tell what that tool does will answer that it cannot add events
 at all.
 
+If an assistant still says it cannot do something TaskTick can do, run
+**Developer Tools → Actions → `tasktick.assist_tools`**. It answers with every
+tool Home Assistant offers a conversation agent, so the two cases are easy to
+tell apart: no `TaskTickCreateEvent` in the list means the integration is not set
+up (or the agent has *Control Home Assistant* turned off), while a tool that is
+listed but never chosen is a prompt or model problem, not a wiring one. The
+services and intents are registered when the integration is set up, before an
+entry can fail, so a TaskTick instance that is unreachable at startup costs you
+its entities — not the assistant's ability to try.
+
 Assist replies with the day it resolved, not the word you said: "add pay rent
 tomorrow" answers *"Added Pay rent to Inbox for Thursday, 5 March."*
 
