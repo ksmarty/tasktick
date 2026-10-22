@@ -165,7 +165,17 @@ If an assistant still says it cannot do something TaskTick can do, run
 tool Home Assistant offers a conversation agent, so the two cases are easy to
 tell apart: no `TaskTickCreateEvent` in the list means the integration is not set
 up (or the agent has *Control Home Assistant* turned off), while a tool that is
-listed but never chosen is a prompt or model problem, not a wiring one. The
+listed but never chosen is a prompt or model problem, not a wiring one.
+
+The response also carries `tasktick_intents`, `registered_intents`, `set_up`,
+`entry_states` and `ha_version`, because "no tool" has two causes that look the
+same from the assistant's side. `tasktick_intents` empty is a registration fault:
+the handlers never reached Home Assistant's intent store. `tasktick_intents` full
+with `tasktick_tools` empty is Home Assistant not publishing them as tools. And
+`set_up: false` with `entry_states: ['ConfigEntryState.SETUP_RETRY']` means the
+config entry never finished setting up — the platforms run before the entry is
+marked loaded, so a calendar entity that fails takes the rest of the setup with
+it, and the assistant then has no TaskTick tool at all. The
 services and intents are registered when the integration is set up, before an
 entry can fail, so a TaskTick instance that is unreachable at startup costs you
 its entities — not the assistant's ability to try.

@@ -17,11 +17,14 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import llm
 from homeassistant.util import dt as dt_util
 
+from . import intents as intents_module
 from .const import CONF_DEFAULT_CALENDAR, DOMAIN
 from .coordinator import TaskTickCoordinator, TaskTickData, get_coordinator
 from .reminders import (
@@ -526,6 +529,20 @@ def async_setup_services(hass: HomeAssistant) -> None:
             {"name": tool.name, "description": tool.description or ""}
             for tool in instance.tools
         ]
+        # A handler that never reached the intent store is not on the tool list
+        # either, and from the outside the two look the same: the assistant
+        # answers that it cannot do the thing. So report the store as well as the
+        # tools it produced — `tasktick_intents` empty is a registration fault,
+        # `tasktick_tools` empty with `tasktick_intents` full is a Home Assistant
+        # that does not publish our handlers as tools.
+        registered = sorted(intents_module.registered_intent_types(hass))
+        # `hass.config_entries` is absent in a Home Assistant built by hand, which
+        # is how the tests drive a service call.
+        entries = (
+            list(hass.config_entries.async_entries(DOMAIN))
+            if getattr(hass, "config_entries", None) is not None
+            else []
+        )
         return {
             "tools": tools,
             "tasktick_tools": [
@@ -533,7 +550,19 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 for tool in tools
                 if tool["name"].lower().startswith(DOMAIN)
             ],
-            "set_up": bool(hass.data.get(DOMAIN)),
+            "tasktick_intents": [
+                intent_type
+                for intent_type in registered
+                if intent_type in intents_module.INTENT_TYPES
+            ],
+            "registered_intents": registered,
+            "ha_version": HA_VERSION,
+            # The entry's state, not `hass.data`: the coordinator is stored before
+            # the platforms are forwarded, so a platform that failed leaves data
+            # behind and an entry that retries — which is the state that stops
+            # `async_setup_entry` halfway through.
+            "set_up": any(entry.state is ConfigEntryState.LOADED for entry in entries),
+            "entry_states": [str(entry.state) for entry in entries],
         }
 
     hass.services.async_register(

@@ -59,15 +59,46 @@ INTENT_TYPES: tuple[str, ...] = (
 )
 
 
+def intent_handlers() -> tuple[intent.IntentHandler, ...]:
+    """Every TaskTick handler, as instances, in one place."""
+
+    return (
+        TaskTickAddTaskIntent(),
+        TaskTickListTasksIntent(),
+        TaskTickCompleteTaskIntent(),
+        TaskTickDeleteTaskIntent(),
+        TaskTickCheckInHabitIntent(),
+        TaskTickHabitStatusIntent(),
+        TaskTickCreateEventIntent(),
+    )
+
+
 def async_setup_intents(hass: HomeAssistant) -> None:
-    """Register every TaskTick intent handler."""
-    intent.async_register(hass, TaskTickAddTaskIntent())
-    intent.async_register(hass, TaskTickListTasksIntent())
-    intent.async_register(hass, TaskTickCompleteTaskIntent())
-    intent.async_register(hass, TaskTickDeleteTaskIntent())
-    intent.async_register(hass, TaskTickCheckInHabitIntent())
-    intent.async_register(hass, TaskTickHabitStatusIntent())
-    intent.async_register(hass, TaskTickCreateEventIntent())
+    """Register every TaskTick intent handler, once.
+
+    Called from ``async_setup`` and again from ``async_setup_entry``. The second
+    call is the interesting one: registration lives in ``hass.data``, it is what
+    turns a handler into a tool a conversation agent can call, and a handler that
+    is missing is invisible — the agent answers that it cannot do the thing, and
+    nothing anywhere reports an error. Re-asserting it costs one dict lookup per
+    handler and covers the case where the integration's setup ran but the intent
+    store did not keep what it was given.
+
+    ``intent.async_register`` logs a warning when it overwrites, so the existing
+    types are read first rather than relying on it being idempotent.
+    """
+
+    registered = {handler.intent_type for handler in intent.async_get(hass)}
+    for handler in intent_handlers():
+        if handler.intent_type not in registered:
+            intent.async_register(hass, handler)
+
+
+def registered_intent_types(hass: HomeAssistant) -> set[str]:
+    """The intent types Home Assistant currently has, for reporting."""
+
+    return {handler.intent_type for handler in intent.async_get(hass)}
+
 
 
 class _TaskTickIntent(intent.IntentHandler):

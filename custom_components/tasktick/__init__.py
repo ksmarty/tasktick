@@ -81,7 +81,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Services and intents are registered in `async_setup`, before an entry can
-    # fail, because both work without a coordinator.
+    # fail, because both work without a coordinator. Intents are asserted again
+    # here: a handler that did not survive is silent — the voice assistant simply
+    # answers that it cannot do the thing — so the entry setup re-checks instead
+    # of trusting that the process-wide registration is still there.
+    intents_module.async_setup_intents(hass)
     # Sentences, every setup: Home Assistant only loads custom sentences from the
     # config directory, so the packaged templates have to be copied there before a
     # sentence can match — and a release that adds one would otherwise need a

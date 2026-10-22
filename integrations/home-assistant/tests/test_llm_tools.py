@@ -144,3 +144,61 @@ def test_the_intents_survive_a_setup_that_never_completes(tmp_path) -> None:
     assert "create_event" in services
     assert "assist_tools" in services
     assert "TaskTickCreateEvent" in names
+
+
+def test_registering_twice_leaves_one_handler_per_intent(tmp_path) -> None:
+    """`async_setup_entry` re-asserts the handlers, so the call has to be quiet.
+
+    Home Assistant only warns when a registration overwrites an existing one, and
+    a reload of the config entry runs the setup path again. Registering the same
+    seven types a second time must leave the store unchanged rather than filling
+    the log with overwrite warnings.
+    """
+
+    async def body(hass: HomeAssistant) -> list[str]:
+        intents_module.async_setup_intents(hass)
+        intents_module.async_setup_intents(hass)
+        return [handler.intent_type for handler in intent.async_get(hass)]
+
+    types = _run(tmp_path, body)
+
+    assert sorted(types) == sorted(intents_module.INTENT_TYPES)
+    assert len(types) == len(set(types))
+
+
+def test_a_handler_that_went_missing_is_put_back(tmp_path) -> None:
+    """The failure this guards against produces no error anywhere.
+
+    A handler missing from the store is missing from the tool list, and the
+    assistant answers that it cannot do the thing — indistinguishable from a
+    feature that was never built. Setup therefore re-asserts instead of trusting
+    the process-wide registration.
+    """
+
+    async def body(hass: HomeAssistant) -> set[str]:
+        intents_module.async_setup_intents(hass)
+        intent.async_remove(hass, "TaskTickCreateEvent")
+        intents_module.async_setup_intents(hass)
+        return intents_module.registered_intent_types(hass)
+
+    assert "TaskTickCreateEvent" in _run(tmp_path, body)
+
+
+def test_assist_tools_reports_the_intent_store(tmp_path) -> None:
+    """The diagnostic has to separate "no handler" from "no tool".
+
+    Those are different faults with different fixes, and from the assistant's
+    side they read identically.
+    """
+
+    async def body(hass: HomeAssistant) -> dict:
+        assert await tasktick_setup(hass, {}) is True
+        return await hass.services.async_call(
+            DOMAIN, "assist_tools", {}, blocking=True, return_response=True
+        )
+
+    result = _run(tmp_path, body)
+
+    assert sorted(result["tasktick_intents"]) == sorted(intents_module.INTENT_TYPES)
+    assert len(result["tasktick_tools"]) == len(intents_module.INTENT_TYPES)
+    assert result["ha_version"]
