@@ -592,12 +592,25 @@ def test_intents_are_exposed_to_assist_as_tools() -> None:
     async def body(hass, client, refreshes):
         from homeassistant.helpers import llm  # noqa: PLC0415
 
-        api = llm.AssistAPI(hass)
+        from custom_components.tasktick import llm as tasktick_llm  # noqa: PLC0415
+
+        # From 2026.10 the tools come from each integration's `llm.py` platform;
+        # before that the intent store itself was the tool list.
+        offered = await tasktick_llm.async_get_tools(
+            hass, _llm_context(), llm.LLM_API_ASSIST
+        )
+        if offered is not None:
+            return {tool.name for tool in offered.tools}
+
+        api = getattr(llm, "AssistAPI")(hass)
         instance = await api.async_get_api_instance(_llm_context())
         return {tool.name for tool in instance.tools}
 
     names = _with_client(body)
-    missing = set(intents_module.INTENT_TYPES) - names
+    # A tool is named `<integration>__<IntentType>`, or bare `<IntentType>` on an
+    # older Home Assistant.
+    exposed = {name.split("__")[-1] for name in names}
+    missing = set(intents_module.INTENT_TYPES) - exposed
     assert not missing, f"registered intents Assist cannot call: {sorted(missing)}"
 
 
@@ -607,7 +620,25 @@ def test_calling_a_tool_through_assist_writes() -> None:
     async def body(hass, client, refreshes):
         from homeassistant.helpers import llm  # noqa: PLC0415
 
-        api = llm.AssistAPI(hass)
+        from custom_components.tasktick import llm as tasktick_llm  # noqa: PLC0415
+
+        offered = await tasktick_llm.async_get_tools(
+            hass, _llm_context(), llm.LLM_API_ASSIST
+        )
+        if offered is not None:
+            tool = next(
+                tool
+                for tool in offered.tools
+                if tool.name.endswith("TaskTickAddTask")
+            )
+            answer = await tool.async_call(
+                hass,
+                llm.ToolInput(tool_name=tool.name, tool_args={"title": "buy bread"}),
+                _llm_context(),
+            )
+            return answer, client.calls
+
+        api = getattr(llm, "AssistAPI")(hass)
         instance = await api.async_get_api_instance(_llm_context())
         answer = await instance.async_call_tool(
             llm.ToolInput(tool_name="TaskTickAddTask", tool_args={"title": "buy bread"})

@@ -524,17 +524,34 @@ def async_setup_services(hass: HomeAssistant) -> None:
             assistant="conversation",
             device_id=None,
         )
-        instance = await llm.async_get_api(hass, llm.LLM_API_ASSIST, context)
-        tools = [
+        # The Assist API only exists once the `llm` integration is set up, which a
+        # bare Home Assistant (and the tests) do not do. Missing it is reported
+        # rather than raised: the answer is then simply "this instance has no
+        # agent tools", which is itself useful.
+        agent_error: str | None = None
+        try:
+            instance = await llm.async_get_api(hass, llm.LLM_API_ASSIST, context)
+            tools = [
+                {"name": tool.name, "description": tool.description or ""}
+                for tool in instance.tools
+            ]
+        except Exception as err:  # noqa: BLE001 - reported, not swallowed
+            agent_error = str(err) or err.__class__.__name__
+            tools = []
+        # Three faults read identically from the assistant's side — it answers
+        # that it cannot do the thing — and they need opposite fixes: a handler
+        # missing from the intent store, a `llm.py` platform Home Assistant never
+        # loaded, or an agent that was handed neither. So report all three: the
+        # store (`tasktick_intents`), what our own platform offers
+        # (`platform_tools`, the only source from 2026.10 on), and what the agent
+        # actually got (`tools`).
+        from . import llm as llm_platform  # noqa: PLC0415 - keeps the import soft
+
+        offered = await llm_platform.async_get_tools(hass, context, llm.LLM_API_ASSIST)
+        platform_tools = [
             {"name": tool.name, "description": tool.description or ""}
-            for tool in instance.tools
+            for tool in (offered.tools if offered is not None else [])
         ]
-        # A handler that never reached the intent store is not on the tool list
-        # either, and from the outside the two look the same: the assistant
-        # answers that it cannot do the thing. So report the store as well as the
-        # tools it produced — `tasktick_intents` empty is a registration fault,
-        # `tasktick_tools` empty with `tasktick_intents` full is a Home Assistant
-        # that does not publish our handlers as tools.
         registered = sorted(intents_module.registered_intent_types(hass))
         # `hass.config_entries` is absent in a Home Assistant built by hand, which
         # is how the tests drive a service call.
@@ -545,11 +562,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
         return {
             "tools": tools,
-            "tasktick_tools": [
-                tool["name"]
-                for tool in tools
-                if tool["name"].lower().startswith(DOMAIN)
-            ],
+            "agent_tools_error": agent_error,
+            "platform_tools": platform_tools,
+            "tools_platform": getattr(llm_platform, "LLM_TOOLS_SUPPORTED", False),
+            "tasktick_tools": sorted(
+                {
+                    tool["name"]
+                    for tool in (*tools, *platform_tools)
+                    if tool["name"].lower().startswith(DOMAIN)
+                }
+            ),
             "tasktick_intents": [
                 intent_type
                 for intent_type in registered

@@ -96,9 +96,15 @@ custom intent at all**.
 
 ### Voice (Assist)
 
-Every TaskTick intent is registered with Home Assistant's intent system, which is
-what Assist builds its tools from — so these work with the built-in conversation
-agent, any LLM-backed agent, and the Assist app, with no extra configuration.
+Every TaskTick intent is registered with Home Assistant's intent system, and from
+2026.10 also offered to conversation agents as LLM tools through this
+integration's `llm.py` platform. Home Assistant changed where that list comes from
+in 2026.10: until 2026.9 it wrapped every registered intent handler itself, and
+from 2026.10 it asks each loaded integration for the platform instead. An
+integration that only registers handlers contributes no tools on 2026.10+, and the
+agent then answers that it cannot do the thing — so the platform is what makes
+these work with any LLM-backed agent. The built-in conversation agent still uses
+the sentence templates below. Nothing has to be exposed for any of it.
 
 | Say | Intent |
 |---|---|
@@ -167,11 +173,15 @@ tell apart: no `TaskTickCreateEvent` in the list means the integration is not se
 up (or the agent has *Control Home Assistant* turned off), while a tool that is
 listed but never chosen is a prompt or model problem, not a wiring one.
 
-The response also carries `tasktick_intents`, `registered_intents`, `set_up`,
-`entry_states` and `ha_version`, because "no tool" has two causes that look the
-same from the assistant's side. `tasktick_intents` empty is a registration fault:
-the handlers never reached Home Assistant's intent store. `tasktick_intents` full
-with `tasktick_tools` empty is Home Assistant not publishing them as tools. And
+The response also carries `tasktick_intents`, `registered_intents`,
+`platform_tools`, `tools_platform`, `set_up`, `entry_states`, `ha_version` and
+`agent_tools_error`, because "no tool" has three causes that look the same from
+the assistant's side. `tasktick_intents` empty is a registration fault: the
+handlers never reached Home Assistant's intent store. `platform_tools` empty with
+`tasktick_intents` full is the `llm.py` platform never loading (its import failed,
+or the release predates it — `tools_platform` says whether this Home Assistant
+has the platform at all). `platform_tools` full but `tools` without them is Home
+Assistant not handing them to the agent. And
 `set_up: false` with `entry_states: ['ConfigEntryState.SETUP_RETRY']` means the
 config entry never finished setting up — the platforms run before the entry is
 marked loaded, so a calendar entity that fails takes the rest of the setup with
