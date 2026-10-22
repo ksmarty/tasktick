@@ -16,7 +16,7 @@ import type { CalendarEventRow } from '../db/schema';
 import { newId, encryptField, decryptField } from '../crypto';
 import { keyBetween, spreadKeys } from '@/lib/fractional';
 import { asAccentColor } from '@/lib/colors';
-import { combineDateAndTime, dateOnlyToMillis, toDateOnly } from '@/lib/dates';
+import { combineDateAndTime, dateOnlyToMillis, exclusiveDayEnd, toDateOnly } from '@/lib/dates';
 import type {
   AccentColor,
   Attendee,
@@ -245,7 +245,13 @@ function rowToEvent(row: CalendarEventRow): CalendarEvent {
     startMs: row.startMs,
     endMs: row.endMs,
     startDate: row.startDate,
-    endDate: row.endDate,
+    // All-day ends are exclusive, so an event stored before that was enforced
+    // (a caller sent the same day twice) reads as one day rather than as a span
+    // that ends before it starts.
+    endDate:
+      row.isAllDay && row.startDate
+        ? exclusiveDayEnd(row.startDate, row.endDate, row.timezone ?? 'UTC')
+        : row.endDate,
     isAllDay: row.isAllDay,
     timezone: row.timezone,
     rrule: row.rrule,
@@ -304,8 +310,12 @@ function resolveSpan(input: EventInput, fallbackZone: string) {
     const startDate = input.startDate ?? (input.startMs ? toDateOnly(input.startMs, zone) : null);
     if (!startDate) return null;
     // RFC 5545 DTEND for a DATE value is exclusive; a single-day event has
-    // DTEND = DTSTART + 1. We mirror that so the grid maths stays uniform.
-    const endDate = input.endDate ?? startDate;
+    // DTEND = DTSTART + 1. We mirror that so the grid maths stays uniform, and a
+    // caller that sends one day twice still gets one day — the Home Assistant
+    // service and the assist intent both send `endDate == startDate` for a
+    // single-day event, and storing it verbatim left a zero-length span that the
+    // editor rendered as ending the day before it started.
+    const endDate = exclusiveDayEnd(startDate, input.endDate, zone);
     return { startMs: null, endMs: null, startDate, endDate, isAllDay: true as const };
   }
 
@@ -314,7 +324,9 @@ function resolveSpan(input: EventInput, fallbackZone: string) {
   const endMs = input.endMs ?? startMs + 60 * 60 * 1000;
   return {
     startMs,
-    endMs: Math.max(endMs, startMs),
+    // A zero-length timed event cannot be drawn, and RFC 5545 wants DTEND after
+    // DTSTART, so the shortest event is one minute.
+    endMs: Math.max(endMs, startMs + 60 * 1000),
     startDate: input.startDate ?? toDateOnly(startMs, zone),
     endDate: input.endDate ?? toDateOnly(endMs, zone),
     isAllDay: false as const,
@@ -499,7 +511,17 @@ export async function updateEvent(
 export async function deleteEvent(userId: string, id: string): Promise<boolean> {
   const db = getDb();
   const existing = await getEvent(userId, id);
-  if (!existing) return false;
+  if (!existing) {
+    // Already gone: either an earlier tap deleted it, or a sync tombstoned it.
+    // Reporting "does not exist" for a row the caller just saw made a completed
+    // delete look like a failure.
+    const [tombstone] = await db
+      .select({ id: calendarEvents.id })
+      .from(calendarEvents)
+      .where(and(eq(calendarEvents.id, id), eq(calendarEvents.userId, userId)))
+      .limit(1);
+    return Boolean(tombstone);
+  }
 
   const now = Date.now();
   if (existing.syncProvider === 'caldav' && existing.externalHref) {

@@ -10,7 +10,7 @@ service with no loaded instance has nothing to act on.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import time as dtime
 import logging
 from typing import Any
@@ -266,12 +266,30 @@ def _parse_event_times(data: dict[str, Any]) -> dict[str, Any]:
         all_day = True
 
     if all_day:
-        start_date = start if isinstance(start, date) else dt_util.parse_date(str(start))
+        start_date = (
+            start.date()
+            if isinstance(start, datetime)
+            else start
+            if isinstance(start, date)
+            else dt_util.parse_date(str(start))
+        )
         if start_date is None:
             raise ServiceValidationError(f"could not read {start!r} as a day")
         payload["startDate"] = start_date.isoformat()
-        end_date = end if isinstance(end, date) else (dt_util.parse_date(str(end)) if end else None)
-        payload["endDate"] = (end_date or start_date).isoformat()
+        # `end` is the last day the event covers, so the API's end is the day
+        # after it: TaskTick stores the RFC 5545 exclusive end. Sending the same
+        # day twice used to leave a zero-length span, which read in the app as an
+        # event that ended the day before it started.
+        end_date = (
+            end.date()
+            if isinstance(end, datetime)
+            else end
+            if isinstance(end, date)
+            else dt_util.parse_date(str(end))
+            if end is not None
+            else None
+        )
+        payload["endDate"] = ((end_date or start_date) + timedelta(days=1)).isoformat()
         payload["isAllDay"] = True
     else:
         start_dt = start if isinstance(start, datetime) else dt_util.parse_datetime(str(start))
@@ -279,7 +297,11 @@ def _parse_event_times(data: dict[str, Any]) -> dict[str, Any]:
             raise ServiceValidationError(f"could not read {start!r} as a time")
         payload["startMs"] = start_dt.timestamp() * 1000
         end_dt = end if isinstance(end, datetime) else (dt_util.parse_datetime(str(end)) if end else None)
-        payload["endMs"] = (end_dt or start_dt).timestamp() * 1000
+        end_dt = end_dt or start_dt
+        if end_dt <= start_dt:
+            # A zero-length event has nothing to draw and no valid DTEND.
+            end_dt = start_dt + timedelta(minutes=1)
+        payload["endMs"] = end_dt.timestamp() * 1000
 
     return payload
 

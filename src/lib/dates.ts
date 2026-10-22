@@ -431,6 +431,20 @@ export function formatClock(totalSeconds: number): string {
 }
 
 /** Combines a floating day and an exclusive end into an instant pair for the grid. */
+export function exclusiveDayEnd(
+  startDate: DateOnly,
+  endDate: DateOnly | null | undefined,
+  zone: string,
+): DateOnly {
+  // RFC 5545 gives a DATE-valued DTEND an exclusive meaning, so a one-day event
+  // runs from `startDate` to `startDate + 1`. A caller that sends the same day
+  // twice means one day, and storing that verbatim produced a zero-length span:
+  // the editor subtracts a day for display, so the event read as ending the day
+  // before it started, and the calendar server received DTEND == DTSTART.
+  // ISO date-only strings order correctly under `<`, so no parsing is needed.
+  return endDate && endDate > startDate ? endDate : addDaysToDateOnly(startDate, 1, zone);
+}
+
 export function allDayBounds(startDate: DateOnly, endDate: DateOnly | null, zone: string): { startMs: Millis; endMs: Millis } {
   const start = fromDateOnly(startDate, zone);
   // RFC 5545 DTEND for a DATE-valued event is exclusive; we store it that way

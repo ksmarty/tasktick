@@ -437,12 +437,15 @@ def test_create_event_without_a_time_is_all_day() -> None:
 
     speech, calls = _with_client(body)
     payload = calls[0][1]
-    today = dt_util.now().date().isoformat()
+    today = dt_util.now().date()
     assert payload == {
         "calendarId": "c1",
         "summary": "Kyle's birthday",
-        "startDate": today,
-        "endDate": today,
+        "startDate": today.isoformat(),
+        # The end is exclusive (RFC 5545), so one day runs to the next. Sending
+        # today twice left a zero-length span that the app displayed as ending
+        # the day before it started.
+        "endDate": (today + timedelta(days=1)).isoformat(),
         # No timestamps at all: the server reads an all-day event from the dates,
         # and sending midnight would put it at the top of the day instead.
         "isAllDay": True,
@@ -496,6 +499,7 @@ def test_create_event_reads_a_full_date() -> None:
 
     calls = _with_client(body)
     assert calls[0][1]["startDate"] == "2026-10-25"
+    assert calls[0][1]["endDate"] == "2026-10-26"
     assert calls[0][1]["isAllDay"] is True
 
 

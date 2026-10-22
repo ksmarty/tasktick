@@ -78,7 +78,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { api, errorMessage } from '@/lib/api-client';
+import { ApiClientError, api, errorMessage } from '@/lib/api-client';
 import {
   addDaysToDateOnly,
   combineDateAndTime,
@@ -579,6 +579,18 @@ function EventForm({
       setConfirmDelete(false);
       onClose();
     } catch (error) {
+      // A 404 means the row is already gone — an earlier tap, or a sync that
+      // removed it between opening this sheet and deleting. Refreshing and
+      // closing shows the truth; an error toast would claim a failure for a
+      // delete that has happened.
+      if (error instanceof ApiClientError && error.status === 404) {
+        await invalidate(EVENT_WRITE_PREFIXES);
+        onChanged();
+        toast({ title: 'Event already removed', variant: 'success' });
+        setConfirmDelete(false);
+        onClose();
+        return;
+      }
       toast({
         title: 'Could not delete the event',
         description: errorMessage(error),

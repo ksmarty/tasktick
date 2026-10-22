@@ -89,6 +89,10 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - **Tasks and events on the same grid**, visually distinguishable
 - Drag-to-reschedule with 15-minute snapping, on touch and mouse
 - Multi-day all-day events render as one continuous bar
+- **An all-day event's end is exclusive**, as RFC 5545 defines it: one day runs
+  from its start to the next day. A caller that sends the same day twice (the
+  Home Assistant service and the assist intent both used to) gets one day, and
+  rows written before this was enforced are read back as one day
 - Recurring series edited once, expanded per view
 - Read-only `webcal://` subscription feed for any calendar client
 
@@ -186,6 +190,9 @@ deterministic and auditable:
 - Discovery **never** deletes a local calendar the server stopped advertising.
 - Passwords are encrypted at rest with AES-256-GCM, keyed by `BETTER_AUTH_SECRET`
   via HKDF, and are never returned by any API route or written to a log.
+- An event delete that finds the row already gone answers as deleted rather than
+  "does not exist": a pull can tombstone a row between the moment a list was
+  drawn and the moment the tap arrived.
 
 ### Subscribing from another client
 

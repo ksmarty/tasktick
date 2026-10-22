@@ -548,14 +548,14 @@ class TaskTickCreateEventIntent(_TaskTickIntent):
         time_text = slot_text(slots, "time")
         if not time_text:
             # No time means the whole day, which is what a birthday, a trip or a
-            # bin collection is. The server takes `startDate`/`endDate` for that,
-            # and an equal pair is one day — the same shape the create_event
+            # bin collection is. `endDate` is the RFC 5545 *exclusive* end, so one
+            # day runs from `day` to `day + 1` — the same shape the create_event
             # service sends for an all-day event.
             payload = {
                 "calendarId": calendar_id,
                 "summary": title,
                 "startDate": day.isoformat(),
-                "endDate": day.isoformat(),
+                "endDate": (day + timedelta(days=1)).isoformat(),
                 "isAllDay": True,
             }
             await coordinator.client.async_create_event(payload)

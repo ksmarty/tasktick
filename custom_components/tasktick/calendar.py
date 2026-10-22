@@ -91,8 +91,14 @@ def to_event_input(kwargs: dict[str, Any]) -> dict[str, Any]:
         else:
             payload["endMs"] = start.timestamp() * 1000 + 3_600_000
     elif isinstance(start, date):
+        # Home Assistant's all-day `dtend` is already the exclusive end (one day
+        # is dtstart + 1), which is what TaskTick stores. An `end` that is a
+        # datetime is not a day, so it is ignored rather than written as one.
         payload["startDate"] = start.isoformat()
-        payload["endDate"] = (end if isinstance(end, date) else start).isoformat()
+        end_day = end if isinstance(end, date) and not isinstance(end, datetime) else None
+        payload["endDate"] = (
+            end_day if end_day and end_day > start else start + timedelta(days=1)
+        ).isoformat()
         payload["isAllDay"] = True
 
     if summary := kwargs.get("summary"):
