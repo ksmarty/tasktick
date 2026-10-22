@@ -94,10 +94,34 @@ jobs:
       # top-level `version` in package.json and both `version` fields in
       # package-lock.json, and nothing else. Hand-editing the lock is how it
       # drifts.
-      - name: Write the version into package.json and package-lock.json
+      #
+      # The Home Assistant manifest carries the same version, because that is the
+      # one HACS reads off an installed copy — it sat at 0.42.1 for dozens of
+      # releases since the integration moved to the repository root, so every
+      # install claimed a version two minor lines old and a reader had no way to
+      # tell which code they were actually running.
+      - name: Write the version into package.json, package-lock.json and the HA manifest
         env:
           NEXT: ${{ steps.next.outputs.version }}
-        run: npm version "$NEXT" --no-git-tag-version --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          npm version "$NEXT" --no-git-tag-version --no-audit --no-fund
+          MANIFEST=custom_components/tasktick/manifest.json
+          # A targeted replace, not a JSON round-trip: `JSON.stringify` would
+          # reformat every inline array in the file and bury the one line that
+          # changed.
+          node -e '
+            const fs = require("node:fs");
+            const [file, version] = process.argv.slice(1);
+            const text = fs.readFileSync(file, "utf8");
+            const next = text.replace(/^(\s*"version":\s*)"[^"]*"/m, `$1"${version}"`);
+            if (next === text) {
+              console.error(`${file}: no version line to update`);
+              process.exit(1);
+            }
+            fs.writeFileSync(file, next);
+          ' "$MANIFEST" "$NEXT"
+          git diff --stat -- "$MANIFEST"
 
       # The release body, which `release.yml` reads back out of the annotated
       # tag. A generated changelog is thinner than a written one, and it is the
@@ -136,7 +160,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
+          git add package.json package-lock.json custom_components/tasktick/manifest.json
           git commit -m "chore: release v${NEXT} [skip version]"
           # Annotated, because `release.yml` uses the annotation as the release
           # body and a lightweight tag has none.
