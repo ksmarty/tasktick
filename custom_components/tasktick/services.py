@@ -547,7 +547,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         # actually got (`tools`).
         from . import llm as llm_platform  # noqa: PLC0415 - keeps the import soft
 
-        offered = await llm_platform.async_get_tools(hass, context, llm.LLM_API_ASSIST)
+        offered = llm_platform.async_get_tools(hass, context, llm.LLM_API_ASSIST)
         platform_tools = [
             {"name": tool.name, "description": tool.description or ""}
             for tool in (offered.tools if offered is not None else [])

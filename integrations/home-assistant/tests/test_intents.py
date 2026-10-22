@@ -596,7 +596,7 @@ def test_intents_are_exposed_to_assist_as_tools() -> None:
 
         # From 2026.10 the tools come from each integration's `llm.py` platform;
         # before that the intent store itself was the tool list.
-        offered = await tasktick_llm.async_get_tools(
+        offered = tasktick_llm.async_get_tools(
             hass, _llm_context(), llm.LLM_API_ASSIST
         )
         if offered is not None:
@@ -622,7 +622,7 @@ def test_calling_a_tool_through_assist_writes() -> None:
 
         from custom_components.tasktick import llm as tasktick_llm  # noqa: PLC0415
 
-        offered = await tasktick_llm.async_get_tools(
+        offered = tasktick_llm.async_get_tools(
             hass, _llm_context(), llm.LLM_API_ASSIST
         )
         if offered is not None:

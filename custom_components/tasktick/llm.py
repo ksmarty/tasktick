@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN
 from .intents import INTENT_TYPES
@@ -83,7 +83,8 @@ def _tool_name(intent_type: str) -> str:
     return f"{DOMAIN}__{intent_type}"
 
 
-async def async_get_tools(
+@callback
+def async_get_tools(
     hass: HomeAssistant, llm_context: "LLMContext", api_id: str
 ) -> "LLMTools | None":
     """Return the TaskTick tools for a conversation agent.
@@ -91,6 +92,16 @@ async def async_get_tools(
     Returns None when there is nothing to offer, which keeps TaskTick out of
     agents that do not use the Assist API and out of the tool list entirely on
     older Home Assistant releases.
+
+    Synchronous, and it has to stay that way: Home Assistant calls a platform's
+    ``async_get_tools`` without awaiting it (``components/llm/__init__.py``:
+    ``result = platform.async_get_tools(...)``) and then reads ``result.tools``.
+    An ``async def`` here returns a coroutine, and that read raises
+    ``AttributeError: 'coroutine' object has no attribute 'tools'`` *outside* the
+    integration loop's handler — so the whole pipeline run fails with
+    "Unexpected error during intent recognition" and the platform's own log entry
+    never appears. Everything this function needs is already in memory, so there
+    is nothing to await.
     """
 
     if not LLM_TOOLS_SUPPORTED:

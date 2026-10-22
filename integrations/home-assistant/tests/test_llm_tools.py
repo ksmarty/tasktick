@@ -65,7 +65,7 @@ async def _offered(hass: HomeAssistant) -> dict[str, dict[str, str]]:
     """What our platform hands a conversation agent, by tool name."""
 
     intents_module.async_setup_intents(hass)
-    offered = await tasktick_llm.async_get_tools(
+    offered = tasktick_llm.async_get_tools(
         hass, _context(), llm.LLM_API_ASSIST
     )
     assert offered is not None, "the platform offered nothing"
@@ -156,7 +156,7 @@ def test_another_api_is_offered_nothing(tmp_path) -> None:
 
     async def body(hass: HomeAssistant):
         intents_module.async_setup_intents(hass)
-        return await tasktick_llm.async_get_tools(hass, _context(), "mcp")
+        return tasktick_llm.async_get_tools(hass, _context(), "mcp")
 
     assert _run(tmp_path, body) is None
 
@@ -170,11 +170,46 @@ def test_no_registered_handler_means_no_tools(tmp_path) -> None:
     """
 
     async def body(hass: HomeAssistant):
-        return await tasktick_llm.async_get_tools(
+        return tasktick_llm.async_get_tools(
             hass, _context(), llm.LLM_API_ASSIST
         )
 
     assert _run(tmp_path, body) is None
+
+
+@needs_tools_platform
+def test_home_assistant_reads_the_tools_without_awaiting(tmp_path) -> None:
+    """The platform callback is *called*, not awaited, by the `llm` integration.
+
+    This is the contract that broke v0.42.38. `components/llm/__init__.py` does
+    `result = platform.async_get_tools(...)` and then reads `result.tools`; an
+    `async def` here returns a coroutine, that read raises `AttributeError`
+    outside the per-integration exception handler, and the whole pipeline run
+    dies with "Unexpected error during intent recognition" — with nothing in the
+    log naming the platform.
+
+    The call is made the way the `llm` integration makes it rather than through
+    `llm.async_get_tools`, because that needs the integration loader, which a
+    Home Assistant built by hand does not have.
+    """
+
+    import inspect  # noqa: PLC0415 - only this test needs it
+
+    assert not inspect.iscoroutinefunction(tasktick_llm.async_get_tools)
+
+    async def body(hass: HomeAssistant) -> set[str]:
+        intents_module.async_setup_intents(hass)
+        result = tasktick_llm.async_get_tools(hass, _context(), llm.LLM_API_ASSIST)
+        assert not inspect.isawaitable(result), (
+            "Home Assistant calls this without awaiting; a coroutine here fails "
+            "every pipeline run"
+        )
+        assert result is not None
+        return {tool.name for tool in result.tools}
+
+    names = _run(tmp_path, body)
+
+    assert {f"{DOMAIN}__{intent_type}" for intent_type in intents_module.INTENT_TYPES} <= names
 
 
 @needs_legacy_intents
@@ -261,7 +296,7 @@ def test_the_intents_survive_a_setup_that_never_completes(tmp_path) -> None:
 
     async def body(hass: HomeAssistant) -> set[str]:
         assert await tasktick_setup(hass, {}) is True
-        offered = await tasktick_llm.async_get_tools(
+        offered = tasktick_llm.async_get_tools(
             hass, _context(), llm.LLM_API_ASSIST
         )
         names: set[str] = set()
