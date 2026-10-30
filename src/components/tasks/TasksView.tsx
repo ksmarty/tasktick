@@ -63,7 +63,7 @@ import { usePrimaryAction } from '@/lib/events';
 import { api } from '@/lib/api-client';
 import { affectsFor } from '@/lib/offline-rules';
 import { useMutation, useResource } from '@/lib/store';
-import type { CalendarItem, Task } from '@/lib/types';
+import type { CalendarEvent, CalendarItem, Task } from '@/lib/types';
 import type {
   BootstrapPayload,
   CalendarItemsPayload,
@@ -594,6 +594,27 @@ export function TasksView() {
     void calendarItems.refresh();
   };
 
+  /**
+   * Opens the editor for an event a *create* just produced — whether it was made
+   * by the quick-add's calendar destination or by the calendar sheet itself.
+   *
+   * The seed is inert: with `eventId` set the sheet reads the record from the
+   * server, so it only has to be a valid `EventDefaults`, not a copy of the new
+   * event. One function for both callers is what keeps them from drifting apart.
+   */
+  function openCreatedEvent(event: CalendarEvent) {
+    setEventEditor({
+      open: true,
+      eventId: event.id,
+      defaults: {
+        date: event.startDate ?? today,
+        startMinute: 9 * 60,
+        endMinute: 10 * 60,
+        calendarId: event.calendarId,
+      },
+    });
+  }
+
   function deleteTask(task: Task) {
     optimistic(
       (current) => removeByIds(current, new Set([task.id])),
@@ -967,6 +988,9 @@ export function TasksView() {
         // The toast's own action, so a just-typed task can be opened on the
         // screen that would have edited it anyway.
         onEditCreated={(task) => setEditor({ open: true, task })}
+        // A calendar destination in the quick-add creates an event, whose Edit
+        // action goes to the event editor — not the task one.
+        onEditCreatedEvent={openCreatedEvent}
       />
       {/*
        * The event editor, the same one the calendar screen uses. Its Edit action
@@ -990,22 +1014,7 @@ export function TasksView() {
         calendars={data?.calendars ?? []}
         prefs={{ zone, weekStartsOn, timeFormat }}
         onChanged={refreshAfterEventWrite}
-        /*
-         * The toast's Edit action. The seed is inert once `eventId` is set — the
-         * sheet reads the record — so a plain today's-date prefill is enough.
-         */
-        onEditCreated={(event) =>
-          setEventEditor({
-            open: true,
-            eventId: event.id,
-            defaults: {
-              date: today,
-              startMinute: 9 * 60,
-              endMinute: 10 * 60,
-              calendarId: event.calendarId,
-            },
-          })
-        }
+        onEditCreated={openCreatedEvent}
       />
       <ListManagerDialog
         open={listManager.open}

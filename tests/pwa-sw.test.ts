@@ -963,6 +963,68 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(landing?.body).toBe('<html>tasks</html>');
   });
 
+  it('answers a cold launch from the cached landing document without waiting on the network', async () => {
+    /*
+     * The installed app's `start_url` is `/`, and `/` is a redirect route: its
+     * response is `redirected`, so this session can never hold a document for it
+     * and the navigation could only ever end in the redirect below. Every launch
+     * therefore waited out the network first — the whole round trip on a good
+     * link, `NAVIGATION_TIMEOUT_MS` on a bad one — for a document it could not
+     * use. That wait is the launch delay the user reported.
+     *
+     * With the landing document cached, the redirect is answered at once: the
+     * browser follows it, and THAT navigation is cache-first, so the app paints
+     * from disk. A network that never answers at all is what proves nothing here
+     * waits for it.
+     */
+    const harness = createHarness();
+    await harness.install((url) => {
+      if (url.endsWith('/')) return new FakeResponse('<html>login</html>', { redirected: true });
+      if (url.endsWith('/offline')) return new FakeResponse('<html>offline</html>');
+      return new FakeResponse('asset');
+    });
+    await announce(harness, 's1');
+    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+    harness.writes.length = 0;
+
+    const never = new Promise<FakeResponse>(() => undefined);
+    const started = Date.now();
+    const root = await harness.navigation(`${ORIGIN}/`, (url) =>
+      url.endsWith('/') ? (never as never) : html('<html>tasks</html>'),
+    );
+    const elapsed = Date.now() - started;
+
+    expect(root?.status).toBe(302);
+    expect(root?.headers.get('location')).toBe(`${ORIGIN}/tasks`);
+    // Far below the ceiling: the answer did not come from the network race.
+    expect(elapsed).toBeLessThan(NAVIGATION_TIMEOUT_MS / 3);
+
+    // The launch still refreshed the document it painted from, in the background.
+    expect(harness.writes).toEqual([`${API_CACHE} ${ORIGIN}/tasks`]);
+  });
+
+  it('does not redirect the root at a landing route it has nothing cached for', async () => {
+    /*
+     * The fast path above is only safe when the landing document is really on
+     * disk. Redirecting an uncached launch would spend one round trip on the
+     * redirect and then another on the route — worse than asking `/` directly,
+     * which is what the ordinary path does.
+     */
+    const harness = createHarness();
+    await harness.install((url) => {
+      if (url.endsWith('/')) return new FakeResponse('<html>login</html>', { redirected: true });
+      if (url.endsWith('/offline')) return new FakeResponse('<html>offline</html>');
+      return new FakeResponse('asset');
+    });
+    await announce(harness, 's1');
+
+    const root = await harness.navigation(`${ORIGIN}/`, () => html('<html>landing</html>'), undefined, false);
+    // The live answer for `/` (which a real server would send as a redirect), not
+    // an invented one: nothing is cached, so nothing is assumed.
+    expect(root?.status).toBe(200);
+    expect(root?.body).toBe('<html>landing</html>');
+  });
+
   it('redirects to /offline when the precache is empty, then shows a last-resort document there', async () => {
     const harness = createHarness();
 

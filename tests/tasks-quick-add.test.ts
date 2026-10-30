@@ -11,6 +11,7 @@ import {
   listNameFromToken,
   listTokenAt,
   planQuickAdd,
+  planQuickAddEvent,
   quickAddChips,
   quickAddHighlights,
   suggestLists,
@@ -358,5 +359,99 @@ describe('pinned parse — today at 7pm go home', () => {
       dueTime: '19:00',
       listId: 'inbox',
     });
+  });
+});
+
+/*
+ * The quick-add's calendar chip creates an EVENT, not a task.
+ *
+ * Reported: creating something with a calendar destination from the tasks screen
+ * landed in the calendar, but every screen drew it as — and opened it as — a
+ * task. The chip was writing a task row that merely carried a `calendarId`. The
+ * calendar chip is the only destination control on the screen, so picking a
+ * calendar there has to mean "this is an event".
+ */
+describe('planQuickAddEvent', () => {
+  const CALENDAR = 'cal-work';
+
+  function planEvent(
+    input: string,
+    calendarId: string | null = CALENDAR,
+    overrides: Partial<QuickAddContext> = {},
+  ) {
+    const parsed = parseQuickAdd(input, { zone: 'utc', now: DateTime.fromMillis(NOW_MS, { zone: 'utc' }) });
+    return planQuickAddEvent(parsed, { ...context, ...overrides }, calendarId);
+  }
+
+  it('creates an all-day event on the day the sentence names, with an exclusive end', () => {
+    const planned = planEvent('Dentist tomorrow');
+    expect(planned).not.toBeNull();
+    expect(planned?.date).toBe('2025-05-13');
+    expect(planned?.time).toBeNull();
+    expect(planned?.body).toEqual({
+      calendarId: CALENDAR,
+      summary: 'Dentist',
+      isAllDay: true,
+      timezone: 'utc',
+      startDate: '2025-05-13',
+      // RFC 5545: DTEND is exclusive, so one day is `date` → `date + 1`.
+      endDate: '2025-05-14',
+      rrule: null,
+    });
+  });
+
+  it('creates a timed event lasting an hour when the sentence gives no duration', () => {
+    const planned = planEvent('Standup tomorrow 9am');
+    expect(planned?.time).toBe('09:00');
+    expect(planned?.body.isAllDay).toBe(false);
+    expect(planned?.body.startMs).toBe(Date.parse('2025-05-13T09:00:00Z'));
+    expect(planned?.body.endMs).toBe(Date.parse('2025-05-13T10:00:00Z'));
+    expect(planned?.body.startDate).toBe('2025-05-13');
+    expect(planned?.body.endDate).toBe('2025-05-13');
+    expect(planned?.body.startTime).toBe('09:00');
+    expect(planned?.body.endTime).toBe('10:00');
+  });
+
+  it('takes the duration from the sentence estimate', () => {
+    // `~30m` is the parser's estimate token; a bare `30m` stays in the title.
+    const planned = planEvent('Standup tomorrow 9am ~30m');
+    expect(planned?.body.startMs).toBe(Date.parse('2025-05-13T09:00:00Z'));
+    expect(planned?.body.endMs).toBe(Date.parse('2025-05-13T09:30:00Z'));
+    expect(planned?.body.endTime).toBe('09:30');
+  });
+
+  it('lets an event that crosses midnight end on the next day', () => {
+    const planned = planEvent('Deploy tonight 23:30');
+    expect(planned?.body.startMs).toBe(Date.parse('2025-05-12T23:30:00Z'));
+    expect(planned?.body.endMs).toBe(Date.parse('2025-05-13T00:30:00Z'));
+    expect(planned?.body.endDate).toBe('2025-05-13');
+    expect(planned?.body.endTime).toBe('00:30');
+  });
+
+  it('anchors a time-only sentence on today, like the task path does', () => {
+    const planned = planEvent('Call 15:00');
+    expect(planned?.date).toBe('2025-05-12');
+    expect(planned?.body.startMs).toBe(Date.parse('2025-05-12T15:00:00Z'));
+  });
+
+  it('carries the recurrence rule straight through onto the event', () => {
+    /*
+     * `buildRRule` already normalises away the `RRULE:` prefix, so the parsed
+     * rule is directly the event's `rrule` field — no re-serialisation here.
+     */
+    const planned = planEvent('Standup every weekday at 9am');
+    expect(planned?.body.rrule).toBe('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR');
+  });
+
+  it('falls back to the task path when no calendar is picked', () => {
+    expect(planEvent('Dentist tomorrow', null)).toBeNull();
+  });
+
+  it('keeps a sentence that names a list a task — a typed name outranks a tapped calendar', () => {
+    expect(planEvent('Buy milk tomorrow @groceries')).toBeNull();
+  });
+
+  it('falls back to the task path when there is no title', () => {
+    expect(planEvent('   ', CALENDAR)).toBeNull();
   });
 });

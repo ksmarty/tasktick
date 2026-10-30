@@ -393,8 +393,9 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   const tags = bootstrap?.tags ?? [];
   /*
    * Every calendar, because the *current* one must resolve to a name even when
-   * it is read-only (a task already filed into a subscribed collection). The
-   * combobox applies the writable-only rule to the destinations itself.
+   * it cannot be a destination — a task already filed into a subscribed
+   * collection, or into one that has since become event-only. `CalendarCombobox`
+   * applies the writable-only and holds-tasks rules to the *choices* itself.
    */
   const calendars = bootstrap?.calendars ?? [];
   /* react-day-picker wants the literal weekday union; the setting is 0 or 1. */
@@ -901,6 +902,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                     calendars={calendars}
                     onChange={(next) => edit({ calendarId: next || null })}
                     allowNone
+                    holdsTasks
                   />
                 </div>
               ) : null}

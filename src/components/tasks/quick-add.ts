@@ -11,10 +11,12 @@
  */
 import {
   combineDateAndTime,
+  exclusiveDayEnd,
   formatTime,
   fromDateOnly,
   humanDuration,
   relativeDayLabel,
+  timeIn,
   toDateOnly,
   todayIn,
 } from '@/lib/dates';
@@ -227,6 +229,128 @@ export function planQuickAdd(result: QuickAddResult, context: QuickAddContext): 
   }
 
   return { payload, createListName };
+}
+
+/**
+ * The wire body for `POST /api/events`, built from a spoken sentence.
+ *
+ * Kept as its own type rather than importing the editor's `EventWriteBody`: this
+ * one is the *smallest* set of fields a quick-add can fill in, and a `Partial`
+ * over the editor's shape would let a caller send a half-configured reminder
+ * list or a null calendar without the compiler saying anything.
+ */
+export interface QuickAddEventBody {
+  calendarId: string;
+  summary: string;
+  isAllDay: boolean;
+  timezone: string;
+  startDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  startMs?: number;
+  endMs?: number;
+  rrule?: string | null;
+}
+
+export interface QuickAddEventPlan {
+  body: QuickAddEventBody;
+  /** The day the event starts on, for the toast's own label. */
+  date: string;
+  /** The clock time it starts at, or `null` for an all-day event. */
+  time: string | null;
+}
+
+/**
+ * How long a quick-added event lasts when the sentence says nothing about it.
+ *
+ * An event needs an end, and asking for one would defeat the point of a
+ * one-line add. An hour is the calendar editors' own default, so an event made
+ * here and one made there look the same. An `estimate` in the sentence wins over
+ * this (`Standup tomorrow 9am 15m`), because that is the number the user gave.
+ */
+const DEFAULT_EVENT_MINUTES = 60;
+
+/**
+ * The event a quick-add creates when its destination is a CALENDAR.
+ *
+ * A calendar holds events; a list holds tasks. The quick-add's calendar chip is
+ * the only destination control on the screen, so picking a calendar there means
+ * "put this in my calendar" — and it used to produce a *task* with a
+ * `calendarId`, which the calendar then drew as a task row and every editor
+ * opened as a task. The user asked for an event and got a task that merely lived
+ * somewhere else.
+ *
+ * One exception, and it is the sentence's: an explicit `@List` names a task
+ * container, so a sentence that carries one stays a task (the picked calendar
+ * then files that task, which is the existing behaviour). Two containers in one
+ * sentence cannot both be the item's type, and the one the user typed outranks
+ * the one they tapped.
+ *
+ * Returns `null` when there is no calendar, no title, or a named list — the
+ * caller then takes the task path.
+ */
+export function planQuickAddEvent(
+  result: QuickAddResult,
+  context: QuickAddContext,
+  calendarId: string | null | undefined,
+): QuickAddEventPlan | null {
+  const title = result.title.trim();
+  if (!title || !calendarId) return null;
+  if (result.listName) return null;
+
+  /*
+   * The day: what the sentence named, else today when it named only a time —
+   * the same anchor `planQuickAdd` uses, so a bare `Standup 9am` means the same
+   * day whichever kind of item it becomes. Something with no day AND no time is
+   * an all-day event today: the chip already reads "Calendar · Today", and an
+   * event without a start is refused by the server (`invalid-span`).
+   */
+  const date = result.dueDate ?? resolveAnchorDay(context);
+  const time = result.dueTime ?? null;
+
+  if (!time) {
+    return {
+      date,
+      time: null,
+      body: {
+        calendarId,
+        summary: title,
+        isAllDay: true,
+        timezone: context.zone,
+        startDate: date,
+        // RFC 5545: a DATE-valued DTEND is exclusive, and the API stores it that
+        // way — one day is `date` → `date + 1`, never the same day twice.
+        endDate: exclusiveDayEnd(date, null, context.zone),
+        rrule: result.recurrenceRule ?? null,
+      },
+    };
+  }
+
+  const startMs = combineDateAndTime(date, time, context.zone);
+  const minutes = result.estimateMinutes && result.estimateMinutes > 0 ? result.estimateMinutes : DEFAULT_EVENT_MINUTES;
+  const endMs = startMs + minutes * 60_000;
+
+  return {
+    date,
+    time,
+    body: {
+      calendarId,
+      summary: title,
+      isAllDay: false,
+      timezone: context.zone,
+      startMs,
+      endMs,
+      startDate: date,
+      // A long event may cross midnight; deriving the end day from the end
+      // instant is what keeps a 23:30 + 60m event ending tomorrow rather than
+      // being clamped to a zero-length span on today.
+      endDate: toDateOnly(endMs, context.zone),
+      startTime: time,
+      endTime: timeIn(endMs, context.zone),
+      rrule: result.recurrenceRule ?? null,
+    },
+  };
 }
 
 function resolveAnchorDay(context: QuickAddContext): string {

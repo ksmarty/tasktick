@@ -113,7 +113,7 @@ import type { CalendarFilter, CalendarPrefs } from './types';
  * are built from it, so a new event appeared on the calendar and not on Today
  * until something else refreshed it.
  */
-const EVENT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/events');
+export const EVENT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/events');
 
 /** Prefill for a new event, expressed the way the grid thinks. */
 export interface EventDefaults {

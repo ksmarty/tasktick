@@ -1031,7 +1031,9 @@ describe('QuickAddBar — the toast after a creation offers the record', () => {
   it('threads the callback to the hook that raises the toast', () => {
     // The toast is raised inside `useQuickAdd`, so the callback has to travel
     // with it rather than being handled in the panel.
-    expect(QUICK_ADD).toContain('const state = useQuickAdd(listId, onCreated, onEditCreated);');
+    // Two edit callbacks now: a task's toast and an event's toast open different
+    // sheets, because a calendar destination creates an event.
+    expect(QUICK_ADD).toContain('const state = useQuickAdd(listId, onCreated, onEditCreated, onEditCreatedEvent);');
     expect(QUICK_ADD).toContain('onCreated?: (task: Task) => void;');
   });
 
@@ -1041,9 +1043,14 @@ describe('QuickAddBar — the toast after a creation offers the record', () => {
   });
 
   it('opens the event editor again when the created item was an event', () => {
-    // The tasks screen hosts the calendar's event editor too, so its toast
-    // reopens that sheet on the event that was just created.
-    expect(VIEW).toContain('onEditCreated={(event) =>');
+    /*
+     * The tasks screen hosts the calendar's event editor too, so its toast — and
+     * the quick-add's, once a calendar destination creates an event — reopens
+     * that sheet on the event that was just created. Both go through one
+     * function, so they cannot drift into two different seeds for one record.
+     */
+    expect(VIEW).toContain('onEditCreated={openCreatedEvent}');
+    expect(VIEW).toContain('onEditCreatedEvent={openCreatedEvent}');
     expect(VIEW).toContain('eventId: event.id');
   });
 });

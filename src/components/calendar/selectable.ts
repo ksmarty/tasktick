@@ -21,3 +21,21 @@ import type { Calendar as CalendarRecord } from '@/lib/types';
 export function selectableCalendars(calendars: readonly CalendarRecord[]): CalendarRecord[] {
   return calendars.filter((calendar) => !calendar.readOnly && calendar.isVisible);
 }
+
+/**
+ * Which calendars a *task* may be filed into.
+ *
+ * A calendar is an event's home; a collection holds tasks only when it accepts
+ * VTODOs (`supportsVtodo`). Offering an event-only calendar in the task editor
+ * produced the report this function exists to end: the task was written, the
+ * calendar drew it as a task row, and every editor opened it as a task — the item
+ * had been filed into a calendar that has no notion of a task, and from the user's
+ * side the calendar they picked had been disregarded.
+ *
+ * The current value is not special-cased: the combobox resolves the trigger's
+ * name across *all* calendars, so a task that already sits in an event-only
+ * collection still shows where it is while the user picks somewhere writable.
+ */
+export function calendarsThatHoldTasks(calendars: readonly CalendarRecord[]): CalendarRecord[] {
+  return selectableCalendars(calendars).filter((calendar) => calendar.supportsVtodo);
+}

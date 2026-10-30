@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v57';
+const VERSION = 'tasktick-v58';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -625,6 +625,34 @@ async function navigationNetworkFirst(event) {
       }
     }
     /*
+     * The installed app's LAUNCH url, answered without waiting on the network.
+     *
+     * `manifest.webmanifest` starts the app at `/`, and `/` is a redirect route:
+     * its response is `redirected`, which `isDocumentCacheable` refuses, so this
+     * session's cache can never hold a document for it. Every cold launch
+     * therefore fell through to the wait below — the full network round trip on a
+     * good link, `NAVIGATION_TIMEOUT_MS` on a bad one — before the fallback
+     * redirected to the landing route. That wait IS the launch delay: the app was
+     * waiting for a document it can never use.
+     *
+     * The redirect is the cheap part, because the browser follows it and asks for
+     * LANDING_URL next — and that navigation is cache-first (above), so the screen
+     * paints from the copy already on disk. One cache lookup replaces the whole
+     * round trip, which is what makes a launch instant at any signal strength.
+     *
+     * Only when the landing document is really cached: redirecting into a route
+     * with nothing to serve would trade one round trip for two. The network
+     * request started above is left running to refresh the copy for next time.
+     */
+    if (cache && new URL(request.url).pathname === SHELL_URL) {
+      const landingKey = new Request(landingUrl(), { method: 'GET' });
+      if (await cache.match(landingKey)) {
+        if (typeof event.waitUntil === 'function') event.waitUntil(refreshLandingDocument(cache));
+        return Response.redirect(landingUrl(), 302);
+      }
+    }
+
+    /*
      * Nothing cached: wait for the network, but not forever. A first visit to an
      * uncached route on a slow-but-alive link must still get the fresh document
      * rather than be pushed to /offline early.
@@ -682,7 +710,7 @@ async function navigationNetworkFirst(event) {
        * not cached either it follows the ordinary path to /offline below, so
        * this can only ever improve on the last-resort document.
        */
-      return Response.redirect(new URL(LANDING_URL, self.location.origin).href, 302);
+      return Response.redirect(landingUrl(), 302);
     }
 
     if (requestedPath === OFFLINE_URL) {
@@ -749,6 +777,24 @@ function storeDocument(cache, key, network) {
       await trimApiCache(cache);
     })
     .catch(() => undefined);
+}
+
+/** The landing route's absolute URL, which an instant launch redirects to. */
+function landingUrl() {
+  return new URL(LANDING_URL, self.location.origin).href;
+}
+
+/**
+ * Refreshes the landing document an instant launch painted from.
+ *
+ * The user's navigation was for `/`, whose answer is a redirect — and a redirect
+ * can never be cached as `/tasks` (it is `redirected`, so `isDocumentCacheable`
+ * refuses it). Asking for the landing route directly is what produces a cacheable
+ * document. It runs in the background: the screen has already painted from the
+ * copy on hand, so the user waits for nothing.
+ */
+function refreshLandingDocument(cache) {
+  return primeDocument(cache, landingUrl(), { force: true });
 }
 
 /**
@@ -950,11 +996,16 @@ async function cacheCurrentDocument(rawUrl) {
   await primeDocument(cache, target.href);
 }
 
-/** Fetches and stores one route's document, unless this session already has it. */
-async function primeDocument(cache, url) {
+/**
+ * Fetches and stores one route's document, unless this session already has it.
+ *
+ * `force` skips that check: the caller holds a copy it is serving *now* and is
+ * asking for the newer one behind it, so "already cached" is not an answer.
+ */
+async function primeDocument(cache, url, { force = false } = {}) {
   try {
     const key = new Request(url, { method: 'GET' });
-    if (await cache.match(key)) return;
+    if (!force && (await cache.match(key))) return;
     const response = await fetch(key, { credentials: 'same-origin' });
     if (!isDocumentCacheable(response)) return;
     await cache.put(key, response.clone());

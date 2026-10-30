@@ -86,8 +86,10 @@ import { DotsHorizontalIcon } from '@svg-animated-icons/react/dots-horizontal';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { Flag, Tag as TagIcon } from 'lucide-react';
 import { listToken, parseQuickAdd, type QuickAddResult } from '@/lib/nlp';
-import { useResource } from '@/lib/store';
-import type { Calendar as CalendarRecord, Task } from '@/lib/types';
+import { api, errorMessage } from '@/lib/api-client';
+import { combineDateAndTime, formatTime, relativeDayLabel } from '@/lib/dates';
+import { invalidate, useResource } from '@/lib/store';
+import type { Calendar as CalendarRecord, CalendarEvent, Task } from '@/lib/types';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { useToast } from '@/components/app/Toast';
 import { Button } from '@/components/ui/button';
@@ -101,12 +103,14 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { calendarColorHex } from '@/components/calendar/colors';
+import { EVENT_WRITE_PREFIXES } from '@/components/calendar/EventEditorSheet';
 import { selectableCalendars } from '@/components/calendar/selectable';
 import { dueLabel } from './TaskMeta';
 import { priorityColor, priorityLabel } from './priority';
 import {
   listTokenAt,
   planQuickAdd,
+  planQuickAddEvent,
   quickAddChips,
   highlightSegments,
   quickAddHighlights,
@@ -114,6 +118,7 @@ import {
   type ListLike,
   type QuickAddChip,
   type QuickAddChipKind,
+  type QuickAddEventPlan,
   type QuickAddContext,
   type QuickAddSegment,
 } from './quick-add';
@@ -135,6 +140,13 @@ export interface QuickAddBarProps {
    * for, so offering to edit it again would be noise.
    */
   onEditCreated?: (task: Task) => void;
+  /**
+   * The same action for the other kind of thing this screen can now create: a
+   * calendar destination makes an EVENT, and its Edit action opens the event
+   * editor. Without it the toast would offer an action that opens the wrong
+   * editor, so the action is simply left off.
+   */
+  onEditCreatedEvent?: (event: CalendarEvent) => void;
 }
 
 /**
@@ -339,10 +351,10 @@ interface QuickAddState {
   offlineNotice: string;
   busy: boolean;
   /**
-   * The calendars a task may be filed into — writable and visible ones only: a
-   * read-only collection accepts a local row and never writes it back, and a
-   * hidden calendar draws nothing, so a task filed there would look discarded.
-   * Empty when there are none, which hides the picker entirely.
+   * The calendars a quick-add may create an event in — writable and visible ones
+   * only: a read-only collection accepts a local row and never writes it back,
+   * and a hidden calendar draws nothing, so an event filed there would look
+   * discarded. Empty when there are none, which hides the picker entirely.
    */
   calendars: CalendarRecord[];
   /** The chosen calendar id, or `''` for no calendar. */
@@ -357,10 +369,29 @@ interface QuickAddState {
   tags: readonly ListLike[];
 }
 
+/**
+ * How a toast states *when* an event it just created happens.
+ *
+ * The two facts the sentence carried and the sheet has now swallowed: the day,
+ * and the clock time — whose absence is itself the answer for an all-day event.
+ */
+function eventWhenLabel(
+  plan: QuickAddEventPlan,
+  zone: string,
+  timeFormat: '12h' | '24h',
+  weekStartsOn: number,
+): string {
+  const day = relativeDayLabel(plan.date, zone);
+  if (!plan.time) return `${day} · All day`;
+  const at = combineDateAndTime(plan.date, plan.time, zone);
+  return `${day} · ${formatTime(at, { zone, timeFormat, weekStartsOn })}`;
+}
+
 function useQuickAdd(
   listId: string | null,
   onCreated?: (task: Task) => void,
   onEditCreated?: (task: Task) => void,
+  onEditCreatedEvent?: (event: CalendarEvent) => void,
 ): QuickAddState {
   const { data: bootstrap } = useResource<BootstrapPayload>('/api/bootstrap', undefined, { staleAfterMs: 60_000 });
   const zone = bootstrap?.settings.timezone ?? bootstrap?.user.timezone ?? 'utc';
@@ -371,10 +402,10 @@ function useQuickAdd(
   const { toast } = useToast();
   const [value, setValue] = useState('');
   /*
-   * Which calendar the task is filed into; `''` is "no calendar", which is where
-   * a task starts. Deliberately *not* reset after each add, for the same reason
-   * the list is not: someone filing three tasks into one calendar should not have
-   * to name it three times.
+   * Which calendar the event is created in; `''` is "no calendar", which is where
+   * a quick-add starts. Deliberately *not* reset after each add, for the same
+   * reason the list is not: someone adding three events to one calendar should
+   * not have to name it three times.
    */
   const [calendarId, setCalendarId] = useState('');
 
@@ -415,6 +446,47 @@ function useQuickAdd(
     }
 
     /*
+     * A calendar is an event's home, not a task's.
+     *
+     * The chip is the screen's only destination control, so choosing a calendar
+     * there reads as "put this in my calendar" — and it used to create a task
+     * that merely carried a `calendarId`: the calendar drew it as a task row and
+     * every editor opened it as a task, which is exactly what the user reported.
+     * A sentence that names a list (`@Groceries`) still makes a task, because a
+     * list is a task container and the one the user typed outranks the one they
+     * tapped — `planQuickAddEvent` owns that rule.
+     */
+    const eventPlan = planQuickAddEvent(result, context, calendarId);
+    if (eventPlan) {
+      try {
+        const saved = await api.post<CalendarEvent>('/api/events', eventPlan.body);
+        // Wakes the list, the agenda and the calendar grid in one go; the table
+        // in `offline-rules.ts` decides the set, so this cannot forget one.
+        await invalidate(EVENT_WRITE_PREFIXES);
+        setValue('');
+        const calendarName =
+          writableCalendars.find((calendar) => calendar.id === calendarId)?.name ?? 'Calendar';
+        toast({
+          title: 'Event added',
+          description: `${saved.summary} · ${eventWhenLabel(eventPlan, zone, timeFormat, weekStartsOn)} · ${calendarName}`,
+          variant: 'success',
+          action: onEditCreatedEvent
+            ? { label: 'Edit', onClick: () => onEditCreatedEvent(saved) }
+            : undefined,
+        });
+        return true;
+      } catch (error) {
+        // Never silent: the sentence stays in the field so it can be retried.
+        toast({
+          title: 'Could not save the event',
+          description: errorMessage(error),
+          variant: 'error',
+        });
+        return false;
+      }
+    }
+
+    /*
      * The sentence can name a list (`@Groceries`) but not a calendar — there is
      * no syntax for one — so the calendar is the single field merged in from the
      * picker. `null` rather than `''`: absence is `null` on the wire, and the
@@ -442,7 +514,21 @@ function useQuickAdd(
     });
     onCreated?.(task);
     return true;
-  }, [actions, calendarId, context, onCreated, onEditCreated, result, timeFormat, toast, value, zone]);
+  }, [
+    actions,
+    calendarId,
+    context,
+    onCreated,
+    onEditCreated,
+    onEditCreatedEvent,
+    result,
+    timeFormat,
+    toast,
+    value,
+    weekStartsOn,
+    writableCalendars,
+    zone,
+  ]);
 
   return {
     value,
@@ -605,8 +691,13 @@ function QuickAddInput({
 
   /*
    * The calendar chip's label, in the order the reader cares: the calendar the
-   * task will actually be filed into, then the date the sentence named (which is
-   * what the sheet is confirming), then the field's own name.
+   * item will land in, then the date the sentence named (which is what the sheet
+   * is confirming), then the field's own name.
+   *
+   * Picking a calendar is what turns the sentence into an EVENT — a calendar is
+   * an event's home — so the chip is a kind choice as well as a destination. The
+   * toast says which of the two was created, and its Edit action opens that
+   * kind's editor.
    */
   const dateChip = state.chips.find((chip) => chip.kind === 'date' || chip.kind === 'time') ?? null;
   const selectedCalendar =
@@ -1029,8 +1120,9 @@ export function QuickAddBar({
   listId = null,
   onCreated,
   onEditCreated,
+  onEditCreatedEvent,
 }: QuickAddBarProps) {
-  const state = useQuickAdd(listId, onCreated, onEditCreated);
+  const state = useQuickAdd(listId, onCreated, onEditCreated, onEditCreatedEvent);
   /*
    * One ref for the field, owned here rather than inside the panel, because two
    * mechanisms have to agree on it: the panel's layout effect (the same-task
