@@ -26,6 +26,8 @@ const SECTION = source('TaskListSection.tsx');
 const VIEW = source('TasksView.tsx');
 const TODAY = source('TodayView.tsx');
 const EDITOR = source('TaskEditorSheet.tsx');
+/* The date popover lives here now, shared by the two editors. */
+const FIELDS = readFileSync(new URL('../src/components/schedule/fields.tsx', import.meta.url), 'utf8');
 const QUICK_ADD = source('QuickAddBar.tsx');
 const DETAIL = source('ItemDetailSheet.tsx');
 const INDEX = source('index.ts');
@@ -221,8 +223,10 @@ describe('the sheet shows every populated field', () => {
 describe('the editor does not steal focus on the edit path', () => {
   it('cancels the deferred autofocus without removing the focus machinery', () => {
     expect(EDITOR).toContain('onOpenAutoFocus={(event) => event.preventDefault()}');
-    // The date popover still focuses its own calendar when it opens.
-    expect(EDITOR).toContain('autoFocus');
+    // The date popover still focuses its own calendar when it opens — via the
+    // field both editors share, which is where the picker lives now.
+    expect(EDITOR).toContain("from '@/components/schedule/fields'");
+    expect(FIELDS).toContain('autoFocus');
   });
 
   it('leaves quick add’s same-task focus alone', () => {

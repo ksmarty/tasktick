@@ -49,7 +49,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import type { Calendar as CalendarRecord } from '@/lib/types';
 import { calendarColorHex } from './colors';
-import { calendarsThatHoldTasks, selectableCalendars } from './selectable';
+import { selectableCalendars } from './selectable';
 
 /**
  * Whether the device's primary pointer is coarse — a finger rather than a mouse.
@@ -86,10 +86,6 @@ export interface CalendarComboboxProps {
   /**
    * Restrict the choices to calendars that can hold a *task*.
    *
-   * Off by default: an event needs any writable calendar, while a task needs one
-   * that accepts VTODOs. The task editor turns it on, the event editor leaves it.
-   */
-  holdsTasks?: boolean;
   /** Forwarded to the trigger, so a `Label` in the caller can point at it. */
   id?: string;
   className?: string;
@@ -100,7 +96,6 @@ export function CalendarCombobox({
   calendars,
   onChange,
   allowNone = false,
-  holdsTasks = false,
   id,
   className,
 }: CalendarComboboxProps) {
@@ -115,17 +110,18 @@ export function CalendarCombobox({
 
   /*
    * Only the calendars a user could sensibly file into: writable ones (a
-   * read-only collection accepts a local row and never writes it back), the ones
-   * they have not hidden, and — when `holdsTasks` says the caller is filing a
-   * *task* — only those that accept one. The current value is still resolved
-   * across **all** calendars, so a read-only, hidden or event-only calendar
-   * already on the item keeps its name on the trigger while the user picks a
-   * usable one.
+   * read-only collection accepts a local row and never writes it back) and the
+   * ones they have not hidden. The current value is still resolved across **all**
+   * calendars, so a read-only or hidden calendar already on the item keeps its
+   * name on the trigger while the user picks a usable one.
+   *
+   * This used to take a flag telling it the caller was filing a *task*, which
+   * narrowed the choices to collections that accept VTODOs. That editor no longer
+   * has a calendar field at all — a task is moved onto a calendar by *converting*
+   * it — so the only caller left is the event editor, and the filter is the plain
+   * writable-and-visible one.
    */
-  const selectable = useMemo(
-    () => (holdsTasks ? calendarsThatHoldTasks(calendars) : selectableCalendars(calendars)),
-    [calendars, holdsTasks],
-  );
+  const selectable = useMemo(() => selectableCalendars(calendars), [calendars]);
 
   /** Type-ahead filtering over the calendar names; empty query lists them all. */
   const matches = useMemo(() => {

@@ -80,7 +80,7 @@ describe('tag management', () => {
     expect(EDITOR).toContain('<TagManagerDialog open={manageTags} onOpenChange={setManageTags} />');
     // The manager must outlive the picker's drawer, so Escape cannot close the
     // editor out from under it either.
-    expect(EDITOR).toContain('if (picker || confirmOpen || manageLists || manageTags) event.preventDefault();');
+    expect(EDITOR).toContain('if (picker || confirmOpen || convertOpen || manageLists || manageTags) event.preventDefault();');
   });
 });
 

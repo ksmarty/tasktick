@@ -154,22 +154,20 @@ import { ChevronRight, Flag, Folder, Link, LoaderCircle, Tag } from 'lucide-reac
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { CalendarCombobox } from '@/components/calendar/CalendarCombobox';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
-import { addDaysToDateOnly, humanDuration, relativeDayLabel, TIME_INPUT_STEP_SECONDS, timeIn, todayIn } from '@/lib/dates';
+import { addDaysToDateOnly, humanDuration, TIME_INPUT_STEP_SECONDS, timeIn, todayIn } from '@/lib/dates';
 import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useMediaQuery, useResource } from '@/lib/store';
 import type { DateOnly, Task } from '@/lib/types';
-import { TimeField as TimePicker } from '@/components/time/TimeField';
+import { DateField, TimeField } from '@/components/schedule/fields';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
+import { ConvertToEventDialog } from './ConvertToEventDialog';
 import { ListPicker } from './ListPicker';
 import { ListManagerDialog } from './ListManagerDialog';
 import { PriorityPicker } from './PriorityPicker';
@@ -313,89 +311,17 @@ function EditorRow({
   );
 }
 
-/**
- * A small clear control that lives inside a field's trailing edge.
- *
- * Absolute rather than a flex sibling: each field is a third or less of the
- * schedule row and there is no room to spend on a button, so the control is placed over the
- * field's own trailing padding instead — which the value must therefore stay
- * clear of (see the file doc). It is 16px wide at `right-1`, i.e. the last 20px
- * of the field, and every field that carries one reserves `pr-6` for it. The
- * `after:` pseudo-element grows the tap target without widening the visible dot.
- */
-function ClearFieldButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className={cn(
-        'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full',
-        'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-        "after:absolute after:-inset-1 after:content-['']",
-      )}
-    >
-      <Cross1Icon className="size-3" />
-    </button>
-  );
-}
-
-/**
- * One half of the time range: the shared five-minute picker, plus the clear
- * control.
- *
- * It used to be a native `input[type=time]` in the date button's field chrome,
- * with the label drawn over the control's own empty glyph — a native time input
- * ignores `placeholder`, so an empty half would otherwise have read as a bare
- * "--:--", identical for both halves. The picker has real placeholders, so the
- * overlay is gone and the label simply becomes the hour half's placeholder.
- *
- * It was also the reason the schedule row was `5fr 4fr 4fr`: a native time
- * control is narrow, and three of them fit one line. Two selects per half do
- * not, so the row is now the date on its own line with the two times under it.
- * The cross stays: `pr-6` reserves its 20px plus a 4px gap, which is why the
- * picker never sits under it.
- */
-function TimeField({
-  label,
-  value,
-  disabled,
-  onChange,
-  onClear,
-}: {
-  /** Placeholder and the accessible name's first word, e.g. "Start". */
-  label: string;
-  value: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className="relative flex min-w-0 items-center gap-1 pr-6">
-      <TimePicker
-        ariaLabel={`${label} time`}
-        placeholder={label}
-        value={value}
-        disabled={disabled}
-        onChange={onChange}
-      />
-      {value !== '' ? (
-        <ClearFieldButton label={`Clear ${label.toLowerCase()} time`} onClick={onClear} />
-      ) : null}
-    </div>
-  );
-}
-
 export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEditorSheetProps) {
   const { data: bootstrap } = useResource<BootstrapPayload>('/api/bootstrap', undefined, { staleAfterMs: 60_000 });
   const zone = bootstrap?.settings.timezone ?? bootstrap?.user.timezone ?? 'utc';
   const lists = bootstrap?.lists ?? [];
   const tags = bootstrap?.tags ?? [];
   /*
-   * Every calendar, because the *current* one must resolve to a name even when
-   * it cannot be a destination — a task already filed into a subscribed
-   * collection, or into one that has since become event-only. `CalendarCombobox`
-   * applies the writable-only and holds-tasks rules to the *choices* itself.
+   * Every calendar, because the conversion dialog needs to *name* the one a task
+   * already sits in even when it is not a destination — a task pulled from a
+   * read-only or hidden collection — while offering only the writable, visible
+   * ones as a choice. The filter is the dialog's (`selectableCalendars`), applied
+   * to the choices rather than to this list.
    */
   const calendars = bootstrap?.calendars ?? [];
   /* react-day-picker wants the literal weekday union; the setting is 0 or 1. */
@@ -419,6 +345,8 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
   /** The tag manager, hosted here for the same reason. */
   const [manageTags, setManageTags] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** The "Convert to event" chooser, hosted here so it outlives the row. */
+  const [convertOpen, setConvertOpen] = useState(false);
   /** The due-date popover is controlled so picking a day closes it. */
   const [dateOpen, setDateOpen] = useState(false);
   /** A save failure is surfaced inline rather than only as a toast. */
@@ -631,7 +559,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
           onEscapeKeyDown={(event) => {
             // A sub-picker or the list manager is open: Escape and the backdrop
             // must not close the editor out from under it.
-            if (picker || confirmOpen || manageLists || manageTags) event.preventDefault();
+            if (picker || confirmOpen || convertOpen || manageLists || manageTags) event.preventDefault();
           }}
           /*
            * No autofocus on the title on the edit path. Radix would focus the
@@ -656,7 +584,10 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
               target instanceof Element &&
               (target.closest('[role="dialog"]') !== null ||
                 document.querySelector('[data-slot="drawer"]')?.parentElement?.contains(target) === true);
-            if (picker || confirmOpen || inSubMenu) event.preventDefault();
+            // `convertOpen` is a dialog of its own, portalled to `body` like the
+            // pickers: without it here, picking a calendar inside it read as a
+            // press outside the editor and dismissed the editor underneath.
+            if (picker || confirmOpen || convertOpen || inSubMenu) event.preventDefault();
           }}
         >
           <div
@@ -700,118 +631,43 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             <Separator />
 
             {/*
-             * The schedule row: a date, then a start and an end time.
+             * The schedule: a due day, then the start and end of the block.
+             *
+             * The two fields are the app's shared `DateField` / `TimeField`
+             * (`@/components/schedule/fields`) — the same components the event
+             * editor draws, which is why a task's date now reads "Fri Oct 30
+             * 2026" in a labelled field instead of a relative word in an
+             * unlabelled row. What is task-specific is only what a task needs:
+             * `quickPicks` (Today / Tomorrow / Next week, which is how most due
+             * dates get chosen) and `onClear` on both fields, because a task may
+             * have no date at all and no time on the day it has.
              *
              * Duration is derived from the range (`estimateMinutes` = end −
              * start) rather than picked from a preset list, so a task is
              * scheduled the way an event is. The task record has no end-time
              * column, so the end is never stored: the start goes to
-             * `dueDate`/`dueTime` and the derived span goes to `estimateMinutes`,
-             * the field the "Estimated time" stepper below reads and writes too,
-             * so the two controls cannot disagree. The end field is available only
-             * once there is a start; an end with no beginning is not a range.
-             *
-             * The three fields used to share one grid sized `5fr 4fr 4fr`. Two
-             * selects per time field need far more room than the native time
-             * controls did — 116px of trigger against 107.7px for the whole old
-             * field — so the schedule is now the date on one line and the two
-             * times under it, each taking half. The date keeps its own
-             * `justify-start text-base md:text-sm` scale, and its glyph sits 4px
-             * from its label (`gap-1`) instead of 8px.
-             *
-             * The time fields are the shared five-minute picker, which labels its
-             * hour half from the user's own 12h/24h convention and emits `HH:mm`
-             * either way. Each carries a clear control (see `TimeField`); the date
-             * has its own clear control inside the field as well as the calendar
-             * popover's Clear.
+             * `dueDate`/`dueTime` and the derived span goes to
+             * `estimateMinutes`, the field the "Estimated time" stepper below
+             * reads and writes too, so the two controls cannot disagree. The end
+             * field is available only once there is a start; an end with no
+             * beginning is not a range.
              */}
-            <div className="flex flex-col gap-1">
-              <div className="relative flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30">
-                <Popover open={dateOpen} onOpenChange={setDateOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      className={cn(
-                        // `pl-3` puts the calendar glyph on the editor's content
-                        // axis; `gap-1` (not `gap-2`) buys the label 4px of the
-                        // room this row's widening is for; `pr-6` reserves the
-                        // clear control's 20px plus a 4px gap so a long date
-                        // label stops before it.
-                        'flex h-full min-w-0 flex-1 items-center gap-1 pl-3 pr-6 justify-start text-base md:text-sm',
-                        'outline-none disabled:pointer-events-none disabled:opacity-50',
-                      )}
-                    >
-                      <CalendarIcon className="size-4 text-base" />
-                      <span className="truncate">{dueDate ? relativeDayLabel(dueDate, zone) : 'No date'}</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" sideOffset={6} collisionPadding={8} className="z-[60] w-auto p-0">
-                    {/*
-                     * The quick picks, above the calendar: the three days that
-                     * account for nearly every date a task gets. They write
-                     * through the same `edit()` the calendar's own `onSelect`
-                     * uses, so a picked day is saved exactly like a tapped one,
-                     * and the pick that is already set reads as selected.
-                     */}
-                    <div className="flex gap-1 border-b border-border p-2">
-                      {quickPicks.map((pick) => (
-                        <Button
-                          key={pick.label}
-                          type="button"
-                          variant={dueDate === pick.day ? 'secondary' : 'ghost'}
-                          size="sm"
-                          aria-pressed={dueDate === pick.day}
-                          className="flex-1"
-                          onClick={() => pickDueDay(pick.day)}
-                        >
-                          {pick.label}
-                        </Button>
-                      ))}
-                    </div>
-                    <Calendar
-                      mode="single"
-                      autoFocus
-                      weekStartsOn={weekStartsOn}
-                      /* The picker opens on the task's own month, not today's. */
-                      defaultMonth={dateValue}
-                      selected={dateValue}
-                      onSelect={(day) => {
-                        if (!day) {
-                          edit({ clearDue: true, dueDate: null, dueTime: null });
-                        } else {
-                          edit({ dueDate: DateTime.fromJSDate(day, { zone }).toISODate(), clearDue: false });
-                        }
-                        setDateOpen(false);
-                      }}
-                    />
-                    {dueDate ? (
-                      <div className="flex justify-end px-3 pb-3">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            edit({ clearDue: true, dueDate: null, dueTime: null });
-                            setDateOpen(false);
-                          }}
-                        >
-                          Clear
-                        </Button>
-                      </div>
-                    ) : null}
-                  </PopoverContent>
-                </Popover>
-                {dueDate ? (
-                  <ClearFieldButton
-                    label="Clear due date"
-                    onClick={() => edit({ clearDue: true, dueDate: null, dueTime: null })}
-                  />
-                ) : null}
-              </div>
+            <div className="flex flex-col gap-2">
+              <DateField
+                id="task-due-date"
+                label="Due"
+                value={dueDate}
+                zone={zone}
+                weekStartsOn={weekStartsOn}
+                quickPicks={quickPicks}
+                disabled={disabled}
+                onClear={() => edit({ clearDue: true, dueDate: null, dueTime: null })}
+                onChange={(date) => edit({ dueDate: date, clearDue: false })}
+              />
 
-              <div className="grid grid-cols-2 gap-1">
+              <div className="grid grid-cols-2 gap-2">
                 <TimeField
+                  id="task-due-time"
                   label="Start"
                   value={dueTime ?? ''}
                   disabled={disabled || !dueDate}
@@ -826,6 +682,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 />
 
                 <TimeField
+                  id="task-end-time"
                   label="End"
                   value={endTime}
                   disabled={disabled || !dueDate || !dueTime}
@@ -839,7 +696,7 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                   }}
                   onClear={() => edit({ estimateMinutes: null })}
                 />
-                </div>
+              </div>
             </div>
 
             <div className="flex flex-col">
@@ -883,29 +740,6 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 disabled={disabled}
                 onClick={() => setPicker('tags')}
               />
-
-              {/*
-               * The calendar is the one field in this group that is a *combobox*
-               * rather than a drawer row, because it is the field the user types
-               * into to find one name among many — the job the event editor
-               * already uses it for, and the reason it is the picker that carries
-               * type-ahead.
-               *
-               * `allowNone` is what makes it usable for a task at all: a task may
-               * live in no collection, an event may not.
-               */}
-              {calendars.length ? (
-                <div className="flex flex-col gap-2 px-3 py-2">
-                  <span className="text-xs text-muted-foreground">Calendar</span>
-                  <CalendarCombobox
-                    value={calendarId ?? ''}
-                    calendars={calendars}
-                    onChange={(next) => edit({ calendarId: next || null })}
-                    allowNone
-                    holdsTasks
-                  />
-                </div>
-              ) : null}
 
               <div className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm border border-transparent">
                 <span aria-hidden className="inline-flex shrink-0 text-xl text-muted-foreground">
@@ -1002,6 +836,27 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
             />
 
             <Separator />
+
+            {/*
+             * Convert to event, in the same place the destructive row lives — at
+             * the end of the form, below the subtasks — because it is a *move* of
+             * the whole record rather than a value of one field, and it used to be
+             * a field: a "Calendar" combobox in the group above, which quietly
+             * filed the task into a collection and left it a task. Tapping this
+             * asks which calendar to put the event in, then moves the task there
+             * as an event.
+             */}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={disabled || !task}
+              onClick={() => setConvertOpen(true)}
+              className="min-h-12 w-full justify-start gap-3 rounded-md px-3 border border-transparent"
+            >
+              <CalendarIcon className="size-4 text-base" />
+              <span className="min-w-0 flex-1 truncate text-left">Convert to event</span>
+              <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground/60" />
+            </Button>
 
             {/*
              * Delete, at the very bottom of the form's content rather than in
@@ -1138,6 +993,23 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
         onManage={() => setManageTags(true)}
       />
       <TagManagerDialog open={manageTags} onOpenChange={setManageTags} />
+
+      <ConvertToEventDialog
+        open={convertOpen}
+        onOpenChange={setConvertOpen}
+        task={task}
+        calendars={calendars}
+        disabled={disabled}
+        onConverted={() => {
+          /*
+           * The record this sheet was editing no longer exists, so it closes
+           * rather than sitting on a deleted id — and the list behind it
+           * refreshes through `onSaved`, the same path a delete takes.
+           */
+          onSaved?.();
+          handleOpenChange(false);
+        }}
+      />
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent showCloseButton={false} className="gap-0 p-0">

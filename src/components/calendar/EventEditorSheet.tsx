@@ -25,13 +25,15 @@
  *
  * ## The date and time fields
  *
- * The start and end dates are the shadcn `Calendar` (react-day-picker) inside a
- * `Popover`; the floating day (`YYYY-MM-DD`, no timezone) is converted to and
- * from the `Date` the picker speaks with Luxon **at the edge only**, so a day
- * never gets compared against an instant. The times are native
- * `<input type="time">` controls that store `HH:mm`: a native picker renders in
- * the user's own 12h/24h convention and emits `HH:mm` either way, so the
- * `timeFormat` setting has nothing to do here.
+ * The start and end fields are the app's shared `DateField` / `TimeField`
+ * (`@/components/schedule/fields`) — the same pair the task editor uses, so the
+ * two editors cannot drift into looking like different products. A date is the
+ * shadcn `Calendar` (react-day-picker) inside a `Popover`, and the floating day
+ * (`YYYY-MM-DD`, no timezone) is converted to and from the `Date` the picker
+ * speaks with Luxon **at the edge only**, so a day never gets compared against an
+ * instant. The times are native `<input type="time">` controls that store
+ * `HH:mm`: a native picker renders in the user's own 12h/24h convention and emits
+ * `HH:mm` either way, so the `timeFormat` setting has nothing to do here.
  *
  * Everything else about dates is still `lib/dates`: this file never converts an
  * instant, never expands a recurrence and never touches EXDATE — the server
@@ -49,8 +51,6 @@
  */
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { DateTime } from 'luxon';
-import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { LoopIcon } from '@svg-animated-icons/react/loop';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
@@ -59,7 +59,6 @@ import { useToast } from '@/components/app/Toast';
 import { HoldConfirmButton } from '@/components/godui/hold-confirm-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
 import {
   Dialog,
   DialogClose,
@@ -71,9 +70,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { TimeField as TimePicker } from '@/components/time/TimeField';
+import { DateField, TimeField } from '@/components/schedule/fields';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
@@ -190,18 +188,6 @@ interface EventWriteBody {
  * collapsed to their own border and their rows were clipped away.
  */
 const FIELD_GROUP_CLASS = 'flex shrink-0 flex-col gap-stack rounded-xl border border-border p-card';
-
-/**
- * A floating `DateOnly` as a `DateTime` in the user's zone.
- *
- * The picker reads the calendar fields back out of it, so this is a display
- * carrier, never a conversion to an instant: nothing here is ever compared with
- * `Date.now()` or written to the API.
- */
-function toDateTime(date: DateOnly, zone: string): DateTime {
-  const value = DateTime.fromISO(date, { zone });
-  return value.isValid ? value : DateTime.fromISO(date, { zone: 'utc' });
-}
 
 export function EventEditorSheet({
   open,
@@ -1012,113 +998,6 @@ function CustomReminderDialog({
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/**
- * A floating day, picked from the shadcn `Calendar` in a `Popover`.
- *
- * The value never leaves floating form: the `Date` the picker speaks is built
- * from the day's calendar fields in the user's zone and read straight back, so
- * no instant is ever stored or compared.
- */
-function DateField({
-  id,
-  label,
-  value,
-  zone,
-  weekStartsOn,
-  minDate,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: DateOnly;
-  zone: string;
-  weekStartsOn: 0 | 1;
-  /** Earliest pickable day, inclusive; omitted on the start field. */
-  minDate?: DateOnly;
-  onChange: (date: DateOnly) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const selected = toDateTime(value, zone).toJSDate();
-
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <Label htmlFor={id}>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button id={id} type="button" variant="outline" className="w-full justify-start font-normal">
-            <CalendarIcon className="size-4 text-base" disableHover />
-            <span className="truncate">{toDateTime(value, zone).toFormat('ccc LLL d yyyy')}</span>
-          </Button>
-        </PopoverTrigger>
-        {/*
-         * The picker has to clear the sheet's own chrome. `PopoverContent` and
-         * `SheetContent` are both `z-50` and both portalled to the body, so a
-         * tie was settled by mount order — which put the sheet's sticky header
-         * over the picker's top row of days whenever the field sat near it.
-         * One step above the sheet, and `collisionPadding` so a picker that has
-         * to flip upward stops short of the viewport edge instead of hanging
-         * off it. The same three props are on every other date picker.
-         */}
-        <PopoverContent align="start" sideOffset={6} collisionPadding={8} className="z-[60] w-auto p-0">
-          <Calendar
-            mode="single"
-            autoFocus
-            weekStartsOn={weekStartsOn}
-            /* The picker opens on the field's own month, not today's. */
-            defaultMonth={selected}
-            selected={selected}
-            disabled={minDate ? { before: toDateTime(minDate, zone).toJSDate() } : undefined}
-            onSelect={(day) => {
-              if (!day) return;
-              const next = DateTime.fromJSDate(day, { zone }).toISODate();
-              if (next) onChange(next);
-              setOpen(false);
-            }}
-          />
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-/**
- * A wall-clock `HH:mm`, from the shared five-minute picker.
- *
- * This used to be a native `<input type="time">` carrying `step={300}`. That is
- * the right HTML and it works on Chrome, Android and the desktop — but Safari
- * on iOS does not implement `step` on a time input at all, so on the device this
- * app is mostly used from the minute wheel still listed all sixty minutes.
- * `TimeField` supplies the five-minute choices itself.
- *
- * The field is **bounded**, not full-width: two selects and their gap come to
- * 9.25rem, which still leaves the date to their left room for `ccc LLL d yyyy`
- * on a 390px phone. The wrapper's `min-w-0` means the column can always shrink
- * it rather than letting a grid track overflow.
- */
-function TimeField({
-  id,
-  label,
-  value,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: TimeOnly;
-  onChange: (time: TimeOnly) => void;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <Label htmlFor={id}>{label}</Label>
-      <TimePicker
-        id={id}
-        ariaLabel={label}
-        value={value}
-        onChange={(next) => onChange(next as TimeOnly)}
-      />
-    </div>
   );
 }
 

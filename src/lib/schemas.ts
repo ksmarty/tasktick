@@ -192,6 +192,15 @@ export const moveTaskSchema = z.object({
   afterSortOrder: z.string().nullable(),
 });
 
+/**
+ * Turning a task into an event: the calendar it should land in, and nothing else
+ * — every other value comes from the task itself, so the client cannot invent a
+ * title or a span the editor never showed.
+ */
+export const convertTaskSchema = z.object({
+  calendarId: z.string().min(1, 'Pick a calendar'),
+});
+
 /* -------------------------------------------------------------------------- */
 /* lists + tags                                                               */
 /* -------------------------------------------------------------------------- */

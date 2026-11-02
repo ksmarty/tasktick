@@ -64,6 +64,11 @@ function source(relative: string): string {
   return read(`components/tasks/${relative}`);
 }
 
+/** The fields both editors are made of: the schedule's behaviour lives here. */
+const FIELDS = read('components/schedule/fields.tsx');
+const PICKER = read('components/time/TimeField.tsx');
+
+
 const ROW = source('TaskRow.tsx');
 const EVENT_ROW = source('EventRow.tsx');
 const SECTION = source('TaskListSection.tsx');
@@ -514,7 +519,10 @@ describe('the converted screens', () => {
     }
     expect(EDITOR).toContain('SAVE_DEBOUNCE_MS = 600');
     expect(EDITOR).toContain('void flush()');
-    expect(EDITOR).toContain("from '@/components/ui/calendar'");
+    // The schedule is the calendar editor's, not a second implementation of it.
+    expect(EDITOR).toContain("from '@/components/schedule/fields'");
+    expect(EDITOR).toContain('<DateField');
+    expect(EDITOR).toContain('<TimeField');
     expect(EDITOR).toContain("from '@/components/godui/hold-confirm-button'");
     expect(EDITOR).not.toContain('@mui');
   });
@@ -551,58 +559,63 @@ describe('the converted screens', () => {
     expect(EDITOR).toContain('window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS)');
   });
 
-  it('gives the two time fields the five-minute picker, under the date on its own line', () => {
-    // The start and end times used to be native `input[type=time]` — narrow
-    // controls, three of them to one `5fr 4fr 4fr` line. The five-minute picker
-    // is two selects per field, which does not fit that line, so the schedule is
-    // the date on one line and the two times on the next. The field's name is
-    // now the hour half's real placeholder — a native time input ignores
-    // `placeholder`, which is why it used to be drawn over the control instead.
-    // The date button keeps the inputs' own `text-base md:text-sm` scale.
+  it('puts the day on one line and the two times on the next, as the calendar does', () => {
+    /*
+     * The task editor used to draw an unlabelled row of three controls — a day
+     * and two times on one `5fr 4fr 4fr` line — while the event editor drew a
+     * labelled day with a calendar behind it and a time per field. The request was
+     * that the two match, so this is now the same `DateField`/`TimeField` pair:
+     * the day full width on its own line, then Start and End side by side.
+     */
     expect(EDITOR).not.toContain('type="time"');
-    expect(EDITOR).toContain('ariaLabel={`${label} time`}');
-    expect(EDITOR).toContain('placeholder={label}');
     expect(EDITOR).not.toContain('grid grid-cols-[5fr_4fr_4fr] items-center gap-1');
-    expect(EDITOR).toContain('<div className="flex flex-col gap-1">');
-    expect(EDITOR).toContain('<div className="grid grid-cols-2 gap-1">');
-    expect(EDITOR).toContain('justify-start text-base md:text-sm');
+    expect(EDITOR).toMatch(/<DateField[\s\S]*?label="Due"[\s\S]*?\/>/);
+    expect(EDITOR).toContain('<div className="grid grid-cols-2 gap-2">');
+    expect(EDITOR).toMatch(/<TimeField[\s\S]*?label="Start"/);
+    expect(EDITOR).toMatch(/<TimeField[\s\S]*?label="End"/);
+    // One control, one step: the picker is imported only by the shared field.
+    expect(EDITOR).not.toContain('TimePicker');
+    expect(FIELDS).toContain('<TimePicker');
+    expect(PICKER).toContain('step={TIME_INPUT_STEP_SECONDS}');
+    // The halves name themselves for a screen reader, since a native time input
+    // cannot show a placeholder.
+    expect(FIELDS).toContain('ariaLabel={label}');
   });
 
   it('gives every schedule field a clear control', () => {
-    // The date has its own clear inside the field (plus the popover's Clear); the
-    // time fields' clear is what makes an empty state reachable without fighting
-    // the native picker's segments.
-    expect(EDITOR).toContain('<ClearFieldButton');
-    expect(EDITOR).toContain('label="Clear due date"');
-    expect(EDITOR).toContain('label={`Clear ${label.toLowerCase()} time`}');
-    expect(EDITOR).toContain('onClick={() => edit({ clearDue: true, dueDate: null, dueTime: null })}');
+    /*
+     * A task can be due on a day without a time, so both halves need an empty
+     * state that does not fight the picker's segments. The editor asks for it;
+     * the shared fields draw it: the day gets a Clear beside the calendar, each
+     * time gets the small cross inside its own box.
+     */
+    expect(EDITOR).toContain('onClear={() => edit({ clearDue: true, dueDate: null, dueTime: null })}');
     expect(EDITOR).toContain('onClear={() => edit({ dueTime: null, clearDue: false })}');
     expect(EDITOR).toContain('onClear={() => edit({ estimateMinutes: null })}');
+    expect(EDITOR.match(/onClear=/g)?.length).toBe(3);
+    expect(FIELDS).toContain('aria-label={`Clear ${label.toLowerCase()}`}');
+    /* The day's own Clear sits in the popover's footer, past the calendar. */
+    expect(FIELDS).toContain('onClear();');
   });
 
   it('puts every field and every row on one content axis', () => {
-    // Measured at 390px from the panel's 16px gutter, content-box left:
-    // title/notes text 29.0px, date glyph 25.0px, date value 49.0px, start time
-    // text 145.7px, and the Repeat/Reminder/Priority/List/Tags/Estimated/Link/
-    // Pin rows plus the Subtasks heading 28.0px. So the rows were **not** inset:
-    // they sat 1.0px *left* of the title's text (the inputs' own 1px border) and
-    // 3.0px right of the date field's glyph (the date button's smaller `px-2`).
-    // All three axes are now one 29.0px line: `pl-3` on the date button and the
-    // time inputs, and a 1px *transparent* border beside each borderless row's
-    // `px-3`, which lifts 28.0 to 29.0 exactly the way an input's visible border
-    // already does.
+    /*
+     * Measured at 390px from the panel's 16px gutter, the rows were 1.0px left of
+     * the title's text (an input's own border) and 3.0px right of the date
+     * field's glyph. The fix that survived the schedule being replaced is the
+     * frame, not a padding per control: a borderless row carries the same 1px
+     * *transparent* border a real input draws, beside its `px-3`.
+     *
+     * The schedule itself is the shared field pair now, so its axis is that
+     * module's: a Label above a full-width control, which starts where the title
+     * does because the field is the row's whole width rather than a third of it.
+     */
     expect(EDITOR).not.toContain('px-row py-2');
     expect(EDITOR).not.toContain('className="px-row');
-    expect(EDITOR).toContain('rounded-md px-3 py-2 text-left text-sm');
-    // The transparent frame that makes a borderless button match a bordered input.
     expect(EDITOR).toContain('border border-transparent');
-    // The date button carries `pl-3`, not the old `px-2`. The time halves are
-    // selects now and carry the vendored trigger's own chrome, so they are not
-    // on the text axis by padding at all.
-    expect(EDITOR).toContain('gap-1 pl-3 pr-6 justify-start text-base md:text-sm');
-    expect(EDITOR).not.toContain('items-center gap-2 px-2 justify-start');
-    expect(EDITOR).not.toContain('bg-transparent px-2 text-base outline-none');
     expect(EDITOR).toContain('<h3 className="px-3 text-sm font-medium border border-transparent">Subtasks</h3>');
+    expect(FIELDS).toContain('<Label htmlFor={id}>{label}</Label>');
+    expect(FIELDS).toContain('className="w-full justify-start font-normal"');
     const subtasks = source('SubTaskList.tsx');
     expect(subtasks).toContain('pr-1 pl-3');
     expect(subtasks).toContain('gap-2 px-3');
@@ -611,24 +624,18 @@ describe('the converted screens', () => {
   });
 
   it('reserves the clear control\'s 20px so a long value cannot run under the cross', () => {
-    // Measured at 390px with "Tue Sep 30" in the date field: the value's box
-    // ended at 123.7px against a clear button starting at 111.7px — 12.0px of
-    // overlap, and `scrollWidth` 86 against a 75px box, so the ellipsis itself
-    // was painted under the glyph. The control is 16px at `right-1`, i.e. the
-    // last 20px of the field; the date button and both time inputs now reserve
-    // `pr-6` (24px = the 20px control + a 4px gap), putting the value's box 4.0px
-    // clear of it. Padding, not a moved button or a reserved flex column: a time
-    // field is 107.7px wide at 390px and a column would spend the same 20px out
-    // of the value anyway.
-    expect(EDITOR).toMatch(/pl-3 pr-6/);
-    expect(EDITOR).toContain(
-      "'absolute right-1 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full'",
-    );
-    // Both field shapes carry it — the date button with its own `pl-3`, the two
-    // time fields on the wrapper that holds the picker — so neither can reach
-    // its cross.
-    expect(EDITOR.match(/pl-3 pr-6/g)?.length).toBe(1);
-    expect(EDITOR).toContain('relative flex min-w-0 items-center gap-1 pr-6');
+    /*
+     * Measured at 390px with "Tue Sep 30" in a date field: the value's box ended
+     * at 123.7px against a clear button starting at 111.7px — 12.0px of overlap,
+     * so the ellipsis itself was painted under the glyph. The control is 16px at
+     * `right-1`, i.e. the last 20px of the field, and `pr-6` (24px = the control
+     * plus a 4px gap) puts the value 4.0px clear of it. Padding rather than a
+     * moved button: a column would spend the same 20px out of the value anyway.
+     * It belongs to the field, so it is asserted where the cross is drawn.
+     */
+    expect(FIELDS).toContain("onClear && 'pr-6'");
+    expect(FIELDS).toContain('right-1 top-[1.875rem]');
+    expect(FIELDS).toContain('size-4');
   });
 
   it('moves Delete to the bottom of the form and puts Cancel in the footer', () => {
@@ -699,11 +706,12 @@ describe('the converted screens', () => {
     // tree, closed dialog children included, is built on each of them.
     expect(EDITOR).toContain('const today = useMemo(() => todayIn(zone), [zone]);');
     expect(EDITOR).toContain('const quickPicks = useMemo(');
-    expect(EDITOR).toContain('{quickPicks.map((pick) => (');
-    expect(EDITOR).toContain('onClick={() => pickDueDay(pick.day)}');
-    expect(EDITOR).toContain('function pickDueDay(day: DateOnly)');
-    // Above the calendar, not below it.
-    expect(EDITOR.indexOf("label: 'Today'")).toBeLessThan(EDITOR.indexOf('<Calendar\n'));
+    expect(EDITOR).toContain('quickPicks={quickPicks}');
+    // Above the calendar, not below it — the strip is the field's first child.
+    expect(FIELDS).toContain('{quickPicks?.length ? (');
+    expect(FIELDS.indexOf('{quickPicks?.length')).toBeLessThan(FIELDS.indexOf('<Calendar\n'));
+    expect(FIELDS).toContain('onClick={() => {');
+    expect(FIELDS).toContain('onChange(pick.day);');
   });
 
   it('draws one edge on a section card, not two', () => {
@@ -774,7 +782,7 @@ describe('the converted screens', () => {
     // therefore also tests the press target, so the editor survives the pick.
     expect(EDITOR).toContain('event.detail.originalEvent.target');
     expect(EDITOR).toContain('[data-slot="drawer"]');
-    expect(EDITOR).toContain('if (picker || confirmOpen || inSubMenu) event.preventDefault();');
+    expect(EDITOR).toContain('if (picker || confirmOpen || convertOpen || inSubMenu) event.preventDefault();');
   });
 
   it('reveals the search results with the vendored reveal', () => {

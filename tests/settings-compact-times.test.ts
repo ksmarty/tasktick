@@ -39,6 +39,8 @@ const TASK_EDITOR = source('src/components/tasks/TaskEditorSheet.tsx');
 const MATRIX_SHEET = source('src/app/(app)/matrix/MatrixTaskSheet.tsx');
 const HABIT_EDITOR = source('src/components/habits/HabitEditorSheet.tsx');
 const PICKER = source('src/components/time/TimeField.tsx');
+/* The one module that imports the picker for both editors' labelled fields. */
+const FIELDS = source('src/components/schedule/fields.tsx');
 
 /** Every `.sql` migration in a dialect's directory, concatenated. */
 const migrations = (dialect: 'sqlite' | 'pg'): string =>
@@ -249,7 +251,16 @@ describe('every time picker offers five minutes', () => {
     expect(PICKER).not.toContain('GRID_MINUTES');
     // One control, so no second one to disagree with it.
     expect(PICKER.match(/<Input\b/g)).toHaveLength(1);
-    for (const sheet of [EVENT_EDITOR, TASK_EDITOR, MATRIX_SHEET, HABIT_EDITOR]) {
+    /*
+     * Both editors now reach it through the shared `TimeField`, which is the one
+     * place the picker is imported — so there is a single control to keep stepped,
+     * not one per editor.
+     */
+    for (const sheet of [EVENT_EDITOR, TASK_EDITOR]) {
+      expect(sheet).toContain("from '@/components/schedule/fields'");
+    }
+    expect(FIELDS).toContain('<TimePicker');
+    for (const sheet of [MATRIX_SHEET, HABIT_EDITOR]) {
       expect(sheet).toContain('TimePicker');
     }
   });
