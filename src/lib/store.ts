@@ -83,6 +83,31 @@ function setEntry<T>(key: string, patch: Partial<Entry<T>>) {
  */
 let hydrating = false;
 
+/**
+ * Whether the persisted reads have been read back out of IndexedDB.
+ *
+ * This is the gate a screen needs before it starts its own reads. A read that
+ * starts before the pass finishes cannot paint from disk — the records are not
+ * applied yet — so it waits on the network, and a screen that gates one read on
+ * another ends up serialising round trips on the one launch where every one of
+ * them is slow. Nothing is corrupted either way (`shouldApplyHydrated` refuses to
+ * apply an older record over data this session already fetched); what is lost is
+ * time.
+ *
+ * It stays true for the rest of the page's life once the first pass is done. The
+ * flag answers "is there more disk to read?", not "is there data?": an empty
+ * cache has been read just as thoroughly as a full one, and a screen must not sit
+ * waiting for a pass that will never happen.
+ */
+let cacheHydrated = false;
+
+/** Marks the disk pass finished, and wakes anything gated on it. */
+function markHydrated(): void {
+  if (cacheHydrated) return;
+  cacheHydrated = true;
+  emit();
+}
+
 function persistEntrySoon(key: string, entry: Entry) {
   if (hydrating || typeof window === 'undefined' || entry.data === undefined) return;
   const record = encodeEntry({
@@ -421,7 +446,12 @@ export function clearCache(): void {
 async function hydrateCache(): Promise<void> {
   const scope = scopeForWrites();
   const records = await loadPersistedEntries({ scope });
-  if (records.length === 0) return;
+  if (records.length === 0) {
+    // Nothing on disk for this session is still an answer, and it is the answer
+    // that matters on a first launch: every read may start now.
+    markHydrated();
+    return;
+  }
 
   hydrating = true;
   try {
@@ -439,6 +469,7 @@ async function hydrateCache(): Promise<void> {
   } finally {
     hydrating = false;
   }
+  markHydrated();
   emit();
 }
 
@@ -670,6 +701,21 @@ export function useMediaQuery(query: string): boolean {
 }
 
 /** True on a viewport wide enough for the persistent sidebar. */
+/**
+ * True once the persisted reads for this session have been applied.
+ *
+ * A screen uses it to decide whether it may start reading yet: before the pass,
+ * starting a read means one round trip before the next one can begin, which is
+ * how a cold launch ended up serialising `/api/bootstrap`, then `/api/tasks`,
+ * then the calendar — every one of them slow, on the launch that is already
+ * waiting for the document itself. After the pass the first paint is a
+ * synchronous store hit and the network answer arrives as a silent update, so
+ * there is nothing left to wait for.
+ */
+export function useCacheHydrated(): boolean {
+  return useSyncExternalStore(subscribe, () => cacheHydrated, () => false);
+}
+
 export function useIsDesktop(): boolean {
   return useMediaQuery('(min-width: 1024px)');
 }

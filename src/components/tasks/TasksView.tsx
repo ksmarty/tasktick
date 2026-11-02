@@ -62,7 +62,7 @@ import { todayIn, addDaysToDateOnly, fromDateOnly, relativeDayLabel, timeIn, toD
 import { usePrimaryAction } from '@/lib/events';
 import { api } from '@/lib/api-client';
 import { affectsFor } from '@/lib/offline-rules';
-import { useMutation, useResource } from '@/lib/store';
+import { useCacheHydrated, useMutation, useResource } from '@/lib/store';
 import type { CalendarEvent, CalendarItem, Task } from '@/lib/types';
 import type {
   BootstrapPayload,
@@ -193,22 +193,30 @@ export function TasksView() {
   const lookups = useMemo(() => ({ lists, tags }), [lists, tags]);
 
   /*
-   * Both reads wait for the bootstrap, which is what lets a cold start paint
-   * from disk instead of from the network.
+   * Both reads wait for the store's disk pass, which is what lets a cold start
+   * paint from disk instead of from the network.
    *
    * The store restores its persisted copies in one pass — bootstrap, tasks,
    * events — and announces them together, but a read that starts before that
    * pass lands paints the skeleton and then waits for a round trip the user can
-   * see. Gating on the bootstrap means the read cannot begin until the restore
-   * has happened (the bootstrap is one of the resources that pass fills), so the
-   * first paint is the data from disk and the request behind it is a silent
-   * revalidation. `CalendarScreen` reads its month the same way, which is why
-   * events already appeared instantly.
+   * see. So the reads are gated, and the first paint is the data from disk with
+   * the request behind it as a silent revalidation.
    *
-   * An error counts as ready: a bootstrap that failed must not hold the list
-   * hostage — this is a hint about when to start, not a dependency.
+   * The gate is `hydrated`, NOT the bootstrap payload. Waiting for the bootstrap
+   * worded the same intent but chained three round trips on a launch with nothing
+   * cached — bootstrap answered, and only then did the task list and the calendar
+   * ask, each one waiting for the previous one's response. The pass finishes long
+   * before the bootstrap response does, and it finishes even when the bootstrap
+   * fails or is not cached at all, so the list and the calendar start immediately
+   * and in parallel with it.
+   *
+   * A bootstrap that has arrived or failed counts as ready too: it proves the
+   * pass is behind us (it is one of the resources that pass fills), and a failed
+   * bootstrap must not hold the list hostage — this is a hint about when to
+   * start, not a dependency.
    */
-  const bootstrapReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);
+  const hydrated = useCacheHydrated();
+  const bootstrapReady = hydrated || Boolean(bootstrap.data) || Boolean(bootstrap.error);
   const query = useMemo(() => taskQuery(state), [state]);
   const resource = useResource<Task[]>('/api/tasks', query, { enabled: bootstrapReady });
   const tasks = useMemo(() => resource.data ?? [], [resource.data]);

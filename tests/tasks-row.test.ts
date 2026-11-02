@@ -428,18 +428,28 @@ describe('QuickAddBar — the tint is the completion hue, and a menu leaves the 
     expect(POPOVER).toContain("PopoverPrimitive.Close");
   });
 
-  it('gates both of the All-tasks reads on the bootstrap, so a warm cache paints first', () => {
+  it('gates both of the All-tasks reads on the disk pass, so a warm cache paints first', () => {
     /*
      * The gated read is a store hit the moment the persisted scope is restored,
      * so the rows are on screen in the first paint; the ungated one was a
      * network round trip, which is what the skeleton was really waiting for.
+     *
+     * The gate is the store's `hydrated` flag, not the bootstrap payload. Waiting
+     * for the bootstrap meant the whole chain was serial on a launch with nothing
+     * cached — bootstrap answered, then the list asked, then the calendar — and
+     * that chain is the launch delay, not the document. The disk pass that the
+     * list actually needs finishes first, and it finishes when the bootstrap fails
+     * or was never cached, so both reads start alongside it.
      */
-    expect(VIEW).toContain('const bootstrapReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);');
+    expect(VIEW).toContain('const hydrated = useCacheHydrated();');
+    expect(VIEW).toContain(
+      'const bootstrapReady = hydrated || Boolean(bootstrap.data) || Boolean(bootstrap.error);',
+    );
     /*
-     * Three gated reads now: the list, the calendar items, and the event search
-     * that the task field also covers. All of them are store hits on a warm cache
-     * and all of them stay silent until the bootstrap resolves, so the field never
-     * flickers between "no results" and results.
+     * Three gated reads: the list, the calendar items, and the event search that
+     * the task field also covers. All of them are store hits on a warm cache and
+     * all of them stay silent until the pass lands, so the field never flickers
+     * between "no results" and results.
      */
     expect(VIEW.match(/enabled: bootstrapReady/g)).toHaveLength(3);
   });

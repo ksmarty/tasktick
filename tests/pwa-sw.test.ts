@@ -351,7 +351,15 @@ function createHarness(): Harness {
 async function installedHarness(): Promise<Harness> {
   const harness = createHarness();
   await harness.install((url) => {
-    if (url.endsWith('/') || url.endsWith('/offline')) return new FakeResponse(`<html>${url}</html>`);
+    /*
+     * The landing route is precached as a real document now, exactly as the
+     * worker asks for it at install (`PRECACHE_URLS` -> `precacheDocumentTree`).
+     * `/` is still answered, because a browser launch of it is redirected rather
+     * than cached.
+     */
+    if (url.endsWith('/') || url.endsWith('/tasks') || url.endsWith('/offline')) {
+      return new FakeResponse(`<html>${url}</html>`, { headers: { 'Content-Type': 'text/html' } });
+    }
     return new FakeResponse('asset');
   });
   // Only runtime writes are interesting from here on.
@@ -887,15 +895,31 @@ describe('navigations are network-first with a shell fallback', () => {
   it('keeps documents in the session cache, never the shared runtime cache', async () => {
     const harness = await installedHarness();
     await announce(harness, 's1');
-    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks</html>'));
+    await harness.navigation(`${ORIGIN}/tasks`, () => html('<html>tasks for account A</html>'));
 
     expect(harness.writes).toEqual([`${API_CACHE} ${ORIGIN}/tasks`]);
     expect(harness.caches.get(RUNTIME)?.size ?? 0).toBe(0);
 
-    // And a different session starts with nothing.
+    /*
+     * A second session gets the INSTALL-time document, not account A's page — and
+     * the previous account's cache is gone the moment the new scope arrives.
+     *
+     * The precache holds one document per build, fetched at install with nobody's
+     * data in it: `(app)/layout.tsx` is a server component that only checks the
+     * session and renders the client `AppShell`, so the served HTML is chrome and
+     * a mount point — the account's lists, tasks and events all arrive later, over
+     * `/api` reads in that session's own cache. That is why the shared copy can
+     * answer a launch at all, and why it can never answer it with someone else's
+     * data.
+     */
+    harness.setRoute(() => new FakeResponse('network'));
     await announce(harness, 's2');
+    expect(harness.caches.get(API_CACHE)).toBeUndefined();
+
     const other = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
-    expect(other?.status).toBe(302);
+    expect(other?.status).toBe(200);
+    expect(other?.body).toBe(`<html>${ORIGIN}/tasks</html>`);
+    expect(other?.body).not.toContain('account A');
   });
 
   it('never stores the login redirect a signed-out visit produces', async () => {
@@ -928,10 +952,30 @@ describe('navigations are network-first with a shell fallback', () => {
     expect(offlinePage?.body).toBe(`<html>${ORIGIN}/offline</html>`);
   });
 
-  it('may serve the shell at the root, which is the route it belongs to', async () => {
+  it('sends an offline launch at the root to the precached landing document', async () => {
+    /*
+     * `/` is a redirect route, so there is no document that could legitimately be
+     * cached for it — and the install list no longer pretends otherwise. A launch
+     * of `/` (a bookmark, a typed URL, a link with no path) is redirected to the
+     * route it belongs to, and that route is served at its own URL from the
+     * install-time copy. Nothing is ever answered at a URL it was not cached for.
+     */
     const harness = await installedHarness();
+    // A session the worker knows about, with nothing in its own cache — which is
+    // exactly the state after a deploy, since `activate` retires that cache. The
+    // scope arrives before the network does, from `META_CACHE` or the page, and
+    // the document comes from the install-time copy.
+    harness.setRoute(() => new FakeResponse('network'));
+    await announce(harness, 's1');
+    expect(harness.caches.get(API_CACHE)?.size ?? 0).toBe(0);
+
     const root = await harness.navigation(`${ORIGIN}/`, () => new Error('offline'));
-    expect(root?.body).toBe(`<html>${ORIGIN}/</html>`);
+    expect(root?.status).toBe(302);
+    expect(root?.headers.get('location')).toBe(`${ORIGIN}/tasks`);
+
+    const landing = await harness.navigation(`${ORIGIN}/tasks`, () => new Error('offline'));
+    expect(landing?.status).toBe(200);
+    expect(landing?.body).toBe(`<html>${ORIGIN}/tasks</html>`);
   });
 
   it('sends an offline cold start at the root to the landing route it has cached', async () => {
@@ -1012,7 +1056,11 @@ describe('navigations are network-first with a shell fallback', () => {
      */
     const harness = createHarness();
     await harness.install((url) => {
-      if (url.endsWith('/')) return new FakeResponse('<html>login</html>', { redirected: true });
+      // A signed-out install: the landing route answers with a redirect to
+      // `/login`, which is refused, so the precache holds no document at all.
+      if (url.endsWith('/') || url.endsWith('/tasks')) {
+        return new FakeResponse('<html>login</html>', { redirected: true });
+      }
       if (url.endsWith('/offline')) return new FakeResponse('<html>offline</html>');
       return new FakeResponse('asset');
     });
@@ -1085,6 +1133,9 @@ describe('the page can have its own document cached', () => {
 
   it('stores the page’s document at its exact URL, and serves it there offline', async () => {
     const harness = await installedHarness();
+    // The scope arrives while the route cannot answer with a document, so there is
+    // nothing primed and the message below is the only thing that stores one.
+    harness.setRoute(() => new FakeResponse('network'));
     await announce(harness, 's1');
     harness.setRoute(() => html('<html>tasks</html>'));
 
@@ -1104,9 +1155,18 @@ describe('the page can have its own document cached', () => {
     await harness.message({ type: 'cache-document', url: DOC });
     expect(harness.caches.get(RUNTIME)?.size ?? 0).toBe(0);
 
+    /*
+     * A second session still gets the install-time document, and never this one:
+     * the shell is shared, the page that was cached here is not. The stale scope
+     * caches are deleted when the new scope arrives (`setSessionScope`), so there
+     * is nothing left to leak.
+     */
+    harness.setRoute(() => new FakeResponse('network'));
     await announce(harness, 's2');
     const other = await harness.navigation(DOC, () => new Error('offline'));
-    expect(other?.status).toBe(302);
+    expect(other?.status).toBe(200);
+    expect(other?.body).toBe(`<html>${ORIGIN}/tasks</html>`);
+    expect(other?.body).not.toBe('<html>tasks</html>');
   });
 
   it('stores nothing before the worker knows which session it is caching for', async () => {
@@ -1169,9 +1229,28 @@ describe('immutable assets are cache-first', () => {
 
   it('treats /icons as immutable too', async () => {
     const harness = await installedHarness();
-    seedCache(harness, RUNTIME, { [`${ORIGIN}/icons/icon-192.png`]: 'icon' });
-    const response = await harness.get(`${ORIGIN}/icons/icon-192.png`, () => new FakeResponse('fresh'));
+    seedCache(harness, RUNTIME, { [`${ORIGIN}/icons/badge-71.png`]: 'icon' });
+    const response = await harness.get(`${ORIGIN}/icons/badge-71.png`, () => new FakeResponse('fresh'));
     expect(response?.body).toBe('icon');
+  });
+
+  it('prefers the install-time copy over a runtime one', async () => {
+    /*
+     * Install caches the shell document's whole module graph
+     * (`precacheDocumentTree`), and those content-hashed chunks are exactly what
+     * the first launch needs. If this lookup did not include the precache, that
+     * launch would paint the cached document and then fetch every script it
+     * references — the round trips the precache exists to remove. Content-hashed
+     * URLs cannot go stale, so preferring the older copy is always right.
+     */
+    const harness = await installedHarness();
+    const url = `${ORIGIN}/icons/icon-192.png`;
+    seedCache(harness, RUNTIME, { [url]: 'from-runtime' });
+    const before = harness.fetchCalls.length;
+    const response = await harness.get(url, () => new FakeResponse('fresh'));
+    expect(response?.body).toBe('asset');
+    // Neither the runtime copy nor the network was consulted: install's copy was.
+    expect(harness.fetchCalls.length).toBe(before);
   });
 });
 
@@ -1238,12 +1317,20 @@ describe('a new build waits to be asked before it takes over', () => {
 });
 
 describe('lifecycle', () => {
-  it('precaches the shell, the manifest and every icon', async () => {
+  it('precaches the landing document, the manifest and every icon', async () => {
     const harness = await installedHarness();
     const entries = [...harness.caches.get(PRECACHE)!.keys()].map((url) =>
       url.replace(ORIGIN, ''),
     );
-    expect(entries).toContain('/');
+    /*
+     * `/tasks`, not `/`. The root is a redirect route: its response is
+     * `redirected`, which `isDocumentCacheable` refuses (a login redirect cached at
+     * the shell's URL is a broken app with no way out), so listing `/` precached
+     * the manifest and the icons and NO document — every cold launch then had to
+     * wait for the network to hand it one.
+     */
+    expect(entries).toContain('/tasks');
+    expect(entries).not.toContain('/');
     expect(entries).toContain('/offline');
     expect(entries).toContain('/manifest.webmanifest');
     expect(entries).toContain('/icons/icon-192.png');

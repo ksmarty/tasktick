@@ -355,23 +355,26 @@ async function runInit(): Promise<void> {
       announceScopeToServiceWorker(live);
       emit({ type: 'resolved', scope: live });
     }
-
-    /*
-     * Ask the worker to keep the document that booted this page.
-     *
-     * It is queued after the scope message above, so the worker always knows
-     * which session the document belongs to before it is stored. A document
-     * that DID pass through the worker was already cached by the navigation
-     * strategy; this only covers the first-visit case that could not.
-     */
-    requestDocumentCache();
-  } else {
-    // No live session: either signed out (no stored scope either) or offline
-    // with a session we cannot verify. In both cases the stored scope is what
-    // the local data was tagged with — and it was adopted and announced above,
-    // so there is nothing left to decide here.
-    scope = stored;
   }
+
+  /*
+   * Ask the worker to keep the document that booted this page.
+   *
+   * It rides the message channel after the scope announcement above, so the
+   * worker always knows which session the document belongs to before it stores
+   * one — it refuses a document for a session it cannot name, because that
+   * document is what the next launch paints from. A document that DID pass
+   * through the worker was already cached by the navigation strategy; this
+   * covers the one that could not, which is the first visit.
+   *
+   * Deliberately OUTSIDE the `if (live)` branch. The handshake above has a
+   * timeout, and a link too weak to answer it inside that window is precisely
+   * when a document on disk is worth most — yet it used to be the one case that
+   * never asked for one, so the launch that needed the cache most was the launch
+   * that never filled it. No scope at all (signed out, nothing stored) still
+   * sends nothing.
+   */
+  if (scope) requestDocumentCache();
 
   startQueuePump();
   resumeQueue();

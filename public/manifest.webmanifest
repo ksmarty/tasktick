@@ -5,7 +5,7 @@
   "description": "Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync.",
   "lang": "en",
   "dir": "ltr",
-  "start_url": "/",
+  "start_url": "/tasks",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],

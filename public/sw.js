@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v58';
+const VERSION = 'tasktick-v59';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -217,25 +217,43 @@ let apiEpoch = 0;
 /** The app shell: one HTML document that boots the client router offline. */
 const SHELL_URL = '/';
 /**
- * Where the root sends a signed-in visitor, and therefore where an offline
- * launch of the installed app is sent too.
+ * Where the root sends a signed-in visitor, and therefore where a launch of the
+ * installed app starts too.
  *
  * `/` is a redirect route (`src/app/page.tsx` sends a signed-in user to
  * `/tasks`, a signed-out one to `/login`). A redirect is deliberately never
- * cached, so there is no document for `/` — which used to leave an offline
- * cold start of the INSTALLED app (whose `start_url` is `/`) staring at the
- * last-resort "couldn't load its app shell" page, even though the very screen
- * it wanted was sitting in the session cache. Redirecting `/` to the landing
- * route keeps the exact-URL rule intact — `/tasks` is served only at `/tasks` —
- * and lets the ordinary exact-path lookup answer it.
+ * cached, so there is no document for `/` — which used to leave a cold start of
+ * the INSTALLED app staring at the last-resort "couldn't load its app shell"
+ * page, even though the very screen it wanted was sitting in the session cache.
+ * The manifest now starts the app here directly, so an installed launch is one
+ * navigation with a cacheable document behind it; `/` is still redirected to this
+ * route for a browser launch (bookmark, typed URL, a link without a path), which
+ * keeps the exact-URL rule intact — `/tasks` is served only at `/tasks`.
  */
 const LANDING_URL = '/tasks';
 /** Dedicated "you are offline" route, the final fallback for navigations. */
 const OFFLINE_URL = '/offline';
 
-/** Everything needed to boot and look like TaskTick with no network at all. */
+/**
+ * Everything needed to boot and look like TaskTick with no network at all.
+ *
+ * `LANDING_URL`, not `SHELL_URL`, and that is the whole point of this list.
+ * `/` is a redirect route, so `fetch('/')` follows it and comes back with
+ * `redirected: true` — which `precacheOne` refuses by design, because caching a
+ * login redirect under the shell's URL would hand an offline visitor a sign-in
+ * page that cannot work. The result was that this list precached NO document at
+ * all: every cold launch, including the very first one after installing, had
+ * nothing to paint from until a navigation had gone through the worker and
+ * stored a document at its exact URL.
+ *
+ * Asking for the landing route itself gets a real 200 document (signed in) or a
+ * redirect to `/login` (signed out, still refused), so the installed app has a
+ * document — and its content-hashed chunks, see `precacheDocumentTree` — from
+ * the moment it is installed. That is what makes the launch after the install
+ * instant rather than network-bound.
+ */
 const PRECACHE_URLS = [
-  SHELL_URL,
+  LANDING_URL,
   OFFLINE_URL,
   '/manifest.webmanifest',
   '/icons/icon.svg',
@@ -277,7 +295,7 @@ self.addEventListener('install', (event) => {
        * chunks would never enter the runtime cache either.
        */
       await Promise.all(PRECACHE_URLS.map((url) => precacheOne(cache, url)));
-      await Promise.all([precacheDocumentTree(cache, SHELL_URL), precacheDocumentTree(cache, OFFLINE_URL)]);
+      await Promise.all([precacheDocumentTree(cache, LANDING_URL), precacheDocumentTree(cache, OFFLINE_URL)]);
 
       /*
        * No `skipWaiting()` here, deliberately. Waiting is the whole point of the
@@ -471,6 +489,24 @@ async function setSessionScope(scope) {
   await Promise.all(
     names.filter((name) => name.startsWith(API_CACHE_PREFIX) && name !== mine).map((name) => caches.delete(name)),
   );
+
+  /*
+   * Keep the landing document, once the session it belongs to is known.
+   *
+   * This is what a launch reads first, and the only thing that can put it there
+   * is a navigation that went through this worker (see `navigationNetworkFirst`)
+   * or the page asking (`cache-document`). Both miss the case that matters most:
+   * a phone that opens the app, cannot reach the server within the handshake
+   * timeout, and therefore never reports a URL to keep. The scope message is sent
+   * from the stored scope alone, so priming here means the NEXT launch is instant
+   * even if this one never got an answer. `primeDocument` skips its fetch when a
+   * copy is already stored, so this costs one `cache.match` per session message.
+   */
+  try {
+    await primeDocument(await caches.open(mine), landingUrl());
+  } catch (error) {
+    console.warn('[sw] could not keep the landing document', error);
+  }
 }
 
 /** Sign-out: the cached reads and the scope they belong to both go. */
@@ -623,6 +659,34 @@ async function navigationNetworkFirst(event) {
         if (typeof event.waitUntil === 'function') event.waitUntil(storeDocument(cache, key, network));
         return cachedDocument;
       }
+
+      /*
+       * The install-time copy, which is the difference between "instant" and
+       * "instant after the first visit".
+       *
+       * Everything above this line requires a document stored in THIS session's
+       * cache, and a document only gets there once a navigation has passed
+       * through this worker — so the first launch of a freshly installed app, and
+       * any launch after a deploy (which retires the session cache), had nothing
+       * to serve and paid the network race below. The precache has a document for
+       * the landing route from install time, at its exact URL, so an exact-path
+       * match is only reused where it is valid (see the "cached HTML is only ever
+       * valid at the URL it was cached for" note in the catch below).
+       *
+       * Serving it is safe because the worker knows this launch belongs to a
+       * session — `cache` only exists once a scope is known, and a signed-out
+       * visit never stored a document here (the install fetch follows the
+       * redirect to `/login`, and a redirect is refused).
+       *
+       * The session copy is then written in the background, so the next launch
+       * takes the branch above and the precache is only ever the first resort.
+       */
+      const precache = await caches.open(PRECACHE_CACHE);
+      const precachedDocument = await precache.match(key);
+      if (precachedDocument) {
+        if (typeof event.waitUntil === 'function') event.waitUntil(storeDocument(cache, key, network));
+        return precachedDocument;
+      }
     }
     /*
      * The installed app's LAUNCH url, answered without waiting on the network.
@@ -646,7 +710,15 @@ async function navigationNetworkFirst(event) {
      */
     if (cache && new URL(request.url).pathname === SHELL_URL) {
       const landingKey = new Request(landingUrl(), { method: 'GET' });
-      if (await cache.match(landingKey)) {
+      /*
+       * Either copy will do: the session's own, or the install-time one. A launch
+       * from the home screen now goes straight to `LANDING_URL`
+       * (`manifest.webmanifest`), so this covers the browser case — a bookmark,
+       * a typed URL, a link shared without a path.
+       */
+      const landingCached =
+        (await cache.match(landingKey)) ?? (await (await caches.open(PRECACHE_CACHE)).match(landingKey));
+      if (landingCached) {
         if (typeof event.waitUntil === 'function') event.waitUntil(refreshLandingDocument(cache));
         return Response.redirect(landingUrl(), 302);
       }
@@ -754,6 +826,19 @@ function isDocumentCacheable(response) {
 
 /** Content-hashed assets: cache-first, network only on a miss. */
 async function cacheFirst(request) {
+  /*
+   * The install-time list is consulted first, and that is not a micro-
+   * optimisation: the document module install caches (`precacheDocumentTree`)
+   * pulls in this route's whole JS and CSS, and if they lived only in
+   * `RUNTIME_CACHE` the first launch would render the cached HTML and then fetch
+   * every chunk it references over the network — the exact round trips the
+   * precache exists to avoid. Content-hashed URLs make a hit always correct, so
+   * the order between the two caches cannot go stale.
+   */
+  const precache = await caches.open(PRECACHE_CACHE);
+  const precached = await precache.match(request);
+  if (precached) return precached;
+
   const cache = await caches.open(RUNTIME_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;

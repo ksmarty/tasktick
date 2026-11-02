@@ -45,7 +45,14 @@ describe('manifest.webmanifest', () => {
     expect(manifest.id).toBe('/');
     expect(manifest.name.length).toBeGreaterThan(0);
     expect(manifest.short_name.length).toBeLessThanOrEqual(12);
-    expect(manifest.start_url).toBe('/');
+    /*
+     * The landing route, not `/`. `/` is a redirect route (`src/app/page.tsx`), and
+     * a redirect can never be cached, so starting the installed app there meant it
+     * had to ask the network for a document it could not keep — the launch delay.
+     * Starting at `/tasks` makes the launch a navigation with a cacheable document
+     * behind it, which the service worker keeps from install time.
+     */
+    expect(manifest.start_url).toBe('/tasks');
     expect(manifest.scope).toBe('/');
     expect(manifest.display).toBe('standalone');
     expect(manifest.display_override).toContain('standalone');
