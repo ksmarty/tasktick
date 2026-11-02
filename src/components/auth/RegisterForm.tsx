@@ -7,19 +7,15 @@ import { ArrowRightIcon } from '@svg-animated-icons/react/arrow-right';
 import { ChevronRightIcon } from '@svg-animated-icons/react/chevron-right';
 import { ClipboardCopyIcon } from '@svg-animated-icons/react/clipboard-copy';
 import { EnvelopeClosedIcon } from '@svg-animated-icons/react/envelope-closed';
-import { EyeClosedIcon } from '@svg-animated-icons/react/eye-closed';
-import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
 import { IdCardIcon } from '@svg-animated-icons/react/id-card';
-import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
 import { PersonIcon } from '@svg-animated-icons/react/person';
 import { StarIcon } from '@svg-animated-icons/react/star';
 import { LoaderCircle } from 'lucide-react';
 import { AuroraText } from '@/components/godui/aurora-text';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { AUTH_AURORA_COLORS } from './aurora-colors';
+import { AuthField, AuthPasswordField } from './fields';
 import { signUp, startOidcSignIn } from '@/lib/auth-client';
 
 export interface RegisterFormProps {
@@ -32,13 +28,6 @@ export interface RegisterFormProps {
   /** Pre-filled from `?invite=` in the link the admin shared. */
   initialInvite?: string;
 }
-
-/**
- * Positions a decorative field glyph inside a `relative` input wrapper. See the
- * note on the same constant in `LoginForm.tsx`.
- */
-const GLYPH =
-  'pointer-events-none absolute top-1/2 left-3 inline-flex -translate-y-1/2 text-base text-muted-foreground';
 
 /**
  * Registration form.
@@ -62,7 +51,6 @@ export function RegisterForm({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [invite, setInvite] = useState(initialInvite);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,110 +116,69 @@ export function RegisterForm({
       </header>
 
       <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="name">Name</Label>
-          <div className="relative">
-            <span aria-hidden className={GLYPH}>
-              <PersonIcon />
-            </span>
-            <Input
-              id="name"
-              name="name"
-              autoComplete="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Ada Lovelace"
-              className="h-11 pl-9"
-            />
-          </div>
-        </div>
+        <AuthField
+          id="name"
+          label="Name"
+          icon={<PersonIcon />}
+          autoComplete="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Ada Lovelace"
+        />
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="email">Email</Label>
-          <div className="relative">
-            <span aria-hidden className={GLYPH}>
-              <EnvelopeClosedIcon />
-            </span>
-            <Input
-              id="email"
-              type="email"
-              name="email"
-              inputMode="email"
-              autoComplete="username"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              className="h-11 pl-9"
-            />
-          </div>
-        </div>
+        <AuthField
+          id="email"
+          label="Email"
+          icon={<EnvelopeClosedIcon />}
+          type="email"
+          inputMode="email"
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+        />
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="password">Password</Label>
-          <div className="relative">
-            <span aria-hidden className={GLYPH}>
-              <LockClosedIcon />
-            </span>
-            <Input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              name="password"
-              autoComplete="new-password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 8 characters"
-              aria-invalid={tooShort}
-              aria-describedby={tooShort ? 'password-error' : undefined}
-              className="h-11 pr-10 pl-9"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((visible) => !visible)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              className="absolute top-1/2 right-2 inline-flex -translate-y-1/2 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span aria-hidden className="inline-flex text-base">
-                {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
-              </span>
-            </button>
-          </div>
-          {tooShort ? (
-            <p id="password-error" className="text-xs text-destructive">
-              Passwords must be at least 8 characters.
-            </p>
-          ) : null}
-        </div>
+        <AuthPasswordField
+          id="password"
+          label="Password"
+          autoComplete="new-password"
+          value={password}
+          onChange={setPassword}
+          placeholder="At least 8 characters"
+          invalid={tooShort}
+          describedBy="password-error"
+          note={
+            tooShort ? (
+              <p id="password-error" className="text-xs text-destructive">
+                Passwords must be at least 8 characters.
+              </p>
+            ) : null
+          }
+        />
 
         {requiresInvite ? (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="invite">Invite code</Label>
-            <div className="relative">
-              <span aria-hidden className={GLYPH}>
-                <ClipboardCopyIcon />
-              </span>
-              <Input
-                id="invite"
-                name="invite"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                required
-                value={invite}
-                onChange={(event) => setInvite(event.target.value)}
-                placeholder="Paste your invite code"
-                aria-describedby="invite-hint"
-                className="h-11 pl-9"
-              />
-            </div>
-            <p id="invite-hint" className="text-xs text-muted-foreground">
-              Issued by an administrator of this instance.
-            </p>
-          </div>
+          <AuthField
+            id="invite"
+            label="Invite code"
+            icon={<ClipboardCopyIcon />}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+            value={invite}
+            onChange={(event) => setInvite(event.target.value)}
+            placeholder="Paste your invite code"
+            aria-describedby="invite-hint"
+            note={
+              <p id="invite-hint" className="text-xs text-muted-foreground">
+                Issued by an administrator of this instance.
+              </p>
+            }
+          />
         ) : null}
 
         {error ? (

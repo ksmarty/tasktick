@@ -77,6 +77,7 @@ import { useResource } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { DemoModeBanner } from '@/components/settings/DemoModeCard';
+import { PreviewAuthBanner } from '@/components/auth/PreviewAuthBanner';
 import { PageHeaderContext, type PageHeaderContent } from './PageHeader';
 import { ShellPaneContext } from './ShellPane';
 import { QuickAddFab } from './QuickAddFab';
@@ -167,7 +168,19 @@ const PRIMARY_ACTION_LABEL: Partial<Record<TabValue, string>> = {
   habits: 'New habit',
 };
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  previewEmail = null,
+}: {
+  children: React.ReactNode;
+  /**
+   * The address the session was handed to without a password, when preview
+   * sign-in (`src/lib/preview-auth.ts`) is what produced it. Passed down from the
+   * layout rather than read from the environment here, because the fact the
+   * banner states is about *this* session, not about the server's configuration.
+   */
+  previewEmail?: string | null;
+}) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -462,6 +475,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
            */}
           {published ? (
             <header className="shrink-0 bg-background pt-[env(safe-area-inset-top)]">
+              {previewEmail ? <PreviewAuthBanner email={previewEmail} /> : null}
               <DemoModeBanner />
               <div className="flex h-appbar items-center gap-2 px-gutter">
                 {published.leading}
@@ -478,6 +492,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {/* Everything below the title row belongs to the screen. */}
               {published?.children}
             </header>
+          ) : null}
+
+          {/*
+           * The same banner, for a screen that publishes no header of its own.
+           * It carries the island inset itself, because there is no header here
+           * to carry it: without that it would sit under the Dynamic Island on an
+           * installed iPhone.
+           */}
+          {!published && previewEmail ? (
+            <div className="shrink-0 bg-background pt-[env(safe-area-inset-top)]">
+              <PreviewAuthBanner email={previewEmail} />
+            </div>
           ) : null}
 
           <main

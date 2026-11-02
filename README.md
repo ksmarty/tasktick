@@ -494,6 +494,44 @@ The seed prints the credentials it creates. Default: `demo@tasktick.local` /
 | `npm run db:seed` | Seed a demo instance |
 | `npm run icons` | Regenerate PWA icons and iOS splash screens |
 
+### Screenshots and review builds
+
+Every screen is behind a session, so a screenshot tool or a design review stops at
+the login form — and the tools that look at a page cannot type a password. One
+environment variable changes that for the machine the app is running on:
+
+```bash
+# .env.local — gitignored, never shipped
+TASKTICK_PREVIEW_AUTH=1                    # signs in as demo@tasktick.local
+TASKTICK_PREVIEW_AUTH=qa@example.com       # or the account you name
+```
+
+A browser that asks for a page from **this machine** is handed that account's
+session instead of a login form, and the app runs completely normally afterwards:
+it is better-auth's own session, written by better-auth's own cookie code, so
+every layer sees a signed-in user rather than a bypassed check.
+
+Two conditions, both required:
+
+- the variable must be set — there is no default and no build flag that turns
+  this on;
+- the request must arrive over loopback (`localhost`, `127.0.0.1`, `::1`,
+  `*.localhost`). Behind a proxy, or from another machine on the network, the
+  `Host` header is not a loopback name and the ordinary login page is served, so
+  a stale `.env` in a container is not a hole.
+
+While it is responsible for the session the app shows a standing banner naming the
+account, so a screenshot taken this way can never be read as "this app has no
+authentication". Leave it unset on anything shared: the session it creates is a
+real one and can read and write that account's data.
+
+From a script, the same thing is one request — the endpoint is a redirect target,
+so `curl -L` lands on the page with a cookie jar:
+
+```bash
+curl -sL -c jar -b jar 'http://127.0.0.1:3000/api/auth/preview-session?next=/tasks'
+```
+
 ### Architecture
 
 ```

@@ -6,12 +6,13 @@
  * runtime error three features later.
  */
 import { z } from 'zod';
+import { isTruthyEnvFlag } from './env-flags';
 
 const bool = (def: boolean) =>
   z
     .string()
     .optional()
-    .transform((v) => (v === undefined || v === '' ? def : ['1', 'true', 'yes', 'on'].includes(v.toLowerCase())));
+    .transform((v) => (v === undefined || v === '' ? def : isTruthyEnvFlag(v)));
 
 const int = (def: number) =>
   z

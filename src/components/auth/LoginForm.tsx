@@ -7,18 +7,14 @@ import { ArrowRightIcon } from '@svg-animated-icons/react/arrow-right';
 import { CheckIcon } from '@svg-animated-icons/react/check';
 import { ChevronRightIcon } from '@svg-animated-icons/react/chevron-right';
 import { EnvelopeClosedIcon } from '@svg-animated-icons/react/envelope-closed';
-import { EyeClosedIcon } from '@svg-animated-icons/react/eye-closed';
-import { EyeOpenIcon } from '@svg-animated-icons/react/eye-open';
 import { IdCardIcon } from '@svg-animated-icons/react/id-card';
-import { LockClosedIcon } from '@svg-animated-icons/react/lock-closed';
 import { LoaderCircle } from 'lucide-react';
 import { AuroraText } from '@/components/godui/aurora-text';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { AUTH_AURORA_COLORS } from './aurora-colors';
+import { AuthField, AuthPasswordField } from './fields';
 import { signIn, startOidcSignIn } from '@/lib/auth-client';
 
 /**
@@ -44,10 +40,31 @@ export function LoginForm({
   oidcProblem,
   oidcFailure,
   expiredSession = false,
+  canRegister = true,
+  requiresInvite = false,
+  previewProblem,
   next,
 }: {
   oidcEnabled: boolean;
   oidcName: string;
+  /**
+   * Whether this instance accepts new accounts at all.
+   *
+   * The "create one" link used to be unconditional, so on an instance with
+   * registration closed the only footer on the sign-in page led to `/register`,
+   * which bounces straight back here. A dead end on the one screen a new visitor
+   * sees, and nothing on it explained why.
+   */
+  canRegister?: boolean;
+  /** Registration is open but gated by a code, so say so before the click. */
+  requiresInvite?: boolean;
+  /**
+   * Why the preview sign-in (`src/lib/preview-auth.ts`) did not happen. Only
+   * ever set on a machine that turned that feature on, and only when it failed —
+   * which is the case worth a sentence, because the expected behaviour there is
+   * never seeing this page at all.
+   */
+  previewProblem?: string | null;
   /** Why the provider cannot be reached, from the server-side discovery probe. */
   oidcProblem?: string;
   /** Why the last single sign-on round trip failed, from the callback's `?error=`. */
@@ -68,7 +85,6 @@ export function LoginForm({
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   // Seeded from the query so a failed round trip explains itself without the
   // user having to retry first to see something happen.
   const [error, setError] = useState<string | null>(oidcFailure ?? null);
@@ -138,64 +154,37 @@ export function LoginForm({
       </header>
 
       <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="email">Email</Label>
-          <div className="relative">
-            <span aria-hidden className={GLYPH}>
-              <EnvelopeClosedIcon />
-            </span>
-            <Input
-              id="email"
-              type="email"
-              name="email"
-              inputMode="email"
-              autoComplete="username"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              className="h-11 pl-9"
-            />
-          </div>
-        </div>
+        <AuthField
+          id="email"
+          label="Email"
+          icon={<EnvelopeClosedIcon />}
+          type="email"
+          inputMode="email"
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+        />
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="password">Password</Label>
-          <div className="relative">
-            <span aria-hidden className={GLYPH}>
-              <LockClosedIcon />
-            </span>
-            <Input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              name="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              className="h-11 pr-10 pl-9"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((visible) => !visible)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              className="absolute top-1/2 right-2 inline-flex -translate-y-1/2 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span aria-hidden className="inline-flex text-base">
-                {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
-              </span>
-            </button>
-          </div>
-        </div>
+        <AuthPasswordField
+          id="password"
+          label="Password"
+          autoComplete="current-password"
+          value={password}
+          onChange={setPassword}
+          placeholder="••••••••"
+        />
 
         {error ? (
           <Alert variant="destructive" role="alert">
             {error}
           </Alert>
+        ) : previewProblem ? (
+          <Alert role="status">{previewProblem}</Alert>
         ) : expiredSession ? (
           <Alert role="status">
             Your saved session is no longer valid, so signing in once more is
@@ -257,15 +246,23 @@ export function LoginForm({
         </>
       ) : null}
 
-      <p className="text-center text-sm text-muted-foreground">
-        Need an account?{' '}
-        <NextLink
-          href="/register"
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          Create one
-        </NextLink>
-      </p>
+      {canRegister ? (
+        <p className="text-center text-sm text-muted-foreground">
+          Need an account?{' '}
+          <NextLink
+            href="/register"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Create one
+          </NextLink>
+          {requiresInvite ? ' with an invite code' : ''}
+        </p>
+      ) : (
+        <p className="text-center text-sm text-muted-foreground">
+          New accounts are disabled on this server. An administrator can add you
+          from Settings.
+        </p>
+      )}
     </div>
   );
 }

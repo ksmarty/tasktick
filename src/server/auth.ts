@@ -25,6 +25,7 @@ import { schema } from './db/schema';
 import { invites, user as userTable } from './db/schema';
 import { newId } from './crypto';
 import { AUTH_COOKIE_PREFIX, useSecureCookiesFor } from '@/lib/auth-cookie';
+import { PREVIEW_AUTH_ENV, previewAuthAvailable, previewAuthEmail } from '@/lib/preview-auth';
 import { getEnv, oidcConfigured } from '@/lib/env';
 import { isLocalNetworkOrigin, originFromRequest } from '@/lib/network';
 import { safeNextPath } from '@/lib/safe-next';
@@ -174,6 +175,75 @@ function reminderLinkPlugin(): BetterAuthPlugin {
 }
 
 /**
+ * Sign-in for the machine the app is running on — see `src/lib/preview-auth.ts`.
+ *
+ * ## Why a sign-in rather than a bypassed check
+ *
+ * The alternative was to have `getSessionUser()` invent a user when the switch is
+ * on. That is less code, and it is worse: it puts a second, secret definition of
+ * "signed in" behind every server component and route, and the app would then be
+ * exercised through a path no real visitor ever takes. This endpoint mints an
+ * ordinary session with the account named by `TASKTICK_PREVIEW_AUTH`, writes it
+ * with better-auth's own cookie code — same signing, same attributes, same
+ * `Secure` decision as a password sign-in — and the app runs completely normally
+ * afterwards. What is skipped is the password prompt, not the auth.
+ *
+ * ## Why it can be a GET
+ *
+ * It changes server state (a session row), so it is not a "safe" method by the
+ * book. It is a GET because it is a redirect target: a browser following a link
+ * to a page it cannot see yet must land back on the page, and a POST the user
+ * never submitted cannot be a redirect. The exposure that normally makes
+ * state-changing GETs dangerous — an image tag or a link on another site causing
+ * it — is bounded by the loopback check here and by the fact that the session it
+ * creates is for an account the operator named on their own machine.
+ */
+function previewSignInPlugin(): BetterAuthPlugin {
+  return {
+    id: 'preview-auth',
+    endpoints: {
+      previewSession: createAuthEndpoint(
+        '/preview-session',
+        {
+          method: 'GET',
+          query: z.object({ next: z.string().optional() }),
+        },
+        async (ctx) => {
+          const destination = safeNextPath(ctx.query.next);
+          /*
+           * `preview=1` on the fallback is the loop breaker: the login page reads
+           * it and stops offering the preview, so a deployment that has the
+           * variable set but is reached from elsewhere cannot bounce between the
+           * two screens forever.
+           */
+          const backToLogin = (reason: string) =>
+            ctx.redirect(
+              `/login?preview=${reason}&next=${encodeURIComponent(destination)}`,
+            );
+
+          const email = previewAuthAvailable(ctx.headers ?? new Headers());
+          if (!email) throw backToLogin('unavailable');
+
+          const found = await ctx.context.internalAdapter.findUserByEmail(email);
+          const user = found?.user;
+          // `banned` is a better-auth admin-plugin field and is absent when that
+          // plugin is off, so it is read defensively rather than assumed.
+          if (!user || (user as { banned?: boolean | null }).banned) {
+            throw backToLogin('no-account');
+          }
+
+          const session = await ctx.context.internalAdapter.createSession(user.id);
+          if (!session) throw backToLogin('no-session');
+
+          await setSessionCookie(ctx, { session, user });
+          throw ctx.redirect(destination);
+        },
+      ),
+    },
+  };
+}
+
+/**
  * Decides whether a signup may proceed, and whether it gets admin rights.
  *
  * OIDC sign-ins also pass through here on first login, but they must NOT be
@@ -234,6 +304,20 @@ function createAuth(options: { secureCookies?: boolean } = {}) {
    * the browser drops the cookie and every open of the app looks signed out.
    */
   const secureCookies = options.secureCookies ?? env.APP_URL.startsWith('https://');
+
+  /*
+   * Said once, at boot, in the server log. A switch that hands out sessions
+   * without a password deserves a line that is hard to miss when reading logs
+   * after the fact — the banner in the UI covers the person looking at the app,
+   * this covers the person looking at the server.
+   */
+  const previewEmail = previewAuthEmail();
+  if (previewEmail) {
+    console.warn(
+      `[preview] ${PREVIEW_AUTH_ENV}=${previewEmail} — requests over loopback are signed in ` +
+        'without a password. Leave it unset on anything shared.',
+    );
+  }
 
   return betterAuth({
     appName: 'TaskTick',
@@ -342,7 +426,17 @@ function createAuth(options: { secureCookies?: boolean } = {}) {
       },
     },
 
-    plugins: [...buildOAuthPlugins(), reminderLinkPlugin(), nextCookies()],
+    /*
+     * The preview endpoint exists only when an operator asked for it, and its
+     * route therefore does not exist at all on an instance that did not — a 404
+     * from better-auth rather than a handler that has to remember to refuse.
+     */
+    plugins: [
+      ...buildOAuthPlugins(),
+      reminderLinkPlugin(),
+      ...(previewEmail ? [previewSignInPlugin()] : []),
+      nextCookies(),
+    ],
   });
 }
 

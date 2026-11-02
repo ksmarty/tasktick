@@ -19,6 +19,7 @@ import { hasPassword } from './repos/accounts';
 import { getAuth, getAuthForScheme } from './auth';
 import { AUTH_COOKIE_PREFIX } from '@/lib/auth-cookie';
 import { getEnv, isAppUrlDefault } from '@/lib/env';
+import { isTruthyEnvFlag } from '@/lib/env-flags';
 import type { ApiResult, SessionUser } from '@/lib/types';
 
 export class ApiError extends Error {
@@ -270,7 +271,7 @@ export function searchParamInt(req: NextRequest, key: string, fallback: number):
 export function searchParamBool(req: NextRequest, key: string, fallback = false): boolean {
   const raw = searchParam(req, key);
   if (raw === undefined) return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
+  return isTruthyEnvFlag(raw);
 }
 
 /** Parses a comma-separated list parameter into unique, non-empty values. */
