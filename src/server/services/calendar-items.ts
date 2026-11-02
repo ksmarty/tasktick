@@ -248,6 +248,13 @@ export interface CalendarItemsOptions {
   endMs: Millis;
   /** Include tasks that have a due date. On by default — that is the point. */
   includeTasks?: boolean;
+  /**
+   * Include completed tasks as blocks. On by default, because the calendar draws
+   * them greyed out instead of hiding them — a finished task still says the day
+   * had that commitment, and a block that vanishes at the moment it is ticked off
+   * reads as lost work. Pass `false` for anything asking "what is still to do".
+   */
+  includeCompletedTasks?: boolean;
   includeEvents?: boolean;
   /** Restrict to specific calendars (the sidebar's visible toggles). */
   calendarIds?: string[] | null;
@@ -261,7 +268,15 @@ export interface CalendarItemsOptions {
  * the shorter one stacks over it.
  */
 export async function getCalendarItems(options: CalendarItemsOptions): Promise<CalendarItem[]> {
-  const { userId, zone, startMs, endMs, includeTasks = true, includeEvents = true } = options;
+  const {
+    userId,
+    zone,
+    startMs,
+    endMs,
+    includeTasks = true,
+    includeEvents = true,
+    includeCompletedTasks = true,
+  } = options;
 
   const [calendars, accounts] = await Promise.all([listCalendars(userId), listAccounts(userId)]);
   const pullOnlyAccountIds = new Set(
@@ -327,7 +342,9 @@ export async function getCalendarItems(options: CalendarItemsOptions): Promise<C
   }
 
   if (includeTasks) {
-    const tasks = await tasksInRange(userId, startMs, endMs, zone);
+    const tasks = await tasksInRange(userId, startMs, endMs, zone, {
+      includeCompleted: includeCompletedTasks,
+    });
     const listCalendarIds = new Set(calendars.map((c) => c.id));
 
     for (const task of tasks) {

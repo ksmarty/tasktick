@@ -639,8 +639,27 @@ export async function getTask(userId: string, id: string, executor: Db = getDb()
   return task ?? null;
 }
 
-/** Every open task inside a window, including its subtasks — used by the calendar. */
-export async function tasksInRange(userId: string, startMs: Millis, endMs: Millis, zone: string): Promise<Task[]> {
+/**
+ * Every scheduled task inside a window — the calendar's task read.
+ *
+ * `includeCompleted` is on for the calendar and off by default. The calendar
+ * draws finished work greyed out rather than deleting it from the month: a day
+ * whose only entry was completed still happened, and a calendar that silently
+ * loses a block the moment it is ticked off reads as a bug — it was reported as
+ * one. A completed task keeps the date it was *due*, so it stays under the day
+ * the commitment was for.
+ *
+ * Everything that asks "what is still to do" (the Today agenda, the sidebar
+ * counts, the task list) must leave this off; only a screen that renders a day
+ * as a record of what was scheduled wants the completed rows.
+ */
+export async function tasksInRange(
+  userId: string,
+  startMs: Millis,
+  endMs: Millis,
+  zone: string,
+  { includeCompleted = false }: { includeCompleted?: boolean } = {},
+): Promise<Task[]> {
   const db = getDb();
   const rows = await db
     .select()
@@ -649,7 +668,13 @@ export async function tasksInRange(userId: string, startMs: Millis, endMs: Milli
       and(
         eq(tasks.userId, userId),
         isNull(tasks.deletedAtMs),
-        eq(tasks.status, 'todo'),
+        /*
+         * Completed only — never `wont_do`. A task you decided not to do is not
+         * a commitment the day held, and the calendar has one visual for "done"
+         * (`completed` on the item); letting the third status through would draw
+         * it as live work.
+         */
+        includeCompleted ? inArray(tasks.status, ['todo', 'completed']) : eq(tasks.status, 'todo'),
         isNull(tasks.parentId),
         or(
           and(gte(tasks.dueAtMs, startMs), lt(tasks.dueAtMs, endMs)),
