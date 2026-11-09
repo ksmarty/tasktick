@@ -83,7 +83,7 @@ import {
   toDateOnly,
   todayIn,
 } from '@/lib/dates';
-import { invalidate, useResource } from '@/lib/store';
+import { invalidate, useCacheHydrated, useResource } from '@/lib/store';
 import { affectsFor } from '@/lib/offline-rules';
 import type { CalendarItem, DateOnly, TimeOnly } from '@/lib/types';
 import type { BootstrapPayload, CalendarItemsPayload } from '@/lib/view-types';
@@ -279,10 +279,17 @@ export function CalendarScreen({ initialDate, initialCalendarId, initialEventId 
     [activeDate, zone, weekStartsOn],
   );
 
-  // Wait for the user's timezone before asking for a range: the window depends
-  // on it, and a UTC range would be a wasted round trip that is immediately
-  // superseded.
-  const settingsReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);
+  /*
+   * Start on the hydration pass, not on the bootstrap round trip.
+   *
+   * `TasksView` learned this first: waiting for `/api/bootstrap` serialised the
+   * reads behind a response that, offline, may never arrive — the calendar then
+   * sat on its skeleton while the task list had already painted from disk. The
+   * pass finishes even when the bootstrap fails or has no cached copy, and a
+   * bootstrap that arrived or failed proves the pass is behind us anyway.
+   */
+  const hydrated = useCacheHydrated();
+  const settingsReady = hydrated || Boolean(bootstrap.data) || Boolean(bootstrap.error);
 
   const resource = useResource<CalendarItemsPayload>(
     '/api/calendar/items',

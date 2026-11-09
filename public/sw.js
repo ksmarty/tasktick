@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v62';
+const VERSION = 'tasktick-v63';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -264,6 +264,20 @@ const PRECACHE_URLS = [
   '/icons/apple-touch-icon.png',
   '/icons/favicon.png',
 ];
+
+/**
+ * Every tab the shell can open offline, kept for the session beside the landing
+ * route.
+ *
+ * `/tasks` alone is not enough: the tabs are separate documents, and a document
+ * reaches this worker only when a navigation goes through it (`primeDocument`)
+ * or the page asks (`cache-document`). So a phone that had not opened the
+ * calendar since the last deploy — which deletes every `api-*` cache in
+ * `activate`, documents included — launched `/tasks` from the precache and then
+ * landed on `/offline` the moment the calendar was tapped. The tabs are the app,
+ * so the tabs are what is kept.
+ */
+const PRIMARY_ROUTES = [LANDING_URL, '/today', '/calendar', '/habits', '/settings'];
 
 /** Content-hashed (or hand-versioned) prefixes: a hit is always correct. */
 const IMMUTABLE_PREFIXES = ['/_next/static/', '/icons/'];
@@ -501,11 +515,16 @@ async function setSessionScope(scope) {
    * from the stored scope alone, so priming here means the NEXT launch is instant
    * even if this one never got an answer. `primeDocument` skips its fetch when a
    * copy is already stored, so this costs one `cache.match` per session message.
+   *
+   * `PRIMARY_ROUTES` covers the rest of the shell for the same reason: a tab
+   * that was never opened since the last deploy has no document of its own, and
+   * `/calendar` used to answer the tap with `/offline`.
    */
   try {
-    await primeDocument(await caches.open(mine), landingUrl());
+    const cache = await caches.open(mine);
+    await Promise.all(PRIMARY_ROUTES.map((url) => primeDocumentTree(cache, url)));
   } catch (error) {
-    console.warn('[sw] could not keep the landing document', error);
+    console.warn('[sw] could not keep the landing documents', error);
   }
 }
 
@@ -686,6 +705,32 @@ async function navigationNetworkFirst(event) {
       if (precachedDocument) {
         if (typeof event.waitUntil === 'function') event.waitUntil(storeDocument(cache, key, network));
         return precachedDocument;
+      }
+
+      /*
+       * The same tab, opened with a different query string.
+       *
+       * The tabs are not linked bare: the calendar destination the shell renders
+       * is `/calendar?calendar=<id>`, and the app keeps its state in the query
+       * (a date, a filter), so the URL a tap asks for almost never equals the one
+       * that was primed. Exact matching left those taps with nothing and sent
+       * them to `/offline` — the whole report — even though the tab's own
+       * document was on disk. The route is the same one the document was cached
+       * for; only the view state differs, and the client reads that from
+       * `location` anyway. A different PATH is still refused, exactly as the note
+       * on the catch below says: a payload describing another route is the thing
+       * that crashes React.
+       */
+      const requestedPath = new URL(request.url).pathname;
+      if (PRIMARY_ROUTES.includes(requestedPath)) {
+        const samepath = (await cache.keys()).find((stored) => new URL(stored.url).pathname === requestedPath);
+        if (samepath) {
+          const sibling = await cache.match(samepath);
+          if (sibling) {
+            if (typeof event.waitUntil === 'function') event.waitUntil(storeDocument(cache, key, network));
+            return sibling;
+          }
+        }
       }
     }
     /*
@@ -1095,6 +1140,39 @@ async function primeDocument(cache, url, { force = false } = {}) {
     if (!isDocumentCacheable(response)) return;
     await cache.put(key, response.clone());
     await trimApiCache(cache);
+  } catch (error) {
+    // Offline, or the route needs a session that is gone: nothing to prime.
+  }
+}
+
+/**
+ * Fetches and keeps one tab's document, together with the build assets it names.
+ *
+ * `primeDocument` stores the HTML alone, which is all a navigation needs to
+ * answer — but not enough for the page to come alive: a tab that was never
+ * opened online has no entry chunk for its route, and the shell paints as
+ * unstyled markup that never hydrates. So the document goes in the session
+ * cache, where `isDocumentCacheable` keeps a real 200 and nothing else, and its
+ * content-hashed chunks go in `RUNTIME_CACHE`, which `cacheFirst` consults for
+ * every asset. The HTML is per-session; a hashed chunk is identical for
+ * everyone, so it can be shared safely.
+ */
+async function primeDocumentTree(cache, url) {
+  try {
+    const key = new Request(url, { method: 'GET' });
+    if (await cache.match(key)) return;
+    const response = await fetch(new Request(url, { cache: 'reload' }));
+    if (!isDocumentCacheable(response)) return;
+    const html = await response.clone().text();
+    await cache.put(key, response);
+    await trimApiCache(cache);
+
+    const runtime = await caches.open(RUNTIME_CACHE);
+    const assets = new Set();
+    for (const match of html.matchAll(/(?:src|href)="(\/_next\/[^"]+)"/g)) {
+      assets.add(match[1]);
+    }
+    await Promise.all([...assets].map((asset) => precacheOne(runtime, asset)));
   } catch (error) {
     // Offline, or the route needs a session that is gone: nothing to prime.
   }

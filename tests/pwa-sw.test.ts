@@ -1120,6 +1120,117 @@ describe('navigations are network-first with a shell fallback', () => {
   });
 });
 
+describe('every tab the shell can open is kept for the session', () => {
+  /*
+   * `/tasks` is precached at install; the other tabs are not, and a document
+   * reaches the session cache only when a navigation went through the worker or
+   * the page asked for it. A deploy retires that cache — documents included — so
+   * a phone that had not opened the calendar since the deploy launched the task
+   * list from its precached shell and then landed on `/offline` the moment the
+   * calendar tab was tapped. That is the report this exists for: the tasks load,
+   * the synced calendars do not.
+   */
+  const TAB_HTML: Record<string, string> = {
+    '/tasks': '<html>tasks</html>',
+    '/today': '<html>today</html>',
+    '/calendar': '<html>calendar</html>',
+    '/habits': '<html>habits</html>',
+    '/settings': '<html>settings</html>',
+  };
+
+  const tabsRoute: Route = (url) => {
+    const { pathname } = new URL(url);
+    const body = TAB_HTML[pathname];
+    return body ? html(body) : new FakeResponse('asset');
+  };
+
+  it('keeps a document for every tab, not just the landing route', async () => {
+    const harness = createHarness();
+    harness.setRoute(tabsRoute);
+    await announce(harness, 's1');
+
+    const cache = harness.caches.get(API_CACHE)!;
+    for (const [tab, body] of Object.entries(TAB_HTML)) {
+      expect(cache.get(`${ORIGIN}${tab}`)?.body).toBe(body);
+    }
+
+    // Which is what makes the tap answer with the calendar instead of /offline.
+    const cold = await harness.navigation(`${ORIGIN}/calendar`, () => new Error('offline'));
+    expect(cold?.status).toBe(200);
+    expect(cold?.body).toBe('<html>calendar</html>');
+  });
+
+  it('keeps the entry chunk a document names, so its tab comes alive', async () => {
+    /*
+     * The HTML alone renders markup that never hydrates: a tab opened for the
+     * first time has no chunk of its route anywhere, and `cacheFirst` only looks
+     * in the two caches it owns. The hashed chunks go to the shared runtime
+     * cache (a hash makes them identical for everyone); the document, which
+     * carries this account's payload, stays in the session cache.
+     */
+    const chunk = '/_next/static/chunks/app/(app)/calendar/page-abc123.js';
+    const harness = createHarness();
+    harness.setRoute((url) =>
+      new URL(url).pathname === '/calendar'
+        ? html(`<html><script src="${chunk}"></script></html>`)
+        : new FakeResponse('asset'),
+    );
+    await announce(harness, 's1');
+
+    expect(harness.caches.get(RUNTIME)!.get(`${ORIGIN}${chunk}`)?.body).toBe('asset');
+    expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/calendar`)?.body).toContain(chunk);
+
+    const offlineChunk = await harness.get(`${ORIGIN}${chunk}`, () => new Error('offline'));
+    expect(offlineChunk?.body).toBe('asset');
+  });
+
+  it('answers a tab tap whose URL carries the view state in its query', async () => {
+    /*
+     * The calendar destination the shell renders is `/calendar?calendar=<id>`, and
+     * the app keeps the date and the filter in the query too, so the URL a tap
+     * asks for is almost never the bare one that was primed. Exact matching left
+     * the tap with nothing and sent it to `/offline` — the reported bug — while
+     * the tab's own document sat on disk one query string away.
+     */
+    const harness = createHarness();
+    harness.setRoute(tabsRoute);
+    await announce(harness, 's1');
+
+    const tap = await harness.navigation(`${ORIGIN}/calendar?calendar=xETA4yHreXkUKwJnaLnk-Q`, () => new Error('offline'));
+    expect(tap?.status).toBe(200);
+    expect(tap?.body).toBe('<html>calendar</html>');
+
+    // The same latitude does not extend to a different tab: that document would
+    // describe another route, which is the payload mismatch that crashes React.
+    const other = await harness.navigation(`${ORIGIN}/matrix`, () => new Error('offline'));
+    expect(other?.status).toBe(302);
+    expect(other?.headers.get('location')).toBe(`${ORIGIN}/offline`);
+  });
+
+  it('fetches nothing for a tab it already has', async () => {
+    /* The scope message is sent on every load, so this has to cost one match per
+     * tab and not one request per tab. */
+    const harness = createHarness();
+    harness.setRoute(tabsRoute);
+    await announce(harness, 's1');
+    harness.fetchCalls.length = 0;
+
+    await announce(harness, 's1');
+    expect(harness.fetchCalls).toEqual([]);
+  });
+
+  it('never keeps the login redirect a signed-out visit produces', async () => {
+    const harness = createHarness();
+    harness.setRoute((url) =>
+      new URL(url).pathname === '/calendar'
+        ? new FakeResponse('<html>login</html>', { redirected: true, headers: { 'Content-Type': 'text/html' } })
+        : new FakeResponse('asset'),
+    );
+    await announce(harness, 's1');
+    expect(harness.caches.get(API_CACHE)!.get(`${ORIGIN}/calendar`)).toBeUndefined();
+  });
+});
+
 describe('the page can have its own document cached', () => {
   /*
    * On a first visit the document that booted the app was fetched before the

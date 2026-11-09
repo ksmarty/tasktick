@@ -24,6 +24,7 @@ const source = (relative: string): string =>
 
 const STORE = source('src/lib/store.ts');
 const VIEW = source('src/components/tasks/TasksView.tsx');
+const CALENDAR = source('src/components/calendar/CalendarScreen.tsx');
 
 describe('the store says when its disk pass is done', () => {
   it('marks the pass finished on both of its exits', () => {
@@ -80,5 +81,26 @@ describe('the All-tasks screen starts reading as soon as it may', () => {
      * avoid.
      */
     expect(VIEW.match(/enabled: bootstrapReady/g)).toHaveLength(3);
+  });
+});
+
+describe('the calendar screen starts reading as soon as it may', () => {
+  it('opens its gate on the pass too, not on the bootstrap payload', () => {
+    /*
+     * This screen kept the old gate after the tasks screen dropped it, and that
+     * was the difference the user saw offline: the task list painted from disk
+     * while the month sat on its skeleton, waiting for a `/api/bootstrap` that
+     * could not arrive. A bootstrap that arrived or failed still counts — it
+     * proves the pass is behind us and must not hold the month hostage.
+     */
+    expect(CALENDAR).toContain("import { invalidate, useCacheHydrated, useResource } from '@/lib/store';");
+    expect(CALENDAR).toContain('const hydrated = useCacheHydrated();');
+    expect(CALENDAR).toContain(
+      'const settingsReady = hydrated || Boolean(bootstrap.data) || Boolean(bootstrap.error);',
+    );
+    /* One gate for the month and for its neighbours, so neither can escape it. */
+    expect(CALENDAR.match(/enabled: settingsReady/g)).toHaveLength(1);
+    expect(CALENDAR).toContain('const neighboursEnabled = settingsReady && Boolean(payload) && !resource.isLoading;');
+    expect(CALENDAR).not.toContain('const settingsReady = Boolean(bootstrap.data) || Boolean(bootstrap.error);');
   });
 });

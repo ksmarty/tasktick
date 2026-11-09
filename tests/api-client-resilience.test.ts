@@ -17,7 +17,7 @@
  * `tests/offline-queue.test.ts`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '@/lib/api-client';
+import { api, errorMessage } from '@/lib/api-client';
 import { __resetNetworkHealthForTests, isReachable, reportUnreachable } from '@/lib/network-health';
 
 const { enqueueWrite } = vi.hoisted(() => ({ enqueueWrite: vi.fn() }));
@@ -209,5 +209,28 @@ describe('what a response says about the network', () => {
 
     await expect(api.get('/api/tasks')).rejects.toThrow();
     expect(isReachable()).toBe(true);
+  });
+});
+
+describe('what an offline read says to the person reading it', () => {
+  /*
+   * The worker's 503 carries `error: 'network-unavailable'` because the worker
+   * has no business writing copy. The screen prints whatever it is given, so an
+   * offline calendar used to show that string where a sentence belongs.
+   */
+  it('turns the worker’s machine code into a sentence', async () => {
+    vi.stubGlobal('fetch', jsonFetch({ offline: true, error: 'network-unavailable' }, 503));
+
+    const error = await api.get('/api/calendar/items').catch((thrown: unknown) => thrown);
+    expect(errorMessage(error)).toBe(
+      'TaskTick could not reach the server. Showing what is saved on this device.',
+    );
+  });
+
+  it('leaves a message the server chose alone', async () => {
+    vi.stubGlobal('fetch', jsonFetch({ ok: false, error: 'That event no longer exists.' }, 404));
+
+    const error = await api.get('/api/calendar/items').catch((thrown: unknown) => thrown);
+    expect(errorMessage(error)).toBe('That event no longer exists.');
   });
 });

@@ -314,8 +314,24 @@ export const api = {
 };
 
 /** Human-readable message for any thrown value. */
+/**
+ * A read the worker could not reach the server for, said in a sentence.
+ *
+ * `offlineResponse()` in `public/sw.js` answers with `503 { offline: true,
+ * error: 'network-unavailable' }` — a machine code, because the worker has no
+ * business writing copy. It used to reach the screen verbatim, so an offline
+ * calendar showed the string `network-unavailable` where a sentence belongs.
+ * Only that one value is translated: everything else an envelope carries comes
+ * from the server and is already meant for a person.
+ */
+const OFFLINE_READ_ERROR = 'network-unavailable';
+const OFFLINE_READ_MESSAGE = 'TaskTick could not reach the server. Showing what is saved on this device.';
+
 export function errorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) return error.message;
+  if (error instanceof ApiClientError) {
+    if (error.message === OFFLINE_READ_ERROR) return OFFLINE_READ_MESSAGE;
+    return error.message;
+  }
   if (error instanceof Error) return error.message;
   return 'Something went wrong.';
 }
