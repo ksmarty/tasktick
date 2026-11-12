@@ -290,35 +290,54 @@ function LinkField({ url }: { url: string }) {
             <MapPin className="size-4" />
           </span>
           <span className="shrink-0 text-muted-foreground">Location</span>
-          {address ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-auto min-w-0 truncate text-right text-foreground underline-offset-2 hover:underline"
-            >
-              {address}
-            </a>
-          ) : (
+          {address ? null : (
             <span className="ml-auto min-w-0 truncate text-right text-muted-foreground">
               {pending ? 'Finding the address…' : 'Map'}
             </span>
           )}
         </div>
+        {address ? (
+          // A full street address is the point of the row, so it wraps onto as
+          // many lines as it needs: truncating it hides the city and the
+          // postcode, which is exactly the part a reader checks the map against.
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pl-7 text-sm text-foreground break-words underline-offset-2 hover:underline"
+          >
+            {address}
+          </a>
+        ) : null}
         {coordinates ? (
           <p className="pl-7 text-xs text-muted-foreground tabular-nums">{coordinates}</p>
         ) : null}
         {mapSrc ? (
-          <iframe
-            // The pin (or the resolved name), not the original URL: a short link's
-            // own frame is what this sheet would be embedding, and Google answers
-            // it with a full app page.
-            src={mapSrc}
-            title={address ?? `Map of ${display}`}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            className="mt-1 ml-7 h-40 w-[calc(100%-1.75rem)] rounded-lg border border-border bg-muted"
-          />
+          // The frame is a picture of the place, not a second app: a tap opens
+          // Google Maps in a new tab through the anchor laid over it. Letting the
+          // embed itself take the click is what produced a blank tab first —
+          // Google's own embed answers by navigating, then redirecting.
+          <div className="relative mt-1 ml-7 h-40 w-[calc(100%-1.75rem)] overflow-hidden rounded-lg border border-border bg-muted">
+            <iframe
+              // The pin (or the resolved name), not the original URL: a short
+              // link's own frame is what this sheet would be embedding, and
+              // Google answers it with a full app page.
+              src={mapSrc}
+              title={address ?? `Map of ${display}`}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              tabIndex={-1}
+              className="pointer-events-none size-full border-0"
+            />
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-hidden
+              tabIndex={-1}
+              className="absolute inset-0"
+            />
+          </div>
         ) : pending ? (
           <div
             aria-hidden

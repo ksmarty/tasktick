@@ -157,6 +157,25 @@ describe('ItemDetailSheet renders the preview', () => {
     expect(DETAIL).toContain('label="Location"');
   });
 
+  it('turns a tap on the map into a new tab, not a navigation', () => {
+    // The embed used to take the click itself: the sheet's page went blank while
+    // Google's own frame redirected, and Maps only appeared afterwards. The frame
+    // is a picture now, with an anchor laid over it.
+    expect(DETAIL).toContain('pointer-events-none size-full border-0');
+    expect(DETAIL).toContain('className="absolute inset-0"');
+    expect(DETAIL).toContain('overflow-hidden rounded-lg border border-border bg-muted');
+  });
+
+  it('gives the address every line it needs', () => {
+    // Truncating hid the city and the postcode — the part a reader checks the
+    // map against. The address is its own block and wraps.
+    expect(DETAIL).toContain('pl-7 text-sm text-foreground break-words');
+    // The plain Link row still truncates a URL — only the address wraps.
+    const address = DETAIL.slice(DETAIL.indexOf('{address ? ('), DETAIL.indexOf(') : null}', DETAIL.indexOf('{address ? (')));
+    expect(address).toContain('{address}');
+    expect(address).not.toContain('truncate');
+  });
+
   it('never invents an app scheme for maps', () => {
     // https is the universal link: iOS routes it to the app, everything else to
     // the web. A custom scheme would fail silently with no app installed.

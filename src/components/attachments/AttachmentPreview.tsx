@@ -25,7 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { errorMessage } from '@/lib/api-client';import { attachmentPreviewKind, formatFileSize } from '@/lib/attachments';
+import { errorMessage } from '@/lib/api-client';
+import { attachmentPreviewKind, formatFileSize } from '@/lib/attachments';
 import type { Attachment } from '@/lib/types';
 
 /**
@@ -106,7 +107,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="gap-stack sm:max-w-2xl">
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-stack overflow-hidden p-card sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="truncate pr-8">{attachment.filename}</DialogTitle>
           <DialogDescription>
@@ -115,19 +116,22 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-lg border border-border bg-muted">
+        {/* A share of the *small* viewport, not of `vh`: mobile browser chrome
+            shrinks the real window, and a fixed `70vh` pushed the footer off the
+            bottom of the screen. `min-h-0` lets the box give height back. */}
+        <div className="flex h-[55dvh] min-h-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
           {kind === 'image' ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={inlineHref}
               alt={attachment.filename}
-              className="max-h-[70vh] w-full object-contain"
+              className="max-h-full max-w-full object-contain"
             />
           ) : kind === 'pdf' ? (
             <iframe
               src={inlineHref}
               title={attachment.filename}
-              className="h-[70vh] w-full rounded-lg bg-background"
+              className="size-full bg-background"
             />
           ) : kind === 'text' ? (
             textError ? (
@@ -137,7 +141,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
             ) : text === null ? (
               <p className="p-card text-sm text-muted-foreground">Reading the file…</p>
             ) : (
-              <pre className="max-h-[70vh] w-full overflow-auto p-card text-xs whitespace-pre-wrap break-words">
+              <pre className="size-full overflow-auto p-card text-xs whitespace-pre-wrap break-words">
                 {text.slice(0, MAX_TEXT_PREVIEW_CHARS)}
                 {text.length > MAX_TEXT_PREVIEW_CHARS ? '\n…' : null}
               </pre>

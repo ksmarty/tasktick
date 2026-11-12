@@ -169,6 +169,14 @@ const nextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
+      {
+        // The attachment preview frames a file that this same origin serves
+        // (`?inline=1`), and DENY tells the browser to refuse even that — a PDF
+        // then draws as an empty card. Same-origin is the narrowest value that
+        // still lets the app read its own file, and every other route keeps DENY.
+        source: '/api/attachments/:id',
+        headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }],
+      },
     ];
   },
 };

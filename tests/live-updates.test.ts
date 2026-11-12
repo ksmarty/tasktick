@@ -141,6 +141,26 @@ describe('attachments keep quiet and open in place', () => {
     expect(section).toContain('<AttachmentPreview');
   });
 
+  it('frames its own file instead of being refused by its own headers', () => {
+    // X-Frame-Options: DENY on /:path* told the browser to refuse the preview's
+    // own iframe, so a PDF drew as an empty card. Same-origin is the narrowest
+    // value that still lets the app read the file it just served.
+    const config = read('next.config.mjs');
+    expect(config).toContain("source: '/api/attachments/:id'");
+    expect(config).toContain("{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }");
+  });
+
+  it('sizes the preview to the small viewport, not to a fixed slice of it', () => {
+    const preview = read('src/components/attachments/AttachmentPreview.tsx');
+    // 70vh of a window that mobile browser chrome shrinks pushed the footer off
+    // the bottom of the screen; 55dvh of the small viewport keeps it on.
+    expect(preview).toContain('h-[55dvh]');
+    expect(preview).not.toContain('max-h-[70vh]');
+    expect(preview).toContain('max-h-[92dvh]');
+    expect(preview).toContain('w-[calc(100%-1rem)]');
+    expect(preview).toContain('size-full');
+  });
+
   it('serves the bytes inline so a preview does not land in the downloads folder', () => {
     const route = read('src/app/api/attachments/[id]/route.ts');
     expect(route).toContain("get('inline') === '1'");
