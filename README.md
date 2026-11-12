@@ -133,9 +133,10 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - Global search, keyboard shortcuts, CSV-free JSON export and ICS export
 - **File attachments** on tasks and events (25 MB each, stored on the data
   volume) with an in-place preview for images, PDFs and text. A PDF is rendered
-  page by page by [pdf.js](https://mozilla.github.io/pdf.js/) onto a canvas, so
-  the sheet has its own page and zoom controls on every browser — a phone's
-  built-in viewer shows one page and nothing else
+  by [pdf.js](https://mozilla.github.io/pdf.js/) onto a canvas, page after page,
+  and the sheet scrolls through them the way a document is read — with pinch to
+  zoom, zoom buttons and a page readout, on every browser. A phone's built-in
+  viewer shows one page and nothing else
 - **Maps links** — paste a Google Maps link and the detail sheet shows the place
   name and the map itself, no tap needed. Short `maps.app.goo.gl` links are
   resolved server-side behind the same SSRF guard as calendar subscriptions, and

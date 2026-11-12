@@ -20,13 +20,12 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { errorMessage } from '@/lib/api-client';
-import { attachmentPreviewKind, formatFileSize } from '@/lib/attachments';
+import { attachmentPreviewKind } from '@/lib/attachments';
 import { PdfViewer } from '@/components/attachments/PdfViewer';
 import type { Attachment } from '@/lib/types';
 
@@ -183,13 +182,15 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[90dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-stack overflow-hidden p-card sm:max-w-3xl">
+      {/* No description under the title: the file's size and type are the
+          kind of detail that belongs in a file listing, not above the file
+          itself, and the reader is the thing being looked at. */}
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex h-[90dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-stack overflow-hidden p-card sm:max-w-3xl"
+      >
         <DialogHeader>
           <DialogTitle className="truncate pr-8">{attachment.filename}</DialogTitle>
-          <DialogDescription>
-            {formatFileSize(attachment.sizeBytes)}
-            {attachment.mimeType ? ` · ${attachment.mimeType}` : null}
-          </DialogDescription>
         </DialogHeader>
 
         {/* The box takes every pixel the header and footer leave, so the card

@@ -41,23 +41,47 @@ describe('a PDF is read inside the sheet', () => {
     expect(viewer).toContain("new Function('url', 'return import(url)')");
   });
 
-  it('fits the page to the pane before anyone zooms', () => {
+  it('fits every page to the pane before anyone zooms', () => {
     // A page drawn at 100% is wider than a phone, so it has to be dragged
     // sideways to read a line — the complaint that started this.
-    expect(viewer).toContain('const natural = page.getViewport({ scale: 1 }).width');
-    expect(viewer).toContain('setFitWidth(available / natural)');
-    expect(viewer).toContain('const scale = (fitWidth || 1) * zoom');
+    expect(viewer).toContain('const pageWidth = Math.round(paneWidth * zoom)');
+    expect(viewer).toContain('page.getViewport({ scale: width / base.width })');
+  });
+
+  it('stacks the pages and scrolls through them instead of paging', () => {
+    // Reading is continuous: a page of notes runs onto the next one, and a pair
+    // of arrow buttons turns that into a sequence of decisions.
+    expect(viewer).toContain('Array.from({ length: pages }');
+    expect(viewer).not.toContain('Previous page');
+    expect(viewer).not.toContain('Next page');
+    expect(viewer).toContain('{visiblePage} / {pages || 1}');
+  });
+
+  it('names the page being read, not the last one to cross the top', () => {
+    // A two-page file never scrolls its second page to the top of the pane, so
+    // "topmost" would leave the readout on 1 / 2 at the end of the document.
+    expect(viewer).toContain('const visible = Math.min(rect.bottom, box.bottom) - Math.max(rect.top, box.top);');
+    expect(viewer).toContain('if (visible > most)');
   });
 
   it('gives a phone the controls the platform does not', () => {
-    for (const label of ['Previous page', 'Next page', 'Zoom out', 'Zoom in']) {
+    for (const label of ['Zoom out', 'Zoom in']) {
       expect(viewer).toContain(`aria-label="${label}"`);
     }
-    expect(viewer).toContain('{pageNumber} / {pages || 1}');
     expect(viewer).toContain('Math.round(zoom * 100)');
+    // Pinch, handled here rather than leaving it to the browser, which would
+    // zoom the whole app around the sheet instead of the page inside it.
+    expect(viewer).toContain("pane.addEventListener('touchmove', move, { passive: false })");
+    expect(viewer).toContain('event.preventDefault()');
+    expect(viewer).toContain('Math.hypot(');
+    expect(viewer).toContain("style={{ touchAction: 'pan-y' }}");
+    expect(viewer).toContain('const committed = clamp(startZoom * pinchRef.current);');
+    expect(viewer).toContain('setZoom(committed);');
   });
 
-  it('renders one page at a time, scaled for the screen it is on', () => {
+  it('draws a page when it comes near, scaled for the screen it is on', () => {
+    // A 200-page file has to cost the same as a two-page one.
+    expect(viewer).toContain("rootMargin: '150% 0px'");
     expect(viewer).toContain('getDocument({ data: bytes.slice() })');
     expect(viewer).toContain('const ratio = Math.min(2, window.devicePixelRatio || 1)');
     expect(viewer).toContain('transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0]');

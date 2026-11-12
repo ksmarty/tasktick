@@ -173,6 +173,16 @@ describe('attachments keep quiet and open in place', () => {
     expect(preview).toContain('const waiting =');
   });
 
+  it('shows the file, not a caption describing the file', () => {
+    const preview = read('src/components/attachments/AttachmentPreview.tsx');
+    // The size and type belong in the file list; above an open document they
+    // are a line of grey text between the reader and the thing being read.
+    expect(preview).not.toContain('DialogDescription');
+    expect(preview).not.toContain('formatFileSize');
+    // Radix warns when a dialog has no description, so say so on purpose.
+    expect(preview).toContain('aria-describedby={undefined}');
+  });
+
   it('draws the PDF itself instead of trusting the browser to have a plugin', () => {
     const preview = read('src/components/attachments/AttachmentPreview.tsx');
     // A framed PDF is a desktop Chrome luxury: iOS Safari and Android Chrome draw
