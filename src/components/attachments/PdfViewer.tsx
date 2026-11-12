@@ -19,6 +19,12 @@ import { Button } from '@/components/ui/button';
  * comes near the viewport, so opening a 200-page file costs the same as opening
  * a two-page one.
  *
+ * Zoom holds the page still under the fingers. A pinch is anchored at the point
+ * between them, moves that point with them, and is handed back to the scroll
+ * position when the fingers lift, so the document can be zoomed and dragged in
+ * the same gesture. Scaling the stack around its own centre instead — the
+ * obvious version — drags the page out from under the reader.
+ *
  * pdf.js is loaded lazily — 400 kB of it — so a sheet that shows a photo never
  * pays for it. It is loaded the way a browser loads a library rather than the
  * way a build imports one: both files sit in `public/` (see
@@ -81,21 +87,47 @@ const FALLBACK_ASPECT = 1.294;
 
 const clamp = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
+/** Where a gesture started, and what was under the fingers when it did. */
+type Gesture = {
+  zoom: number;
+  left: number;
+  top: number;
+  /**
+   * The point under the fingers, in the pane's scrolled coordinates, and where
+   * the stack itself starts in those coordinates. The stack begins inside the
+   * pane's padding, and a scale is applied around the stack's corner, so both
+   * numbers are needed to know where a point on the page ends up.
+   */
+  x: number;
+  y: number;
+  originX: number;
+  originY: number;
+  span: number;
+  /** Where the fingers were the last time they moved. */
+  lastCentre: { x: number; y: number };
+};
+
+/** A pinch in progress: the stack drawn at `scale`, moved by `x`/`y`. */
+type Preview = { scale: number; x: number; y: number };
+
 export function PdfViewer({ bytes, title }: { bytes: Uint8Array; title: string }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const documentRef = useRef<PdfDocument | null>(null);
   const pageElements = useRef(new Map<number, HTMLDivElement>());
   const zoomRef = useRef(1);
-  const pinchRef = useRef(1);
+  const gestureRef = useRef<Gesture | null>(null);
+  const previewRef = useRef<Preview | null>(null);
+  const pendingScroll = useRef<{ x: number; y: number } | null>(null);
   const frame = useRef(0);
 
   const [pages, setPages] = useState(0);
   const [zoom, setZoom] = useState(1);
-  /** The live scale under two fingers, before it is committed on release. */
-  const [pinch, setPinch] = useState(1);
+  const [preview, setPreview] = useState<Preview | null>(null);
   const [paneWidth, setPaneWidth] = useState(0);
   const [visiblePage, setVisiblePage] = useState(1);
   const [problem, setProblem] = useState<string | null>(null);
+  /** Bumped whenever a scroll position has to be applied after a redraw. */
+  const [settled, setSettled] = useState(0);
 
   zoomRef.current = zoom;
 
@@ -144,44 +176,94 @@ export function PdfViewer({ bytes, title }: { bytes: Uint8Array; title: string }
   }, []);
 
   /*
-   * Two fingers scale the stack while they are down — a transform, so the
-   * canvases are not redrawn sixty times a second — and the scale is committed
-   * when the last finger lifts. The pane's `touch-action` is `pan-y` so the
-   * browser keeps single-finger scrolling and leaves the pinch to us.
+   * Two fingers scale the stack and drag it at the same time: the point between
+   * them stays under them. It is drawn as a transform — the canvases are not
+   * redrawn sixty times a second — and handed to the scroll position when the
+   * fingers lift. `touch-action` leaves both axes to the browser for one finger,
+   * which is what makes side-to-side panning work at all.
    */
   useEffect(() => {
     const pane = scrollRef.current;
     if (!pane) return;
-    let startDistance = 0;
-    let startZoom = 1;
-    let live = false;
 
     const spread = (touches: TouchList) =>
       Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY) || 1;
 
+    /** The middle of the fingers on the page, in pane coordinates. */
+    const middle = (touches: TouchList) => {
+      const box = pane.getBoundingClientRect();
+      let x = 0;
+      let y = 0;
+      for (const touch of Array.from(touches)) {
+        x += touch.clientX;
+        y += touch.clientY;
+      }
+      const count = touches.length || 1;
+      return { x: x / count - box.left, y: y / count - box.top };
+    };
+
     const begin = (event: TouchEvent) => {
       if (event.touches.length !== 2) return;
-      startDistance = spread(event.touches);
-      startZoom = zoomRef.current;
-      live = true;
-      pinchRef.current = 1;
-      setPinch(1);
+      const centre = middle(event.touches);
+      const stack = pane.firstElementChild as HTMLElement | null;
+      gestureRef.current = {
+        zoom: zoomRef.current,
+        left: pane.scrollLeft,
+        top: pane.scrollTop,
+        x: pane.scrollLeft + centre.x,
+        y: pane.scrollTop + centre.y,
+        originX: stack?.offsetLeft ?? 0,
+        originY: stack?.offsetTop ?? 0,
+        span: spread(event.touches),
+        lastCentre: centre,
+      };
+      previewRef.current = null;
     };
+
     const move = (event: TouchEvent) => {
-      if (!live || event.touches.length !== 2) return;
+      const gesture = gestureRef.current;
+      if (!gesture || event.touches.length !== 2) return;
       // Ours, not the browser's: an unhandled pinch here zooms the whole app.
       event.preventDefault();
-      const scale = Math.min(MAX_ZOOM / startZoom, Math.max(MIN_ZOOM / startZoom, spread(event.touches) / startDistance));
-      pinchRef.current = scale;
-      setPinch(scale);
+      const centre = middle(event.touches);
+      gesture.lastCentre = centre;
+      const wanted = clamp(gesture.zoom * (spread(event.touches) / gesture.span));
+      const scale = wanted / gesture.zoom;
+      /*
+       * The stack is drawn from its own top-left corner, which sits at
+       * `originX` inside the pane's scrolled content. A point on the page shows
+       * at `originX - scrollLeft + translate + (x - originX)·scale`; holding the
+       * finger point there gives the translate, and the same expression gives
+       * the scroll position that reproduces it once the transform is gone.
+       */
+      const next = {
+        scale,
+        x: centre.x - (gesture.originX - gesture.left + (gesture.x - gesture.originX) * scale),
+        y: centre.y - (gesture.originY - gesture.top + (gesture.y - gesture.originY) * scale),
+      };
+      previewRef.current = next;
+      setPreview(next);
     };
+
     const end = (event: TouchEvent) => {
-      if (!live || event.touches.length >= 2) return;
-      live = false;
-      const committed = clamp(startZoom * pinchRef.current);
-      pinchRef.current = 1;
-      setPinch(1);
-      setZoom(committed);
+      const gesture = gestureRef.current;
+      if (!gesture || event.touches.length >= 2) return;
+      /*
+       * The last point the fingers were on, not where one of them landed: a
+       * pinch that drifts sideways is also a pan, and the page has to follow it.
+       */
+      const centreAfter = gesture.lastCentre;
+      gestureRef.current = null;
+      const moved = previewRef.current;
+      previewRef.current = null;
+      setPreview(null);
+      if (!moved) return;
+      pendingScroll.current = {
+        x: gesture.originX + (gesture.x - gesture.originX) * moved.scale - centreAfter.x,
+        y: gesture.originY + (gesture.y - gesture.originY) * moved.scale - centreAfter.y,
+      };
+      setZoom(clamp(gesture.zoom * moved.scale));
+      setSettled((count) => count + 1);
     };
 
     pane.addEventListener('touchstart', begin, { passive: true });
@@ -195,6 +277,22 @@ export function PdfViewer({ bytes, title }: { bytes: Uint8Array; title: string }
       pane.removeEventListener('touchcancel', end);
     };
   }, []);
+
+  /*
+   * Put the scroll position where the gesture left it, once the pages have been
+   * laid out at the new width. Before that the pane still measures the old one
+   * and would clamp the position to the wrong maximum.
+   */
+  useEffect(() => {
+    const pane = scrollRef.current;
+    const wanted = pendingScroll.current;
+    if (!pane || !wanted) return;
+    pendingScroll.current = null;
+    const limitX = Math.max(0, pane.scrollWidth - pane.clientWidth);
+    const limitY = Math.max(0, pane.scrollHeight - pane.clientHeight);
+    pane.scrollLeft = Math.min(Math.max(0, wanted.x), limitX);
+    pane.scrollTop = Math.min(Math.max(0, wanted.y), limitY);
+  }, [zoom, settled]);
 
   // Which page the reader is looking at, for the readout in the footer.
   const onScroll = useCallback(() => {
@@ -228,7 +326,24 @@ export function PdfViewer({ bytes, title }: { bytes: Uint8Array; title: string }
     else pageElements.current.delete(pageNumber);
   }, []);
 
-  const zoomBy = (factor: number) => setZoom((current) => clamp(current * factor));
+  /** Zoom around the middle of the pane, so the buttons do not throw the page away. */
+  const zoomBy = (factor: number) => {
+    const pane = scrollRef.current;
+    const next = clamp(zoom * factor);
+    if (!pane || next === zoom) return;
+    const scale = next / zoom;
+    const stack = pane.firstElementChild as HTMLElement | null;
+    const originX = stack?.offsetLeft ?? 0;
+    const originY = stack?.offsetTop ?? 0;
+    const centreX = pane.scrollLeft + pane.clientWidth / 2;
+    const centreY = pane.scrollTop + pane.clientHeight / 2;
+    pendingScroll.current = {
+      x: originX + (centreX - originX) * scale - pane.clientWidth / 2,
+      y: originY + (centreY - originY) * scale - pane.clientHeight / 2,
+    };
+    setZoom(next);
+    setSettled((count) => count + 1);
+  };
 
   if (problem) {
     return (
@@ -245,12 +360,25 @@ export function PdfViewer({ bytes, title }: { bytes: Uint8Array; title: string }
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        style={{ touchAction: 'pan-y' }}
+        style={{ touchAction: 'pan-x pan-y' }}
         className="min-h-0 flex-1 overflow-auto overscroll-contain bg-muted p-2"
       >
+        {/*
+         * The column is as wide as its widest page and never narrower than the
+         * pane: pages centre themselves with `mx-auto`. A centred *overflowing*
+         * page would hang off both edges with the left half unreachable, which
+         * is why the panning never worked once the page was wider than the pane.
+         */}
         <div
-          className="flex flex-col items-center gap-2"
-          style={pinch === 1 ? undefined : { transform: `scale(${pinch})`, transformOrigin: 'top center' }}
+          className="flex w-max min-w-full flex-col gap-2"
+          style={
+            preview
+              ? {
+                  transform: `translate(${preview.x}px, ${preview.y}px) scale(${preview.scale})`,
+                  transformOrigin: '0 0',
+                }
+              : undefined
+          }
         >
           {Array.from({ length: pages }, (_, index) => (
             <PdfPageView
@@ -387,7 +515,7 @@ function PdfPageView({
         holderRef.current = element;
         register(pageNumber, element);
       }}
-      className="shrink-0 bg-background shadow-sm"
+      className="mx-auto shrink-0 bg-background shadow-sm"
       style={{ width: width || undefined, height: height || undefined }}
     >
       <canvas ref={canvasRef} role="img" aria-label={`Page ${pageNumber} of ${title}`} className="block" />

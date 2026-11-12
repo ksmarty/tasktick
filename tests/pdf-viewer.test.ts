@@ -64,6 +64,32 @@ describe('a PDF is read inside the sheet', () => {
     expect(viewer).toContain('if (visible > most)');
   });
 
+  it('holds the page still under the fingers while they pinch', () => {
+    // Scaling the stack around its own centre drags the page out from under the
+    // reader; the point between the fingers is the only fixed point that is
+    // where the reader is looking.
+    expect(viewer).toContain('const centre = middle(event.touches);');
+    // The stack starts inside the pane's padding, and the scale is applied
+    // around the stack's own corner: a formula that forgets `originX` drifts by
+    // `padding * (scale - 1)` — 16 px on a two-finger zoom to 300%.
+    expect(viewer).toContain('originX: stack?.offsetLeft ?? 0,');
+    expect(viewer).toContain(
+      'x: centre.x - (gesture.originX - gesture.left + (gesture.x - gesture.originX) * scale),',
+    );
+    // And the same point becomes the scroll position once the transform is gone.
+    expect(viewer).toContain('x: gesture.originX + (gesture.x - gesture.originX) * moved.scale - centreAfter.x,');
+    expect(viewer).toContain('y: gesture.originY + (gesture.y - gesture.originY) * moved.scale - centreAfter.y,');
+  });
+
+  it('lets a zoomed page be dragged in every direction', () => {
+    // `items-center` on overflowing content hangs half the page off the left
+    // edge where no scroll can reach it: the column is as wide as the page
+    // instead, and the page centres itself.
+    expect(viewer).toContain('flex w-max min-w-full flex-col gap-2');
+    expect(viewer).toContain('mx-auto shrink-0');
+    expect(viewer).not.toContain('flex flex-col items-center gap-2');
+  });
+
   it('gives a phone the controls the platform does not', () => {
     for (const label of ['Zoom out', 'Zoom in']) {
       expect(viewer).toContain(`aria-label="${label}"`);
@@ -74,9 +100,8 @@ describe('a PDF is read inside the sheet', () => {
     expect(viewer).toContain("pane.addEventListener('touchmove', move, { passive: false })");
     expect(viewer).toContain('event.preventDefault()');
     expect(viewer).toContain('Math.hypot(');
-    expect(viewer).toContain("style={{ touchAction: 'pan-y' }}");
-    expect(viewer).toContain('const committed = clamp(startZoom * pinchRef.current);');
-    expect(viewer).toContain('setZoom(committed);');
+    // Both axes, or the browser refuses to pan a zoomed page sideways.
+    expect(viewer).toContain("style={{ touchAction: 'pan-x pan-y' }}");
   });
 
   it('draws a page when it comes near, scaled for the screen it is on', () => {

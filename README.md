@@ -135,7 +135,8 @@ Nextcloud. See [Calendar sync](#calendar-sync).
   volume) with an in-place preview for images, PDFs and text. A PDF is rendered
   by [pdf.js](https://mozilla.github.io/pdf.js/) onto a canvas, page after page,
   and the sheet scrolls through them the way a document is read — with pinch to
-  zoom, zoom buttons and a page readout, on every browser. A phone's built-in
+  zoom anchored under your fingers, a page that can be dragged in every
+  direction once zoomed, zoom buttons and a page readout, on every browser. A phone's built-in
   viewer shows one page and nothing else
 - **Maps links** — paste a Google Maps link and the detail sheet shows the place
   name and the map itself, no tap needed. Short `maps.app.goo.gl` links are
