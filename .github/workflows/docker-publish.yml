@@ -40,6 +40,19 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      # The release version, for the OCI `version` label and so a dispatched run
+      # is identifiable by `docker inspect`. A dispatch has no version-bearing
+      # ref, so the input wins; otherwise the checkout's package.json is the
+      # truth, and `auto-increment.yml` bumps it before dispatching.
+      - name: Resolve the release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION:-$(node -p "require('./package.json').version")}"
+          echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -89,6 +102,8 @@ jobs:
             org.opencontainers.image.description=Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync.
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -99,6 +114,13 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Passed as build args too, so the Dockerfile's own LABEL lines are
+          # correct for anything that inspects the image without this workflow's
+          # metadata step (a manual `docker build --build-arg VERSION=…`).
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            REVISION=${{ github.sha }}
+            SOURCE_URL=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true

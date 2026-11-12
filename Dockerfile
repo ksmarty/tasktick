@@ -140,6 +140,33 @@ USER node
 
 VOLUME /data
 
+# ---------------------------------------------------------------------------
+# Image metadata (OCI)
+# ---------------------------------------------------------------------------
+#
+# The version is a build argument, not something the image guesses: a release
+# build passes the same semver that the git tag and the GHCR tag carry, so
+# `docker inspect` answers "which release is this container running?" without
+# reading package.json out of the image or trusting a mutable `latest` tag.
+# Defaults keep a local `docker build .` honest — `dev` and `local` are visibly
+# not a release — rather than inventing a plausible-looking number.
+#
+# `created` and the source URL are labels too so a registry can show provenance
+# for an image that was built outside this repository's own CI.
+ARG VERSION=dev
+ARG REVISION=local
+ARG CREATED
+ARG SOURCE_URL=https://github.com/ksmarty/tasktick
+LABEL org.opencontainers.image.title="TaskTick" \
+      org.opencontainers.image.description="Self-hosted task manager, calendar and habit tracker with bidirectional CalDAV sync." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.url="${SOURCE_URL}" \
+      org.opencontainers.image.documentation="${SOURCE_URL}#readme" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 EXPOSE 3000
 
 # Uses Node's built-in fetch, so no curl/wget is needed in the image.

@@ -487,6 +487,20 @@ ghcr.io/ksmarty/tasktick:sha-abc1234
 The image runs as a non-root user, carries no build toolchain, exposes
 `/healthz`, and writes only to `/data` and `/tmp`.
 
+Every build is labelled with the Open Container Initiative metadata, so the
+release a running container came from is readable without trusting a mutable
+tag:
+
+```bash
+docker inspect ghcr.io/ksmarty/tasktick:latest \
+  --format '{{ index .Config.Labels "org.opencontainers.image.version" }}'
+```
+
+`version` and `revision` come from the published release and the commit it was
+built from; `created`, `source`, `url` and `licenses` are set alongside them. A
+local `docker build .` reports `dev`/`local` rather than an invented number —
+pass `--build-arg VERSION=…` if you need your own.
+
 ---
 
 ## Development

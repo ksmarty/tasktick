@@ -47,7 +47,18 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
   const { toast } = useToast();
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState<string | null>(null);
+  /*
+   * An image or a PDF is fetched by the browser, not by this component, so a
+   * slow one used to leave an empty grey card and no way to tell "still coming"
+   * from "broken". The spinner rides on the element's own `load` event.
+   */
+  const [loading, setLoading] = useState(false);
   const kind = attachment ? attachmentPreviewKind(attachment.mimeType, attachment.filename) : null;
+  const attachmentId = attachment?.id ?? null;
+
+  useEffect(() => {
+    setLoading(kind === 'image' || kind === 'pdf');
+  }, [attachmentId, kind]);
 
   /*
    * Text is fetched rather than framed: an iframe of a `.txt` is a document with
@@ -107,7 +118,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-stack overflow-hidden p-card sm:max-w-3xl">
+      <DialogContent className="flex h-[90dvh] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col gap-stack overflow-hidden p-card sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="truncate pr-8">{attachment.filename}</DialogTitle>
           <DialogDescription>
@@ -116,21 +127,46 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
           </DialogDescription>
         </DialogHeader>
 
-        {/* A share of the *small* viewport, not of `vh`: mobile browser chrome
-            shrinks the real window, and a fixed `70vh` pushed the footer off the
-            bottom of the screen. `min-h-0` lets the box give height back. */}
-        <div className="flex h-[55dvh] min-h-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
+        {/* The box takes every pixel the header and footer leave, so the card
+            is as tall as the rest of the app's sheets (`90dvh`). A fixed slice
+            of `vh` was measured against the *large* viewport, and mobile browser
+            chrome then pushed the footer off the bottom of the screen. */}
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
+          {loading || (kind === 'text' && text === null && !textError) ? (
+            <div
+              role="status"
+              aria-label={
+                kind === 'pdf'
+                  ? 'Loading the PDF'
+                  : kind === 'text'
+                    ? 'Reading the file'
+                    : 'Loading the image'
+              }
+              className="absolute inset-0 z-10 flex items-center justify-center bg-muted"
+            >
+              <span
+                aria-hidden
+                className="size-6 animate-spin rounded-full border-2 border-current border-t-transparent text-muted-foreground"
+              />
+            </div>
+          ) : null}
           {kind === 'image' ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={inlineHref}
               alt={attachment.filename}
+              onLoad={() => setLoading(false)}
+              onError={() => setLoading(false)}
               className="max-h-full max-w-full object-contain"
             />
           ) : kind === 'pdf' ? (
+            // `view=FitH` fits the page to the frame's width and `toolbar=1`
+            // keeps the viewer's own controls, which were missing: without them
+            // a page at 100% zoom had to be scrolled in both directions.
             <iframe
-              src={inlineHref}
+              src={`${inlineHref}#view=FitH&toolbar=1`}
               title={attachment.filename}
+              onLoad={() => setLoading(false)}
               className="size-full bg-background"
             />
           ) : kind === 'text' ? (
@@ -138,9 +174,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
               <p role="alert" className="p-card text-sm text-destructive">
                 {textError}
               </p>
-            ) : text === null ? (
-              <p className="p-card text-sm text-muted-foreground">Reading the file…</p>
-            ) : (
+            ) : text === null ? null : (
               <pre className="size-full overflow-auto p-card text-xs whitespace-pre-wrap break-words">
                 {text.slice(0, MAX_TEXT_PREVIEW_CHARS)}
                 {text.length > MAX_TEXT_PREVIEW_CHARS ? '\n…' : null}
@@ -153,7 +187,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex flex-row items-center justify-end">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Close
           </Button>

@@ -150,15 +150,41 @@ describe('attachments keep quiet and open in place', () => {
     expect(config).toContain("{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }");
   });
 
-  it('sizes the preview to the small viewport, not to a fixed slice of it', () => {
+  it("takes the app's vertical bounds, not a fixed slice of the viewport", () => {
     const preview = read('src/components/attachments/AttachmentPreview.tsx');
-    // 70vh of a window that mobile browser chrome shrinks pushed the footer off
-    // the bottom of the screen; 55dvh of the small viewport keeps it on.
-    expect(preview).toContain('h-[55dvh]');
+    // A slice of `vh` was measured against the *large* viewport, so mobile
+    // browser chrome pushed the footer off the bottom of the screen. The sheet
+    // now claims the same 90dvh every other sheet uses and the media box takes
+    // whatever the header and footer leave.
+    expect(preview).toContain('h-[90dvh]');
     expect(preview).not.toContain('max-h-[70vh]');
-    expect(preview).toContain('max-h-[92dvh]');
+    expect(preview).not.toContain('h-[55dvh]');
+    expect(preview).toContain('flex min-h-0 flex-1');
     expect(preview).toContain('w-[calc(100%-1rem)]');
     expect(preview).toContain('size-full');
+  });
+
+  it('says the file is still coming, then says what it is', () => {
+    const preview = read('src/components/attachments/AttachmentPreview.tsx');
+    expect(preview).toContain('role="status"');
+    expect(preview).toContain('animate-spin');
+    expect(preview).toContain('onLoad={() => setLoading(false)}');
+    expect(preview).toContain('onError={() => setLoading(false)}');
+    expect(preview).toContain("kind === 'image' || kind === 'pdf'");
+  });
+
+  it('fits the PDF to the frame and keeps its own controls', () => {
+    const preview = read('src/components/attachments/AttachmentPreview.tsx');
+    // Without `view=FitH` the page drew at 100% and had to be scrolled in both
+    // directions; without `toolbar=1` the viewer offered no way to move around.
+    expect(preview).toContain('#view=FitH&toolbar=1');
+  });
+
+  it('puts the two buttons side by side', () => {
+    const preview = read('src/components/attachments/AttachmentPreview.tsx');
+    // The base footer stacks on a phone (`flex-col-reverse`); two short buttons
+    // fit on one line even at 390px.
+    expect(preview).toContain('<DialogFooter className="flex flex-row items-center justify-end">');
   });
 
   it('serves the bytes inline so a preview does not land in the downloads folder', () => {
