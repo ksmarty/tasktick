@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v70';
+const VERSION = 'tasktick-v71';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -593,6 +593,22 @@ self.addEventListener('fetch', (event) => {
     // invented offline answer: a client that cannot ask "who am I?" must be told
     // so, not handed a stale identity.
     if (url.pathname.startsWith('/api/auth/')) {
+      event.respondWith(fetch(request));
+      return;
+    }
+    /*
+     * An attachment's bytes are fetched, not read.
+     *
+     * The list at `/api/attachments` is an ordinary JSON read and stays on the
+     * cached path below, but `/api/attachments/<id>` returns the file itself:
+     * 25 MB of PDF or JPEG that is pointless to keep in a per-session cache and
+     * cannot be replayed offline. It also must not be *cut off*: the bounded read
+     * answers a slow network with the machine-readable offline document after
+     * `API_TIMEOUT_MS`, and framed in a preview that document is a page of JSON
+     * where the photograph should be. So the request goes straight to the
+     * network and is allowed to take as long as it takes.
+     */
+    if (url.pathname.startsWith('/api/attachments/')) {
       event.respondWith(fetch(request));
       return;
     }

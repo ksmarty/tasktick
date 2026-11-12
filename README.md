@@ -132,7 +132,10 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - Configurable accent colour, week start, timezone, 12/24-hour clock
 - Global search, keyboard shortcuts, CSV-free JSON export and ICS export
 - **File attachments** on tasks and events (25 MB each, stored on the data
-  volume) with an in-place preview for images, PDFs and text
+  volume) with an in-place preview for images, PDFs and text. A PDF is fetched
+  by the sheet itself and framed at page width with the viewer's own controls;
+  on a touch-only device, where there is no embedded viewer, it opens in the
+  device's own one, with every page and a pinch to zoom
 - **Maps links** — paste a Google Maps link and the detail sheet shows the place
   name and the map itself, no tap needed. Short `maps.app.goo.gl` links are
   resolved server-side behind the same SSRF guard as calendar subscriptions, and

@@ -169,15 +169,35 @@ describe('attachments keep quiet and open in place', () => {
     expect(preview).toContain('role="status"');
     expect(preview).toContain('animate-spin');
     expect(preview).toContain('onLoad={() => setLoading(false)}');
-    expect(preview).toContain('onError={() => setLoading(false)}');
-    expect(preview).toContain("kind === 'image' || kind === 'pdf'");
+    expect(preview).toContain('onError={() => {');
+    expect(preview).toContain('const waiting =');
   });
 
   it('fits the PDF to the frame and keeps its own controls', () => {
     const preview = read('src/components/attachments/AttachmentPreview.tsx');
-    // Without `view=FitH` the page drew at 100% and had to be scrolled in both
-    // directions; without `toolbar=1` the viewer offered no way to move around.
-    expect(preview).toContain('#view=FitH&toolbar=1');
+    // `view=FitH` is Adobe's parameter and Chromium ignores it: the page drew at
+    // 100%, so it had to be scrolled in both directions. Chromium does honour
+    // `zoom=page-width`, and `toolbar=1` keeps the viewer's page and zoom
+    // controls.
+    expect(preview).toContain('#zoom=page-width&toolbar=1');
+    expect(preview).not.toContain('view=FitH');
+  });
+
+  it('reads the bytes itself, so a slow network is a spinner and not a document', () => {
+    const preview = read('src/components/attachments/AttachmentPreview.tsx');
+    // The worker answers a slow `/api/...` read with its machine-readable
+    // offline document; framed, that is a page of JSON where the PDF should be.
+    expect(preview).toContain('URL.createObjectURL(await response.blob())');
+    expect(preview).toContain("response.status === 503");
+    expect(preview).toContain('Try again');
+    expect(preview).toContain('role="alert"');
+    // A phone's embedded viewer shows one page with no controls; its own viewer
+    // shows all of them.
+    expect(preview).toContain("window.matchMedia('(hover: none) and (pointer: coarse)').matches");
+    expect(preview).toContain('Open the PDF');
+    // The same file in a tab of its own, always available.
+    expect(preview).toMatch(/<a href=\{inlineHref\} target="_blank" rel="noopener noreferrer">/);
+    expect(read('public/sw.js')).toContain("url.pathname.startsWith('/api/attachments/')");
   });
 
   it('puts the two buttons side by side', () => {

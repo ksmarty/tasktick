@@ -53,12 +53,40 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
    * from "broken". The spinner rides on the element's own `load` event.
    */
   const [loading, setLoading] = useState(false);
+  /*
+   * A PDF is read into a blob before it is framed, and the reason is the worker.
+   *
+   * The service worker answers an `/api/...` read from its own cache first, and
+   * after 1.5 s of a slow network it hands back its machine-readable offline
+   * answer — which, framed, is a screen of JSON instead of a page. Reading the
+   * bytes here means a slow connection is a slow spinner, and a failure is a
+   * sentence with a Retry button rather than somebody else's error document.
+   */
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
+  /** Bumped by Retry, so both fetches re-run without an attachment change. */
+  const [attempt, setAttempt] = useState(0);
+  /*
+   * Whether to frame the PDF at all.
+   *
+   * A pointer that can only touch is a phone or a tablet, and those have no PDF
+   * plugin: an `<iframe>` of one shows a single page at an unhelpful scale with
+   * no controls at all. Those get the file's own viewer instead, one tap away.
+   * Everything else frames it, where the browser's viewer has a toolbar.
+   */
+  const [canFramePdf, setCanFramePdf] = useState(true);
   const kind = attachment ? attachmentPreviewKind(attachment.mimeType, attachment.filename) : null;
   const attachmentId = attachment?.id ?? null;
 
   useEffect(() => {
     setLoading(kind === 'image' || kind === 'pdf');
+    setImageFailed(false);
   }, [attachmentId, kind]);
+
+  useEffect(() => {
+    setCanFramePdf(!window.matchMedia('(hover: none) and (pointer: coarse)').matches);
+  }, []);
 
   /*
    * Text is fetched rather than framed: an iframe of a `.txt` is a document with
@@ -92,10 +120,60 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
     };
   }, [attachment, kind]);
 
+  /*
+   * One fetch, one blob URL: the frame then draws bytes the reader already holds,
+   * so a flaky connection cannot leave it half-rendered or showing the worker's
+   * own answer.
+   */
+  useEffect(() => {
+    setPdfUrl(null);
+    setPdfError(null);
+    if (!attachment || kind !== 'pdf' || !canFramePdf) return;
+
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/attachments/${attachment.id}?inline=1`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(
+            response.status === 503
+              ? 'The file did not arrive. Check your connection and try again.'
+              : `Could not read that file (${response.status}).`,
+          );
+        }
+        objectUrl = URL.createObjectURL(await response.blob());
+        setPdfUrl(objectUrl);
+      } catch (failure) {
+        if (controller.signal.aborted) return;
+        setPdfError(errorMessage(failure));
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachment, kind, canFramePdf, attempt]);
+
   if (!attachment) return null;
 
   const inlineHref = `/api/attachments/${attachment.id}?inline=1`;
   const downloadHref = `/api/attachments/${attachment.id}`;
+
+  /** Whether the media box is still waiting for something; drives the spinner. */
+  const waiting =
+    kind === 'image'
+      ? loading && !imageFailed
+      : kind === 'pdf'
+        ? canFramePdf && pdfUrl === null && pdfError === null
+        : kind === 'text'
+          ? text === null && textError === null
+          : false;
 
   async function download() {
     if (!attachment) return;
@@ -132,7 +210,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
             of `vh` was measured against the *large* viewport, and mobile browser
             chrome then pushed the footer off the bottom of the screen. */}
         <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted">
-          {loading || (kind === 'text' && text === null && !textError) ? (
+          {waiting ? (
             <div
               role="status"
               aria-label={
@@ -151,24 +229,77 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
             </div>
           ) : null}
           {kind === 'image' ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={inlineHref}
-              alt={attachment.filename}
-              onLoad={() => setLoading(false)}
-              onError={() => setLoading(false)}
-              className="max-h-full max-w-full object-contain"
-            />
+            imageFailed ? (
+              <div className="flex flex-col items-center gap-2 p-card text-center">
+                <p role="alert" className="text-sm text-destructive">
+                  The image did not arrive.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setImageFailed(false);
+                    setLoading(true);
+                    setAttempt((value) => value + 1);
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={attempt}
+                src={inlineHref}
+                alt={attachment.filename}
+                onLoad={() => setLoading(false)}
+                onError={() => {
+                  setLoading(false);
+                  setImageFailed(true);
+                }}
+                className="max-h-full max-w-full object-contain"
+              />
+            )
           ) : kind === 'pdf' ? (
-            // `view=FitH` fits the page to the frame's width and `toolbar=1`
-            // keeps the viewer's own controls, which were missing: without them
-            // a page at 100% zoom had to be scrolled in both directions.
-            <iframe
-              src={`${inlineHref}#view=FitH&toolbar=1`}
-              title={attachment.filename}
-              onLoad={() => setLoading(false)}
-              className="size-full bg-background"
-            />
+            pdfError ? (
+              <div className="flex flex-col items-center gap-2 p-card text-center">
+                <p role="alert" className="text-sm text-destructive">
+                  {pdfError}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAttempt((value) => value + 1)}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : !canFramePdf ? (
+              // A phone's embedded viewer shows one page with no controls; its
+              // own viewer shows all of them, so hand it the file outright.
+              <div className="flex size-full flex-col items-center justify-center gap-2 p-card text-center">
+                <p className="text-sm text-muted-foreground">
+                  This PDF opens in your device&rsquo;s own viewer, with every page and a pinch to
+                  zoom.
+                </p>
+                <Button asChild variant="outline" size="sm">
+                  <a href={inlineHref} target="_blank" rel="noopener noreferrer">
+                    Open the PDF
+                  </a>
+                </Button>
+              </div>
+            ) : pdfUrl ? (
+              // `zoom=page-width` fits the page to the frame instead of drawing
+              // it at 100% (which needed scrolling in both directions) and
+              // `toolbar=1` keeps the viewer's own page and zoom controls.
+              <iframe
+                src={`${pdfUrl}#zoom=page-width&toolbar=1`}
+                title={attachment.filename}
+                className="size-full bg-background"
+              />
+            ) : null
           ) : kind === 'text' ? (
             textError ? (
               <p role="alert" className="p-card text-sm text-destructive">
@@ -190,6 +321,14 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
         <DialogFooter className="flex flex-row items-center justify-end">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Close
+          </Button>
+          {/* The same file, in the browser's own tab: the reliable way to get
+              zoom and every page on a platform whose embedded viewer has
+              neither. */}
+          <Button asChild variant="outline">
+            <a href={inlineHref} target="_blank" rel="noopener noreferrer">
+              Open
+            </a>
           </Button>
           <Button type="button" variant="outline" onClick={() => void download()}>
             <DownloadIcon className="size-4" />
