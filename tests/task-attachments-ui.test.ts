@@ -30,7 +30,7 @@ describe('the section both editors share', () => {
     const section = source(SECTION);
     expect(section).toContain("useResource<Attachment[]>(owner ? '/api/attachments' : null");
     expect(section).toContain("form.set(key, value)");
-    expect(section).toContain("form.set('file', file, file.name)");
+    expect(section).toContain("form.set('file', item.file, item.file.name)");
   });
 
   it('uploads multipart, never through the JSON client', () => {
@@ -81,6 +81,60 @@ describe('the section both editors share', () => {
     /* `inline` drops the section's own horizontal padding so it lines up with
      * the sheet's Field rows instead of indenting away from them. */
     expect(sheet).toMatch(/<AttachmentsSection\s+inline\s+readOnly=\{isReadOnly\}/);
+  });
+});
+
+describe('an upload the user can watch', () => {
+  const CLIENT = 'src/lib/api-client.ts';
+
+  it('copies the picked files out before clearing the field', () => {
+    /*
+     * The bug this guards: `input.files` is a live `FileList`, so
+     * `const files = event.target.files; event.target.value = ''` empties the
+     * list the code is still holding — the upload is skipped and the user sees
+     * absolutely nothing happen, which is exactly what was reported.
+     */
+    const section = source(SECTION);
+    expect(section).toContain('Array.from(event.currentTarget.files ?? [])');
+    expect(section).not.toMatch(/const files = event\.target\.files/);
+    /* Cleared after reading, or picking the same file twice fires no change. */
+    expect(section).toContain("event.currentTarget.value = ''");
+  });
+
+  it('reports request-body progress, which fetch cannot', () => {
+    const client = source(CLIENT);
+    expect(client).toContain('new XMLHttpRequest()');
+    expect(client).toContain("request.upload.addEventListener('progress'");
+    expect(client).toContain('export interface UploadProgress');
+    expect(client).toContain('fraction');
+    /* Still the same envelope and the same error type as every other call. */
+    expect(client).toContain('ApiClientError');
+    expect(client).toContain("'aborted'");
+  });
+
+  it('feeds that progress into a bar with the file’s own name', () => {
+    const section = source(SECTION);
+    expect(section).toContain('onProgress: ({ fraction }) => patch(item.key, { percent: fraction })');
+    expect(section).toContain('Math.round(item.percent * 100)');
+    expect(section).toContain('from \'@/components/ui/progress\'');
+    expect(section).toContain('aria-label={`Uploading ${item.file.name}`}');
+  });
+
+  it('keeps a failed file on screen with the server’s own sentence', () => {
+    const section = source(SECTION);
+    /* One row per file, so two failures are two sentences, not one overwritten. */
+    expect(section).toContain('interface PendingUpload');
+    expect(section).toContain('error: errorMessage(failure)');
+    expect(section).toContain('role="alert"');
+    expect(section).toContain('Retry');
+    expect(section).toContain('Dismiss ${item.file.name}');
+  });
+
+  it('does not throw away the files that did land when a sibling fails', () => {
+    const section = source(SECTION);
+    expect(section).toContain('if (await send(item)) stored += 1;');
+    expect(section).toContain('if (stored > 0)');
+    expect(section).toContain('invalidate(ATTACHMENT_WRITE_PREFIXES)');
   });
 });
 

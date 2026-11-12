@@ -312,45 +312,115 @@ async function request<T>(method: HttpMethod, path: string, body?: unknown, quer
  * as everywhere else, because a failed upload should read exactly like any other
  * failed write.
  */
-export async function uploadFile<T>(path: string, form: FormData): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-      body: form,
-      cache: 'no-store',
+export interface UploadProgress {
+  /** Bytes the browser has handed to the socket. */
+  loaded: number;
+  /** Bytes in the whole request body, headers aside. */
+  total: number;
+  /** `loaded / total`, clamped to 0…1. 0 when the browser cannot say. */
+  fraction: number;
+}
+
+export interface UploadOptions {
+  /**
+   * Called as the request body leaves the browser. Absent for a small file,
+   * which finishes in one tick — the caller draws the bar only while it can.
+   */
+  onProgress?: (progress: UploadProgress) => void;
+  /** Cancels the request; the promise then rejects with code `aborted`. */
+  signal?: AbortSignal;
+}
+
+export async function uploadFile<T>(
+  path: string,
+  form: FormData,
+  options: UploadOptions = {},
+): Promise<T> {
+  /*
+   * `XMLHttpRequest`, not `fetch`, for one reason: `fetch` reports how much of
+   * the *response* has arrived and nothing about the request body, and this is
+   * the only request in the app whose body is large. A file upload with no
+   * number attached is a button that says "wait" for as long as the user's
+   * uplink says so, which on a phone is indistinguishable from a frozen screen —
+   * the exact report this replaced.
+   *
+   * Everything else stays the same as `transport()`: same envelope, same
+   * `ApiClientError`, same reachability reporting, and still never queued.
+   */
+  return new Promise<T>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', path, true);
+    request.withCredentials = true;
+    request.setRequestHeader('Accept', 'application/json');
+
+    const onAbort = () => request.abort();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+
+    const cleanup = () => {
+      options.signal?.removeEventListener('abort', onAbort);
+    };
+
+    request.upload.addEventListener('progress', (event) => {
+      if (!options.onProgress) return;
+      const total = event.lengthComputable ? event.total : 0;
+      options.onProgress({
+        loaded: event.loaded,
+        total,
+        fraction: total > 0 ? Math.min(1, event.loaded / total) : 0,
+      });
     });
-  } catch {
-    reportUnreachable();
-    throw new ApiClientError('You appear to be offline. That file was not uploaded.', 0, 'network');
-  }
 
-  const text = await response.text();
-  let parsed: unknown = null;
-  if (text) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      reportReachable();
-      throw new ApiClientError(`Upload failed (${response.status}).`, response.status);
-    }
-  }
+    request.addEventListener('error', () => {
+      cleanup();
+      reportUnreachable();
+      reject(new ApiClientError('You appear to be offline. That file was not uploaded.', 0, 'network'));
+    });
 
-  const envelope = parsed as { ok?: boolean; data?: T; error?: string; code?: string } | null;
-  if (response.status === 503) reportUnreachable();
-  else reportReachable();
+    request.addEventListener('abort', () => {
+      cleanup();
+      reject(new ApiClientError('The upload was cancelled.', 0, 'aborted'));
+    });
 
-  if (!response.ok || envelope?.ok === false) {
-    throw new ApiClientError(
-      envelope?.error ?? `Upload failed (${response.status}).`,
-      response.status,
-      envelope?.code,
-    );
-  }
+    request.addEventListener('timeout', () => {
+      cleanup();
+      reportUnreachable();
+      reject(new ApiClientError('The upload timed out. Nothing was saved.', 0, 'network'));
+    });
 
-  return (envelope?.data ?? (null as T)) as T;
+    request.addEventListener('load', () => {
+      cleanup();
+      const status = request.status;
+      let parsed: unknown = null;
+      if (request.responseText) {
+        try {
+          parsed = JSON.parse(request.responseText);
+        } catch {
+          reportReachable();
+          reject(new ApiClientError(`Upload failed (${status}).`, status));
+          return;
+        }
+      }
+
+      const envelope = parsed as { ok?: boolean; data?: T; error?: string; code?: string } | null;
+      if (status === 503) reportUnreachable();
+      else reportReachable();
+
+      if (status < 200 || status >= 300 || envelope?.ok === false) {
+        reject(
+          new ApiClientError(
+            envelope?.error ?? `Upload failed (${status}).`,
+            status,
+            envelope?.code,
+          ),
+        );
+        return;
+      }
+
+      resolve((envelope?.data ?? (null as T)) as T);
+    });
+
+    request.send(form);
+  });
 }
 
 export const api = {
@@ -367,7 +437,8 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string, query?: Query) => request<T>('DELETE', path, undefined, query),
   /** Multipart upload — see `uploadFile`. Never queued; see the comment there. */
-  upload: <T>(path: string, form: FormData) => uploadFile<T>(path, form),
+  upload: <T>(path: string, form: FormData, options?: UploadOptions) =>
+    uploadFile<T>(path, form, options),
 };
 
 /** Human-readable message for any thrown value. */

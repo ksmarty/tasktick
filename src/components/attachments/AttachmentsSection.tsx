@@ -14,9 +14,18 @@
  * Every other write in the app shows its effect immediately and reconciles after.
  * An upload cannot: the id, the size and the download URL are the server's, and
  * until the bytes are stored there is no row to draw. So the row appears when the
- * upload finishes, and while it is running the button says so. That is also why
- * an upload is refused — not queued — while offline: the offline queue holds JSON,
- * and a file cannot be rebuilt from it later.
+ * upload finishes. That is also why an upload is refused — not queued — while
+ * offline: the offline queue holds JSON, and a file cannot be rebuilt from it
+ * later.
+ *
+ * ## Why every file gets a row before it is stored
+ *
+ * Bytes take time, and a button that only says "Uploading…" says nothing about
+ * whether the request is moving or has died at 3%, which is the difference
+ * between waiting and reloading. So each file is listed the moment it is picked,
+ * with its own percentage and, if it fails, its own sentence saying so. Failures
+ * stay on screen until dismissed: an error that disappears on the next attempt of
+ * another file is a report the user cannot read.
  *
  * ## Removing is two steps, not a hold
  *
@@ -30,8 +39,10 @@ import { useToast } from '@/components/app/Toast';
 import { FileIcon } from '@svg-animated-icons/react/file';
 import { DownloadIcon } from '@svg-animated-icons/react/download';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
+import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { api, errorMessage } from '@/lib/api-client';
 import { formatFileSize, isPreviewableImage, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_LABEL } from '@/lib/attachments';
 import { affectsFor } from '@/lib/offline-rules';
@@ -73,6 +84,17 @@ export interface AttachmentsSectionProps {
   inline?: boolean;
 }
 
+/** One file the user picked, from the moment it is chosen until it is stored. */
+interface PendingUpload {
+  /** Stable per pick; a `File` has no id and two files can share a name. */
+  key: number;
+  file: File;
+  /** 0…1 as the browser reports the request body leaving. */
+  percent: number;
+  /** A sentence for this file alone — refused locally or refused by the server. */
+  error: string | null;
+}
+
 export function AttachmentsSection({
   owner,
   unsavedHint = 'Save first to attach files.',
@@ -91,13 +113,16 @@ export function AttachmentsSection({
   const online = useOnline();
   const resource = useResource<Attachment[]>(owner ? '/api/attachments' : null, owner ?? undefined);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const nextKey = useRef(0);
+  const [queue, setQueue] = useState<PendingUpload[]>([]);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const attachments = resource.data ?? [];
   const locked = disabled || readOnly || !online;
+  /* Uploading, as opposed to having finished or failed: only this blocks a pick. */
+  const busy = queue.some((item) => item.error === null);
 
   /*
    * Three surfaces, three sets of edges: the sheet's own gutter (the default), a
@@ -125,53 +150,94 @@ export function AttachmentsSection({
           add: 'px-3',
         };
 
-  async function upload(files: FileList) {
+  function patch(key: number, change: Partial<PendingUpload>) {
+    setQueue((current) => current.map((item) => (item.key === key ? { ...item, ...change } : item)));
+  }
+
+  /*
+   * Sends one file and keeps it on screen either way: on success it leaves the
+   * queue, on failure it stays with the server's own sentence beside it. The
+   * percentage is the browser's, not an estimate of our own — anything else would
+   * drift away from what the socket is actually doing.
+   */
+  async function send(item: PendingUpload): Promise<boolean> {
+    if (!owner) return false;
+    const form = new FormData();
+    // The owner goes in the body, not in the URL: `fetch` cannot set a multipart
+    // field from a query parameter, and the route reads both the same way.
+    for (const [key, value] of Object.entries(owner)) form.set(key, value);
+    form.set('file', item.file, item.file.name);
+
+    patch(item.key, { percent: 0, error: null });
+    try {
+      await api.upload<Attachment>('/api/attachments', form, {
+        onProgress: ({ fraction }) => patch(item.key, { percent: fraction }),
+      });
+      setQueue((current) => current.filter((entry) => entry.key !== item.key));
+      return true;
+    } catch (failure) {
+      patch(item.key, { error: errorMessage(failure) });
+      return false;
+    }
+  }
+
+  async function accept(files: File[]) {
     if (!owner) return;
     setError(null);
-    setUploading(true);
 
-    const accepted: File[] = [];
-    for (const file of Array.from(files)) {
-      /*
-       * Checked here as well as on the server, and the wording is the same, so a
-       * 26 MB file fails in a millisecond instead of after a slow upload that
-       * the server then throws away.
-       */
+    /*
+     * Checked here as well as on the server, and the wording is the same, so a
+     * 26 MB file fails in a millisecond instead of after a slow upload that the
+     * server then throws away. A refused file still gets a row, because the user
+     * picked it and silence reads as a bug.
+     */
+    const accepted: PendingUpload[] = [];
+    const refused: PendingUpload[] = [];
+    for (const file of files) {
+      const key = (nextKey.current += 1);
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        setError(`“${file.name}” is ${formatFileSize(file.size)}. The limit is ${MAX_ATTACHMENT_LABEL} per file.`);
-        continue;
+        refused.push({
+          key,
+          file,
+          percent: 0,
+          error: `“${file.name}” is ${formatFileSize(file.size)}. The limit is ${MAX_ATTACHMENT_LABEL} per file.`,
+        });
+      } else if (file.size === 0) {
+        refused.push({ key, file, percent: 0, error: `“${file.name}” is empty.` });
+      } else {
+        accepted.push({ key, file, percent: 0, error: null });
       }
-      if (file.size === 0) {
-        setError(`“${file.name}” is empty.`);
-        continue;
-      }
-      accepted.push(file);
     }
 
+    if (refused.length > 0) setQueue((current) => [...current, ...refused]);
+    if (accepted.length === 0) return;
+    setQueue((current) => [...current, ...accepted]);
+
+    /* One at a time: a batch of five over one uplink has one honest percentage. */
     let stored = 0;
-    try {
-      for (const file of accepted) {
-        const form = new FormData();
-        // The owner goes in the body, not the URL: `fetch` cannot set a multipart
-        // field from a query parameter, and the route reads both the same way.
-        for (const [key, value] of Object.entries(owner)) form.set(key, value);
-        form.set('file', file, file.name);
-        await api.upload<Attachment>('/api/attachments', form);
-        stored += 1;
-      }
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setUploading(false);
-      // Reflect what landed even when a later file in the same batch failed.
-      if (stored > 0) {
-        await invalidate(ATTACHMENT_WRITE_PREFIXES);
-        toast({
-          title: stored === 1 ? 'File attached' : `${stored} files attached`,
-          variant: 'success',
-        });
-      }
+    for (const item of accepted) {
+      if (await send(item)) stored += 1;
     }
+
+    // Reflect what landed even when another file in the same pick failed.
+    if (stored > 0) {
+      await invalidate(ATTACHMENT_WRITE_PREFIXES);
+      toast({
+        title: stored === 1 ? 'File attached' : `${stored} files attached`,
+        variant: 'success',
+      });
+    }
+  }
+
+  async function retry(item: PendingUpload) {
+    if (await send(item)) {
+      await invalidate(ATTACHMENT_WRITE_PREFIXES);
+      toast({ title: 'File attached', variant: 'success' });
+    }
+  }
+
+  function dismiss(key: number) {
+    setQueue((current) => current.filter((item) => item.key !== key));
   }
 
   async function remove(attachment: Attachment) {
@@ -292,6 +358,57 @@ export function AttachmentsSection({
         </ul>
       ) : null}
 
+      {queue.length > 0 ? (
+        <ul className="flex flex-col">
+          {queue.map((item) => (
+            <li
+              key={item.key}
+              className={cn('flex flex-col justify-center gap-1 border border-transparent py-2', edges.row)}
+            >
+              <div className="flex min-h-8 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm">{item.file.name}</span>
+                {item.error ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void retry(item)}
+                    >
+                      Retry
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Dismiss ${item.file.name}`}
+                      onClick={() => dismiss(item.key)}
+                    >
+                      <Cross1Icon className="size-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {Math.round(item.percent * 100)}%
+                  </span>
+                )}
+              </div>
+              {item.error ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {item.error}
+                </p>
+              ) : (
+                <Progress
+                  value={Math.round(item.percent * 100)}
+                  aria-label={`Uploading ${item.file.name}`}
+                  className="h-1"
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {error ? (
         <p role="alert" className={cn('mt-2 text-xs text-destructive', edges.error)}>
           {error}
@@ -314,17 +431,25 @@ export function AttachmentsSection({
             aria-hidden
             tabIndex={-1}
             onChange={(event) => {
-              const files = event.target.files;
-              // Reset first: picking the same file twice fires no change otherwise.
-              event.target.value = '';
-              if (files && files.length > 0) void upload(files);
+              /*
+               * Copied out *before* the field is cleared. `input.files` is a live
+               * list: `value = ''` empties the very `FileList` a handler might
+               * still be holding, so the obvious `const files = target.files;
+               * target.value = ''` leaves an empty list behind and the upload is
+               * skipped without a word — which is exactly what shipped.
+               */
+              const files = Array.from(event.currentTarget.files ?? []);
+              // Reset after reading: picking the same file twice fires no
+              // change event otherwise.
+              event.currentTarget.value = '';
+              if (files.length > 0) void accept(files);
             }}
           />
 
           <Button
             type="button"
             variant="ghost"
-            disabled={locked || uploading || !owner}
+            disabled={locked || busy || !owner}
             onClick={() => inputRef.current?.click()}
             className={cn(
               'min-h-11 w-full justify-start gap-2 rounded-lg text-primary hover:text-primary border border-transparent',
@@ -335,7 +460,7 @@ export function AttachmentsSection({
             <span aria-hidden>
               <PlusIcon className="size-5" />
             </span>
-            {uploading ? 'Uploading…' : 'Attach file'}
+            {busy ? 'Uploading…' : 'Attach file'}
             <span className="ml-auto text-xs text-muted-foreground">
               {owner ? `Up to ${MAX_ATTACHMENT_LABEL}` : unsavedHint}
             </span>
