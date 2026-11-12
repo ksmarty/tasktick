@@ -144,9 +144,12 @@ describe('a mirrored item loses its Edit action', () => {
   });
 
   it('removes the action rather than disabling it', () => {
-    // A dead button that can never be enabled is worse than no button.
+    // A dead button that can never be enabled is worse than no button. The one
+    // `disabled` in the sheet belongs to the map lookup, where it means "this
+    // request is already in flight", not "you may not".
     expect(DETAIL).toContain('isReadOnly ? undefined : (');
-    expect(DETAIL).not.toMatch(/<Button[^>]*disabled/);
+    expect(DETAIL.match(/<Button[^>]*\n?[^>]*disabled/g) ?? []).toHaveLength(1);
+    expect(DETAIL).toContain('disabled={resolving}');
     expect(DETAIL).toContain('<Pencil1Icon');
     expect(DETAIL).toContain('Edit');
   });
@@ -222,7 +225,13 @@ describe('the sheet shows every populated field', () => {
 
 describe('the editor does not steal focus on the edit path', () => {
   it('cancels the deferred autofocus without removing the focus machinery', () => {
-    expect(EDITOR).toContain('onOpenAutoFocus={(event) => event.preventDefault()}');
+    /*
+     * `preventDefault` alone left focus on the row that opened the editor, so the
+     * row kept its `focus-visible` ring and read as selected. The handler now
+     * moves focus into the dialog itself.
+     */
+    expect(EDITOR).toContain('onOpenAutoFocus={(event) => {');
+    expect(EDITOR).toContain('(event.target as HTMLElement).focus({ preventScroll: true })');
     // The date popover still focuses its own calendar when it opens — via the
     // field both editors share, which is where the picker lives now.
     expect(EDITOR).toContain("from '@/components/schedule/fields'");

@@ -103,6 +103,9 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - **Streaks that skip non-scheduled days** — a Mon/Wed/Fri habit keeps its streak
   over the weekend, and the current period never breaks it until it is genuinely over
 - 12-month GitHub-style heatmap, longest streak, completion rate
+- **Changes made elsewhere show up on their own** — an automation or a second
+  device writing through the API is reflected within a few seconds, without a
+  reload
 
 ### Focus and insight
 
@@ -128,6 +131,11 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - Full dark mode using Apple's separately-tuned dark palette, not an inversion
 - Configurable accent colour, week start, timezone, 12/24-hour clock
 - Global search, keyboard shortcuts, CSV-free JSON export and ICS export
+- **File attachments** on tasks and events (25 MB each, stored on the data
+  volume) with an in-place preview for images, PDFs and text
+- **Maps links** — paste a Google Maps link and the detail sheet shows the place
+  and a map. Short `maps.app.goo.gl` links are resolved server-side behind the
+  same SSRF guard as calendar subscriptions; no Maps API key is needed
 - Multi-user with per-user data isolation, invite-gated registration, and
   **optional OIDC single sign-on** for any standards-compliant provider
 - Admin panel: invites, user management, last-admin protection
@@ -245,6 +253,15 @@ published in this repository, or is shorter than 32 characters.
 | `CALDAV_ALLOW_INSECURE_TLS` | `false` | Only for self-signed certs on a LAN you control |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | *(unset)* | Extra origins allowed to make auth requests, on top of `APP_URL` and automatic LAN access. Needed only when you browse from an origin that is **not** `APP_URL` (a second public hostname, say). Comma separated, wildcards supported. |
 | `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy you control |
+
+### Live updates (no configuration)
+
+An open page polls `/api/sync/version` every five seconds while it is visible.
+The answer is a cheap token built from row counts and `max(updated_at)` over the
+synced tables, so it costs six indexed aggregates rather than a page of records;
+when it differs from the last one the app refetches everything. Nothing to
+configure, no sockets to keep open through the service worker, and a page that
+was in the background catches up the moment it comes back.
 
 ### Single sign-on (optional)
 

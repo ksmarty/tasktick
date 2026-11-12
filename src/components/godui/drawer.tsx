@@ -240,8 +240,37 @@ function useKeyboardInset(active: boolean, ownerDocument: Document | null): numb
       setInset(0);
       return;
     }
+    /*
+     * Whether a fresh measurement may be believed.
+     *
+     * A resume from the background starts *untrusted*: iOS hands back the
+     * rectangle it had before the app left, and a rectangle that claims the
+     * keyboard is up while nothing is focused is the bug where a sheet comes
+     * back floating in the middle of the screen. The visual viewport's own
+     * `resize` is the event that carries new geometry, so only that clears the
+     * flag — everything else zeroes and waits for it.
+     */
+    let trusted = true;
     const sync = () => {
       if (ownerDocument.visibilityState === 'hidden') {
+        setInset(0);
+        return;
+      }
+      /*
+       * The physical cause, not the rectangle: a keyboard exists because a text
+       * field has focus. With nothing focused there is nothing to clear, and a
+       * non-zero measurement can only be the stale one.
+       */
+      const active = ownerDocument.activeElement;
+      const typing =
+        active instanceof view.HTMLElement &&
+        (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
+      if (!typing) {
+        setInset(0);
+        trusted = true;
+        return;
+      }
+      if (!trusted) {
         setInset(0);
         return;
       }
@@ -249,27 +278,37 @@ function useKeyboardInset(active: boolean, ownerDocument: Document | null): numb
       const limit = Math.round(view.innerHeight * 0.5);
       setInset(covered > 8 ? Math.min(Math.round(covered), limit) : 0);
     };
-    sync();
-    visual.addEventListener('resize', sync);
-    visual.addEventListener('scroll', sync);
+    const measured = () => {
+      trusted = true;
+      sync();
+    };
     /*
      * The keyboard is not the only thing that changes the geometry, and none of
      * these are guaranteed to arrive after a background switch — so listen to
-     * all of them and let the last one win.
+     * all of them and let the last one win. All of them are treated as a
+     * resume: zero now, trust the next real measurement.
      */
-    view.addEventListener('resize', sync);
-    view.addEventListener('orientationchange', sync);
-    view.addEventListener('pageshow', sync);
-    view.addEventListener('focus', sync);
-    ownerDocument.addEventListener('visibilitychange', sync);
+    const resumed = () => {
+      trusted = false;
+      setInset(0);
+      sync();
+    };
+    sync();
+    visual.addEventListener('resize', measured);
+    visual.addEventListener('scroll', sync);
+    view.addEventListener('resize', resumed);
+    view.addEventListener('orientationchange', resumed);
+    view.addEventListener('pageshow', resumed);
+    view.addEventListener('focus', resumed);
+    ownerDocument.addEventListener('visibilitychange', resumed);
     return () => {
-      visual.removeEventListener('resize', sync);
+      visual.removeEventListener('resize', measured);
       visual.removeEventListener('scroll', sync);
-      view.removeEventListener('resize', sync);
-      view.removeEventListener('orientationchange', sync);
-      view.removeEventListener('pageshow', sync);
-      view.removeEventListener('focus', sync);
-      ownerDocument.removeEventListener('visibilitychange', sync);
+      view.removeEventListener('resize', resumed);
+      view.removeEventListener('orientationchange', resumed);
+      view.removeEventListener('pageshow', resumed);
+      view.removeEventListener('focus', resumed);
+      ownerDocument.removeEventListener('visibilitychange', resumed);
     };
   }, [active, ownerDocument]);
 
@@ -360,6 +399,13 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                   role="dialog"
                   aria-modal="true"
                   data-slot="drawer"
+                  /*
+                   * The panel is a focus sink, not a tab stop. Radix's scope
+                   * focuses the container when nothing inside it took focus,
+                   * and a container without `outline-none` paints a ring around
+                   * the whole sheet — the "ring around the element I tapped".
+                   */
+                  tabIndex={-1}
                   initial={hidden}
                   animate={shown}
                   exit={hidden}
@@ -376,7 +422,7 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                   }
                   onDragEnd={handleDragEnd}
                   className={cn(
-                    'absolute flex flex-col bg-card p-5 text-card-foreground shadow-xl',
+                    'absolute flex flex-col bg-card p-5 text-card-foreground shadow-xl outline-none',
                     PANEL_BY_SIDE[side],
                     className,
                     /*
@@ -414,7 +460,18 @@ const Drawer = React.forwardRef<HTMLDivElement, DrawerProps>(
                       ) : null}
                     </div>
                   ) : null}
-                  <FocusScope trapped loop autoFocus={autoFocus} className="overflow-y-auto">
+                  <FocusScope
+                    trapped
+                    loop
+                    autoFocus={autoFocus}
+                    /*
+                     * `outline-none`: when the panel holds nothing focusable the
+                     * scope focuses this element, and its UA outline is a ring
+                     * hugging the sheet's inner box. Suppressing it here is the
+                     * other half of the panel's own `outline-none`.
+                     */
+                    className="overflow-y-auto outline-none"
+                  >
                     {children}
                   </FocusScope>
                 </motion.div>

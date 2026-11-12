@@ -12,13 +12,14 @@ import { notFound, ok, route } from '@/server/http';
 import {
   contentDisposition,
   deleteOwnedAttachment,
+  inlineContentDisposition,
   readAttachment,
 } from '@/server/services/attachments';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export const GET = route(async ({ user, params }) => {
+export const GET = route(async ({ user, params, req }) => {
   const found = await readAttachment(user.id, params.id);
   if (!found) {
     // 404 for both "not yours" and "bytes missing": one answer, so the status
@@ -27,11 +28,16 @@ export const GET = route(async ({ user, params }) => {
   }
 
   const { attachment, bytes } = found;
+  // `?inline=1` is the preview path: the same bytes under a header that lets the
+  // browser draw them instead of saving them.
+  const inline = req.nextUrl.searchParams.get('inline') === '1';
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       'Content-Type': attachment.mimeType || 'application/octet-stream',
       'Content-Length': String(bytes.byteLength),
-      'Content-Disposition': contentDisposition(attachment.filename),
+      'Content-Disposition': inline
+        ? inlineContentDisposition(attachment.filename)
+        : contentDisposition(attachment.filename),
       // Files are user data behind a session, and a shared cache must not keep a
       // copy; `private` is what makes that explicit to a proxy.
       'Cache-Control': 'private, no-store',

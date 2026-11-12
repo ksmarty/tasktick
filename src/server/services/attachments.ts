@@ -214,6 +214,23 @@ export async function deleteOwnedAttachment(userId: string, id: string): Promise
  * browsers actually use and what makes "Résumé.pdf" arrive as "Résumé.pdf".
  */
 export function contentDisposition(filename: string): string {
+  return disposition('attachment', filename);
+}
+
+/**
+ * The same header for a file the browser should show rather than save.
+ *
+ * A preview is an `<img>`, an `<iframe>` or a `fetch` of the same URL, and all
+ * three honour `Content-Disposition: attachment` by downloading instead — so the
+ * preview asks for `?inline=1` and gets the identical bytes under a header that
+ * lets it draw. The download path keeps `attachment`, because a click on
+ * "Download" that renders a PDF in place is not a download.
+ */
+export function inlineContentDisposition(filename: string): string {
+  return disposition('inline', filename);
+}
+
+function disposition(kind: 'attachment' | 'inline', filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }

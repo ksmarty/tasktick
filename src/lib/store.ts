@@ -37,6 +37,7 @@ import { encodeEntry, persistEntry as persistRecord, forgetPersistedEntry, loadP
 import { insertProjectedEntity, projectQueuedCreate } from './offline-projections';
 import { ensureOfflineSupport, invalidateServiceWorker, onScopeEvent, scopeForWrites } from './session-scope';
 import { isReachable, startNetworkHealth, subscribeReachability } from './network-health';
+import { startLiveSync } from './live-sync';
 
 type Listener = () => void;
 
@@ -525,7 +526,21 @@ function startOfflineBridge(): void {
   // Follows the browser's own connectivity events, which is what clears a stale
   // "unreachable" after a handover without waiting for the next request to fail.
   startNetworkHealth();
+
+  /*
+   * A change this page did not make: an automation calling the API, another
+   * browser, a CalDAV push landing on the server. Nothing above can see those —
+   * every mechanism here is a reaction to a write *we* performed — so the poll in
+   * `live-sync.ts` asks the server whether anything moved, and a moved token
+   * drops every read and refetches what is mounted. `/api` is the prefix because
+   * the question is not "which records changed" but "anything at all did": the
+   * token cannot say which, so the safe answer is a full wave.
+   */
+  startLiveSync({ onChange: () => invalidate(ALL_READ_PREFIXES) });
 }
+
+/** Every read this app makes. Dropped whole when the server reports a change. */
+const ALL_READ_PREFIXES = ['/api'];
 
 if (typeof window !== 'undefined') startOfflineBridge();
 

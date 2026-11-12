@@ -27,24 +27,40 @@
  * stay on screen until dismissed: an error that disappears on the next attempt of
  * another file is a report the user cannot read.
  *
+ * ## One control, in the heading
+ *
+ * The list is the content; adding to it is a small verb, so it is a plus in the
+ * heading rather than a full-width row under the files. A row that big competes
+ * with the files themselves, and on a task with no files it is a slab of empty
+ * space where the useful thing — the heading — should be.
+ *
  * ## Removing is two steps, not a hold
  *
  * Deleting one file is small enough that a hold on every row would be noise in a
  * list you scroll, and permanent enough that a single mis-tap would lose the only
  * copy. The row asks once, in place (`Remove`/`Keep`), which is enough for a
- * decision this size and costs no dialog.
+ * decision this size and costs no dialog. The control is only in the editors: the
+ * detail sheet is where files are read, and a destructive control beside a
+ * download is one mis-tap from a gone file.
  */
 import { useRef, useState } from 'react';
-import { useToast } from '@/components/app/Toast';
 import { FileIcon } from '@svg-animated-icons/react/file';
 import { DownloadIcon } from '@svg-animated-icons/react/download';
 import { PlusIcon } from '@svg-animated-icons/react/plus';
 import { Cross1Icon } from '@svg-animated-icons/react/cross-1';
 import { TrashIcon } from '@svg-animated-icons/react/trash';
+import { AttachmentPreview } from '@/components/attachments/AttachmentPreview';
+import { useToast } from '@/components/app/Toast';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { api, errorMessage } from '@/lib/api-client';
-import { formatFileSize, isPreviewableImage, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_LABEL } from '@/lib/attachments';
+import {
+  attachmentPreviewKind,
+  formatFileSize,
+  isPreviewableImage,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_LABEL,
+} from '@/lib/attachments';
 import { affectsFor } from '@/lib/offline-rules';
 import { invalidate, useOnline, useResource } from '@/lib/store';
 import type { Attachment } from '@/lib/types';
@@ -63,7 +79,7 @@ const ATTACHMENT_WRITE_PREFIXES: string[] = affectsFor('POST', '/api/attachments
 export interface AttachmentsSectionProps {
   /** Null while a new record has no id yet — nothing can be attached to it. */
   owner: AttachmentOwnerRef | null;
-  /** Shown instead of the add row while `owner` is null. */
+  /** Shown instead of the add control while `owner` is null. */
   unsavedHint?: string;
   /** Offline: the list still renders from cache, but nothing can be uploaded. */
   disabled?: boolean;
@@ -118,11 +134,18 @@ export function AttachmentsSection({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<Attachment | null>(null);
 
   const attachments = resource.data ?? [];
   const locked = disabled || readOnly || !online;
   /* Uploading, as opposed to having finished or failed: only this blocks a pick. */
   const busy = queue.some((item) => item.error === null);
+  /*
+   * Files are removed in the editors only. In the detail sheet — where the row is
+   * a download you tap — a trash icon next to it is one mis-tap from losing the
+   * file, and the sheet's own Edit button is already the way to change things.
+   */
+  const removable = !readOnly && !inline;
 
   /*
    * Three surfaces, three sets of edges: the sheet's own gutter (the default), a
@@ -134,20 +157,26 @@ export function AttachmentsSection({
    */
   const edges = framed
     ? {
-        section: 'shrink-0 gap-stack rounded-xl border border-border p-card',
-        heading: 'text-sm font-medium',
+        section: 'shrink-0 gap-2 rounded-xl border border-border p-card',
+        header: 'flex min-h-8 items-center gap-2',
+        label: 'flex-1 text-sm font-medium',
         row: 'pr-0 pl-0',
         error: null,
-        add: 'px-0',
       }
     : inline
-      ? { section: 'gap-2', heading: 'text-sm text-muted-foreground', row: null, error: null, add: 'px-0' }
+      ? {
+          section: 'gap-2',
+          header: 'flex min-h-8 items-center gap-2',
+          label: 'flex-1 text-sm text-muted-foreground',
+          row: null,
+          error: null,
+        }
       : {
           section: null,
-          heading: 'px-3 text-sm font-medium border border-transparent',
+          header: 'flex min-h-8 items-center gap-2 px-3',
+          label: 'flex-1 text-sm font-medium',
           row: 'pr-1 pl-3',
           error: 'px-3',
-          add: 'px-3',
         };
 
   function patch(key: number, change: Partial<PendingUpload>) {
@@ -181,6 +210,11 @@ export function AttachmentsSection({
     }
   }
 
+  /*
+   * No success toast. The row appearing in the list *is* the confirmation, and a
+   * banner for something that already happened is a thing to dismiss before
+   * carrying on. Failures still speak, in the row, because those need reading.
+   */
   async function accept(files: File[]) {
     if (!owner) return;
     setError(null);
@@ -220,20 +254,11 @@ export function AttachmentsSection({
     }
 
     // Reflect what landed even when another file in the same pick failed.
-    if (stored > 0) {
-      await invalidate(ATTACHMENT_WRITE_PREFIXES);
-      toast({
-        title: stored === 1 ? 'File attached' : `${stored} files attached`,
-        variant: 'success',
-      });
-    }
+    if (stored > 0) await invalidate(ATTACHMENT_WRITE_PREFIXES);
   }
 
   async function retry(item: PendingUpload) {
-    if (await send(item)) {
-      await invalidate(ATTACHMENT_WRITE_PREFIXES);
-      toast({ title: 'File attached', variant: 'success' });
-    }
+    if (await send(item)) await invalidate(ATTACHMENT_WRITE_PREFIXES);
   }
 
   function dismiss(key: number) {
@@ -256,22 +281,84 @@ export function AttachmentsSection({
   }
 
   return (
-    <section
-      aria-label="Attachments"
-      className={cn('flex flex-col', edges.section)}
-    >
-      <h3 className={edges.heading}>
-        Attachments
-        {attachments.length ? (
-          <span className="ml-2 text-xs font-normal text-muted-foreground">{attachments.length}</span>
-        ) : null}
-      </h3>
+    <section aria-label="Attachments" className={cn('flex flex-col', edges.section)}>
+      <div className={edges.header}>
+        <h3 className={edges.label}>
+          Attachments
+          {attachments.length ? (
+            <span className="ml-2 text-xs font-normal text-muted-foreground">{attachments.length}</span>
+          ) : null}
+        </h3>
+
+        {readOnly ? null : (
+          <>
+            {/*
+              One hidden input behind the plus, rather than a styled file field:
+              the native control cannot be made to look like the heading, and
+              `multiple` plus a `click()` is the only way to send several files
+              without an upload widget of our own.
+            */}
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              className="hidden"
+              aria-hidden
+              tabIndex={-1}
+              onChange={(event) => {
+                /*
+                 * Copied out *before* the field is cleared. `input.files` is a
+                 * live list: `value = ''` empties the very `FileList` a handler
+                 * might still be holding, so the obvious `const files =
+                 * target.files; target.value = ''` leaves an empty list behind
+                 * and the upload is skipped without a word — which is exactly
+                 * what shipped.
+                 */
+                const files = Array.from(event.currentTarget.files ?? []);
+                // Reset after reading: picking the same file twice fires no
+                // change event otherwise.
+                event.currentTarget.value = '';
+                if (files.length > 0) void accept(files);
+              }}
+            />
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={locked || busy || !owner}
+              onClick={() => inputRef.current?.click()}
+              aria-label={busy ? 'Uploading' : 'Attach file'}
+              title={
+                owner
+                  ? `Attach a file — up to ${MAX_ATTACHMENT_LABEL} each`
+                  : unsavedHint
+              }
+            >
+              {busy ? (
+                <span
+                  aria-hidden
+                  className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                />
+              ) : (
+                <PlusIcon className="size-5" />
+              )}
+            </Button>
+          </>
+        )}
+      </div>
 
       {attachments.length ? (
-        <ul className={cn('overflow-hidden rounded-xl bg-card text-card-foreground', framed || inline ? null : 'mt-2')}>
+        <ul
+          className={cn(
+            'overflow-hidden rounded-xl bg-card text-card-foreground',
+            framed || inline ? null : 'mt-2',
+          )}
+        >
           {attachments.map((attachment) => {
             const confirming = confirmId === attachment.id;
             const removing = removingId === attachment.id;
+            const kind = attachmentPreviewKind(attachment.mimeType, attachment.filename);
             return (
               <li
                 key={attachment.id}
@@ -315,17 +402,33 @@ export function AttachmentsSection({
                   </>
                 ) : (
                   <>
-                    <a
-                      href={`/api/attachments/${attachment.id}`}
-                      download={attachment.filename}
-                      className="min-w-0 flex-1 py-2 text-sm hover:underline"
-                      title={`Download ${attachment.filename}`}
-                    >
-                      <span className="block truncate">{attachment.filename}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {formatFileSize(attachment.sizeBytes)}
-                      </span>
-                    </a>
+                    {kind ? (
+                      /* Tappable because there is something to read: the sheet
+                       * opens the file rather than sending it to Downloads. */
+                      <button
+                        type="button"
+                        onClick={() => setPreviewing(attachment)}
+                        className="min-w-0 flex-1 py-2 text-left text-sm outline-none hover:underline"
+                        title={`Open ${attachment.filename}`}
+                      >
+                        <span className="block truncate">{attachment.filename}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {formatFileSize(attachment.sizeBytes)}
+                        </span>
+                      </button>
+                    ) : (
+                      <a
+                        href={`/api/attachments/${attachment.id}`}
+                        download={attachment.filename}
+                        className="min-w-0 flex-1 py-2 text-sm hover:underline"
+                        title={`Download ${attachment.filename}`}
+                      >
+                        <span className="block truncate">{attachment.filename}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {formatFileSize(attachment.sizeBytes)}
+                        </span>
+                      </a>
+                    )}
 
                     <Button asChild variant="ghost" size="icon-sm" disabled={removing}>
                       <a
@@ -337,7 +440,7 @@ export function AttachmentsSection({
                       </a>
                     </Button>
 
-                    {readOnly ? null : (
+                    {removable ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -349,7 +452,7 @@ export function AttachmentsSection({
                       >
                         <TrashIcon className="size-5" />
                       </Button>
-                    )}
+                    ) : null}
                   </>
                 )}
               </li>
@@ -369,12 +472,7 @@ export function AttachmentsSection({
                 <span className="min-w-0 flex-1 truncate text-sm">{item.file.name}</span>
                 {item.error ? (
                   <>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void retry(item)}
-                    >
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void retry(item)}>
                       Retry
                     </Button>
                     <Button
@@ -415,58 +513,12 @@ export function AttachmentsSection({
         </p>
       ) : null}
 
-      {readOnly ? null : (
-        <>
-          {/*
-            One hidden input behind a button, rather than a styled file field: the
-            native control cannot be made to look like a row, and `multiple` plus a
-            `click()` is the only way to send several files without an upload
-            widget of our own.
-          */}
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            className="hidden"
-            aria-hidden
-            tabIndex={-1}
-            onChange={(event) => {
-              /*
-               * Copied out *before* the field is cleared. `input.files` is a live
-               * list: `value = ''` empties the very `FileList` a handler might
-               * still be holding, so the obvious `const files = target.files;
-               * target.value = ''` leaves an empty list behind and the upload is
-               * skipped without a word — which is exactly what shipped.
-               */
-              const files = Array.from(event.currentTarget.files ?? []);
-              // Reset after reading: picking the same file twice fires no
-              // change event otherwise.
-              event.currentTarget.value = '';
-              if (files.length > 0) void accept(files);
-            }}
-          />
-
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={locked || busy || !owner}
-            onClick={() => inputRef.current?.click()}
-            className={cn(
-              'min-h-11 w-full justify-start gap-2 rounded-lg text-primary hover:text-primary border border-transparent',
-              edges.add,
-              attachments.length && !framed && !inline ? 'mt-2' : null,
-            )}
-          >
-            <span aria-hidden>
-              <PlusIcon className="size-5" />
-            </span>
-            {busy ? 'Uploading…' : 'Attach file'}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {owner ? `Up to ${MAX_ATTACHMENT_LABEL}` : unsavedHint}
-            </span>
-          </Button>
-        </>
-      )}
+      <AttachmentPreview
+        attachment={previewing}
+        onOpenChange={(open) => {
+          if (!open) setPreviewing(null);
+        }}
+      />
     </section>
   );
 }

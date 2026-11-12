@@ -62,3 +62,28 @@ function short(value: number): string {
 export function isPreviewableImage(mimeType: string): boolean {
   return /^image\/(png|jpeg|gif|webp)$/i.test(mimeType);
 }
+
+/** How a file is shown once opened, or `null` when it can only be downloaded. */
+export type AttachmentPreviewKind = 'image' | 'pdf' | 'text';
+
+/**
+ * What the browser can show without a plugin, decided from the type first and
+ * the name second.
+ *
+ * The type is what the upload reported and it is usually right; the name catches
+ * the common case of a host that sent `application/octet-stream` for a `.md` or
+ * a `.json` file. Everything else — a zip, a docx, an SVG — is a download, and
+ * saying so is better than rendering an empty frame.
+ */
+export function attachmentPreviewKind(mimeType: string, filename = ''): AttachmentPreviewKind | null {
+  if (isPreviewableImage(mimeType)) return 'image';
+  const type = mimeType.toLowerCase();
+  if (type === 'application/pdf') return 'pdf';
+
+  const named = /\.(txt|md|markdown|json|ya?ml|csv|tsv|log|ics|ts|tsx|js|jsx|css|html?|xml|sh|py|go|rs|sql)$/i;
+  const textish =
+    /^text\//.test(type) ||
+    /[+/](json|xml|yaml|x-yaml|javascript|typescript|csv|markdown)$/.test(type);
+  if (textish || named.test(filename)) return 'text';
+  return null;
+}

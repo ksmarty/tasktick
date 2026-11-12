@@ -113,7 +113,8 @@ describe('a new calendar event opens with the caret in its title', () => {
     // Creating is typing a title and then filling in when; editing is reading a
     // form that arrived filled in, where a stolen caret raises a keyboard over
     // the field the user came to look at.
-    expect(EDITOR).toContain('if (!isEdit) titleRef.current?.focus({ preventScroll: true });');
+    expect(EDITOR).toContain('if (isEdit) (event.target as HTMLElement).focus({ preventScroll: true });');
+    expect(EDITOR).toContain('else titleRef.current?.focus({ preventScroll: true });');
     expect(EDITOR).toContain('if (event || readOnly) return;');
     expect(EDITOR).toContain('ref={titleRef}');
   });

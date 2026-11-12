@@ -261,7 +261,15 @@ export function EventEditorSheet({
          */
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          if (!isEdit) titleRef.current?.focus({ preventScroll: true });
+          /*
+           * Creating focuses the title; editing focuses the sheet itself. Either
+           * way something inside takes focus, because preventing Radix's
+           * autofocus and stopping there left focus on the row the user tapped —
+           * and that row's `focus-visible:ring-2` then read as a selection while
+           * the sheet was open. The content is `outline-none`.
+           */
+          if (isEdit) (event.target as HTMLElement).focus({ preventScroll: true });
+          else titleRef.current?.focus({ preventScroll: true });
         }}
         /*
          * The close control is the dialog's own (`DialogClose`), not the

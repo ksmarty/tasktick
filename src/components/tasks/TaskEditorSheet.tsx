@@ -571,7 +571,17 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
            * `QuickAddBar`); this sheet does not, so it starts without stealing
            * focus. Keyboard users still reach the form on the first Tab.
            */
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            /*
+             * Take focus anyway, onto the sheet itself. Preventing Radix's
+             * autofocus left it where it was — on the row the user tapped — so
+             * that row kept its `focus-visible:ring-2` and read as selected
+             * while the sheet was open. The content is `outline-none`, so this
+             * is a focus that cannot be seen.
+             */
+            (event.target as HTMLElement).focus({ preventScroll: true });
+          }}
           onInteractOutside={(event) => {
             // A picker drawer and the delete confirmation both portal to `body`,
             // so Radix reads a press inside them as "outside the editor". The

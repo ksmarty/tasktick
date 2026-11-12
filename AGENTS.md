@@ -391,9 +391,11 @@ incidentally, and do not build UI that implies they work.
   token, one account's token could ban or manage other accounts. They stay
   session-only. Export and TickTick import are file transfers and also stay REST.
 - **The Low Power Mode probe is unverified on real iOS** — see §5.
-- **Short `maps.app.goo.gl` links cannot be parsed client-side** without a
-  server-side fetch, which would need an SSRF guard. Long
-  `google.com/maps/place/...` links parse locally.
+- **Short `maps.app.goo.gl` links are resolved on the server**
+  (`src/server/services/link-resolve.ts`), never in the browser: following the
+  redirect means fetching a URL the user supplied, so it reuses `ical-fetch.ts`'s
+  host guard and refuses a final URL that is not Google Maps. Long
+  `google.com/maps/place/...` links still parse locally with no call.
 - **Desktop is the adaptation, not a target.** Do not spend effort there that
   costs the phone layout.
 

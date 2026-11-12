@@ -90,6 +90,7 @@
  * `www.` host are matched, and the href is built from the matched scheme, so a
  * `javascript:` value can never become a link.
  */
+import { useState } from 'react';
 import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckIcon } from '@svg-animated-icons/react/check';
@@ -111,8 +112,9 @@ import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
 import { formatDateTime, formatTime, humanDuration, relativeDayLabel, toDateOnly } from '@/lib/dates';
 import { linkify } from '@/lib/linkify';
-import { isHttpUrl, linkPreview } from '@/lib/links';
+import { isHttpUrl, linkPreview, mapsEmbedUrl, needsMapResolution } from '@/lib/links';
 import { describeRRule } from '@/lib/rrule';
+import { api, errorMessage } from '@/lib/api-client';
 import { useResource } from '@/lib/store';
 import type { AccentColor, Attendee, CalendarEvent, CalendarItem, Reminder, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -175,30 +177,94 @@ function Field({
 
 /**
  * A stored URL: a readable label that is a real link, plus the place parsed out
- * of a maps link. Renders nothing when the value is not a usable http(s) link.
+ * of a maps link — and, for a place, the map itself.
+ *
+ * Renders nothing when the value is not a usable http(s) link.
  *
  * The place name leads when the link carries one ("Eiffel Tower"), otherwise the
  * readable host + path does. Coordinates sit on their own muted line — a second
  * line, not a second row, so the sheet stays a detail sheet and not a link dump.
+ *
+ * ## The map
+ *
+ * A maps link whose coordinates we could read is a `Place`, so the sheet shows the
+ * place: the pin, framed under the row, instead of asking the reader to leave the
+ * app to find out where it is. The embed is the keyless `output=embed` URL (see
+ * `mapsEmbedUrl`) — this is a self-hosted app and cannot assume an operator has a
+ * Maps key, so a key-requiring embed would render an empty frame for most people.
+ * It is `loading="lazy"` because a sheet is opened for any number of reasons and
+ * the map is the last thing in it.
+ *
+ * ## The short link
+ *
+ * `maps.app.goo.gl/…` is an id and nothing else: no name, no coordinates, so there
+ * is nothing to frame until the server follows the redirect (see
+ * `services/link-resolve.ts` — CORS and the opaque redirect mean the browser
+ * cannot). Asking on mount would turn opening a sheet into a third-party request
+ * for every row that happens to hold a link, so the reader asks: a "Show map"
+ * button on exactly the rows that need it, which then becomes the map. A failure
+ * says so in one line and leaves the link intact — the row was already useful.
  */
 function LinkField({ url }: { url: string }) {
   const preview = linkPreview(url);
+
+  const [resolved, setResolved] = useState<{
+    name: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+
   if (!preview) return null;
 
   const { href, display, place } = preview;
-  const coordinates =
+  const parsed =
     place && place.latitude !== null && place.longitude !== null
-      ? `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`
+      ? { latitude: place.latitude, longitude: place.longitude }
       : null;
+  const coordinates = parsed
+    ? `${parsed.latitude.toFixed(5)}, ${parsed.longitude.toFixed(5)}`
+    : null;
   // A short maps link parses to a provider but no place, so it stays a plain
   // "Link": claiming a Place we could not read would be a lie.
   const isPlace = Boolean(place && (place.name || coordinates));
+  /*
+   * A pin, from either source. A shared short link need not resolve to one: the
+   * link this feature was built against resolves to a `?q=<place name>` search,
+   * so the answer may be a name and no coordinates. Both are worth framing, which
+   * is why the map below is driven by whatever we have rather than by a pin only.
+   */
+  const pinned =
+    parsed ??
+    (resolved && resolved.latitude !== null && resolved.longitude !== null
+      ? { latitude: resolved.latitude, longitude: resolved.longitude }
+      : null);
+  const resolvedName = pinned ? null : (resolved?.name ?? null);
+  const mapSrc = pinned ? mapsEmbedUrl(pinned) : resolvedName ? mapsEmbedUrl({ name: resolvedName }) : null;
+  const askable = !pinned && !resolveError && needsMapResolution(place) && !mapSrc;
+
+  const showMap = async () => {
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const answer = await api.get<{
+        place: { name: string | null; latitude: number | null; longitude: number | null } | null;
+      }>('/api/links/resolve', { url: href });
+      if (answer.place) setResolved(answer.place);
+      else setResolveError('That link does not point anywhere this server could read.');
+    } catch (failure) {
+      setResolveError(errorMessage(failure));
+    } finally {
+      setResolving(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-3 text-sm">
         <span aria-hidden className="inline-flex shrink-0 text-lg text-muted-foreground">
-          {isPlace ? <MapPin className="size-4" /> : <Link1Icon className="size-4" />}
+          {isPlace || pinned ? <MapPin className="size-4" /> : <Link1Icon className="size-4" />}
         </span>
         <span className="shrink-0 text-muted-foreground">{isPlace ? 'Place' : 'Link'}</span>
         <a
@@ -211,6 +277,34 @@ function LinkField({ url }: { url: string }) {
         </a>
       </div>
       {coordinates ? <p className="pl-7 text-xs text-muted-foreground tabular-nums">{coordinates}</p> : null}
+      {resolvedName ? <p className="pl-7 text-xs text-muted-foreground">{resolvedName}</p> : null}
+      {mapSrc ? (
+        <iframe
+          // The pin (or the resolved name), not the original URL: a short link's
+          // own frame is what this sheet would be embedding, and Google answers
+          // it with a full app page.
+          src={mapSrc}
+          title={place?.name ?? resolvedName ?? `Map of ${display}`}
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+          className="mt-1 ml-7 h-40 w-[calc(100%-1.75rem)] rounded-lg border border-border bg-muted"
+        />
+      ) : null}
+      {askable ? (
+        <div className="flex flex-col gap-1 pl-7">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            disabled={resolving}
+            onClick={() => void showMap()}
+          >
+            {resolving ? 'Finding the map…' : 'Show map'}
+          </Button>
+          {resolveError ? <p className="text-xs text-muted-foreground">{resolveError}</p> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

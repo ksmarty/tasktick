@@ -16,15 +16,17 @@
  *    `?ll=`, `?center=`, and the `@lat,lng` fragment.
  *  - Apple: `/place?...&name=&ll=`, and `?q=` / `?address=` / `?ll=`.
  *
+ *  - The `data=!…!3d<lat>!4d<lng>` blob a share sheet emits. It is the pin the
+ *    sender chose, so it wins over the `q` search phrase beside it.
+ *
  * The *short* forms — `maps.app.goo.gl/<id>` and `goo.gl/maps/<id>` — are
  * redirects. The id is opaque, so the only way to learn the place is to follow
  * the redirect, which means the server fetching a URL the user supplied. That is
  * the same class of request `ical-fetch.ts` guards so carefully (scheme, DNS
  * resolution, private-address refusal, hand-followed redirects), and it is a
- * network call, not a parse. It is deliberately **not** done here: the short link
- * is still shown and still opens (the plain `https://` URL is a universal link,
- * which iOS hands to the installed app and falls back to the web otherwise), it
- * simply has no parsed place beside it. See the report.
+ * network call, not a parse, so it lives in
+ * `src/server/services/link-resolve.ts` behind `/api/links/resolve` instead of
+ * here. `needsMapResolution()` is how a caller knows to ask for it.
  *
  * Nothing in this module performs I/O; every function is pure.
  */
@@ -86,7 +88,8 @@ function bareHost(url: URL): string {
   return url.hostname.toLowerCase().replace(/^www\./, '');
 }
 
-function isGoogleMapsHost(url: URL): boolean {
+/** True for any host this app reads as a Google Maps link. */
+export function isGoogleMapsHost(url: URL): boolean {
   const host = bareHost(url);
   if (host === 'maps.app.goo.gl') return true;
   if (host === 'maps.google.com') return true;
@@ -145,7 +148,14 @@ function decodeSegment(segment: string): string | null {
   return text || null;
 }
 
-function googleMapsPlace(url: URL, shortLink: boolean): MapsPlace {
+/**
+ * Reads a Google Maps URL, long or short, into a place.
+ *
+ * Exported for the server-side short-link resolver, which follows a redirect and
+ * then reads the same shapes the client already understands: one parser, so the
+ * two cannot disagree about what a link means.
+ */
+export function googleMapsPlace(url: URL, shortLink: boolean): MapsPlace {
   let name: string | null = null;
   let coords: { lat: number; lng: number } | null = null;
 
@@ -161,6 +171,19 @@ function googleMapsPlace(url: URL, shortLink: boolean): MapsPlace {
   // share sheet that produced the link.
   const atMatch = `${url.pathname}${url.hash}`.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
   if (atMatch) coords = parseCoordinates(`${atMatch[1]},${atMatch[2]}`);
+
+  /*
+   * The `data=!4m6!3m5!1s0x…!3d48.8584!4d2.2945` blob is what Google's own share
+   * sheet puts in a place link, and it is the *only* place a place pin's
+   * coordinates appear in that form: there is no `@lat,lng` marker on a
+   * `/maps/place/` URL produced by the Share button, so a link pasted from a
+   * phone parsed to a name and nothing else. `!3d` is the latitude and `!4d` the
+   * longitude, in that order, always adjacent.
+   */
+  if (!coords) {
+    const dataMatch = url.search.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+    if (dataMatch) coords = parseCoordinates(`${dataMatch[1]},${dataMatch[2]}`);
+  }
 
   const query = url.searchParams.get('q') ?? url.searchParams.get('query');
   if (query) {
@@ -216,6 +239,45 @@ function parseMapsPlace(url: URL): MapsPlace | null {
   if (isAppleMapsHost(url)) return appleMapsPlace(url);
   return null;
 }
+
+/**
+ * True when the link is a maps link whose place this device cannot read.
+ *
+ * A short link (`maps.app.goo.gl/…`, `goo.gl/maps/…`) is an id and nothing else:
+ * the coordinates only exist behind the redirect Google answers with, so a map
+ * cannot be drawn until the server follows it. Everything else that was parsed
+ * as a place already carries its coordinates, or is a name-only search that has
+ * nothing to point at.
+ */
+export function needsMapResolution(place: MapsPlace | null): boolean {
+  if (!place || place.provider !== 'google') return false;
+  if (place.latitude !== null && place.longitude !== null) return false;
+  return place.shortLink;
+}
+
+/**
+ * A keyless Google Maps embed for a place.
+ *
+ * `output=embed` is the old, undocumented embed URL: it renders a pin with no API
+ * key. The keyed Embed API renders an empty frame for every self-hosted operator
+ * without a key, and this app cannot assume one, so the keyless form is the only
+ * one that works out of the box. A pin given as coordinates is framed as
+ * coordinates; a place we only know by name (a resolved short link whose target
+ * is a search, not a pin — `?q=Imagine+Cinemas+Carlton,...`) is framed by that
+ * name. `null` when there is neither, so a caller cannot render an empty frame.
+ */
+export function mapsEmbedUrl(target: {
+  latitude?: number | null;
+  longitude?: number | null;
+  name?: string | null;
+}): string | null {
+  const pinned = typeof target.latitude === 'number' && typeof target.longitude === 'number';
+  const query = pinned ? `${target.latitude},${target.longitude}` : (target.name ?? '').trim();
+  if (!query) return null;
+  const params = new URLSearchParams({ q: query, z: '15', output: 'embed' });
+  return `https://www.google.com/maps?${params.toString()}`;
+}
+
 
 /**
  * A readable label for a URL: `host/path`, with `www.` dropped and the path's
