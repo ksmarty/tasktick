@@ -11,9 +11,9 @@
  * ## What carries over, and what cannot
  *
  * The title, notes, link, due day and time, the estimate (as the length of the
- * block), recurrence and reminders all have an event equivalent. Tracked time,
- * priority, tags, list membership and the parent task do not: they are task-only
- * concepts. Losing them is the point of a conversion rather than a leak, so the
+ * block), recurrence, reminders and uploaded files all have an event equivalent.
+ * Tracked time, priority, tags, list membership and the parent task do not: they
+ * are task-only concepts. Losing them is the point of a conversion rather than a leak, so the
  * dialog says so, but two cases would lose *content* rather than attributes, and
  * both are refused instead of performed:
  *
@@ -29,6 +29,7 @@
 import { timeIn, toDateOnly } from '@/lib/dates';
 import type { EventInput } from '@/server/repos/calendars';
 import { createEvent, deleteEvent, getCalendar } from '@/server/repos/calendars';
+import { moveAttachments } from '@/server/repos/attachments';
 import { deleteTask, getTask } from '@/server/repos/tasks';
 import type { Task } from '@/lib/types';
 
@@ -141,10 +142,23 @@ export async function convertTaskToEvent(
 
   const event = await createEvent(userId, built.body, zone);
 
+  /*
+   * Named attachments before the delete, not after: the task's `attachments` rows
+   * cascade with the task, so the files would be gone by the time the event
+   * existed to take them. This is the one step of a conversion that must happen
+   * between the two writes, and it is why the count is kept — a failed task
+   * removal has to put the files back where they were.
+   */
+  let moved = 0;
+
   try {
+    moved = await moveAttachments(userId, { taskId }, { eventId: event.id });
     await deleteTask(userId, taskId);
   } catch (error) {
     /* Undo the half that happened, so a failed conversion changes nothing. */
+    if (moved > 0) {
+      await moveAttachments(userId, { eventId: event.id }, { taskId }).catch(() => undefined);
+    }
     await deleteEvent(userId, event.id).catch(() => undefined);
     throw error;
   }

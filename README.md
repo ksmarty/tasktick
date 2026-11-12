@@ -237,6 +237,7 @@ published in this repository, or is shorter than 32 characters.
 |---|---|---|
 | `APP_URL` | `http://localhost:3000` | Public origin. Used for OIDC redirect URIs and the `webcal://` links shown in Settings. Optional for reaching the app — a private-network origin is always accepted — but set it so subscription links point at an address your phone can reach. Setting it to your public origin also authorises that origin for auth requests. |
 | `DATABASE_URL` | `file:/data/tasktick.db` | Or `postgres://user:pass@db:5432/tasktick` |
+| `ATTACHMENTS_DIR` | `./data/attachments` | Where attached files are written. Defaults beside the SQLite file, in the same data volume. With Postgres the bytes stay on this host, so point it at a directory shared by every replica — otherwise a download that lands on another instance is a 404. |
 | `REGISTRATION_MODE` | `invite` | `open` · `invite` · `closed` |
 | `SYNC_ENABLED` | `true` | Background CalDAV sync |
 | `SYNC_TICK_SECONDS` | `60` | Scheduler resolution; per-account intervals are set in the UI |

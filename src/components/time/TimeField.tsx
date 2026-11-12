@@ -60,7 +60,7 @@ export function TimeField({
       aria-label={ariaLabel}
       placeholder={placeholder || undefined}
       onChange={(event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value)}
-      className={cn('min-h-11 w-[7.5rem] tabular-nums', className)}
+      className={cn('min-h-11 w-30 tabular-nums', className)}
     />
   );
 }

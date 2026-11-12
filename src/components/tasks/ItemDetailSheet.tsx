@@ -106,6 +106,7 @@ import { PersonIcon } from '@svg-animated-icons/react/person';
 import { TimerIcon } from '@svg-animated-icons/react/timer';
 import { Folder, MapPin, Tag as TagIcon } from 'lucide-react';
 import { Drawer } from '@/components/godui/drawer';
+import { AttachmentsSection } from '@/components/attachments/AttachmentsSection';
 import { Button } from '@/components/ui/button';
 import { accentHex } from '@/lib/colors';
 import { formatDateTime, formatTime, humanDuration, relativeDayLabel, toDateOnly } from '@/lib/dates';
@@ -709,6 +710,20 @@ export function ItemDetailSheet({
               calendarName={calendarName}
               zone={zone}
               timeFormat={timeFormat}
+            />
+          ) : null}
+          {/*
+           * Files last, and for both kinds of item: the sheet is where a task or
+           * an event is read before it is edited, so a file that could only be
+           * reached through the editor would be invisible to the person who just
+           * wanted to download it. `inline` keeps the section on the same axis as
+           * the fields above rather than adding a padded block of its own.
+           */}
+          {item ? (
+            <AttachmentsSection
+              inline
+              readOnly={isReadOnly}
+              owner={task ? { taskId: item.id } : { eventId: item.id }}
             />
           ) : null}
         </div>

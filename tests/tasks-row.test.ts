@@ -634,7 +634,7 @@ describe('the converted screens', () => {
      * It belongs to the field, so it is asserted where the cross is drawn.
      */
     expect(FIELDS).toContain("onClear && 'pr-6'");
-    expect(FIELDS).toContain('right-1 top-[1.875rem]');
+    expect(FIELDS).toContain('right-1 top-7.5');
     expect(FIELDS).toContain('size-4');
   });
 

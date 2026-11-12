@@ -165,6 +165,7 @@ import { describeRRule, weekdayOfDate } from '@/lib/rrule';
 import { useMediaQuery, useResource } from '@/lib/store';
 import type { DateOnly, Task } from '@/lib/types';
 import { DateField, TimeField } from '@/components/schedule/fields';
+import { AttachmentsSection } from '@/components/attachments/AttachmentsSection';
 import { cn } from '@/lib/utils';
 import type { BootstrapPayload } from '@/lib/view-types';
 import { ConvertToEventDialog } from './ConvertToEventDialog';
@@ -834,6 +835,16 @@ export function TaskEditorSheet({ open, onOpenChange, task, onSaved }: TaskEdito
                 if (created) onSaved?.();
               }}
             />
+
+            <Separator />
+
+            {/*
+             * Files, below the subtasks: both are "things that hang off this
+             * task", and both are a list you scroll rather than a field you set.
+             * The section is shared with the event editor, so a file looks and
+             * behaves the same wherever you attached it.
+             */}
+            <AttachmentsSection owner={task ? { taskId: task.id } : null} disabled={disabled} />
 
             <Separator />
 

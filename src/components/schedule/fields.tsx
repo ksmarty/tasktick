@@ -232,7 +232,7 @@ export function TimeField({
           aria-label={`Clear ${label.toLowerCase()}`}
           onClick={onClear}
           className={cn(
-            'absolute right-1 top-[1.875rem] inline-flex size-4 items-center justify-center rounded-full',
+            'absolute right-1 top-7.5 inline-flex size-4 items-center justify-center rounded-full',
             'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
             "after:absolute after:-inset-1 after:content-['']",
           )}

@@ -187,6 +187,28 @@ export interface Tag {
   taskCount?: number;
 }
 
+/**
+ * A file attached to a task or to a calendar event.
+ *
+ * The bytes are not in here, and neither is where they live on disk: this is the
+ * shape both the API and the UI see, and the storage key is a server detail. A
+ * download goes through `/api/attachments/:id`, which is the one place that
+ * knows how to turn an id the caller is allowed to see into bytes.
+ */
+export interface Attachment {
+  id: string;
+  userId: string;
+  /** Set when the file belongs to a task; null for an event's file (and vice versa). */
+  taskId: string | null;
+  eventId: string | null;
+  /** The uploaded name, shown in the list and offered on download. */
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: Millis;
+  updatedAt: Millis;
+}
+
 /** The serialisable shape of a smart list / saved filter. */
 export interface TaskFilter {
   /** Free-text query matched against title + notes. */

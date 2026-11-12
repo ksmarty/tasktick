@@ -49,6 +49,14 @@ const AFFECTS: { test: RegExp; prefixes: string[] }[] = [
   { test: /^\/api\/tags(\/|$|\?)/, prefixes: ['/api/tags', '/api/bootstrap', '/api/tasks'] },
   { test: /^\/api\/habits(\/|$|\?)/, prefixes: ['/api/habits', '/api/stats', '/api/bootstrap'] },
   { test: /^\/api\/events(\/|$|\?)/, prefixes: ['/api/events', '/api/calendar/items', '/api/bootstrap'] },
+  /*
+   * Attachments are read by id, outside every list payload, so a write only
+   * invalidates the attachments themselves — `/api/tasks` and `/api/events` do
+   * not carry them and do not need refetching. Uploads are deliberately absent
+   * from `QUEUEABLE_PREFIXES`: a queued write holds JSON, and a file cannot be
+   * reconstructed from it later.
+   */
+  { test: /^\/api\/attachments(\/|$|\?)/, prefixes: ['/api/attachments'] },
   // A refresh-all reaches every remote source at once, so it can change more
   // than the calendar rows the `/api/calendars` row below covers: mirrored
   // events, and VTODO tasks a CalDAV collection mirrors. The union matches the

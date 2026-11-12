@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v63';
+const VERSION = 'tasktick-v64';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;

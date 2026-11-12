@@ -27,6 +27,15 @@ const schema = z.object({
   /** `file:/data/app.db` (default) or `postgres://user:pass@host:5432/db`. */
   DATABASE_URL: z.string().default('file:./data/tasktick.db'),
 
+  /**
+   * Directory holding uploaded attachment bytes.
+   *
+   * Must sit on a persistent volume, and — with Postgres — on storage every app
+   * instance can see: the metadata row is in the database, so a file written to
+   * one container's local disk is a broken attachment from another.
+   */
+  ATTACHMENTS_DIR: z.string().default(''),
+
   /** Signs session cookies and derives the field-encryption key. */
   BETTER_AUTH_SECRET: z.string().min(1).optional(),
 

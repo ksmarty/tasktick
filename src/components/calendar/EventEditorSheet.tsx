@@ -87,6 +87,7 @@ import {
 import { REPEAT_PRESETS, buildRRule, describeRRule, matchPreset, weekdayOfDate } from '@/lib/rrule';
 import { invalidate, useResource } from '@/lib/store';
 import { affectsFor } from '@/lib/offline-rules';
+import { AttachmentsSection } from '@/components/attachments/AttachmentsSection';
 import type { Calendar as CalendarRecord, CalendarEvent, DateOnly, TimeOnly } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { CalendarCombobox } from './CalendarCombobox';
@@ -816,6 +817,14 @@ function EventForm({
             Saved with the event — this app does not deliver reminder notifications yet.
           </p>
         </section>
+
+        {/*
+          Files, between the reminders and the delete row: the last thing that is
+          *content* before the row that ends the record. `framed` because every
+          section here is a card, and `locked` because a read-only calendar's
+          event cannot be changed at all — the list still shows what is there.
+        */}
+        <AttachmentsSection framed owner={event ? { eventId: event.id } : null} readOnly={locked} />
 
         {event && !locked ? (
           <div className="shrink-0 overflow-hidden rounded-xl border border-border">

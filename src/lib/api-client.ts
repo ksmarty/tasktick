@@ -298,6 +298,61 @@ async function request<T>(method: HttpMethod, path: string, body?: unknown, quer
   }
 }
 
+/**
+ * Uploads a file as `multipart/form-data`.
+ *
+ * Deliberately *not* routed through `request()`/`transport()`: those JSON-encode
+ * the body, set `Content-Type: application/json` and, for queueable paths, would
+ * hold the payload for replay. None of that can apply to bytes — a queued write
+ * stores JSON in IndexedDB, and a `File` put back through it would arrive as an
+ * object with no file in it. So an upload is a live request or it is a failure,
+ * and the UI disables the control while the app believes it is offline.
+ *
+ * The envelope, reachability reporting and `ApiClientError` handling are the same
+ * as everywhere else, because a failed upload should read exactly like any other
+ * failed write.
+ */
+export async function uploadFile<T>(path: string, form: FormData): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+      body: form,
+      cache: 'no-store',
+    });
+  } catch {
+    reportUnreachable();
+    throw new ApiClientError('You appear to be offline. That file was not uploaded.', 0, 'network');
+  }
+
+  const text = await response.text();
+  let parsed: unknown = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      reportReachable();
+      throw new ApiClientError(`Upload failed (${response.status}).`, response.status);
+    }
+  }
+
+  const envelope = parsed as { ok?: boolean; data?: T; error?: string; code?: string } | null;
+  if (response.status === 503) reportUnreachable();
+  else reportReachable();
+
+  if (!response.ok || envelope?.ok === false) {
+    throw new ApiClientError(
+      envelope?.error ?? `Upload failed (${response.status}).`,
+      response.status,
+      envelope?.code,
+    );
+  }
+
+  return (envelope?.data ?? (null as T)) as T;
+}
+
 export const api = {
   /**
    * `options.fresh` asks for the origin's answer rather than the service
@@ -311,6 +366,8 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string, query?: Query) => request<T>('DELETE', path, undefined, query),
+  /** Multipart upload — see `uploadFile`. Never queued; see the comment there. */
+  upload: <T>(path: string, form: FormData) => uploadFile<T>(path, form),
 };
 
 /** Human-readable message for any thrown value. */

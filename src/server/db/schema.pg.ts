@@ -610,6 +610,35 @@ export const calendarEvents = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* attachments                                                                */
+/* -------------------------------------------------------------------------- */
+
+/** A file attached to a task or to a calendar event — see `schema.sqlite.ts`. */
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+    eventId: text('event_id').references(() => calendarEvents.id, { onDelete: 'cascade' }),
+
+    filename: text('filename').notNull(),
+    mimeType: text('mime_type').notNull().default('application/octet-stream'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    storageKey: text('storage_key').notNull(),
+
+    ...timestamps,
+  },
+  (t) => [
+    index('attachments_task_idx').on(t.taskId),
+    index('attachments_event_idx').on(t.eventId),
+    index('attachments_user_idx').on(t.userId),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
 /* sync observability                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -866,6 +895,7 @@ export type HabitRow = typeof habits.$inferSelect;
 export type HabitEntryRow = typeof habitEntries.$inferSelect;
 export type CalendarRow = typeof calendars.$inferSelect;
 export type CalendarEventRow = typeof calendarEvents.$inferSelect;
+export type AttachmentRow = typeof attachments.$inferSelect;
 export type CaldavAccountRow = typeof caldavAccounts.$inferSelect;
 export type SyncLogRow = typeof syncLogs.$inferSelect;
 export type SyncConflictRow = typeof syncConflicts.$inferSelect;
