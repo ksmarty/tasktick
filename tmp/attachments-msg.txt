@@ -1,0 +1,43 @@
+feat(attachments): files on tasks and events, kept beside the database
+
+Half the things a task holds were already here — notes, links, an estimate —
+and the half that did not fit was the file. A PDF of the lease, a photo of the
+meter reading, the half-finished deck: all of it had to live somewhere else,
+with the link pasted into Notes.
+
+An attachment is one row plus one file on disk. The row carries the metadata
+the UI needs (name, MIME type, size) and a storage key the server generates —
+`<userId>/<attachmentId>` — so a filename can never steer a write outside the
+storage root. Bytes are written first and removed again if the row does not
+land; a delete removes the row first, so a crash leaves a file nobody can
+reach rather than a row whose download 404s.
+
+Where the bytes go is deliberately not `./data/attachments`: that path resolves
+against the container's working directory, not the volume, and every upload
+would quietly disappear on the next rebuild. With SQLite the directory is
+derived from the database file's own directory, so it lands on the mounted
+volume by construction. `ATTACHMENTS_DIR` overrides it for the Postgres case,
+where the bytes live on one host and the directory has to be shared by every
+replica — which the README says plainly, because a load-balanced download that
+lands on the wrong instance is a 404 with no explanation.
+
+The section is one component with three shapes rather than three components:
+the task editor lays it on the sheet gutter, the event editor puts it inside a
+bordered card like every other section there, and the detail sheet runs it
+inline with its fields. The detail sheet matters most — it is what a tap on a
+list row or a calendar block opens, and a file reachable only through Edit is
+a file most people never find.
+
+Uploads are the one write that cannot be queued: the offline queue stores the
+JSON body, and a file is not JSON. So the rule table knows `/api/attachments`
+for invalidation while `isQueueable` refuses it, and the section hides the
+attach button when offline instead of failing after the picker closes.
+
+Converting a task to an event moves its files across between the two writes,
+and moves them back if the task removal fails — the rows cascade with the task,
+so without the move a conversion would silently take the files with it.
+
+Verified with the API directly (multipart 201, download with the right
+`Content-Disposition`, delete, 404 after, size and empty refusals) and in the
+browser against the running app, where the seeded task's sheet shows the
+section and its one attachment row.
