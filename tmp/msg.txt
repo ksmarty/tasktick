@@ -1,0 +1,23 @@
+fix(attachments): upload the file the user picked, and show what happens
+
+`input.files` is a live FileList. The handler took a reference to it, then
+cleared the field to make the same file selectable twice — which empties the
+very list it was still holding, so the length check failed and the upload was
+skipped. No request, no row, no message: the reported "I tried adding a file,
+but nothing happened".
+
+The files are now copied out with `Array.from` before the field is reset.
+
+Uploads also stop being invisible while they run. `uploadFile` moved from
+`fetch` to `XMLHttpRequest` because `fetch` reports response progress only and
+never the request body — the one request in the app whose body is large:
+
+- each picked file gets its own row immediately, with a percentage and a
+  progress bar labelled with that file's name;
+- a refused file (too big, empty) keeps its row and says why, and stays until
+  it is dismissed or retried, so a failure in a batch of five cannot hide
+  behind a shared error line;
+- one file at a time is sent, and the toast reports how many landed, so a
+  sibling failure no longer discards the files that did arrive.
+
+sw v65.
