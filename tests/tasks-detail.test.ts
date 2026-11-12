@@ -144,12 +144,12 @@ describe('a mirrored item loses its Edit action', () => {
   });
 
   it('removes the action rather than disabling it', () => {
-    // A dead button that can never be enabled is worse than no button. The one
-    // `disabled` in the sheet belongs to the map lookup, where it means "this
-    // request is already in flight", not "you may not".
+    // A dead button that can never be enabled is worse than no button, and the
+    // map lookup no longer has a button to disable: the sheet resolves the link
+    // as it opens. So the sheet holds no disabled control at all.
     expect(DETAIL).toContain('isReadOnly ? undefined : (');
-    expect(DETAIL.match(/<Button[^>]*\n?[^>]*disabled/g) ?? []).toHaveLength(1);
-    expect(DETAIL).toContain('disabled={resolving}');
+    expect(DETAIL.match(/<Button[^>]*\n?[^>]*disabled/g) ?? []).toHaveLength(0);
+    expect(DETAIL).not.toContain('disabled={resolving}');
     expect(DETAIL).toContain('<Pencil1Icon');
     expect(DETAIL).toContain('Edit');
   });

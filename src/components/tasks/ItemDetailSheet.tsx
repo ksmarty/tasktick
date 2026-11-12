@@ -90,7 +90,7 @@
  * `www.` host are matched, and the href is built from the matched scheme, so a
  * `javascript:` value can never become a link.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BellIcon } from '@svg-animated-icons/react/bell';
 import { CalendarIcon } from '@svg-animated-icons/react/calendar';
 import { CheckIcon } from '@svg-animated-icons/react/check';
@@ -113,6 +113,7 @@ import { accentHex } from '@/lib/colors';
 import { formatDateTime, formatTime, humanDuration, relativeDayLabel, toDateOnly } from '@/lib/dates';
 import { linkify } from '@/lib/linkify';
 import { isHttpUrl, linkPreview, mapsEmbedUrl, needsMapResolution } from '@/lib/links';
+import { readPlaceCache, writePlaceCache, type CachedPlace } from '@/lib/place-cache';
 import { describeRRule } from '@/lib/rrule';
 import { api, errorMessage } from '@/lib/api-client';
 import { useResource } from '@/lib/store';
@@ -198,113 +199,153 @@ function Field({
  * ## The short link
  *
  * `maps.app.goo.gl/…` is an id and nothing else: no name, no coordinates, so there
- * is nothing to frame until the server follows the redirect (see
+ * is nothing to show until the server follows the redirect (see
  * `services/link-resolve.ts` — CORS and the opaque redirect mean the browser
- * cannot). Asking on mount would turn opening a sheet into a third-party request
- * for every row that happens to hold a link, so the reader asks: a "Show map"
- * button on exactly the rows that need it, which then becomes the map. A failure
- * says so in one line and leaves the link intact — the row was already useful.
+ * cannot). That wait used to be paid on a button tap, which asked the reader to
+ * request what the sheet already knew it wanted. It is now paid on mount, behind
+ * the sheet's own opening animation, and the answer is remembered on the device
+ * (`lib/place-cache`), so the second visit to the same item renders the address
+ * and the map with no request at all. A failure says so in one line and leaves
+ * the row usable; the address stays tappable throughout.
  */
 function LinkField({ url }: { url: string }) {
-  const preview = linkPreview(url);
-
-  const [resolved, setResolved] = useState<{
-    name: string | null;
-    latitude: number | null;
-    longitude: number | null;
-  } | null>(null);
-  const [resolving, setResolving] = useState(false);
+  const preview = useMemo(() => linkPreview(url), [url]);
+  const href = preview?.href ?? '';
+  const [resolved, setResolved] = useState<CachedPlace | null>(null);
+  const [pending, setPending] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
+
+  const parsed =
+    preview?.place && preview.place.latitude !== null && preview.place.longitude !== null
+      ? { latitude: preview.place.latitude, longitude: preview.place.longitude }
+      : null;
+
+  /*
+   * Resolve the link as soon as the sheet shows it, not when the reader asks.
+   *
+   * A short maps link carries nothing but an id, so the address and the map both
+   * wait on a server round trip. Asking for it up front turns that wait into the
+   * sheet's own opening animation; and because the answer is remembered
+   * (`lib/place-cache`), the second visit to the same item has nothing to wait
+   * for at all. A cached answer is used without touching the network.
+   */
+  useEffect(() => {
+    if (!preview) return;
+    if (preview.place && preview.place.latitude !== null && preview.place.longitude !== null) return;
+    if (!needsMapResolution(preview.place)) return;
+    const cached = readPlaceCache(preview.href);
+    if (cached) {
+      setResolved(cached);
+      return;
+    }
+    let cancelled = false;
+    setPending(true);
+    setResolveError(null);
+    api
+      .get<{ place: CachedPlace | null }>('/api/links/resolve', { url: preview.href })
+      .then((answer) => {
+        if (cancelled) return;
+        if (answer.place) {
+          writePlaceCache(preview.href, answer.place);
+          setResolved(answer.place);
+        } else {
+          setResolveError('That link does not point anywhere this server could read.');
+        }
+      })
+      .catch((failure) => {
+        if (!cancelled) setResolveError(errorMessage(failure));
+      })
+      .finally(() => {
+        if (!cancelled) setPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [preview, href]);
 
   if (!preview) return null;
 
-  const { href, display, place } = preview;
-  const parsed =
-    place && place.latitude !== null && place.longitude !== null
-      ? { latitude: place.latitude, longitude: place.longitude }
-      : null;
-  const coordinates = parsed
-    ? `${parsed.latitude.toFixed(5)}, ${parsed.longitude.toFixed(5)}`
-    : null;
-  // A short maps link parses to a provider but no place, so it stays a plain
-  // "Link": claiming a Place we could not read would be a lie.
-  const isPlace = Boolean(place && (place.name || coordinates));
-  /*
-   * A pin, from either source. A shared short link need not resolve to one: the
-   * link this feature was built against resolves to a `?q=<place name>` search,
-   * so the answer may be a name and no coordinates. Both are worth framing, which
-   * is why the map below is driven by whatever we have rather than by a pin only.
-   */
-  const pinned =
-    parsed ??
-    (resolved && resolved.latitude !== null && resolved.longitude !== null
-      ? { latitude: resolved.latitude, longitude: resolved.longitude }
-      : null);
-  const resolvedName = pinned ? null : (resolved?.name ?? null);
-  const mapSrc = pinned ? mapsEmbedUrl(pinned) : resolvedName ? mapsEmbedUrl({ name: resolvedName }) : null;
-  const askable = !pinned && !resolveError && needsMapResolution(place) && !mapSrc;
+  const { display, place } = preview;
 
-  const showMap = async () => {
-    setResolving(true);
-    setResolveError(null);
-    try {
-      const answer = await api.get<{
-        place: { name: string | null; latitude: number | null; longitude: number | null } | null;
-      }>('/api/links/resolve', { url: href });
-      if (answer.place) setResolved(answer.place);
-      else setResolveError('That link does not point anywhere this server could read.');
-    } catch (failure) {
-      setResolveError(errorMessage(failure));
-    } finally {
-      setResolving(false);
-    }
-  };
+  if (place) {
+    const pinned =
+      parsed ??
+      (resolved && resolved.latitude !== null && resolved.longitude !== null
+        ? { latitude: resolved.latitude, longitude: resolved.longitude }
+        : null);
+    const coordinates = pinned
+      ? `${pinned.latitude.toFixed(5)}, ${pinned.longitude.toFixed(5)}`
+      : null;
+    const address = place.name ?? resolved?.name ?? null;
+    const mapSrc = pinned
+      ? mapsEmbedUrl(pinned)
+      : address
+        ? mapsEmbedUrl({ name: address })
+        : null;
+
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-3 text-sm">
+          <span aria-hidden className="inline-flex shrink-0 text-lg text-muted-foreground">
+            <MapPin className="size-4" />
+          </span>
+          <span className="shrink-0 text-muted-foreground">Location</span>
+          {address ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto min-w-0 truncate text-right text-foreground underline-offset-2 hover:underline"
+            >
+              {address}
+            </a>
+          ) : (
+            <span className="ml-auto min-w-0 truncate text-right text-muted-foreground">
+              {pending ? 'Finding the address…' : 'Map'}
+            </span>
+          )}
+        </div>
+        {coordinates ? (
+          <p className="pl-7 text-xs text-muted-foreground tabular-nums">{coordinates}</p>
+        ) : null}
+        {mapSrc ? (
+          <iframe
+            // The pin (or the resolved name), not the original URL: a short link's
+            // own frame is what this sheet would be embedding, and Google answers
+            // it with a full app page.
+            src={mapSrc}
+            title={address ?? `Map of ${display}`}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            className="mt-1 ml-7 h-40 w-[calc(100%-1.75rem)] rounded-lg border border-border bg-muted"
+          />
+        ) : pending ? (
+          <div
+            aria-hidden
+            className="mt-1 ml-7 h-40 w-[calc(100%-1.75rem)] animate-pulse rounded-lg border border-border bg-muted"
+          />
+        ) : null}
+        {!mapSrc && !pending && resolveError ? (
+          <p className="pl-7 text-xs text-muted-foreground">{resolveError}</p>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-3 text-sm">
-        <span aria-hidden className="inline-flex shrink-0 text-lg text-muted-foreground">
-          {isPlace || pinned ? <MapPin className="size-4" /> : <Link1Icon className="size-4" />}
-        </span>
-        <span className="shrink-0 text-muted-foreground">{isPlace ? 'Place' : 'Link'}</span>
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-auto min-w-0 truncate text-right text-foreground underline-offset-2 hover:underline"
-        >
-          {display}
-        </a>
-      </div>
-      {coordinates ? <p className="pl-7 text-xs text-muted-foreground tabular-nums">{coordinates}</p> : null}
-      {resolvedName ? <p className="pl-7 text-xs text-muted-foreground">{resolvedName}</p> : null}
-      {mapSrc ? (
-        <iframe
-          // The pin (or the resolved name), not the original URL: a short link's
-          // own frame is what this sheet would be embedding, and Google answers
-          // it with a full app page.
-          src={mapSrc}
-          title={place?.name ?? resolvedName ?? `Map of ${display}`}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          className="mt-1 ml-7 h-40 w-[calc(100%-1.75rem)] rounded-lg border border-border bg-muted"
-        />
-      ) : null}
-      {askable ? (
-        <div className="flex flex-col gap-1 pl-7">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="self-start"
-            disabled={resolving}
-            onClick={() => void showMap()}
-          >
-            {resolving ? 'Finding the map…' : 'Show map'}
-          </Button>
-          {resolveError ? <p className="text-xs text-muted-foreground">{resolveError}</p> : null}
-        </div>
-      ) : null}
+    <div className="flex items-center gap-3 text-sm">
+      <span aria-hidden className="inline-flex shrink-0 text-lg text-muted-foreground">
+        <Link1Icon className="size-4" />
+      </span>
+      <span className="shrink-0 text-muted-foreground">Link</span>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="ml-auto min-w-0 truncate text-right text-foreground underline-offset-2 hover:underline"
+      >
+        {display}
+      </a>
     </div>
   );
 }

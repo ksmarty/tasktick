@@ -134,8 +134,10 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - **File attachments** on tasks and events (25 MB each, stored on the data
   volume) with an in-place preview for images, PDFs and text
 - **Maps links** — paste a Google Maps link and the detail sheet shows the place
-  and a map. Short `maps.app.goo.gl` links are resolved server-side behind the
-  same SSRF guard as calendar subscriptions; no Maps API key is needed
+  name and the map itself, no tap needed. Short `maps.app.goo.gl` links are
+  resolved server-side behind the same SSRF guard as calendar subscriptions, and
+  the answer is cached on the device so reopening an item paints instantly; no
+  Maps API key is needed
 - Multi-user with per-user data isolation, invite-gated registration, and
   **optional OIDC single sign-on** for any standards-compliant provider
 - Admin panel: invites, user management, last-admin protection

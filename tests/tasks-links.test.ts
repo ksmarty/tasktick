@@ -142,8 +142,10 @@ describe('ItemDetailSheet renders the preview', () => {
   });
 
   it('labels a parsed place and a plain link', () => {
-    expect(DETAIL).toContain("'Place'");
-    expect(DETAIL).toContain("'Link'");
+    // A maps link is a location, not a link to read: the row shows the address
+    // and the map, so the label says Location. Anything else stays a Link.
+    expect(DETAIL).toContain('>Location</span>');
+    expect(DETAIL).toContain('>Link</span>');
     expect(DETAIL).toContain('coordinates');
   });
 
