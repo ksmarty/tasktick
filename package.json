@@ -26,7 +26,8 @@
     "smoke:origins": "node scripts/smoke/origins.mjs",
     "smoke:highlights": "node scripts/smoke/highlights.mjs",
     "build:standalone": "BUILD_STANDALONE=1 next build",
-    "verify:sw": "node scripts/check-sw-version.mjs"
+    "verify:sw": "node scripts/check-sw-version.mjs",
+    "pdf:worker": "node scripts/copy-pdf-worker.mjs"
   },
   "dependencies": {
     "@radix-ui/react-focus-scope": "^1.1.16",
@@ -47,6 +48,7 @@
     "lucide-react": "^1.47.0",
     "luxon": "3.7.2",
     "next": "15.5.25",
+    "pdfjs-dist": "^5.4.394",
     "pg": "8.23.0",
     "radix-ui": "^1.6.7",
     "react": "19.2.8",

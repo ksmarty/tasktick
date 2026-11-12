@@ -6,9 +6,9 @@
  * A tapped attachment used to be a download, which is the wrong verb for a photo
  * of a receipt or a paragraph of notes: the reason to tap it is to read it, and a
  * round trip through the Downloads folder is a detour that ends in a different
- * app. So a picture is drawn, a PDF is framed, and text is read into a `<pre>` —
- * all from the same authenticated URL, with `?inline=1` so the browser draws
- * instead of saving.
+ * app. So a picture is drawn, a PDF is rendered page by page by `PdfViewer`, and
+ * text is read into a `<pre>` — all from the same authenticated URL, with
+ * `?inline=1` so the browser draws instead of saving.
  *
  * Everything else keeps the download: a zip, a docx, an SVG. Saying "this one
  * cannot be shown here" and offering the file is honest; an empty frame is not.
@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { errorMessage } from '@/lib/api-client';
 import { attachmentPreviewKind, formatFileSize } from '@/lib/attachments';
+import { PdfViewer } from '@/components/attachments/PdfViewer';
 import type { Attachment } from '@/lib/types';
 
 /**
@@ -54,28 +55,21 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
    */
   const [loading, setLoading] = useState(false);
   /*
-   * A PDF is read into a blob before it is framed, and the reason is the worker.
+   * A PDF is read into bytes before anything draws it, and the reason is the
+   * worker.
    *
    * The service worker answers an `/api/...` read from its own cache first, and
    * after 1.5 s of a slow network it hands back its machine-readable offline
-   * answer — which, framed, is a screen of JSON instead of a page. Reading the
-   * bytes here means a slow connection is a slow spinner, and a failure is a
-   * sentence with a Retry button rather than somebody else's error document.
+   * answer — which, handed to a viewer, is a PDF that cannot be parsed instead of
+   * a page. Reading the bytes here means a slow connection is a slow spinner, and
+   * a failure is a sentence with a Retry button rather than somebody else's error
+   * document.
    */
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   /** Bumped by Retry, so both fetches re-run without an attachment change. */
   const [attempt, setAttempt] = useState(0);
-  /*
-   * Whether to frame the PDF at all.
-   *
-   * A pointer that can only touch is a phone or a tablet, and those have no PDF
-   * plugin: an `<iframe>` of one shows a single page at an unhelpful scale with
-   * no controls at all. Those get the file's own viewer instead, one tap away.
-   * Everything else frames it, where the browser's viewer has a toolbar.
-   */
-  const [canFramePdf, setCanFramePdf] = useState(true);
   const kind = attachment ? attachmentPreviewKind(attachment.mimeType, attachment.filename) : null;
   const attachmentId = attachment?.id ?? null;
 
@@ -83,10 +77,6 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
     setLoading(kind === 'image' || kind === 'pdf');
     setImageFailed(false);
   }, [attachmentId, kind]);
-
-  useEffect(() => {
-    setCanFramePdf(!window.matchMedia('(hover: none) and (pointer: coarse)').matches);
-  }, []);
 
   /*
    * Text is fetched rather than framed: an iframe of a `.txt` is a document with
@@ -121,17 +111,16 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
   }, [attachment, kind]);
 
   /*
-   * One fetch, one blob URL: the frame then draws bytes the reader already holds,
-   * so a flaky connection cannot leave it half-rendered or showing the worker's
-   * own answer.
+   * One fetch, then the bytes: the viewer draws what the reader already holds, so
+   * a flaky connection cannot leave it half-rendered or showing the worker's own
+   * answer.
    */
   useEffect(() => {
-    setPdfUrl(null);
+    setPdfBytes(null);
     setPdfError(null);
-    if (!attachment || kind !== 'pdf' || !canFramePdf) return;
+    if (!attachment || kind !== 'pdf') return;
 
     const controller = new AbortController();
-    let objectUrl: string | null = null;
     void (async () => {
       try {
         const response = await fetch(`/api/attachments/${attachment.id}?inline=1`, {
@@ -146,8 +135,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
               : `Could not read that file (${response.status}).`,
           );
         }
-        objectUrl = URL.createObjectURL(await response.blob());
-        setPdfUrl(objectUrl);
+        setPdfBytes(new Uint8Array(await response.arrayBuffer()));
       } catch (failure) {
         if (controller.signal.aborted) return;
         setPdfError(errorMessage(failure));
@@ -156,9 +144,8 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
 
     return () => {
       controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [attachment, kind, canFramePdf, attempt]);
+  }, [attachment, kind, attempt]);
 
   if (!attachment) return null;
 
@@ -170,7 +157,7 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
     kind === 'image'
       ? loading && !imageFailed
       : kind === 'pdf'
-        ? canFramePdf && pdfUrl === null && pdfError === null
+        ? pdfBytes === null && pdfError === null
         : kind === 'text'
           ? text === null && textError === null
           : false;
@@ -276,29 +263,11 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
                   Try again
                 </Button>
               </div>
-            ) : !canFramePdf ? (
-              // A phone's embedded viewer shows one page with no controls; its
-              // own viewer shows all of them, so hand it the file outright.
-              <div className="flex size-full flex-col items-center justify-center gap-2 p-card text-center">
-                <p className="text-sm text-muted-foreground">
-                  This PDF opens in your device&rsquo;s own viewer, with every page and a pinch to
-                  zoom.
-                </p>
-                <Button asChild variant="outline" size="sm">
-                  <a href={inlineHref} target="_blank" rel="noopener noreferrer">
-                    Open the PDF
-                  </a>
-                </Button>
-              </div>
-            ) : pdfUrl ? (
-              // `zoom=page-width` fits the page to the frame instead of drawing
-              // it at 100% (which needed scrolling in both directions) and
-              // `toolbar=1` keeps the viewer's own page and zoom controls.
-              <iframe
-                src={`${pdfUrl}#zoom=page-width&toolbar=1`}
-                title={attachment.filename}
-                className="size-full bg-background"
-              />
+            ) : pdfBytes ? (
+              // The pages are drawn here, on a canvas, so every browser gets the
+              // same reader: page navigation and zoom that belong to the app
+              // instead of a plugin the platform may not have.
+              <PdfViewer bytes={pdfBytes} title={attachment.filename} />
             ) : null
           ) : kind === 'text' ? (
             textError ? (
@@ -321,14 +290,6 @@ export function AttachmentPreview({ attachment, onOpenChange }: AttachmentPrevie
         <DialogFooter className="flex flex-row items-center justify-end">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Close
-          </Button>
-          {/* The same file, in the browser's own tab: the reliable way to get
-              zoom and every page on a platform whose embedded viewer has
-              neither. */}
-          <Button asChild variant="outline">
-            <a href={inlineHref} target="_blank" rel="noopener noreferrer">
-              Open
-            </a>
           </Button>
           <Button type="button" variant="outline" onClick={() => void download()}>
             <DownloadIcon className="size-4" />

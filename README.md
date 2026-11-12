@@ -132,10 +132,10 @@ Nextcloud. See [Calendar sync](#calendar-sync).
 - Configurable accent colour, week start, timezone, 12/24-hour clock
 - Global search, keyboard shortcuts, CSV-free JSON export and ICS export
 - **File attachments** on tasks and events (25 MB each, stored on the data
-  volume) with an in-place preview for images, PDFs and text. A PDF is fetched
-  by the sheet itself and framed at page width with the viewer's own controls;
-  on a touch-only device, where there is no embedded viewer, it opens in the
-  device's own one, with every page and a pinch to zoom
+  volume) with an in-place preview for images, PDFs and text. A PDF is rendered
+  page by page by [pdf.js](https://mozilla.github.io/pdf.js/) onto a canvas, so
+  the sheet has its own page and zoom controls on every browser — a phone's
+  built-in viewer shows one page and nothing else
 - **Maps links** — paste a Google Maps link and the detail sheet shows the place
   name and the map itself, no tap needed. Short `maps.app.goo.gl` links are
   resolved server-side behind the same SSRF guard as calendar subscriptions, and
@@ -530,6 +530,17 @@ The seed prints the credentials it creates. Default: `demo@tasktick.local` /
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:seed` | Seed a demo instance |
 | `npm run icons` | Regenerate PWA icons and iOS splash screens |
+| `npm run pdf:worker` | Refresh `public/pdf.min.mjs` and `public/pdf.worker.min.mjs` from `pdfjs-dist` after an upgrade |
+
+The PDF reader runs [pdf.js](https://mozilla.github.io/pdf.js/), and both halves
+of it — the library and its worker — are served as plain static files beside
+`sw.js` rather than imported through the bundler. The worker has to be a URL
+either way; the library is loaded the same way because letting the build wrap it
+produced a module that threw `Object.defineProperty called on non-object` in the
+dev server before a single page was drawn. It also means both files have to be
+copied out of `node_modules` when the package version moves: `npm run pdf:worker`
+does the copy, and the test suite compares them against the installed package, so
+a forgotten refresh fails CI instead of quietly going stale.
 
 ### Screenshots and review builds
 

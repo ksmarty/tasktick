@@ -135,7 +135,7 @@ describe('attachments keep quiet and open in place', () => {
   it('opens a preview instead of only downloading', () => {
     const preview = read('src/components/attachments/AttachmentPreview.tsx');
     expect(preview).toContain('attachmentPreviewKind');
-    expect(preview).toContain('<iframe');
+    expect(preview).toContain('<PdfViewer');
     expect(preview).toContain('<img');
     expect(section).toContain('setPreviewing(attachment)');
     expect(section).toContain('<AttachmentPreview');
@@ -173,30 +173,30 @@ describe('attachments keep quiet and open in place', () => {
     expect(preview).toContain('const waiting =');
   });
 
-  it('fits the PDF to the frame and keeps its own controls', () => {
+  it('draws the PDF itself instead of trusting the browser to have a plugin', () => {
     const preview = read('src/components/attachments/AttachmentPreview.tsx');
-    // `view=FitH` is Adobe's parameter and Chromium ignores it: the page drew at
-    // 100%, so it had to be scrolled in both directions. Chromium does honour
-    // `zoom=page-width`, and `toolbar=1` keeps the viewer's page and zoom
-    // controls.
-    expect(preview).toContain('#zoom=page-width&toolbar=1');
+    // A framed PDF is a desktop Chrome luxury: iOS Safari and Android Chrome draw
+    // the first page with no controls, and a browser without a plugin shows a
+    // download prompt. The pages are rendered onto a canvas instead, and the
+    // parameters Adobe invented for the fragment are gone with the frame.
+    expect(preview).toContain('<PdfViewer bytes={pdfBytes}');
+    expect(preview).not.toContain('<iframe');
     expect(preview).not.toContain('view=FitH');
+    expect(preview).not.toContain('zoom=page-width');
+    expect(preview).not.toContain('Open the PDF');
   });
 
   it('reads the bytes itself, so a slow network is a spinner and not a document', () => {
     const preview = read('src/components/attachments/AttachmentPreview.tsx');
     // The worker answers a slow `/api/...` read with its machine-readable
-    // offline document; framed, that is a page of JSON where the PDF should be.
-    expect(preview).toContain('URL.createObjectURL(await response.blob())');
-    expect(preview).toContain("response.status === 503");
+    // offline document; handed to the viewer, that is a file that will not parse
+    // where the pages should be.
+    expect(preview).toContain('new Uint8Array(await response.arrayBuffer())');
+    expect(preview).toContain('response.status === 503');
     expect(preview).toContain('Try again');
     expect(preview).toContain('role="alert"');
-    // A phone's embedded viewer shows one page with no controls; its own viewer
-    // shows all of them.
-    expect(preview).toContain("window.matchMedia('(hover: none) and (pointer: coarse)').matches");
-    expect(preview).toContain('Open the PDF');
-    // The same file in a tab of its own, always available.
-    expect(preview).toMatch(/<a href=\{inlineHref\} target="_blank" rel="noopener noreferrer">/);
+    // The bytes are fetched, never read from the worker's cache, and never cut
+    // off by its 1.5 s read timeout.
     expect(read('public/sw.js')).toContain("url.pathname.startsWith('/api/attachments/')");
   });
 
