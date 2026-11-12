@@ -1,0 +1,20 @@
+fix(preview): read the PDF's bytes ourselves, and fit every page
+
+A framed `/api/attachments/<id>?inline=1` went through the worker's cached
+read, which answers after 1.5 s with its machine-readable offline document:
+on poor wifi the sheet showed `{"offline":true,"error":"network-unavailable"}`
+where the page should be.
+
+The sheet now fetches the file itself, so a slow link is the spinner it
+already had and a failure is a sentence with Try again. The worker passes
+attachment bytes straight through — they are fetched, never cached, never cut
+off at the read timeout.
+
+The fragment was `#view=FitH&toolbar=1`, and `view=` is Adobe's parameter:
+Chromium ignored it, so the page drew at 100% and had to be scrolled in both
+directions with no page or zoom controls. `#zoom=page-width&toolbar=1` is what
+Chromium honours.
+
+A touch-only pointer has no PDF plugin — one page, no controls — so a phone
+gets a card that opens the file in its own viewer instead, with every page and
+a pinch to zoom. An Open button sits beside Download everywhere.
