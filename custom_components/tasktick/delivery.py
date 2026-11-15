@@ -133,12 +133,23 @@ async def async_discard_mirrored_reminders(hass: HomeAssistant, entry: ConfigEnt
 
 
 def _source_id(payload: Mapping[str, Any]) -> str | None:
-    """The item a payload is about, from its `data.sourceId`."""
+    """The item a payload is about.
+
+    A reminder carries it inside `data`, next to the other fields the companion
+    app reads; a clear names it at the top level, because it is the whole point of
+    that body rather than one more thing to display. Both shapes are read here so
+    the two callers agree about which notifications belong to which item.
+    """
+    for candidate in (payload.get("sourceId"), _data(payload).get("sourceId")):
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return None
+
+
+def _data(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The `data` mapping of a payload, or an empty one when it is not a mapping."""
     data = payload.get("data")
-    if not isinstance(data, Mapping):
-        return None
-    source_id = data.get("sourceId")
-    return source_id if isinstance(source_id, str) and source_id else None
+    return data if isinstance(data, Mapping) else {}
 
 
 def _parse_notify_target(value: str) -> tuple[str, str]:
