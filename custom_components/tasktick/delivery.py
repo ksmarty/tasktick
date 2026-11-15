@@ -295,13 +295,21 @@ class ReminderDelivery:
 
         cleared = 0
         for notification_id in self._sent.pop(source_id, []):
-            if await self._async_close(notification_id):
-                cleared += 1
+            try:
+                if await self._async_close(notification_id):
+                    cleared += 1
+            except Exception:  # noqa: BLE001 - a clear must not fail the caller
+                # This handler has nothing to hand back on failure, and a 500 here
+                # would only make Home Assistant log a traceback about a courtesy.
+                _LOGGER.debug("could not clear a TaskTick notification", exc_info=True)
 
         confirmed = False
         message = request.get("message")
         if isinstance(message, Mapping) and isinstance(message.get("title"), str):
-            confirmed = await self._async_confirm(message)
+            try:
+                confirmed = await self._async_confirm(message)
+            except Exception:  # noqa: BLE001 - see above: the note is optional
+                _LOGGER.debug("could not confirm a TaskTick check-in", exc_info=True)
 
         if cleared or confirmed:
             _LOGGER.debug(
@@ -361,7 +369,13 @@ class ReminderDelivery:
         user has — text-to-speech, a chat bot, a second phone — to remove one
         line from one of them, so not knowing the target means not clearing.
         """
-        for entry in self.hass.config_entries.async_entries(REMINDERS_DOMAIN):
+        # A HomeAssistant that has not finished starting has no config entries to
+        # read, and asking is worse than answering nothing: this is called from a
+        # webhook handler, where raising would turn a courtesy into a 500.
+        config_entries = self.hass.config_entries
+        if config_entries is None:
+            return None
+        for entry in config_entries.async_entries(REMINDERS_DOMAIN):
             for values in (entry.options, entry.data):
                 if not isinstance(values, Mapping):
                     continue
