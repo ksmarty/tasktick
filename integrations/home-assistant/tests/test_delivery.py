@@ -451,6 +451,10 @@ def test_a_clear_can_say_well_done_under_the_tag_it_just_cleared(tmp_path):
             _clear_service([]),
             supports_response=SupportsResponse.OPTIONAL,
         )
+        # The note is an ordinary notification, so the one-off service has to be
+        # there too: the clear goes through `clear`, the "well done" through
+        # `notify`, and the test records the second one.
+        hass.services.async_register(REMINDERS_DOMAIN, REMINDERS_NOTIFY, _notify_service(calls))
 
         response = await _post(
             hass,

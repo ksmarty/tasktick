@@ -310,6 +310,9 @@ class TestNotificationPayload:
             "message": "Task due",
             "icon": DEFAULT_ICON,
             "click_url": "https://tasks.example.com/tasks?task=t1",
+            # The tag the app chose, so this notification can be cleared by it
+            # later: HA Reminders would otherwise mint one nobody can name.
+            "tag": "task-t1",
             "acknowledge_action_title": "Complete",
             "acknowledge_actions": [{"service": COMPLETE_TASK, "data": {"task_id": "t1"}}],
         }
