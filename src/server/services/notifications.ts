@@ -63,6 +63,18 @@ export interface NotificationPayload {
   data?: Record<string, string>;
   /** An app path for the notification's icon; the worker defaults to the app icon. */
   icon?: string;
+  /**
+   * Take notifications away instead of showing one.
+   *
+   * A reminder that has been dealt with is noise still sitting in the shade, so
+   * the app asks its own service worker to close it rather than leaving the user
+   * to swipe it away. The worker removes every notification whose tag is in
+   * {@link tags}, which is the only handle a push payload has on something it
+   * already displayed. Apprise has no equivalent and ignores this.
+   */
+  clear?: boolean;
+  /** The tags a clear closes; falls back to `tag` when there is only one. */
+  tags?: readonly string[];
 }
 
 /** The result of one Apprise attempt. Never thrown — always returned. */

@@ -417,6 +417,29 @@ If a link is forwarded or posted somewhere it should not have been, it is worth
 at most a 15-minute window to one account's session — treat one as you would a
 reminder itself.
 
+#### A habit reminder goes away once the habit is done
+
+Marking a habit done — from the app, or with the **Check in** button on the
+reminder itself — takes its reminder out of the shade, because a nudge to do
+something you have already done is only noise.
+
+- **It waits for the goal, not the first tick.** A habit that asks for four a
+  day keeps its reminder after the first one and loses it when the fourth
+  lands, which is the same "the goal is met" rule that stops the reminder from
+  being sent again.
+- **The button answers back.** Pressing **Check in** replaces the reminder with
+  a short confirmation ("Checked in. Nice work.") instead of leaving a
+  notification that vanishes with no explanation. Ticking the habit in the app
+  is quiet: you can already see what changed.
+- **Both delivery paths clear.** TaskTick's own notifications are closed by the
+  service worker, which is the only place that can reach a notification it
+  displayed. A notification delivered through Home Assistant is cleared by the
+  integration, using the companion app's `clear_notification` message and the
+  tag Home Assistant Reminders chose for it.
+- **A restart forgets what it sent.** The integration remembers notification
+  ids in memory only, so after a Home Assistant restart a stale reminder is left
+  to be swiped away rather than risk clearing the wrong one.
+
 ---
 
 ## Deployment

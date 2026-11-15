@@ -78,3 +78,57 @@ export async function sendToHomeAssistant(
     };
   }
 }
+
+/**
+ * Tells Home Assistant that notifications it is holding are no longer true.
+ *
+ * This is a second body shape on the same webhook, because the webhook is the
+ * only channel from this app to a Home Assistant: a clear has to arrive where a
+ * reminder arrived. `kind` names the shape, so a reminder payload (which has no
+ * `kind`) keeps meaning exactly what it did before.
+ *
+ * Home Assistant Reminders is the one sending the phone's notifications, and it
+ * chooses the `tag` — so this app cannot address one by a name it made up. It
+ * therefore asks for the *source* to be cleared, and the integration closes what
+ * it sent for that source. `message` is the optional "you did it" note the user
+ * asked for: the integration shows it through the same notify target once the
+ * old notification is gone, so the acknowledgement replaces the reminder rather
+ * than stacking beside it.
+ *
+ * Nothing here is required for the feature to be correct: a Home Assistant that
+ * does not answer leaves the notification in the shade, which is where it was.
+ */
+export interface HaClearRequest {
+  /** What was finished: `habit` today, and the only source that clears. */
+  source: string;
+  sourceId: string;
+  /** The tags this app used, for logging and for a fallback by the integration. */
+  tags: readonly string[];
+  message?: { title: string; body: string };
+}
+
+/** POSTs one clear to a registered Home Assistant webhook, never throwing. */
+export async function sendClearToHomeAssistant(
+  webhookUrl: string,
+  request: HaClearRequest,
+  fetchImpl: typeof fetch = fetch,
+): Promise<HaPushDelivery> {
+  const url = webhookUrl?.trim() ?? '';
+  if (!url) return { delivered: false, error: 'no-webhook' };
+
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ kind: 'clear', ...request }),
+      signal: AbortSignal.timeout(HA_PUSH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return { delivered: false, status: response.status, error: `Home Assistant responded ${response.status}` };
+    }
+    return { delivered: true, status: response.status };
+  } catch (error) {
+    return { delivered: false, error: error instanceof Error ? error.message : 'Home Assistant request failed' };
+  }
+}

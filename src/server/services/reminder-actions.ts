@@ -22,6 +22,7 @@ import type { DateOnly, Task } from '@/lib/types';
 import { habitOccurrenceDate, type ReminderSource } from '@/lib/reminder-notification';
 import { checkIn, type CheckInInput } from '@/server/repos/habits';
 import { completeTask, getTask } from '@/server/repos/tasks';
+import { clearHabitReminders } from '@/server/services/reminder-clear';
 
 /** What the service worker posts when a button is pressed. */
 export interface ReminderAckInput {
@@ -56,7 +57,16 @@ export async function acknowledgeReminder(userId: string, input: ReminderAckInpu
     if (!date) return { status: 'unsupported', message: 'That notification did not name a day to check in.' };
 
     const habit = await checkIn(userId, input.sourceId, { date } satisfies CheckInInput, zone);
-    return habit ? { status: 'done', source: 'habit', habit } : { status: 'missing', message: 'That habit does not exist.' };
+    if (!habit) return { status: 'missing', message: 'That habit does not exist.' };
+
+    /*
+     * The button's feedback would otherwise be the notification disappearing,
+     * which reads as a dismissal. So the same write also takes the reminder away
+     * and leaves a short note in its place — and only once the habit's goal is
+     * actually met, so a "+1 of 4" tick keeps the nudge it has not answered yet.
+     */
+    if (habit.doneToday) await clearHabitReminders(userId, input.sourceId, zone, { confirm: true });
+    return { status: 'done', source: 'habit', habit };
   }
 
   // An event reminder carries no button, so this is a hand-made request.

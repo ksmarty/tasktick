@@ -150,7 +150,7 @@
  *   >>>  VERSION  <<<
  */
 
-const VERSION = 'tasktick-v75';
+const VERSION = 'tasktick-v76';
 
 const PRECACHE_CACHE = `precache-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
@@ -1293,6 +1293,25 @@ self.addEventListener('push', (event) => {
     payload = event.data ? event.data.json() : {};
   } catch (error) {
     payload = { body: event.data ? event.data.text() : '' };
+  }
+
+  /*
+   * A clear is a push with nothing to show: it names notifications that are no
+   * longer true. Closing them here, in the worker, is the only way — a page
+   * cannot reach a notification the worker displayed, and the shade belongs to
+   * the platform rather than to the app.
+   */
+  if (payload.clear) {
+    const tags = Array.isArray(payload.tags) && payload.tags.length > 0 ? payload.tags : [payload.tag || 'tasktick'];
+    event.waitUntil(
+      (async () => {
+        const shown = await self.registration.getNotifications();
+        for (const notification of shown) {
+          if (tags.indexOf(notification.tag) !== -1) notification.close();
+        }
+      })(),
+    );
+    return;
   }
 
   const actions = Array.isArray(payload.actions)

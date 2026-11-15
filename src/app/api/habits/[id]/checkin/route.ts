@@ -6,6 +6,7 @@
  */
 import { notFound, ok, parseJson, route } from '@/server/http';
 import { checkIn, incrementHabit } from '@/server/repos/habits';
+import { clearHabitReminders } from '@/server/services/reminder-clear';
 import { getSettings } from '@/server/repos/settings';
 import { checkInSchema } from '@/lib/schemas';
 
@@ -23,5 +24,18 @@ export const POST = route(async ({ user, params, req }) => {
       : await checkIn(user.id, params.id, body, zone);
 
   if (!result) throw notFound('That habit does not exist.');
+
+  /*
+   * A habit whose period goal is met has nothing left to be reminded about, so
+   * the reminder that got it here goes away. Not awaited: the check-in is
+   * committed and the answer is the same either way, so making the user's tick
+   * wait on a push service would trade the thing they asked for against a
+   * courtesy. `doneToday` is the same "the goal is met" flag the dispatcher uses
+   * to decide a habit has been settled (`settledHabitDates`), so the
+   * notification clearing and the notification sending agree about what done
+   * means.
+   */
+  if (result.doneToday) void clearHabitReminders(user.id, params.id, zone);
+
   return ok(result);
 });

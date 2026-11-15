@@ -51,6 +51,19 @@ export interface ReminderLink {
 export const COMPLETE_ACTION = 'complete';
 
 /**
+ * The tag a habit reminder for one day carries.
+ *
+ * Exported because clearing needs the same string the sender built: a habit can
+ * be reminded more than once a day and each of those reminders is its own
+ * notification, so "the habit's notification" is only meaningful per day. The
+ * clearing side therefore names the days it wants closed instead of guessing at
+ * the one that is on screen.
+ */
+export function habitReminderTag(habitId: string, date: string): string {
+  return `habit-${habitId}-${date}`;
+}
+
+/**
  * The day a habit reminder's occurrence key names.
  *
  * A habit reminder is `<date>:<minute>`, and the date is the day it belongs to —
@@ -108,7 +121,7 @@ export function reminderLink(reminder: ReminderDigest, zone: string): ReminderLi
       url: `/habits?habit=${encodeURIComponent(reminder.sourceId)}`,
       // The day is part of the tag, so this morning's reminder and this
       // evening's are two reminders about one habit rather than one.
-      tag: `habit-${reminder.sourceId}-${date ?? reminder.occurrenceKey}`,
+      tag: habitReminderTag(reminder.sourceId, date ?? reminder.occurrenceKey),
       actions: [{ action: COMPLETE_ACTION, title: 'Check in' }],
       data,
     };

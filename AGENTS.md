@@ -298,6 +298,37 @@ Decisions worth knowing before you "improve" something:
   Web Push (`src/lib/reminder-notification.ts`) and must stay that way — the
   button has to mean the same thing whichever path delivered it.
 
+### Clearing what has been done
+
+A habit reminder outlives its usefulness the moment the habit is done, so both
+transports take it away. `src/server/services/reminder-clear.ts`
+(`clearHabitReminders`) names the tags it wants gone — `habitReminderTag(habitId,
+date)` from `src/lib/reminder-notification.ts`, one per candidate day, because a
+habit reminded twice a day has two notifications — and sends one silent Web Push
+with `clear: true`: `public/sw.js` closes the matching notifications itself,
+since a page cannot reach them. The same call, when the user pressed the
+button, follows it with a second push that replaces the reminder with a
+confirmation. It is wired at the two places a habit becomes done — the check-in
+route (fire and forget, the answer is the same either way) and
+`acknowledgeReminder` (awaited, because the confirmation is the button's
+feedback) — and both gate on `doneToday`, the same "the goal is met" flag that
+`settledHabitDates` uses to stop sending, so clearing and sending never disagree
+about what done means.
+
+The Home Assistant side cannot name those tags: `ha_reminders.notify` uses
+`vol.PREVENT_EXTRA` and mints `uuid4().hex` for a one-off notification, so the
+tag is `taskReminder╡<that id>` and only the integration ever saw it.
+`delivery.py` therefore asks for a response (`return_response=True`, which an
+older HA Reminders rejects — the send is retried without it and simply cannot be
+cleared later) and remembers the id per `data.sourceId`, newest twelve. A
+`{"kind": "clear"}` POST closes those ids with the companion app's
+`clear_notification` message and then sends the confirmation, both to the notify
+service named in HA Reminders' own `default_notify_service` option. With no such
+option it clears nothing on purpose: falling back to `notify.notify` would fire
+a clear at every platform the user has. The ids live in memory only, so a
+restart leaves a stale reminder to be swiped away rather than risk clearing the
+wrong one.
+
 ### Deleted rather than kept
 
 The project prefers deleting dead code to leaving it unreachable. Things that were

@@ -20,7 +20,7 @@ from ha_version import require_supported_ha
 require_supported_ha()
 
 from homeassistant.components import webhook  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
+from homeassistant.core import HomeAssistant, SupportsResponse  # noqa: E402
 from homeassistant.exceptions import HomeAssistantError  # noqa: E402
 from homeassistant.helpers.storage import Store  # noqa: E402
 from homeassistant.util.aiohttp import MockRequest  # noqa: E402
@@ -134,6 +134,20 @@ async def _with(tmp_path, body, **kwargs):
         return await body(hass, client, calls, delivery)
     finally:
         await hass.async_stop()
+
+
+def _answering_notify(calls: list, notification_id: str = "abc") -> Callable:
+    """HA Reminders' one-off service, the version that can answer with the id.
+
+    Only this version can be cleared later: the id it returns is the only thing
+    that names the notification it sent.
+    """
+
+    async def _handle(call):
+        calls.append(dict(call.data))
+        return {"notification_id": notification_id}
+
+    return _handle
 
 
 def _refusing_service() -> Callable:
@@ -381,3 +395,128 @@ def test_an_unregistered_webhook_still_answers(tmp_path):
         assert response.status == HTTPStatus.OK
 
     _run(_with(tmp_path, body))
+
+
+# -- clearing -------------------------------------------------------------- #
+
+
+def test_the_notification_id_is_remembered_when_ha_reminders_answers(tmp_path):
+    async def body(hass, client, calls, delivery):
+        hass.services.async_register(
+            REMINDERS_DOMAIN,
+            REMINDERS_NOTIFY,
+            _answering_notify(calls, "notif-1"),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+
+        response = await _post(hass, delivery, TASK_NOTIFICATION)
+
+        assert response.status == HTTPStatus.OK
+        assert _decoded(response) == {"delivered": "ha_reminders"}
+        # One notification was sent and its id kept, keyed by the item it is about:
+        # that is what a later clear needs, because HA Reminders chose the tag.
+        assert len(calls) == 1
+        assert delivery._sent == {"t1": ["notif-1"]}
+
+    _run(_with(tmp_path, body, services=()))
+
+
+def test_an_older_ha_reminders_still_delivers_without_a_response(tmp_path):
+    async def body(hass, client, calls, delivery):
+        # Registered without `supports_response`, the way a release predating it
+        # is: asking for a response raises, and the notification must still go.
+        response = await _post(hass, delivery, TASK_NOTIFICATION)
+
+        assert response.status == HTTPStatus.OK
+        assert _decoded(response) == {"delivered": "ha_reminders"}
+        assert len(calls) == 1
+        assert delivery._sent == {}
+
+    _run(_with(tmp_path, body))
+
+
+def test_a_clear_closes_what_was_sent_and_can_say_well_done(tmp_path):
+    async def body(hass, client, calls, delivery):
+        delivery._remember_sent("h1", "notif-1")
+        delivery._remember_sent("h1", "notif-2")
+
+        sent: list = []
+
+        async def _mobile(call):
+            sent.append(dict(call.data))
+
+        hass.services.async_register("notify", "mobile_app_pixel", _mobile)
+        delivery._notify_target = lambda: ("notify", "mobile_app_pixel")
+
+        response = await _post(
+            hass,
+            delivery,
+            {
+                "kind": "clear",
+                "source": "habit",
+                "sourceId": "h1",
+                "tags": ["habit-h1-2026-05-03", "habit-h1-2026-05-04"],
+                "message": {"title": "Stretch", "body": "Checked in. Nice work."},
+            },
+        )
+
+        assert response.status == HTTPStatus.OK
+        assert _decoded(response) == {"cleared": 2, "confirmed": True}
+        # The documented companion-app clear: the same tag, this message instead.
+        assert sent[0] == {
+            "message": "clear_notification",
+            "data": {"tag": "taskReminder\u2561notif-1"},
+        }
+        assert sent[1] == {
+            "message": "clear_notification",
+            "data": {"tag": "taskReminder\u2561notif-2"},
+        }
+        # Then the note that replaces them.
+        assert sent[2] == {"title": "Stretch", "message": "Checked in. Nice work."}
+        # A clear is one-shot: the same clear twice does nothing the second time.
+        assert delivery._sent == {}
+
+    _run(_with(tmp_path, body, services=()))
+
+
+def test_a_clear_without_a_known_target_is_accepted_and_does_nothing(tmp_path):
+    async def body(hass, client, calls, delivery):
+        delivery._remember_sent("h1", "notif-1")
+
+        # HA Reminders names no notify service, so there is nothing to aim a clear
+        # at. Broadcasting to `notify.notify` would hit every platform the user
+        # has, so the answer is a quiet no rather than a wrong one.
+        response = await _post(
+            hass,
+            delivery,
+            {"kind": "clear", "source": "habit", "sourceId": "h1", "tags": ["habit-h1-2026-05-04"]},
+        )
+
+        assert response.status == HTTPStatus.OK
+        assert _decoded(response) == {"cleared": 0, "confirmed": False}
+        assert calls == []
+        # The id is dropped all the same: it cannot be cleared now, and keeping it
+        # only risks clearing the wrong notification later.
+        assert delivery._sent == {}
+
+    _run(_with(tmp_path, body, services=()))
+
+
+def test_a_clear_needs_to_say_what_it_is_about(tmp_path):
+    async def body(hass, client, calls, delivery):
+        response = await _post(hass, delivery, {"kind": "clear", "tags": ["habit-h1-2026-05-04"]})
+
+        assert response.status == HTTPStatus.BAD_REQUEST
+        assert "sourceId" in _decoded(response)["error"]
+
+    _run(_with(tmp_path, body, services=()))
+
+
+def test_the_notify_target_is_read_from_ha_reminders_own_option():
+    from custom_components.tasktick.delivery import _parse_notify_target
+
+    # A modern per-device service, a legacy per-device domain, and a bare name,
+    # resolved the way HA Reminders resolves its own option.
+    assert _parse_notify_target("notify.mobile_app_pixel") == ("notify", "mobile_app_pixel")
+    assert _parse_notify_target("mobile_app_pixel") == ("notify", "mobile_app_pixel")
+    assert _parse_notify_target("notify") == ("notify", "notify")

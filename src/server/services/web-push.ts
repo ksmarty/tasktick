@@ -128,6 +128,16 @@ const WEB_PUSH_TAG = 'tasktick';
  * fields existed: the worker's own defaults are the app icon and no buttons.
  */
 export function buildWebPushPayload(payload: NotificationPayload): string {
+  /*
+   * A clear is not a notification: it names the tags to close and nothing else,
+   * so the worker cannot mistake it for something to display when a platform
+   * delivers a payload it does not understand.
+   */
+  if (payload.clear) {
+    const tags = payload.tags && payload.tags.length > 0 ? payload.tags : [payload.tag || WEB_PUSH_TAG];
+    return JSON.stringify({ clear: true, tags });
+  }
+
   return JSON.stringify({
     title: payload.title,
     body: payload.body,
