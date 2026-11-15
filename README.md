@@ -433,12 +433,13 @@ something you have already done is only noise.
   is quiet: you can already see what changed.
 - **Both delivery paths clear.** TaskTick's own notifications are closed by the
   service worker, which is the only place that can reach a notification it
-  displayed. A notification delivered through Home Assistant is cleared by the
-  integration, using the companion app's `clear_notification` message and the
-  tag Home Assistant Reminders chose for it.
-- **A restart forgets what it sent.** The integration remembers notification
-  ids in memory only, so after a Home Assistant restart a stale reminder is left
-  to be swiped away rather than risk clearing the wrong one.
+  displayed. A notification delivered through Home Assistant carries the same
+  tag — `habit-<id>-<date>`, one per day — and the integration clears it with
+  the companion app's `clear_notification` message on the service the reminder
+  went through.
+  Clearing needs Home Assistant Reminders 1.8.0 or newer, which lets a caller
+  name its own tag and adds `ha_reminders.clear`; on an older one the reminder
+  stays and can be swiped away.
 
 ---
 

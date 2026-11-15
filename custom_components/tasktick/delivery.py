@@ -55,31 +55,14 @@ _LEGACY_MIRROR_STORE = f"{DOMAIN}.reminder_mirror"
 _LEGACY_MIRROR_STORE_VERSION = 1
 #: HA Reminders' own field name for the reminder a service call is about.
 _FIELD_REMINDER_ID = "reminder_id"
-#: The field it answers with once the one-off service supports a response: the id
-#: whose tag decides which notification a later clear has to replace.
-_FIELD_NOTIFICATION_ID = "notification_id"
-
 #: The second body shape the webhook accepts. A reminder body has no `kind`, so
 #: every payload TaskTick sent before this existed keeps its old meaning.
 CLEAR_KIND = "clear"
 
-#: The companion app's documented way to remove a notification: send its tag
-#: again, with this message instead of a body.
-CLEAR_MESSAGE = "clear_notification"
-
-#: HA Reminders picks the notification's tag itself, so the tag a clear has to
-#: name is its own format, not ours. Read from that integration where possible
-#: and mirrored here for an older release that does not expose its constants.
-try:  # pragma: no cover - the fallback is the reason this is guarded
-    from ..ha_reminders.const import CONF_DEFAULT_NOTIFY_SERVICE  # noqa: F401
-    from ..ha_reminders.const import NOTIFICATION_TAG as _REMINDER_NOTIFICATION_TAG
-except ImportError:  # pragma: no cover
-    CONF_DEFAULT_NOTIFY_SERVICE = "default_notify_service"
-    _REMINDER_NOTIFICATION_TAG = "taskReminder\u2561{reminder_id}"
-
-#: How many sent notifications are remembered per item. A reminder is one
-#: notification per occurrence, and only the recent few can still be on a phone.
-_SENT_PER_SOURCE = 12
+#: HA Reminders' service that removes a notification: it sends the companion
+#: app's `clear_notification` with the tag it was sent under. The tag is the only
+#: thing that has to be known here, and TaskTick names it when it sends.
+CLEAR_SERVICE = "clear"
 
 
 async def async_discard_mirrored_reminders(hass: HomeAssistant, entry: ConfigEntry) -> int:
@@ -152,12 +135,15 @@ def _data(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return data if isinstance(data, Mapping) else {}
 
 
-def _parse_notify_target(value: str) -> tuple[str, str]:
-    """Reads HA Reminders' `notify_service` option the way it does itself."""
-    domain, _, service = value.partition(".")
-    if service:
-        return domain, service
-    return "notify", domain
+def _clear_tags(request: Mapping[str, Any]) -> list[str]:
+    """The tags a clear names, in the order they are worth clearing.
+
+    TaskTick sends the oldest first, so the last one is the notification for
+    today — the one a confirmation should replace.
+    """
+    raw = request.get("tags")
+    candidates = raw if isinstance(raw, (list, tuple)) else ()
+    return [tag.strip() for tag in candidates if isinstance(tag, str) and tag.strip()]
 
 
 class ReminderDelivery:
@@ -174,11 +160,6 @@ class ReminderDelivery:
         self.hass = hass
         self.client = client
         self._webhook_id: str | None = None
-        # Which notification ids were sent for which item, so a clear can find
-        # them again. Memory only: after a restart the integration cannot name
-        # what it sent before, and a notification that has to be swiped away by
-        # hand is a smaller failure than a clear aimed at the wrong tag.
-        self._sent: dict[str, list[str]] = {}
 
     # -- lifecycle --------------------------------------------------------- #
 
@@ -267,155 +248,96 @@ class ReminderDelivery:
             )
 
         try:
-            notification_id = await self._async_notify(payload)
+            await self.hass.services.async_call(
+                REMINDERS_DOMAIN, REMINDERS_NOTIFY, payload, blocking=True
+            )
         except HomeAssistantError as err:
             _LOGGER.warning("HA Reminders could not send a notification: %s", err)
             return json_response({"error": str(err)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
-
-        source_id = _source_id(notification)
-        if notification_id is not None and source_id is not None:
-            self._remember_sent(source_id, notification_id)
 
         return json_response({"delivered": "ha_reminders"})
 
     # -- clearing ---------------------------------------------------------- #
 
     async def _async_clear(self, request: Mapping[str, Any]) -> Response:
-        """Close what was sent for one item, and optionally say well done.
+        """Take away the notifications one item was sent for, and maybe say well done.
 
         Always a 2xx: unlike a reminder there is no second transport to fall back
         to, and a clear that could not be delivered is not an error the user can
         act on — the notification simply stays where it was.
+
+        The tags are TaskTick's own (it names them, one per occurrence, when it
+        posts the reminder), so nothing has to be remembered between the send and
+        the clear: naming the same tag is the whole operation.
         """
-        source_id = _source_id(request)
-        if source_id is None:
+        tags = _clear_tags(request)
+        if not tags:
             return json_response(
-                {"error": "expected a sourceId"}, status=HTTPStatus.BAD_REQUEST
+                {"error": "expected the tags that were sent"}, status=HTTPStatus.BAD_REQUEST
             )
 
         cleared = 0
-        for notification_id in self._sent.pop(source_id, []):
+        if self.hass.services.has_service(REMINDERS_DOMAIN, CLEAR_SERVICE):
             try:
-                if await self._async_close(notification_id):
-                    cleared += 1
-            except Exception:  # noqa: BLE001 - a clear must not fail the caller
-                # This handler has nothing to hand back on failure, and a 500 here
-                # would only make Home Assistant log a traceback about a courtesy.
-                _LOGGER.debug("could not clear a TaskTick notification", exc_info=True)
+                cleared = await self._async_drop(tags)
+            except HomeAssistantError as err:
+                # Not fatal: the confirmation is still worth sending, and a
+                # notification that has to be swiped away beats a failed check-in.
+                _LOGGER.debug("HA Reminders could not clear a notification: %s", err)
+        else:  # pragma: no cover - an HA Reminders older than the clear service
+            _LOGGER.debug("HA Reminders has no clear service; notifications stay")
 
         confirmed = False
         message = request.get("message")
         if isinstance(message, Mapping) and isinstance(message.get("title"), str):
             try:
-                confirmed = await self._async_confirm(message)
-            except Exception:  # noqa: BLE001 - see above: the note is optional
+                confirmed = await self._async_confirm(message, tags[-1])
+            except Exception:  # noqa: BLE001 - the note is optional
                 _LOGGER.debug("could not confirm a TaskTick check-in", exc_info=True)
 
         if cleared or confirmed:
             _LOGGER.debug(
-                "cleared %s TaskTick notification(s) for %s (confirmed: %s)",
-                cleared,
-                source_id,
-                confirmed,
+                "cleared %s TaskTick notification(s) (confirmed: %s)", cleared, confirmed
             )
         return json_response({"cleared": cleared, "confirmed": confirmed})
 
-    async def _async_close(self, notification_id: str) -> bool:
-        """Ask the notify target to drop one notification by its tag."""
-        target = self._notify_target()
-        if target is None:
-            return False
+    async def _async_drop(self, tags: list[str]) -> int:
+        """Ask HA Reminders to send `clear_notification` for each tag.
 
-        try:
-            await self.hass.services.async_call(
-                *target,
-                {
-                    "message": CLEAR_MESSAGE,
-                    "data": {"tag": _REMINDER_NOTIFICATION_TAG.format(reminder_id=notification_id)},
-                },
-                blocking=True,
-            )
-        except HomeAssistantError as err:
-            _LOGGER.debug("could not clear a TaskTick notification: %s", err)
-            return False
-        return True
+        The notify service is HA Reminders' to choose: a clear has to go out on
+        the same service the notification did, and it already resolves that (its
+        default option, or the one the reminder named), so this stays out of it.
+        """
+        options: dict[str, Any] = {"tag": tags}
+        response = await self.hass.services.async_call(
+            REMINDERS_DOMAIN, CLEAR_SERVICE, options, blocking=True, return_response=True
+        )
+        if isinstance(response, Mapping):
+            cleared = response.get("cleared")
+            if isinstance(cleared, int):
+                return cleared
+        return len(tags)
 
-    async def _async_confirm(self, message: Mapping[str, Any]) -> bool:
-        """Show the short "you did it" note in place of the reminder."""
-        target = self._notify_target()
-        if target is None:
-            return False
+    async def _async_confirm(self, message: Mapping[str, Any], tag: str) -> bool:
+        """Show the short "you did it" note under the tag just cleared.
 
+        Reusing the tag is deliberate: the notification it replaces is gone, so
+        the note takes its place rather than stacking beside it.
+        """
         body = message.get("body")
+        payload: dict[str, Any] = {
+            "title": str(message.get("title")),
+            "message": body if isinstance(body, str) and body else "Done.",
+            "tag": tag,
+        }
         try:
             await self.hass.services.async_call(
-                *target,
-                {
-                    "title": message.get("title"),
-                    "message": body if isinstance(body, str) and body else "Done.",
-                },
-                blocking=True,
+                REMINDERS_DOMAIN, REMINDERS_NOTIFY, payload, blocking=True
             )
         except HomeAssistantError as err:
             _LOGGER.debug("could not confirm a TaskTick check-in: %s", err)
             return False
         return True
-
-    def _notify_target(self) -> tuple[str, str] | None:
-        """The notify service HA Reminders would use, or None when it names none.
-
-        Read from HA Reminders' own option rather than guessed at. Falling back to
-        `notify.notify` would broadcast a clear to every notification platform the
-        user has — text-to-speech, a chat bot, a second phone — to remove one
-        line from one of them, so not knowing the target means not clearing.
-        """
-        # A HomeAssistant that has not finished starting has no config entries to
-        # read, and asking is worse than answering nothing: this is called from a
-        # webhook handler, where raising would turn a courtesy into a 500.
-        config_entries = self.hass.config_entries
-        if config_entries is None:
-            return None
-        for entry in config_entries.async_entries(REMINDERS_DOMAIN):
-            for values in (entry.options, entry.data):
-                if not isinstance(values, Mapping):
-                    continue
-                value = values.get(CONF_DEFAULT_NOTIFY_SERVICE)
-                if isinstance(value, str) and value.strip():
-                    return _parse_notify_target(value.strip())
-        return None
-
-    def _remember_sent(self, source_id: str, notification_id: str) -> None:
-        """Keeps the recent notification ids for one item, newest last."""
-        recent = self._sent.setdefault(source_id, [])
-        recent.append(notification_id)
-        if len(recent) > _SENT_PER_SOURCE:
-            del recent[: len(recent) - _SENT_PER_SOURCE]
-
-    async def _async_notify(self, payload: Mapping[str, Any]) -> str | None:
-        """Sends one notification, returning the id that identifies it.
-
-        The id is what a later clear needs, and HA Reminders only answers with it
-        when the call asks for a response. An older HA Reminders raises instead of
-        answering, which is not a delivery failure: the notification is sent the
-        old way and simply cannot be cleared by this integration afterwards.
-        """
-        try:
-            response = await self.hass.services.async_call(
-                REMINDERS_DOMAIN, REMINDERS_NOTIFY, payload, blocking=True, return_response=True
-            )
-        except HomeAssistantError as err:
-            if "response" not in str(err).lower():
-                raise
-            await self.hass.services.async_call(
-                REMINDERS_DOMAIN, REMINDERS_NOTIFY, payload, blocking=True
-            )
-            return None
-
-        if isinstance(response, Mapping):
-            identifier = response.get(_FIELD_NOTIFICATION_ID)
-            if isinstance(identifier, str) and identifier:
-                return identifier
-        return None
 
     # -- helpers ----------------------------------------------------------- #
 

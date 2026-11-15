@@ -13,10 +13,11 @@
  * (`buildWebPushPayload`'s `clear`, handled in `public/sw.js`). Nothing is
  * displayed for a clear, so a close is one silent push.
  *
- * Home Assistant is not ours. Its notifications are sent by Home Assistant
- * Reminders, which picks the tag itself (`taskReminder╡<id>`), so this app cannot
- * address one by name. The integration is asked instead — see
- * `sendClearToHomeAssistant` — and it closes what it sent for that habit.
+ * Home Assistant goes the same way, one hop longer. The tag this app chose
+ * travels with the reminder into `ha_reminders.notify`, which puts it on the
+ * notification, and `ha_reminders.clear` takes it back with the companion app's
+ * `clear_notification`. So the integration is asked to clear these exact tags —
+ * see `sendClearToHomeAssistant` — rather than to find anything on its own.
  *
  * ## Which notifications, exactly
  *

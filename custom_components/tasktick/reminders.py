@@ -268,6 +268,14 @@ def notification_payload(*, origin: str, notification: Mapping[str, Any]) -> dic
         "acknowledge_action_title": ACKNOWLEDGE_TITLES[target],
     }
 
+    # TaskTick's own tag, forwarded so the notification carries it. It is what
+    # makes the reminder clearable: the app knows the tag it sent (one per
+    # occurrence, `habit-<id>-<day>` for a habit), so `ha_reminders.clear` with
+    # that same tag sends `clear_notification` and takes the notification away.
+    tag = str(notification.get("tag") or "")
+    if tag:
+        payload["tag"] = tag
+
     body = str(notification.get("body") or "")
     if body:
         payload["message"] = body

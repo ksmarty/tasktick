@@ -315,19 +315,19 @@ feedback) — and both gate on `doneToday`, the same "the goal is met" flag that
 `settledHabitDates` uses to stop sending, so clearing and sending never disagree
 about what done means.
 
-The Home Assistant side cannot name those tags: `ha_reminders.notify` uses
-`vol.PREVENT_EXTRA` and mints `uuid4().hex` for a one-off notification, so the
-tag is `taskReminder╡<that id>` and only the integration ever saw it.
-`delivery.py` therefore asks for a response (`return_response=True`, which an
-older HA Reminders rejects — the send is retried without it and simply cannot be
-cleared later) and remembers the id per `data.sourceId`, newest twelve. A
-`{"kind": "clear"}` POST closes those ids with the companion app's
-`clear_notification` message and then sends the confirmation, both to the notify
-service named in HA Reminders' own `default_notify_service` option. With no such
-option it clears nothing on purpose: falling back to `notify.notify` would fire
-a clear at every platform the user has. The ids live in memory only, so a
-restart leaves a stale reminder to be swiped away rather than risk clearing the
-wrong one.
+The Home Assistant side carries the same tags across. `notification_payload` in
+`custom_components/tasktick/reminders.py` forwards the app's `tag` into the
+`ha_reminders.notify` call, `ha_reminders` puts it on the notification instead of
+its own derived `taskReminder╡<id>` (HA Reminders 1.8.0: `Reminder.tag`,
+`reminder_notification_tag`), and clearing is `ha_reminders.clear` with that tag
+— the companion app's `clear_notification` sent to the service the notification
+went through. A `{"kind": "clear"}` POST to the delivery webhook does exactly
+that: `delivery.py` calls `ha_reminders.clear` with the tags from the request
+(cheapest possible: one service call, no bookkeeping, nothing remembered across
+a restart), then sends the confirmation as another `ha_reminders.notify` with
+today's tag so the note replaces the reminder rather than stacking beside it.
+Tag ownership is the whole point: a notification can only be cleared by whoever
+chose its tag, so the sender chooses it rather than learning an id afterwards.
 
 ### Deleted rather than kept
 

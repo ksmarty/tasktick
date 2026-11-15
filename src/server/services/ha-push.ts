@@ -102,7 +102,11 @@ export interface HaClearRequest {
   /** What was finished: `habit` today, and the only source that clears. */
   source: string;
   sourceId: string;
-  /** The tags this app used, for logging and for a fallback by the integration. */
+  /**
+   * The tags this app used, which are the notification tags Home Assistant holds:
+   * `ha_reminders.notify` was given the same ones and put them on the
+   * notifications, so the integration can clear them verbatim.
+   */
   tags: readonly string[];
   message?: { title: string; body: string };
 }
